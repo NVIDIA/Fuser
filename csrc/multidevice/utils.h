@@ -112,13 +112,10 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
-// Returns the index of the sharded logical axis that produces the 
-// IterDomain sharded on `parallel_type` present in `domain`.
-// If no sharded IterDomain is found, returns -1.
-int64_t getShardedLogicalAxisFromDomain(
-    const TensorView* tv,
-    const ParallelType parallel_type,
-    std::vector<IterDomain*> domain);
+// Collect device-parallel IterDomains in `domain` and return them as a
+// ParallelType-to-IterDomain map.
+std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+    const std::vector<IterDomain*>& domain);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel

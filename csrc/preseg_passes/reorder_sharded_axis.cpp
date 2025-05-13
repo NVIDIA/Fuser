@@ -24,33 +24,14 @@ namespace nvfuser::preseg_passes {
 namespace {
 
 struct CommunicationInfo {
-  CommunicationType type;
-  IterDomain* sharded_id;
-  ParallelType pt;
+  CommunicationType type; // Gather/Scatter/ReduceScatter
+  IterDomain* sharded_id; // The sharded logical ID
+  ParallelType pt; // The parallel type of the sharded ID
 };
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id}, {target_domain.begin(), target_domain.end()});
-  std::vector<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  std::transform(
-      inputs_as_vals.begin(),
-      inputs_as_vals.end(),
-      std::back_inserter(inputs_as_iter_domains),
-      [](Val* val) { return val->as<IterDomain>(); });
-  return inputs_as_iter_domains;
-}
-
-IterDomain* getShardedLogicalId(TensorView* tv, ParallelType pt) {
-  int64_t loop_axis = getShardedLoopAxis(tv, pt);
-  if (loop_axis == -1) {
-    return nullptr;
-  }
-  std::vector<IterDomain*> logical_ids = getInputsInTargetDomain(tv->axis(loop_axis), tv->getLogicalDomain());
-  NVF_ERROR(logical_ids.size() == 1, "Expected exactly one logical ID");
+IterDomain* getShardedLogicalId(TensorView* tv, IterDomain* loop_id) {
+  std::vector<IterDomain*> logical_ids = getInputsInTargetDomain(loop_id, tv->getLogicalDomain());
+  NVF_ERROR(logical_ids.size() == 1, "Expected exactly one logical ID producing the device dimension ", loop_id->toString());
   return logical_ids.at(0);
 }
 
@@ -59,29 +40,34 @@ std::optional<CommunicationInfo> getGatherOrScatterLogicalId(Expr* expr) {
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
   bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
+
+  auto input_pt_to_did = mapDeviceParallelTypeToId(input->getLoopDomain());
+  auto output_pt_to_did = mapDeviceParallelTypeToId(output->getLoopDomain());
   
   for (ParallelType pt: kParallelTypeDIDs) {
-    IterDomain* in_sharded_id = getShardedLogicalId(input, pt);
-    IterDomain* out_sharded_id = getShardedLogicalId(output, pt);
-    if (in_sharded_id == nullptr && out_sharded_id == nullptr) {
+    IterDomain* input_loop_did = getOrDefault(input_pt_to_did, pt);
+    IterDomain* output_loop_did = getOrDefault(output_pt_to_did, pt);
+
+    if (input_loop_did == nullptr && output_loop_did == nullptr) {
       // Not sharded on this parallel type
       continue;
     }
-    bool in_sharded = in_sharded_id != nullptr;
-    bool out_sharded = out_sharded_id != nullptr;
+
+    bool in_sharded = input_loop_did != nullptr;
+    bool out_sharded = output_loop_did != nullptr;
 
     if (expr->isA<LoadStoreOp>()) {
       if (in_sharded && !out_sharded) {
         // Gather / Allgather
         NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
         has_sharding_change = true;
-        communication_info = CommunicationInfo{CommunicationType::Gather, in_sharded_id, pt};
+        communication_info = CommunicationInfo{CommunicationType::Gather, getShardedLogicalId(input, input_loop_did), pt};
       }
       if (!in_sharded && out_sharded) {
         // Scatter
         NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
         has_sharding_change = true;
-        communication_info = CommunicationInfo{CommunicationType::Scatter, out_sharded_id, pt};
+        communication_info = CommunicationInfo{CommunicationType::Scatter, getShardedLogicalId(output, output_loop_did), pt};
       }
     }
     if (expr->isA<ReductionOp>()) {
@@ -90,8 +76,11 @@ std::optional<CommunicationInfo> getGatherOrScatterLogicalId(Expr* expr) {
         continue;
       }
       // Check if the in_sharded_axis is reduced in the output.
+      IterDomain* input_logical_did = getShardedLogicalId(input, input_loop_did);
+      IterDomain* output_logical_did = getShardedLogicalId(output, output_loop_did);
+
       const auto p2c_map = PairwiseLogicalDomainMap(input, output).mapProducerToConsumer();
-      auto out_it = p2c_map.find(in_sharded_id);
+      auto out_it = p2c_map.find(input_logical_did);
       if (out_it == p2c_map.end()) {
         continue;
       }
@@ -100,38 +89,49 @@ std::optional<CommunicationInfo> getGatherOrScatterLogicalId(Expr* expr) {
       }
       NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
       has_sharding_change = true;
-      communication_info = CommunicationInfo{CommunicationType::ReduceScatter, out_sharded_id, pt};
+      communication_info = CommunicationInfo{CommunicationType::ReduceScatter, output_logical_did, pt};
     }
   }
   return communication_info;
 }
 
-int64_t allocationIndex(const std::vector<IterDomain*>& allocation_domain, IterDomain* logical_id) {
+bool isAllocatedOutermost(const std::vector<IterDomain*>& allocation_domain, IterDomain* logical_id) {
   // This sharded logical ID may not directly present in allocation domain.
   // This indicates allocation domain has DID transformations.
-  // Find the derived loop IDs in the allocation domain and their index.
+  // Find the derived loop IDs in the allocation domain and their index.  
   auto transforms = DependencyCheck::getAllExprsBetween(
           {logical_id},
           {allocation_domain.begin(), allocation_domain.end()});
-  std::unordered_set<IterDomain*> reachable_ids;
-  // Add the logical id for the case where it is directly in the domain.
-  reachable_ids.insert(logical_id);
+  std::vector<IterDomain*> derived_ids = {logical_id};
+  scheduler_utils::applyTransforms(derived_ids, transforms);
 
-  for (auto expr : transforms) {
-    auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
-      reachable_ids.insert(outputs.begin(), outputs.end());
+  // The logical ID is the outermost dimension in the allocation domain if
+  // the derived ids are present at the front of the allocation domain.
+  // Example:
+  // logical [i0, i1]
+  // loop [DIDx(d), i0, i1/d]
+  // allocation [DIDx(d), i0, i1/d]
+  // isAllocatedOutermost(allocation_domain, i1) == false
+  // isAllocatedOutermost(allocation_domain, i0) == true
+
+  auto no_reductions_allocation = TensorDomain::noReductions(allocation_domain);
+
+  // Check if derived_ids appear at the front.
+  size_t derived_idx = 0;
+  for (IterDomain* alloc_id : no_reductions_allocation) {
+    if (derived_idx >= derived_ids.size()) {
+      break;
     }
-  }
-  for (IterDomain* alloc_id : reachable_ids) {
-    if (alloc_id == id) {
-      return index;
-    }
-    if (alloc_id->isDeviceDim() || alloc_id->isReduction() || alloc_id->isBroadcast()) {
+    if (alloc_id == derived_ids.at(derived_idx)) {
+      derived_idx++;
+    } 
+    if (alloc_id->isDeviceDim()) {
       continue;
     }
-    index++;
+    return false;
   }
-  return -1;
+  NVF_ERROR(derived_idx == derived_ids.size(), "Some derived ids ", derived_ids, " not found in allocation domain ", no_reductions_allocation);
+  return true;
 }
 
 bool isProcessGroupCompliant(Expr* expr, CommunicationInfo communication_info) {
@@ -143,9 +143,7 @@ bool isProcessGroupCompliant(Expr* expr, CommunicationInfo communication_info) {
   } else {
     domain = output->getMaybeAllocationDomain();
   }
-  debug() << "Allocation index of " << communication_info.sharded_id->toString() << " in " << input->toString() << " is " << allocationIndex(domain, communication_info.sharded_id) << std::endl;
-  return allocationIndex(domain, communication_info.sharded_id) == 0;
-}
+  return isAllocatedOutermost(domain, communication_info.sharded_id);
 }
 
 void reorderForLogicalSplit(Expr* expr, CommunicationInfo communication_info) {
@@ -242,6 +240,13 @@ if (communication_info.type == CommunicationType::ReduceScatter) {
   output_permute->setDeviceMesh(output->getDeviceMesh());
   new_output->setDeviceMesh(output->getDeviceMesh());
 
+} 
+
+void handleGather(Expr* expr, CommunicationInfo communication_info) {
+// sharded_id is sharded in input,  mapped id not sharded in output.
+// 
+}
+
 } // namespace
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
@@ -264,7 +269,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     if (!communication_info.has_value()) {
       continue;
     }
-
+    debug() << "Communication info: " << communication_info.value().type << " " << communication_info.value().sharded_id->toString() << " " << communication_info.value().pt << std::endl;
     if (isProcessGroupCompliant(expr, communication_info.value())) {
       continue;
     }
