@@ -86,7 +86,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   // Removing aliased outputs, since those are updated by the Fusion. It is not
   // semantically correct to actually return them as outputs from
   // fusion.
-  NVF_ERROR(fusion->outputs().size() == outputs.size());
+  NVF_ERROR_EQ(std::ssize(fusion->outputs()), outputs.size());
   KernelArgumentHolder unaliased_outputs;
   for (auto out_index : arange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];

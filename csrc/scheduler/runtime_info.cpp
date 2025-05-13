@@ -23,13 +23,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
   FUSER_PERF_SCOPE("SchedulerRuntimeInfo::SchedulerRuntimeInfo");
-  NVF_ERROR(
-      complete_fusion_->inputs().size() == args.size(),
-      "The provided fusion group expects ",
-      complete_fusion_->inputs().size(),
-      " arguments, but ",
-      args.size(),
-      " arguments were passed in.");
+  NVF_ERROR_EQ(std::ssize(complete_fusion_->inputs()), args.size());
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
