@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -145,7 +146,6 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis,
     CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
@@ -161,7 +161,6 @@ Communication::Communication(
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
   addDataAttribute(backend);
 
   validate();
@@ -175,8 +174,6 @@ void Communication::validate() {
       " is not expected by CommunicationType ",
       type());
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED))
-  NVF_ERROR(
-      (type() == CommunicationType::ReduceScatter) == (scatteredAxis() >= 0));
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
@@ -456,11 +453,16 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const auto scattered_axis = communication->scatteredAxis();
-  NVF_ERROR(
-      scattered_axis >= 0,
-      "scattered_axis is expected to be non-negative: ",
-      scattered_axis);
+  TensorView* output_tv = communication->out();
+  auto reduction_axis = output_tv->getReductionAxis().value();
+  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
+  // The output tensor is sharded on scattered_axis and needs to be mapped
+  // back onto the input. The input has an reduced axis, so the scattered axis
+  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
+  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
+  if (reduction_axis <= scattered_axis) {
+    scattered_axis++;
+  }
 
   std::vector<at::Tensor> input_tensors = at::tensor_split(
       input_tensor, communication->team_size(), scattered_axis);
@@ -477,13 +479,28 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   // copy) when the tensors are stored contiguously (i.e., when
   // scattered_axis==1). Note however than only nccl supports
   // _reduce_scatter_base, not ucc.
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 1 && communication->out()->axis(0)->isReduction() &&
-      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
+
+  auto isOutermostDeviceDim = [](TensorView* tv) {
+    for (auto* loop_id : tv->getLoopDomain()) {
+      if (!loop_id->isReduction() && !loop_id->isBroadcast()) {
+        return loop_id->isDeviceDim();
+      }
+    }
+    NVF_THROW("No DeviceDim found in ", tv->toString());
+  };
+
+  auto isTvContiguous = [](TensorView* tv) {
+    return std::all_of(
+        tv->getContiguity().begin(),
+        tv->getContiguity().end(),
+        [](const std::optional<bool>& c) { return c.value_or(true); });
+  };
+
+  if (isTvContiguous(output_tv) && isOutermostDeviceDim(output_tv) &&
+      isTvContiguous(communication->in())) {
     return backend->_reduce_scatter_base(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
   }
-#endif
 
   std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
   std::vector<at::Tensor> output_tensor_vec({output_tensor});

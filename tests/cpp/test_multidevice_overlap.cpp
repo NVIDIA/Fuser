@@ -335,16 +335,25 @@ TEST_F(
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(
       IrBuilder::create<hir::Stream>(stream_index));
 
-  TensorView* tva_j = select(tva, 0, j);
-  TensorView* tvc_j = select(tvc, 0, j);
+  TensorView* tva_j = makeContigTensor(tva->domain()->nDims() - 1);
   TensorView* tvc_locally_reduced_j =
-      select(tvc_locally_reduced, 0, stream_index);
+      makeContigTensor(tvc_locally_reduced->domain()->nDims() - 1);
+  TensorView* tvc_j = newForReduction(
+      makeContigTensor(tvc->domain()->nDims()),
+      {0}); // a dimension is added to represent the sharded axis
+
+  auto* select_tva = IrBuilder::create<hir::HirAliasSelect>(tva, tva_j, 0, j);
+  auto* select_tvc = IrBuilder::create<hir::HirAliasSelect>(tvc, tvc_j, 0, j);
+  auto* select_tvc_reduced = IrBuilder::create<hir::HirAliasSelect>(
+      tvc_locally_reduced, tvc_locally_reduced_j, 0, stream_index);
+
   auto* matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
   DeviceMesh full_mesh(all_devices_);
   tvc_j->setDeviceMesh(full_mesh);
+  tvc_j->axis(1)->parallelize(ParallelType::DIDx);
   tvc_locally_reduced_j->setDeviceMesh(full_mesh);
 
   auto* communication = IrBuilder::create<Communication>(
@@ -353,8 +362,7 @@ TEST_F(
       /*in=*/tvc_locally_reduced_j,
       /*team=*/all_devices_,
       /*(unused)root=*/-1,
-      RedOpType::SUM,
-      /*scattered_axis=*/1);
+      RedOpType::SUM);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
@@ -365,9 +373,9 @@ TEST_F(
   // compiled.
   std::vector<Expr*> loop_body = {
       set_stream,
-      tva_j->definition(),
-      tvc_j->definition(),
-      tvc_locally_reduced_j->definition(),
+      select_tva,
+      select_tvc,
+      select_tvc_reduced,
       matmul,
       communication,
       wait};

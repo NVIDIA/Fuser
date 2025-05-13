@@ -369,15 +369,16 @@ TEST_P(CommunicationTest, ReduceScatter) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(3);
   in->setDeviceMesh(full_mesh_);
+  in->axis(0)->parallelize(ParallelType::DIDx);
   auto* out = newForReduction(in, {0});
+  out->axis(1)->parallelize(ParallelType::DIDx);
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
       out,
       in,
       all_ranks_,
       /*root=*/-1,
-      kReductionOp,
-      /*scattered_axis=*/1);
+      kReductionOp);
 
   const int num_devices = communicator_->size();
   const int device_id = communicator_->deviceId();
