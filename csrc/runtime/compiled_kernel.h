@@ -92,7 +92,7 @@ class CompiledKernel : public NonCopyable {
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(int64_t block_size);
+  NVF_API void compile(const LaunchParams& lparams);
 
   // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
@@ -163,7 +163,7 @@ class CompiledKernel : public NonCopyable {
 
   //! Internal knob used for debugging/profiling only
   void disableLaunchParamCache() {
-    disable_parameter_cache_ = true;
+    launch_param_cache_disabled_ = true;
   }
 
   const int64_t& fusionId() const {
@@ -209,8 +209,8 @@ class CompiledKernel : public NonCopyable {
   const int64_t& maxrregcountHighWaterMark() const {
     return maxrregcount_high_water_mark_;
   }
-  bool& disablePaarameterCache() {
-    return disable_parameter_cache_;
+  bool launchParamCacheDisabled() const {
+    return launch_param_cache_disabled_;
   }
   std::string& kernelCode() {
     return kernel_code_;
@@ -285,7 +285,7 @@ class CompiledKernel : public NonCopyable {
   // output allocation is also disable when output sizes are dependent on
   // runtime scalar inputs, such as for the case of tensor factory. see
   // https://github.com/csarofeen/pytorch/issues/2002
-  bool disable_parameter_cache_ = false;
+  bool launch_param_cache_disabled_ = false;
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;

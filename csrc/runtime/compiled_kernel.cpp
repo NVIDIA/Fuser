@@ -1167,12 +1167,6 @@ NVF_API CompiledKernel::CompiledKernel(
       device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
-
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
@@ -1204,7 +1198,7 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
-void CompiledKernel::compile(int64_t block_size) {
+void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
@@ -1215,7 +1209,7 @@ void CompiledKernel::compile(int64_t block_size) {
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
-  disable_parameter_cache_ = requiresDisabledParamCache(kernel());
+  launch_param_cache_disabled_ = requiresDisabledParamCache(kernel());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
@@ -1263,7 +1257,7 @@ void CompiledKernel::compile(int64_t block_size) {
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), lparams);
 
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
@@ -1311,7 +1305,7 @@ void CompiledKernel::compile(int64_t block_size) {
     ss << " have dynamic allocations but are placed in local memory.";
     NVF_THROW(ss.str());
   }
-
+  int64_t block_size = lparams.nThreads();
   NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 
   // Basically setting high water mark as 1 when we don't provide args for
