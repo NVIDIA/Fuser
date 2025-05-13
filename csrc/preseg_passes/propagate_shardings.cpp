@@ -74,13 +74,17 @@ void splitLike(TensorView* tv, int64_t axis, Split* ref_split) {
 }
 
 int64_t getLoopAxis(TensorView* tv, IterDomain* id) {
-  auto it = std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
-  NVF_ERROR(it != tv->getLoopDomain().end(), "Expected the id ", id, " to be in the loop domain: ", tv->getLoopDomain());
+  auto it =
+      std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
+  NVF_ERROR(
+      it != tv->getLoopDomain().end(),
+      "Expected the id ",
+      id,
+      " to be in the loop domain: ",
+      tv->getLoopDomain());
   return std::distance(tv->getLoopDomain().begin(), it);
 }
 
-// Returns the number of DID axis on reshaped ids that were propagated to the
-// consumer.
 void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
   // This implementation asserts that only one sharding is applied on the
   // reshaped ids. Inner split is not supported. The cases are:
@@ -95,7 +99,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
   // An improvement is to support multi-levels of sharding (not a real case yet)
   // if they are all outer splits. For example: For the reshape [h] -> [a, h/a]
   // where the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
-  // This is currently blocked by getShardedLogicalAxis which does not allow
+  // This is currently blocked by `getShardedLogicalAxis` which does not allow
   // device dimensions to be on the inner of a split.
 
   // A more general approach maybe to "undo" the reshape (reverse transforms
@@ -124,8 +128,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
     // device ids.
     auto p_transforms = DependencyCheck::getAllExprsBetween(
         {p_logical_reshaped_id},
-        {producer->getLoopDomain().begin(),
-         producer->getLoopDomain().begin() + did_pos});
+        {p_loop_domain.begin(), p_loop_domain.begin() + did_pos});
 
     if (p_transforms.empty()) {
       continue;
@@ -156,10 +159,15 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
       }
     }
 
-    // Apply this split to the consumer.
     auto p_did_split = p_transforms.front()->as<Split>();
     IterDomain* p_did = p_did_split->outer();
     int64_t p_did_pos = getLoopAxis(producer, p_did);
+
+    // Replaying the DID split on the outermost producer reshaped id is
+    // equivalent to the DID split on the outermost consumer reshaped id if:
+    // 1. The extent of sharded id is divisible by split_factor (num_devices)
+    // 2. The producer reshaped id is outer split by num_devices to produce the
+    // device dimension.
     NVF_ERROR(
         isSplitDivisible(p_did_split->in(), p_did_split),
         "Expected the split to be divisble. Got: ",
