@@ -47,11 +47,13 @@ getReshapedIds(
   return std::make_pair(p_reshaped_ids, c_reshaped_ids);
 }
 
-bool isSplitDivisible(IterDomain* id, Split* split) {
-  if (!split->factor()->isConstInt()) {
+// Returns true if the given iterdomain is divisible by the split factor of the
+// reference split.
+bool isSplitDivisible(IterDomain* id, Split* ref_split) {
+  if (!ref_split->factor()->isConstInt()) {
     return false;
   }
-  auto split_factor = split->factor()->evaluate().as<int64_t>();
+  auto split_factor = ref_split->factor()->evaluate().as<int64_t>();
   if (split_factor == 1) {
     return true;
   }
@@ -85,7 +87,11 @@ int64_t getLoopAxis(TensorView* tv, IterDomain* id) {
   return std::distance(tv->getLoopDomain().begin(), it);
 }
 
-void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
+// did_pos is the original number of device dimensions present
+// in the producer loop domain and reordered to the front.
+// Returns the new did_pos, the number of DID axis that were not propagated
+// since they were not on reshaped ids.
+int64_t shardViewOp(ViewOp* view_op, int64_t did_pos) {
   // This implementation asserts that only one sharding is applied on the
   // reshaped ids. Inner split is not supported. The cases are:
   // 1. Split reshape: [h] -> [a, h/a]. Sharding on h is applied to a in
@@ -187,7 +193,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
     num_reshape_shardings++;
   }
 
-  did_pos -= num_reshape_shardings;
+  return did_pos - num_reshape_shardings;
 }
 
 template <typename Range>
@@ -378,7 +384,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
         // Propagation of reshape will return how many DID axis were propagated.
         // They are reordered behind non-propagated DID axis
-        shardViewOp(view_op, did_pos);
+        did_pos = shardViewOp(view_op, did_pos);
       }
 
       // Propagate the DID loop split to the outputs without mesh.
