@@ -86,7 +86,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
   // xyz. Similarly for the corresponding split reshape.
   // 4. Independent splits or merge reshapes: [w, x, y, z] -> [wx, yz]. Sharding
   // is on w and y. In the consumer, it is applied to wx and yz.
-  // An improvement is to support mult-levels of sharding (not a real case yet)
+  // An improvement is to support multi-levels of sharding (not a real case yet)
   // if they are all outer splits. For example: For the reshape [h] -> [a, h/a]
   // where the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
 
@@ -150,6 +150,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
         " and split factor: ",
         p_did_split->factor());
     NVF_ERROR(!p_did_split->innerSplit(), "Inner split is not supported.");
+    NVF_ERROR(p_did == p_did_split->outer(), "Expected the device id to be the outer split.");
     IterDomain* p_logical_did = p_did_split->in();
 
     // Find the mapping of the corresponding producer logical id in consumer
