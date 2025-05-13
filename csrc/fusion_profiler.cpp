@@ -6,9 +6,12 @@
  */
 // clang-format on
 
-#include <cupti.h>
-#include <fusion_profiler.h>
 #include <iomanip>
+
+#include <cupti.h>
+
+#include <exceptions.h>
+#include <fusion_profiler.h>
 
 namespace nvfuser {
 
@@ -206,17 +209,13 @@ void CudaEventTimer::reset() {
 }
 
 void CudaEventTimer::start() {
-  NVF_CHECK(
-      state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  NVF_CHECK_EQ(state_, ProfilerState::Ready);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event_, stream_));
   state_ = ProfilerState::Running;
 }
 
 void CudaEventTimer::stop() {
-  NVF_CHECK(
-      state_ == ProfilerState::Running,
-      "ProfilerState is not Running! ",
-      state_);
+  NVF_CHECK_EQ(state_, ProfilerState::Running);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(stop_event_, stream_));
   state_ = ProfilerState::Finished;
 }
@@ -234,8 +233,9 @@ double CudaEventTimer::time() {
     NVF_CHECK(
         (state_ == ProfilerState::Processed) ||
             (state_ == ProfilerState::Ready),
-        "ProfilerState is not Processed or Ready! ",
-        state_);
+        "ProfilerState (",
+        state_,
+        ") is not Processed or Ready!");
   }
   return time_ms_;
 }
@@ -256,17 +256,13 @@ void HostTimer::reset() {
 }
 
 void HostTimer::start() {
-  NVF_CHECK(
-      state_ == ProfilerState::Ready, "ProfilerState is not Ready! ", state_);
+  NVF_CHECK_EQ(state_, ProfilerState::Ready);
   start_event_ = Clock::now();
   state_ = ProfilerState::Running;
 }
 
 void HostTimer::stop() {
-  NVF_CHECK(
-      state_ == ProfilerState::Running,
-      "ProfilerState is not Running! ",
-      state_);
+  NVF_CHECK_EQ(state_, ProfilerState::Running);
   stop_event_ = Clock::now();
   state_ = ProfilerState::Finished;
 }
@@ -283,8 +279,9 @@ double HostTimer::time() {
     NVF_CHECK(
         (state_ == ProfilerState::Processed) ||
             (state_ == ProfilerState::Ready),
-        "ProfilerState is not Processed or Ready! ",
-        state_);
+        "ProfilerState (",
+        state_,
+        ") is not Processed or Ready!");
   }
   return time_ms_;
 }
@@ -335,10 +332,7 @@ void SegmentProfiler::stopCompile() {
 }
 
 void SegmentProfiler::startKernel() {
-  NVF_CHECK(
-      kernel_profile_state_ == ProfilerState::Ready,
-      "ProfilerState is not Ready!",
-      kernel_profile_state_);
+  NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Ready);
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(
         CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN,
@@ -348,20 +342,15 @@ void SegmentProfiler::startKernel() {
 }
 
 void SegmentProfiler::stopKernel() {
-  NVF_CHECK(
-      kernel_profile_state_ == ProfilerState::Running,
-      "ProfilerState is not Running!",
-      kernel_profile_state_);
+  NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Running);
   uint64_t corr_id = 0;
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPopExternalCorrelationId(
         CUPTI_EXTERNAL_CORRELATION_KIND_UNKNOWN, &corr_id));
-    NVF_CHECK(
-        corr_id == static_cast<uint64_t>(segment_id_),
-        "Correlation Id does not match segment id! Corr Id: ",
+    NVF_CHECK_EQ(
         corr_id,
-        " Segment Id: ",
-        segment_id_);
+        static_cast<uint64_t>(segment_id_),
+        "Correlation Id does not match segment id!");
   }
   kernel_profile_state_ = ProfilerState::Finished;
 }
@@ -655,10 +644,7 @@ ProfilerState FusionProfiler::state() {
 
 void FusionProfiler::createSegments(size_t num) {
   FusionProfiler* fp = get();
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   fp->segments_.reserve(num);
   for (uint32_t i = 0; i < num; ++i) {
     fp->segments_.emplace_back(i, fp->cupti_disabled_);
@@ -709,10 +695,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 
 /*static*/ void FusionProfiler::stop() {
   FusionProfiler* fp = get();
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   fp->host_timer_.stop();
   fp->fusion_timer_.stop();
   fp->state_ = ProfilerState::Finished;
@@ -755,10 +738,10 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
           kp_idx,
           " ",
           fprof.kernel_profiles.size());
-      NVF_CHECK(
-          fp->segments_[kp_idx].state() == ProfilerState::Finished,
-          "SegmentProfiler ProfilerState is not Finished!",
-          fp->segments_[kp_idx].state());
+      NVF_CHECK_EQ(
+          fp->segments_[kp_idx].state(),
+          ProfilerState::Finished,
+          "SegmentProfiler ProfilerState is not Finished!");
       kprof.segment_id = static_cast<size_t>(kp_idx);
       kprof.input_bytes = segment(kp_idx).inputBytes();
       kprof.output_bytes = segment(kp_idx).outputBytes();
@@ -802,42 +785,30 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 }
 
 void FusionProfiler::startCompile() {
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   get()->compile_timer_.start();
 }
 
 void FusionProfiler::stopCompile() {
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   get()->compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   get()->profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
-  NVF_CHECK(
-      state() == ProfilerState::Running,
-      "FusionProfiler state is not Running!",
-      state());
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   get()->profile_.output_bytes = bytes;
 }
 
 const FusionProfile& FusionProfiler::profile() {
-  NVF_CHECK(
-      state() == ProfilerState::Processed,
-      "The FusionProfile struct data is not valid because it has not been processed! ",
-      state());
+  NVF_CHECK_EQ(
+      state(),
+      ProfilerState::Processed,
+      "The FusionProfile struct data is not valid because it has not been processed!");
   return get()->profile_;
 }
 
