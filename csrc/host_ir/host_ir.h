@@ -16,35 +16,30 @@
 
 namespace nvfuser {
 
+// Host Irs are used to represent a host program. They need to be registered in
+// a HostIrContainer. Each Ir represents a Host data or instruction.
 namespace hir {
 
-/*
-  Host Irs are used to represent a host program. They need to be registered in a
-  HostIrContainer. Each Ir represents a Host data or instruction.
-*/
-
-/*
-  HostUnit represents a Fusion in the Host Program. In other words, it
-  represents a compute graph (or a segment of a larger compute graph)
-  represented by a Fusion that should be compiled and executed as a bulked item
-  from the host perspective.
-
-  This IR can be thought as a thin layer around the class `Fusion`, which
-  furthermore inherits from `Expr` so that it is an "IR" in nvFuser IR
-  semantics.
-
-  This IRs fundamentally allows nested IR structures. It could potentially be
-  useful in other instances than HostIrs.
-
-  Its implementation is minimal, the only specifity being the moethod
-  `fusion_to_execute()` that returns the fusion that the IR represents.
-
-  Note: HostUnit has no I/O itself -- however the Fusion it embbeds has I/O of
-  course, which are not registered in the surrounding HostIrContainer.
-
-  Note: Whether HostUnit should inherit from Expr or Val is debatable. Both are
-  possible, I define it as an Expr for now here but am open to change it.
-*/
+// HostUnit represents a Fusion in the Host Program. In other words, it
+// represents a compute graph (or a segment of a larger compute graph)
+// represented by a Fusion that should be compiled and executed as a bulked
+// item from the host perspective.
+//
+// This IR can be thought as a thin layer around the class `Fusion`, which
+// furthermore inherits from `Expr` so that it is an "IR" in nvFuser IR
+// semantics.
+//
+// This IRs fundamentally allows nested IR structures. It could potentially be
+// useful in other instances than HostIrs.
+//
+// Its implementation is minimal, the only specifity being the moethod
+// `fusion_to_execute()` that returns the fusion that the IR represents.
+//
+// Note: HostUnit has no I/O itself -- however the Fusion it embbeds has I/O of
+// course, which are not registered in the surrounding HostIrContainer.
+//
+// Note: Whether HostUnit should inherit from Expr or Val is debatable. Both
+// are possible, I define it as an Expr for now here but am open to change it.
 class HostUnit : public Expr {
  public:
   using Expr::Expr;
@@ -127,7 +122,8 @@ class LaunchKernel : public Expr {
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
-      const std::vector<Val*>& outputs);
+      const std::vector<Val*>& outputs,
+      Val* cache_id);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -142,16 +138,20 @@ class LaunchKernel : public Expr {
     return "hir::LaunchKernel";
   }
 
-  int64_t getIndex() const {
+  int64_t index() const {
     return attribute<int64_t>(0);
   }
 
-  const auto& launch_params() const {
+  const auto& launchParams() const {
     return attribute<LaunchParams>(1);
   }
 
-  const auto& compile_params() const {
+  const auto& compileParams() const {
     return attribute<CompileParams>(2);
+  }
+
+  Val* cacheId() const {
+    return attributeVal(3);
   }
 };
 

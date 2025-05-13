@@ -1001,9 +1001,11 @@ KernelArgumentHolder KernelExecutor::run(
       __func__,
       " provided number of outputs does not match fusion output");
 
-  NVF_ERROR(
-      !args.getCacheId().has_value() || output_args.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
+  if (args.getCacheId().has_value()) {
+    NVF_ERROR(
+        output_args.empty(),
+        "short cut input cache is not compatible with pre-allocated output");
+  }
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
 

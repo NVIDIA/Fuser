@@ -52,12 +52,14 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
       CompileParams(),
       std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out});
+      std::vector<Val*>{hic_out},
+      cache_id);
 
   hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
