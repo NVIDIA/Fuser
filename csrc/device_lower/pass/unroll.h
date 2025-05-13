@@ -97,8 +97,10 @@ class UnrollPass : kir::ExprMutator {
   // Keep track of the ite whose predicate is ElectSync
   kir::IfThenElse* current_elect_sync_ite_ = nullptr;
 
-  // Indicates the existence of 1D TMA load
-  bool has_1d_tma_predicate_ = false;
+  // For circular buffered 1d TMA load, needs to replace ElectSync predicate
+  // with PredicateType::OneDimTma. This bool avoids duplicated replacement
+  // since multiple loads shared one predicate.
+  bool one_dim_tma_predicate_added_ = false;
 
   // Need scope to replace ElectSync predicate with PredicateType::OneDimTma
   Scope* elect_sync_scope_;

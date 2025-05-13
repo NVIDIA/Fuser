@@ -64,7 +64,7 @@ void UnrollPass::dispatch(Expr* expr) {
   }
 
   // Predicate MBarrierWaitParity is required for 1D TMA.
-  if (has_1d_tma_predicate_ && expr->isA<kir::MBarrierWaitParity>() &&
+  if (one_dim_tma_predicate_added_ && expr->isA<kir::MBarrierWaitParity>() &&
       for_loops_.back()->circularBufferLoopStage() ==
           CircularBufferLoopStage::ComputeWarp) {
     auto pred =
@@ -193,14 +193,21 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     // For 1d tma load, replace the current ElectSync predicate with
-    // PredicateType::OneDimTma
-    if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
-      auto new_pred = IrBuilder::create<kir::Predicate>(
-          PredicateType::OneDimTma, expr, for_loops_);
-      auto new_ite = current_elect_sync_ite_->withPredicate(new_pred);
-      kir::ExprMutator::registerReplace(
-          current_elect_sync_ite_, new_ite, elect_sync_scope_);
-      has_1d_tma_predicate_ = true;
+    // PredicateType::OneDimTma. When there are multiple 1D TMA loads,
+    // only need to do the replacement for the first one.
+    if (ir_utils::isCpAsyncBulk1DLoad(expr) &&
+        expr->output(0)->as<TensorView>()->isCircularBuffered()) {
+      NVF_ERROR(
+          current_elect_sync_ite_ != nullptr,
+          "Expect current_elect_sync_ite_ to be not null");
+      if (!one_dim_tma_predicate_added_) {
+        auto new_pred = IrBuilder::create<kir::Predicate>(
+            PredicateType::OneDimTma, expr, for_loops_);
+        auto new_ite = current_elect_sync_ite_->withPredicate(new_pred);
+        kir::ExprMutator::registerReplace(
+            current_elect_sync_ite_, new_ite, elect_sync_scope_);
+        one_dim_tma_predicate_added_ = true;
+      }
       return;
     }
 
@@ -247,10 +254,21 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
-  // If we're not looking for an unroll loop, or didn't find one, process as
-  // normal. Don't need to unroll for 1D TMA load since split by unroll factor
+  // Don't need to unroll for 1D TMA load since split by unroll factor
   // for 1D TMA tv is divisible.
-  if (!is_unroll || !look_for_unroll_ || current_elect_sync_ite_) {
+  bool is_unroll_1d_tma = false;
+  if (fl->iter_domain()->getParallelType() == ParallelType::Unroll) {
+    const auto& exprs = ir_utils::flattenScopedExprs(fl->body().exprs());
+    for (auto expr : exprs) {
+      if (ir_utils::isCpAsyncBulk1DLoad(expr)) {
+        is_unroll_1d_tma = true;
+        break;
+      }
+    }
+  }
+  // If we're not looking for an unroll loop, or didn't find one, process as
+  // normal.
+  if (!is_unroll || !look_for_unroll_ || is_unroll_1d_tma) {
     for_loops_.push_back(fl);
     scope_.push_back(&fl->body());
     scope_exprs_.push_back(fl);
