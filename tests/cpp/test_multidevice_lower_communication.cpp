@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
@@ -18,9 +17,7 @@
 namespace nvfuser {
 
 using testing::Each;
-using testing::IsTrue;
 using testing::Pointer;
-using testing::Property;
 
 namespace {
 void assertIsCompiledToHostIrContainer(
@@ -30,19 +27,11 @@ void assertIsCompiledToHostIrContainer(
     EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
     auto hicExprs =
         runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
-    EXPECT_THAT(
-        hicExprs,
-        Contains(Property(&Expr::isA<Communication>, IsTrue()))
-            .Times(testing::Gt(0)))
+    EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
-    EXPECT_THAT(
-        runtime->executors(),
-        Each(Pointer(Property(
-            "is a HostIrExecutor",
-            &ExecutorAbstract::isA<HostIrExecutor>,
-            IsTrue()))))
+    EXPECT_THAT(runtime->executors(), Each(Pointer(IsA<HostIrExecutor>())))
         << "failed to compile to a HostIrContainer with Communications";
   }
 }

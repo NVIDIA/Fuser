@@ -13,7 +13,6 @@
 #include <vector>
 
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
@@ -26,8 +25,6 @@ namespace nvfuser {
 using ExprSortTest = NVFuserTest;
 
 using testing::ElementsAre;
-using testing::IsTrue;
-using testing::Property;
 using testing::SizeIs;
 
 // Indirect normalization pattern with zero-dimensional tensors. Originally
@@ -239,9 +236,7 @@ TEST_F(ExprSortTest, SegmentedGroup_Binary_SameOperand) {
 
   EXPECT_THAT(
       group->stablyOrderedExprs(),
-      ElementsAre(
-          Property(&Expr::isA<UnaryOp>, IsTrue()),
-          Property(&Expr::isA<BinaryOp>, IsTrue())));
+      ElementsAre(IsA<UnaryOp>(), IsA<BinaryOp>()));
 }
 
 } // namespace nvfuser
