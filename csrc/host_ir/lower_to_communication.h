@@ -17,4 +17,4 @@ std::vector<Expr*> convertSingleOpToCommunication(
     DeviceIdxType my_device_idx,
     const HostIrLowerParams& params);
 
-} // namespace nvfuser 
+} // namespace nvfuser

@@ -547,4 +547,4 @@ std::vector<Expr*> convertSingleOpToCommunication(
   return comms;
 }
 
-} // namespace nvfuser 
+} // namespace nvfuser
