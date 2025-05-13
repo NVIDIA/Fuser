@@ -109,8 +109,6 @@ bool isSharded(const TensorView* tv) {
   return is_sharded;
 }
 
-namespace {
-
 // Collect device-parallel IterDomains in `domain` and return them as a
 // ParallelType-to-IterDomain map.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
@@ -140,6 +138,8 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
   return parallel_type_to_id;
 }
 
+namespace {
+
 std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
     const std::vector<IterDomain*>& domain) {
   std::unordered_map<IterDomain*, int64_t> id_to_axis;
@@ -158,12 +158,11 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 
 } // namespace
 
-int64_t getShardedLogicalAxisFromDomain(
+ int64_t getShardedLogicalAxis(
     const TensorView* tv,
-    const ParallelType parallel_type,
-    std::vector<IterDomain*> domain) {
+    const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(domain);
+      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
   if (alloc_id == nullptr) {
     return -1;
@@ -233,12 +232,6 @@ int64_t getShardedLogicalAxisFromDomain(
   }
 
   return logical_id_to_axis.at(id);
-}
-
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    const ParallelType parallel_type) {
-  return getShardedLogicalAxisFromDomain(tv, parallel_type, tv->getMaybeAllocationDomain());
 }
 
 int64_t getShardedLoopAxis(
@@ -351,6 +344,8 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
+} // namespace
+
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -366,8 +361,6 @@ std::vector<IterDomain*> getInputsInTargetDomain(
       [](Val* val) { return val->as<IterDomain>(); });
   return inputs_as_iter_domains;
 }
-
-} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
