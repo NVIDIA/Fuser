@@ -169,6 +169,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   if (!warp_specialized_parallel_type_.has_value()) {
     return;
   }
+
   // Warp specialization with register sharing on parallel type pt
   // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
   auto ws_pt = warp_specialized_parallel_type_.value();
