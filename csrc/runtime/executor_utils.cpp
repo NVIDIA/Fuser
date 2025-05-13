@@ -107,8 +107,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         producer_tv,
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
+    input_output.emplace_back(true, static_cast<int64_t>(pos));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -120,8 +119,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         consumer_tv,
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
+    input_output.emplace_back(false, static_cast<int64_t>(pos));
   }
 
   return input_output;
@@ -472,7 +470,7 @@ ExpressionEvaluator bindInputs(
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
   NVF_ERROR(
-      kernel->inputs().size() <= args.size(),
+      std::ssize(kernel->inputs()) <= args.size(),
       "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
