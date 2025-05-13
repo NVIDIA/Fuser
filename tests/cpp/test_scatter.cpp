@@ -223,6 +223,12 @@ TEST_F(ScatterTest, Scatter1DManualInplace) {
         executor_cache.runFusionWithInputs({t0, idx_1, idx_2, src});
     testValidate(
         &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
+
+    // manual ref because I have trust issues.
+    at::Tensor ref_t0 = at::zeros(input_dims[test_id], options);
+    ref_t0.scatter_(0, idx, src);
+    ASSERT_TRUE(ref_t0.allclose(cg_outputs[0].as<at::Tensor>()));
+
   }
 }
 
