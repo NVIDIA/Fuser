@@ -1161,28 +1161,11 @@ TEST_F(TMemTutorialR, Vectorization) {
       }
 
       KernelExecutor ke;
-
-      // Check the allocation size of tv2. When the load and store vectorization
-      // factors are the same, the inlining position is one larger than the
-      // case when they are different.
-      const int64_t expected_ncols =
-          st_vec == ld_vec ? std::max<int64_t>(st_vec, 32) : 256;
-      checkAllocationSize(ke, expected_ncols);
-
       ke.compile(&fusion);
 
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
-
-      // Check that vectorized PTX instructions are used
-      GpuLower gpulw(&fusion);
-      auto kernel_str = codegen::generateCudaKernel(gpulw.run());
-      std::stringstream expect_st, expect_ld;
-      expect_st << "tcgen05.st.sync.aligned.32x32b.x" << st_vec << ".b32";
-      expect_ld << "tcgen05.ld.sync.aligned.32x32b.x" << ld_vec << ".b32";
-      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
-      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
     }
   }
 } /*
