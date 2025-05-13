@@ -42,23 +42,18 @@ void testValidate(
 
   if (aten_outputs.empty()) {
     for (Val* out : non_hidden_outputs) {
-      aten_outputs.emplace_back(expr_eval.evaluate(out).as<at::Tensor>());
+      aten_outputs.push_back(expr_eval.evaluate(out).as<at::Tensor>());
     }
   }
 
-  NVF_ERROR(
-      fusion_outputs.size() == aten_outputs.size(),
-      "Number of outputs don't match: ",
+  NVF_ERROR_EQ(
       fusion_outputs.size(),
-      " vs ",
-      aten_outputs.size());
+      std::ssize(aten_outputs),
+      "Number of outputs don't match.");
 
   NVF_ERROR(
-      fusion->inputs().size() == aten_inputs.size(),
-      "Number of inputs don't match: ",
-      fusion->inputs().size(),
-      " vs ",
-      aten_inputs.size());
+      std::ssize(fusion->inputs()) == aten_inputs.size(),
+      "Number of inputs don't match.");
 
   for (auto i : arange(fusion->inputs().size())) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
