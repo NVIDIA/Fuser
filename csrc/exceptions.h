@@ -269,14 +269,13 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
     NVF_THROW(__VA_ARGS__)   \
   }
 
-#define NVF_ERROR_EQ(lhs, rhs, ...)                \
-  NVF_ERROR(                                       \
-      (lhs) == (rhs),                              \
-      "Expected " #lhs " == " #rhs ", but found ", \
-      (lhs),                                       \
-      " vs ",                                      \
-      (rhs),                                       \
-      ". ",                                        \
+#define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
+  "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
+
+#define NVF_ERROR_EQ(lhs, rhs, ...)               \
+  NVF_ERROR(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
       ##__VA_ARGS__)
 
 #define NVF_CHECK_MSG(cond, type, ...) \
@@ -292,12 +291,8 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         NVF_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
   }
 
-#define NVF_CHECK_EQ(lhs, rhs, ...)                \
-  NVF_CHECK(                                       \
-      (lhs) == (rhs),                              \
-      "Expected " #lhs " == " #rhs ", but found ", \
-      (lhs),                                       \
-      " vs ",                                      \
-      (rhs),                                       \
-      ". ",                                        \
+#define NVF_CHECK_EQ(lhs, rhs, ...)               \
+  NVF_CHECK(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
       ##__VA_ARGS__)
