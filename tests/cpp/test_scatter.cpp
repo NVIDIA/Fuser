@@ -129,7 +129,7 @@ TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
   }
 }
 
-TEST_F(ScatterTest, Scatter1DNoSelfInput) {
+TEST_F(ScatterTest, Scatter1DNoSelfInputCompilationTime) {
   const std::vector<std::vector<int64_t>> input_dims = {{8192, 128}};
 
   // FIXME: this is a put_along_axis
@@ -155,6 +155,8 @@ TEST_F(ScatterTest, Scatter1DNoSelfInput) {
     auto tv_idx = add(tv_idx_1, tv_idx_2);
     auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
     fusion.addOutput(tv_out);
+    // adding this line seems to cause compilation time to explode.
+    // fusion.addOutput(tv_input);
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto options_i =
@@ -172,6 +174,55 @@ TEST_F(ScatterTest, Scatter1DNoSelfInput) {
         executor_cache.runFusionWithInputs({idx_1, idx_2, src});
     testValidate(
         &fusion, cg_outputs, {idx_1, idx_2, src}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(ScatterTest, Scatter1DManualInplace) {
+  const std::vector<std::vector<int64_t>> input_dims = {{8192, 128}};
+
+  // FIXME: this is a put_along_axis
+  // const std::vector<std::vector<int64_t>> src_dims = {{1024, 128}};
+  const std::vector<std::vector<int64_t>> src_dims = {{4096, 128}};
+
+  const std::vector<std::vector<int64_t>> idx_dims = {{4096, 128}};
+
+  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
+    auto fusion_ptr = std::make_unique<Fusion>();
+    Fusion& fusion = *fusion_ptr.get();
+    FusionGuard fg(&fusion);
+
+    TensorView* tv_input = makeContigTensor(2);
+    TensorView* tv_idx_1 = makeContigTensor(2, DataType::Int);
+    TensorView* tv_idx_2 = makeContigTensor(2, DataType::Int);
+    TensorView* tv_src = makeContigTensor(2);
+
+    fusion.addInput(tv_input);
+    fusion.addInput(tv_idx_1);
+    fusion.addInput(tv_idx_2);
+    fusion.addInput(tv_src);
+
+    auto tv_idx = add(tv_idx_1, tv_idx_2);
+    auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
+    fusion.addOutput(tv_out);
+    fusion.aliasOutputToInput(tv_out, tv_input, AllocationType::ReuseBuffer);
+
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+    auto options_i =
+        torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
+
+    at::Tensor vals = at::randn(input_dims[test_id], options);
+    auto [topk_val, idx] = at::topk(vals, /*k=*/idx_dims[test_id][0], /*dim=*/0);
+
+    at::Tensor idx_1 = at::randint(0, 24, idx_dims[test_id], options_i);
+    at::Tensor idx_2 = idx - idx_1;
+    at::Tensor src = at::randn(src_dims[test_id], options);
+    at::Tensor t0 = at::zeros(input_dims[test_id], options);
+
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs({t0, idx_1, idx_2, src});
+    testValidate(
+        &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
   }
 }
 
