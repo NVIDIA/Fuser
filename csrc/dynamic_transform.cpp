@@ -796,6 +796,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
     TensorView* incomplete_out_tv,
     const AnalyzeViewResult& view_analysis) {
   TensorView* concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+  concrete_reshape_out_tv->setDeviceMesh(DeviceMesh());
 
   // Extent expressions often change when concretizing a reshape. Here we
   // replace these in all downstream expressions so that the Fusion looks just
