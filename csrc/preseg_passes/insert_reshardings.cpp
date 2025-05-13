@@ -131,6 +131,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
   }
 }
 
+void decomposeRowParallelLinearWithBias(Fusion* fusion) {}
+
 // If a TensorView has a reduction dimension that's DID-split, we R-factor the
 // TensorView into a local reduction followed by an allreduce.
 //
@@ -228,6 +230,8 @@ void rFactorLoopSplits(Fusion* fusion) {
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
+  decomposeRowParallelLinearWithBias(fusion);
+
   rFactorLoopSplits(fusion);
 
   // shouldReshardAfter selects whether insertReshardingSetsAfter or
