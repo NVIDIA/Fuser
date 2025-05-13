@@ -222,6 +222,31 @@ HostIrEvaluator::HostIrEvaluator(
       "Inputs cannot be aliased");
 }
 
+KernelArgumentHolder HostIrEvaluator::runWithInputs(
+    const KernelArgumentHolder& args) {
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  if (args.getCacheId().has_value()) {
+    expr_evaluator_.bind("cacheId", *args.getCacheId());
+  }
+
+  NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
+  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
+    bind(in_val, arg);
+  }
+
+  for (auto expr : container_->topLevelExprs()) {
+    dispatch(expr);
+  }
+
+  KernelArgumentHolder outs;
+  outs.reserve(container_->outputs().size());
+  for (Val* out_val : container_->outputs()) {
+    outs.push(getKnownTensorOrUndefined(out_val));
+  }
+  return outs;
+}
+
 KernelArgumentHolder HostIrEvaluator::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   expr_evaluator_ = ExpressionEvaluator();

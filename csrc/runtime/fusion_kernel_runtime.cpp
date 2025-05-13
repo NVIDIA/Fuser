@@ -295,11 +295,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, PolymorphicValue> tensor_map;
-    for (const auto i : arange(args.size())) {
-      tensor_map.emplace(hie_->inputs()[i], args[i]);
-    }
-    auto outputs = hie_->runWithInput(tensor_map);
+    auto outputs = hie_->runWithInputs(args);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
