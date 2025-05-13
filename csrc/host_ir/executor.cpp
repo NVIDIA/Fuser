@@ -108,7 +108,7 @@ void validateTensors(
 } // namespace
 
 KernelArgumentHolder HostIrExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
