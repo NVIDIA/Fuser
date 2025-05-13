@@ -26,7 +26,7 @@ class StreamParallelType : public OptimizationPass<StreamParallelType> {
   friend class OptimizationPass<StreamParallelType>;
 
  protected:
-  void passImplementation(Fusion* fusion) override;
+  void passImplementation(Fusion* fusion);
   static constexpr std::string_view name() {
     return "StreamParallelType";
   }

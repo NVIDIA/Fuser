@@ -28,7 +28,7 @@ class ConvertOpToCommunication
       const HostIrLowerParams& params);
 
  protected:
-  void passImplementation(Fusion* fusion) override;
+  void passImplementation(Fusion* fusion);
   static constexpr std::string_view name() {
     return "ConvertOpToCommunication";
   }

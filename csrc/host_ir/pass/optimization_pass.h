@@ -50,9 +50,9 @@ class OptimizationPass {
     }
 
     FUSER_PERF_SCOPE(DerivedClass::name().data());
-    passImplementation(fusion);
+    static_cast<DerivedClass*>(this)->passImplementation(fusion);
 
-    if (isDebugDumpEnabled(DebugDumpOption::HirLoweringLogging)) {
+    if (isDebugDumpEnabled(DebugDumpOption::HostIrLoweringLogging)) {
       debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
       if (fusion->isA<hir::HostIrContainer>()) {
         fusion->as<hir::HostIrContainer>()->print(debug());
@@ -63,13 +63,7 @@ class OptimizationPass {
     }
   }
 
-  virtual ~OptimizationPass() = default;
-
  protected:
-  virtual void passImplementation(Fusion* fusion) {
-    NVF_THROW("must be implemented by the derived class");
-  }
-
   static inline std::atomic<bool> flag_{true};
 };
 
