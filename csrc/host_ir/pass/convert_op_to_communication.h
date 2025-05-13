@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/optimization_pass.h>
 
 namespace nvfuser::hir_pass {
@@ -21,11 +22,6 @@ class ConvertOpToCommunication
   ConvertOpToCommunication(
       const HostIrLowerParams& params = HostIrLowerParams())
       : params_(params) {}
-
-  static std::vector<Expr*> ConvertSingleOpToCommunication(
-      Expr* c,
-      DeviceIdxType my_device_idx,
-      const HostIrLowerParams& params);
 
  protected:
   void passImplementation(Fusion* fusion);

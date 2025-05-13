@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
@@ -520,11 +521,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           NVF_ERROR(
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
-          for (auto* expr : hir_pass::ConvertOpToCommunication::
-                   ConvertSingleOpToCommunication(
-                       ir_cloner.clone(group_to_run->exprs().at(0)),
-                       deviceid,
-                       HostIrLowerParams())) {
+          for (auto* expr : convertSingleOpToCommunication(
+                   ir_cloner.clone(group_to_run->exprs().at(0)),
+                   deviceid,
+                   HostIrLowerParams())) {
             NVF_ERROR(
                 expr->isA<Communication>(),
                 "Exprs in a Communication group should be Communication");

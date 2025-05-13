@@ -12,6 +12,7 @@
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
@@ -74,9 +75,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications =
-          hir_pass::ConvertOpToCommunication::ConvertSingleOpToCommunication(
-              cloner.clone(e), my_device_idx, HostIrLowerParams());
+      std::vector<Expr*> communications = convertSingleOpToCommunication(
+          cloner.clone(e), my_device_idx, HostIrLowerParams());
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }

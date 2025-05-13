@@ -46,4 +46,13 @@ class HostIrLower {
   const HostIrLowerParams params_;
 };
 
+namespace hir_pass {
+
+std::vector<Expr*> convertSingleOpToCommunication(
+    Expr* c,
+    DeviceIdxType my_device_idx,
+    const HostIrLowerParams& params);
+
+} // namespace hir_pass
+
 } // namespace nvfuser
