@@ -1071,10 +1071,13 @@ class TmaWarpSpecializedTest
 
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, _, dtype, dim0, dim1] = GetParam();
-  if (!contig) {
-    GTEST_SKIP() << "TMA load requires contig inner domain.";
+  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+
+  if (ws_enabled) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
+    return;
   }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, dtype);
@@ -1109,7 +1112,13 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
 
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+
+  if (ws_enabled) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
+    return;
+  }
+
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();

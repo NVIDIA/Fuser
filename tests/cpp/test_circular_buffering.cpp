@@ -1096,10 +1096,20 @@ class TmaCircularBufferingTest
     NVFuserTest::SetUp();
   }
 
+  bool testEnablesWarpSpecialization() {
+    return std::holds_alternative<WarpSpecialized>(circular_buffer_type);
+  }
+
   bool testEnablesRegisterSharing() {
     return std::holds_alternative<WarpSpecialized>(circular_buffer_type) &&
         std::get<WarpSpecialized>(circular_buffer_type)
             .num_registers.has_value();
+  }
+
+  bool testEnablesTIDx() {
+    return testEnablesWarpSpecialization() &&
+        std::get<WarpSpecialized>(circular_buffer_type).on ==
+        ParallelType::TIDx;
   }
 
   bool testEnablesRegisterSharingTIDx() {
@@ -1776,8 +1786,8 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  if (testEnablesRegisterSharing()) {
-    GTEST_SKIP() << "Bdimx is dynamic, register Sharing is disabled";
+  if (testEnablesWarpSpecialization()) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
     return;
   }
 
@@ -1917,9 +1927,9 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  if (testEnablesRegisterSharingTIDx()) {
+  if (testEnablesTIDx()) {
     GTEST_SKIP()
-        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+        << "Warp Specialization with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
     return;
   }
 
@@ -2060,9 +2070,9 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  if (testEnablesRegisterSharingTIDx()) {
+  if (testEnablesTIDx()) {
     GTEST_SKIP()
-        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+        << "Warp Specialization with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
     return;
   }
 
