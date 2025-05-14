@@ -284,7 +284,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 }
 
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
@@ -376,12 +376,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   std::lock_guard<std::mutex> guard(mutex_);
 
-  NVF_ERROR(
-      args.size() == segmented_fusion_->inputs().size(),
-      "Inputs were not set up correctly, received ",
+  NVF_ERROR_EQ(
       args.size(),
-      " inputs but expecting ",
-      segmented_fusion_->inputs().size());
+      std::ssize(segmented_fusion_->inputs()),
+      "Inputs were not set up correctly.");
 
   const int64_t num_groups = numGroups();
   if (isProfilerEnabled()) {
@@ -707,14 +705,12 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
 }
 
 std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args) {
+    runSegmentsWithInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
-  NVF_ERROR(
-      args.size() == segmented_fusion_->inputs().size(),
-      "Inputs were not set up correctly, received ",
+  NVF_ERROR_EQ(
       args.size(),
-      " inputs but expected ",
-      segmented_fusion_->inputs().size());
+      std::ssize(segmented_fusion_->inputs()),
+      "Inputs were not set up correctly.");
 
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
@@ -769,7 +765,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 }
 
 KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
