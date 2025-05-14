@@ -31,6 +31,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -2777,6 +2778,43 @@ TEST_F(GpuViewTest, ReplaceScalarInSplitOutputManually) {
   EXPECT_TRUE(new_id->definition()->isA<Split>());
   EXPECT_FALSE(tv2->axis(0)->definition() == nullptr);
   EXPECT_TRUE(tv2->axis(0)->definition() == new_id->definition());
+}
+
+TEST_F(GpuViewTest, CyclicReshape) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{4, 8};
+  std::vector<int64_t> shape2{32};
+
+  // Create a fusion with a cyclic reshape pattern
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, shape1, shape2);
+  auto tv2 = reshape(tv1, shape2, shape1);
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  EXPECT_TRUE(
+      registry_utils::SchedulerTopologyChecker::hasCyclicReshape(&fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  // Make sure there's no cycle in each segment
+  auto segmented_fusion =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  for (const auto group : segmented_fusion->groups()) {
+    auto segment_fusion = segmented_fusion->makeFusion(group).second;
+    EXPECT_FALSE(registry_utils::SchedulerTopologyChecker::hasCyclicReshape(
+        segment_fusion.get()));
+  }
 }
 
 } // namespace nvfuser
