@@ -1092,10 +1092,6 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
           exact_graph.toGroups(getReshapeIds(reshape_j).second);
 
       if (!inp_groups_i.computeIntersect(out_groups_j).empty()) {
-        if (!getenv("FIX")) {
-          NVF_THROW(
-              "Cycle detected:\n", reshape_i->toString(), reshape_j->toString());
-        }
         return true;
       }
     }
