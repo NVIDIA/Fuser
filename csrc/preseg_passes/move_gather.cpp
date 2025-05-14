@@ -157,6 +157,7 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   return new_gather_op_output->definition()->as<GatherOp>();
 }
 
+// This function implements the following steps:
 // take_along_axis has two inputs, lookupTv and indexTv
 // We look at the def of lookupTv, say D.
 // If D is a fusion input we stop.
@@ -171,6 +172,12 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 // 2. We create a clone of D called D'. Set the input of D' as the output of the
 // new Gather op. Update the uses of the old Gather op to use the output of D'
 // 3. We delete the old Gather op.
+
+// If D is a squeeze op (please not we currently support squeeze with a single
+// dim being squeezed) we slightly modify the above algorithm. Let's say the def
+// of the index Tv of the Gather Op is I. We add an unsqueeze op to output of I.
+// The ouptut of the unsqueeze is then an input to the new
+// Gather/take_along_axis.
 
 // We do the above in a loop till the input to the Gather op is a suitable for
 // reordering.
