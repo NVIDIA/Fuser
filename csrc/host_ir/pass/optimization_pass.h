@@ -44,7 +44,7 @@ class OptimizationPass {
     return flag_.load();
   }
 
-  NVF_API void runPass(Fusion* fusion) {
+  void runPass(Fusion* fusion) {
     if (!flag_.load()) {
       return;
     }
