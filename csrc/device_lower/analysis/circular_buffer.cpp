@@ -307,7 +307,29 @@ void CircularBufferInfo::setCircularBufferOptions(
 // TODO: Another approach is we can just save `computation_warp_groups_`
 // in  `circularBufferOptions` since it is a scheduler parameter.
 void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
   auto option = tv->circularBufferOptions();
+  ParallelType ws_pt = std::get<WarpSpecialized>(option.type).on;
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+
+  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
+  auto ws_id_iter = std::find_if(
+      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
+        return id->getParallelType() == ws_pt;
+      });
+  NVF_ERROR(ws_id_iter != consumer_loop.end());
+
+  // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
+  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
+
+  // const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  for (Val* v : *val_group) {
+    std::cout << v->toString() << std::endl;
+  }
+
   auto old_val = computation_warp_groups_;
   // -1 indicates not set yet, if set, should not change
   int64_t new_val = (old_val == -1) ? 1 : old_val;
