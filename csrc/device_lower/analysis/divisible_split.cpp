@@ -24,6 +24,26 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     const ComputeAtMap* ca_map) {
   std::unordered_set<Split*> all_divisible_splits;
 
+  // Currently, IterDomain::definition() is not guaranteed to return
+  // an active expr with respect to the associated TensorDomain, i.e.,
+  // may not be included in TensorDomain::allExprs. That happens when
+  // TensorDomain::setLoopDomain cuts off IDs that are not in the
+  // paths between the logical/root/allocation/loop domains. We may
+  // want to remove dangling definitions, but for now, the below check
+  // is required.
+  auto is_active_expr = [&ca_map](Expr* id) {
+    return std::ranges::all_of(
+               id->inputs(),
+               [&](Val* inp) {
+                 NVF_ERROR(inp->isA<IterDomain>());
+                 return ca_map->idGraph().allIds().has(inp->as<IterDomain>());
+               }) &&
+        std::ranges::all_of(id->outputs(), [&](Val* out) {
+             NVF_ERROR(out->isA<IterDomain>());
+             return ca_map->idGraph().allIds().has(out->as<IterDomain>());
+           });
+  };
+
   auto all_tvs = fusion->allTvs();
   // Find all tensor views with a view like rfactor. Splits used in view
   // transformations must be divisible by definition.
@@ -36,8 +56,9 @@ std::unordered_set<Split*> getAllDivisibleSplits(
 
     // Take the view transformations and add all the splits. Those splits are
     // the only divisible splits.
-    auto view_exprs =
-        StmtSort::getExprsTo({logical_dom.begin(), logical_dom.end()});
+    auto view_exprs = StmtSort::getExprsBetween(
+        {tv->getRootDomain().begin(), tv->getRootDomain().end()},
+        {logical_dom.begin(), logical_dom.end()});
     auto split_exprs = ir_utils::filterByType<Split>(view_exprs);
     all_divisible_splits.insert(split_exprs.begin(), split_exprs.end());
   }
@@ -65,7 +86,8 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     // cases like this. Just look for direct split's producing a vectorize
     // dimension.
     auto vec_id = *vec_id_it;
-    if (vec_id->definition() != nullptr && vec_id->definition()->isA<Split>()) {
+    if (vec_id->definition() != nullptr && vec_id->definition()->isA<Split>() &&
+        is_active_expr(vec_id->definition())) {
       all_divisible_splits.emplace(vec_id->definition()->as<Split>());
     }
   }
@@ -96,21 +118,22 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     const auto& exact_mapped_ids =
         ca_map->idGraph().exactNodes().getDisjointSetOf(concrete_id).vector();
     for (auto other_id : exact_mapped_ids) {
-      if (other_id->definition() == nullptr) {
+      auto other_id_def = other_id->definition();
+      if (other_id_def == nullptr || !is_active_expr(other_id_def)) {
         continue;
       }
 
-      if (!visited.emplace(other_id->definition()).second) {
+      if (!visited.emplace(other_id_def).second) {
         // Already visited
         continue;
       }
 
       if (IterDomainGraph::exprsMap(
               original_view_split,
-              other_id->definition(),
+              other_id_def,
               false,
               ca_map->idGraph().exactNodes())) {
-        all_divisible_splits.emplace(other_id->definition()->as<Split>());
+        all_divisible_splits.emplace(other_id_def->as<Split>());
       }
     }
   }
