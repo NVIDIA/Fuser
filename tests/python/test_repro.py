@@ -71,7 +71,7 @@ class TestRepro(NVFuserTest):
             T52 = fd.ops.mul(T35, T21)
             S53 = fd.define_scalar(0, dtype=DataType.Int)
             T59 = fd.ops.full(
-                shape=[1, 64, 16384,0],fill_value=S53,dtype=DataType.BFloat16
+                shape=[1, 64, 16384, 0], fill_value=S53, dtype=DataType.BFloat16
             )
             T75 = fd.ops.slice(
                 T3,
