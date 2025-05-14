@@ -62,11 +62,17 @@
 // Driver APIs are loaded using cudaGetDriverEntryPoint as recommended by
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
 void getDriverEntryPoint(
-    const char* func_name,
+    const char* symbol,
     unsigned int version,
     void** entry_point) {
+#if (CUDA_VERSION >= 12050)
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPointByVersion(
-      func_name, entry_point, version, cudaEnableDefault));
+      symbol, entry_point, version, cudaEnableDefault));
+#else
+  (void)version;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaGetDriverEntryPoint(symbol, entry_point, cudaEnableDefault));
+#endif
 }
 
 #define DEFINE_DRIVER_API_WRAPPER(funcName, version)            \
