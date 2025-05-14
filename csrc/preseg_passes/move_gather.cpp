@@ -17,6 +17,7 @@
 #include <ops/arith.h>
 #include <ops/indexing.h>
 #include <ops/utils.h>
+#include <scheduler/utils.h>
 #include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
@@ -156,6 +157,23 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   return new_gather_op_output->definition()->as<GatherOp>();
 }
 
+// take_along_axis has two inputs, lookupTv and indexTv
+// We look at the def of lookupTv, say D.
+// If D is a fusion input we stop.
+// If D is a squeeze operation or if D is unary pointwise op such as cast of neg
+// then we can move the take_along_axis before D. If D is any other type of Op
+// we stop.
+// If D is a suitable candidate which can moved after take_along_axis, we do the
+// following steps:
+// [Say the def of the input to D is the op E]
+// 1. We create a new take_along_axis/Gather op. The input to the new Gather is
+// the output of E.
+// 2. We create a clone of D called D'. Set the input of D' as the output of the
+// new Gather op. Update the uses of the old Gather op to use the output of D'
+// 3. We delete the old Gather op.
+
+// We do the above in a loop till the input to the Gather op is a suitable for
+// reordering.
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
   do {
     auto producer = getAllowedLookupTvDef(gather_op);
