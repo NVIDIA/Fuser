@@ -10,5 +10,5 @@
 
 PYBIND11_MODULE(PYTHON_NEXT_EXTENSION, m) {
   m.doc() = "Python bindings for NvFuser Next CPP API";
-  python::initNvFuserPythonBindings(m.ptr());
+  nvfuser::python::initNvFuserPythonBindings(m.ptr());
 }

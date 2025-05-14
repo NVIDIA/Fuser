@@ -175,12 +175,17 @@ class GpuLower : public NonCopyable {
     return warp_pad_info_;
   }
 
-  auto& nonDivisibleSplitInfo() {
-    return non_divisible_split_info_;
+  const NonDivisibleSplitInfo& nonDivisibleSplitInfo() const {
+    NVF_ERROR(
+        non_divisible_split_info_, "NonDivisibleSplitInfo is not created");
+    return *non_divisible_split_info_;
   }
 
-  const auto& nonDivisibleSplitInfo() const {
-    return non_divisible_split_info_;
+  const NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() const {
+    NVF_ERROR(
+        non_divisible_predicate_info_,
+        "NonDivisiblePredicateInfo is not created");
+    return *non_divisible_predicate_info_;
   }
 
   const auto& divisibleSplitSet() const {
@@ -407,7 +412,8 @@ class GpuLower : public NonCopyable {
   std::unordered_map<TensorView*, AllocationDomainInfo> allocation_info_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
-  NonDivisibleSplitInfo non_divisible_split_info_;
+  std::unique_ptr<NonDivisibleSplitInfo> non_divisible_split_info_;
+  std::unique_ptr<NonDivisiblePredicateInfo> non_divisible_predicate_info_;
   CircularBufferInfo circular_buffer_info_;
   TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;

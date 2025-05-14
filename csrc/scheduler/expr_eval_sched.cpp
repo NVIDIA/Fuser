@@ -18,7 +18,7 @@ namespace nvfuser {
 namespace {
 bool allOutputsArePointerArithmetics(Fusion* fusion) {
   const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
+      findAliases(fusion, EmptyAllocationAs::kLogical);
 
   auto is_pointer_arithmetic = [&](TensorView* out) -> bool {
     // Check out has an alias and out is not an inplace update target.
