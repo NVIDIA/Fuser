@@ -11,11 +11,11 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/multi_matmul_hopper+.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/multi_matmul_hopper+.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -96,7 +96,8 @@ void HopperPlusMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
   // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
-MatmulDimRole HopperPlusMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
+MatmulDimRole HopperPlusMultipleMatmulScheduler::findMatmulDimRole(
+    IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
   NVF_ERROR(it != id_roles_.end());

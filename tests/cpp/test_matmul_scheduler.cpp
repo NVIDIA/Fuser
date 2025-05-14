@@ -3536,7 +3536,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(512), // M
         testing::Values(256), // N
         testing::Values(128), // K
-        testing::Values(MmaMacro::Hopper_64_128_16, MmaMacro::Blackwell_128_128_16), // mma_macros
+        testing::Values(
+            MmaMacro::Hopper_64_128_16,
+            MmaMacro::Blackwell_128_128_16), // mma_macros
         testing::Values(1, 2) // SplitK Factor
         ),
     hopperPlusTestName);
