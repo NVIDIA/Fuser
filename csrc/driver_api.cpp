@@ -61,6 +61,7 @@
 //
 // Driver APIs are loaded using cudaGetDriverEntryPoint as recommended by
 // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
+namespace {
 void getDriverEntryPoint(
     const char* symbol,
     unsigned int version,
@@ -74,6 +75,7 @@ void getDriverEntryPoint(
       cudaGetDriverEntryPoint(symbol, entry_point, cudaEnableDefault));
 #endif
 }
+} // namespace
 
 #define DEFINE_DRIVER_API_WRAPPER(funcName, version)            \
   namespace {                                                   \
