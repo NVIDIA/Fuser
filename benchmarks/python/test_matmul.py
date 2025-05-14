@@ -7,6 +7,7 @@ from .core import run_benchmark
 import torch
 
 import csv
+import functools
 import os
 
 
@@ -21,7 +22,24 @@ def load_matmul_problems():
     with open(os.path.join(os.path.dirname(__file__), "matmul_problems.csv"), "r") as f:
         reader = csv.reader(f)
         next(reader, None)  # skip header row
-        return list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
+        rows = list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
+
+        def row_mem(row):
+            m, n, k, _ = row
+            return ((m + n) * k + m * n) * 2
+
+        def mem_cmp(row1, row2):
+            for a, b in [(row_mem(row1), row_mem(row2)), (row1[3], row2[3])]:
+                if a < b:
+                    return -1
+                elif a > b:
+                    return 1
+            return 0
+
+        # Reverse sort by expected memory use to avoid fragmentation
+        rows.sort(key=functools.cmp_to_key(mem_cmp), reverse=True)
+
+        return rows
 
 
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
