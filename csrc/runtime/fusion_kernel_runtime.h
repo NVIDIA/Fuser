@@ -77,7 +77,7 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API KernelArgumentHolder runWithInputs(KernelArgumentHolder& args);
+  NVF_API KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -149,13 +149,13 @@ class FusionKernelRuntime {
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
   std::unordered_map<Val*, PolymorphicValue> runSegmentsWithInputs(
-      KernelArgumentHolder& args);
+      const KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
   KernelArgumentHolder runKernelWithInput(
-      KernelArgumentHolder& args,
+      const KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
   //! Interface to compile a single kernel. It is either a single kernel for a

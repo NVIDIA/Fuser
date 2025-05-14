@@ -46,7 +46,7 @@ class ExprEvalExecutor : public ExecutorAbstract {
   bool isCompiled() const override;
 
   NVF_API KernelArgumentHolder
-  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;
