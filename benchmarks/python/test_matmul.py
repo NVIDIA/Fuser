@@ -59,8 +59,15 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
-    if (m * k + n * k + m * n) * 2 > 20 * (2**30):
-        pytest.skip("Case takes more than 20GiB. Skipping to avoid OOM")
+    expected_mem = (m * k + n * k + m * n) * 2  # operands plus output
+    expected_mem *= 2  # account for multiple runs/deferred frees
+
+    _, total = torch.cuda.mem_get_info()
+    max_mem = total * 0.9
+    if expected_mem > total * 0.9:
+        pytest.skip(
+            "Case takes more than {max_mem / (2 ** 30)} GiB. Skipping to avoid OOM"
+        )
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
@@ -96,8 +103,15 @@ def test_matmul_nvf_benchmark(
 ):
     m, n, k, layout = config
 
-    if (m * k + n * k + m * n) * 2 > 20 * (2**30):
-        pytest.skip("Case takes more than 20GiB. Skipping to avoid OOM")
+    expected_mem = (m * k + n * k + m * n) * 2  # operands plus output
+    expected_mem *= 2  # account for multiple runs/deferred frees
+
+    _, total = torch.cuda.mem_get_info()
+    max_mem = total * 0.9
+    if expected_mem > total * 0.9:
+        pytest.skip(
+            "Case takes more than {max_mem / (2 ** 30)} GiB. Skipping to avoid OOM"
+        )
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
