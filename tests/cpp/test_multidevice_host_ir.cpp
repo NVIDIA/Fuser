@@ -419,15 +419,6 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
 }
 
 TEST_F(OverlapDistributedMatmulTest, AG_linear) {
-<<<<<<< HEAD
-  // Disable StreamParallelType and ReorderShardedAxisPass pass temporarily as
-  // proper stream lowering gets implemented
-  hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(false);
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
-      guard2(false);
-
-=======
->>>>>>> 07261d22b (reenable stream lowering pass in multidevice fusion)
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
   constexpr int64_t N = 1024;
