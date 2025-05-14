@@ -20,18 +20,6 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
-// For a resharding expression, either a set or reduce, returns root IDs
-// that change sharding.
-// (1) sharded root IterDomains that are added by the expression
-// i.e. sharded IterDomains that are present in the output, but not the input.
-// (2) sharded root IterDomains that are removed by the expression
-// i.e. sharded IterDomains that are present in the input, but not the output.
-// TODO: Analyze loop domain for unsharded/sharded IDs and return their
-// parent root IDs.
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    TensorView* producer,
-    TensorView* consumer);
-
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(const TensorView*);
@@ -58,8 +46,24 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
 
-// Returns whether a resharding expr reshards an inner axis
-bool isInnerResharding(Expr* expr);
+struct CommunicationInfo {
+  CommunicationType type; // Gather/Scatter/ReduceScatter
+  IterDomain* sharded_id; // The sharded logical ID
+};
+
+// Returns whether a TensorView is contiguous.
+bool isTvContiguous(const TensorView* tv);
+
+// Returns whether the communication layout is compliant.
+// ProcessGroup expects contiguous tensors and
+// gathered/scattered axes to be outermost in allocation.
+// This is only supported for load/store and reduction ops.
+// Composite expressions that are communication + compute are not supported.
+bool isCommLayoutCompliant(Expr* expr);
+
+// Returns the communication info for the gather/scatter/reduce scatter communication
+// that may require reordering the allocation domain.
+std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr);
 
 // Shards all tensors in tvs like reference.
 // Accepts a set of parallel types to shard on.
