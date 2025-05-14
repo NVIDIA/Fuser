@@ -198,6 +198,8 @@ class TCPStore : public torch::CustomClassHolder {
   bool deleteKey(const std::string&) {
     return false;
   }
+
+  void wait(const std::vector<std::string>& keys) {}
 };
 
 } // namespace c10d
