@@ -31,10 +31,6 @@ bool isSharded(const TensorView*);
 // Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(const TensorView*);
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
-    const std::vector<IterDomain*>& target_domain);
-
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -65,8 +61,8 @@ bool isTvContiguous(const TensorView* tv);
 // Composite expressions that are communication + compute are not supported.
 bool isCommLayoutCompliant(Expr* expr);
 
-// Returns the communication info for the gather/scatter/reduce scatter communication
-// that may require reordering the allocation domain.
+// Returns the communication info for the gather/scatter/reduce scatter
+// communication that may require reordering the allocation domain.
 std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr);
 
 // Returns a set that contains DIDs and Stream.
@@ -109,11 +105,6 @@ int64_t requestedNumberOfDevices(Fusion*);
 // remove the multi-device scheduling annotations
 void unshard(Fusion*);
 void unshard(TensorView*);
-
-// Collect device-parallel IterDomains in `domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
-    const std::vector<IterDomain*>& domain);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
