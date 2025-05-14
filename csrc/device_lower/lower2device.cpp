@@ -353,6 +353,9 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setBuildTensorIndexer(true);
+        if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+          options.setInlinePredicate(true);
+        }
         continue;
       }
     } else if (expr->isA<MmaOp>()) {
@@ -545,6 +548,9 @@ void GpuLower::analysis(Fusion* fusion) {
     debug() << parallel_dimension_map_.toString() << std::endl;
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
+
+  validate1dTmaLoad(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validate1dTmaLoad");
 
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);

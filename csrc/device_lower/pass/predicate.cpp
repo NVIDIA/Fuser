@@ -34,6 +34,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
  private:
+  Val* inline_pred_1d_tma_ = nullptr;
+  Val* circular_loop_index_ = nullptr;
   ConditionalFromPredicateModifier(const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
@@ -195,6 +197,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       }
       case PredicateType::ElectSync: {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
+      }
+      case PredicateType::OneDimTma: {
+        return PredicateCompute::getOneDimTmaPredicate(
+            pred, for_loops_, inline_pred_1d_tma_, circular_loop_index_);
       }
       default:
         break;

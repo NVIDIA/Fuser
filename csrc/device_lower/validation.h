@@ -71,4 +71,8 @@ void validateLookupTV(Fusion* fusion);
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);
 
+//! Validate if split output domain is loaded with 1D TMA, the split must be
+//! divisible. This is similar to vectorization, where we don't have an extra
+//! else branch to load the tailing elements.
+void validate1dTmaLoad(Fusion* fusion);
 } // namespace nvfuser
