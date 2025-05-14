@@ -16,17 +16,17 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <id_model/id_model.h>
-#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
 
-void reorderForGatherBasedComm(Expr* expr, CommunicationInfo communication_info) {
+void reorderForGatherBasedComm(
+    Expr* expr,
+    CommunicationInfo communication_info) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
-  
+
   IterDomain* sharded_id = communication_info.sharded_id;
 
   // For gather operations i.e. ID goes from sharded to unsharded
@@ -53,14 +53,15 @@ void reorderForGatherBasedComm(Expr* expr, CommunicationInfo communication_info)
 
   // Set allocation domain for comm in/out
   input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
-  output_permute->setAllocationDomain(
-      output_permute->getLoopDomain(), true);
+  output_permute->setAllocationDomain(output_permute->getLoopDomain(), true);
 }
 
-void reorderForScatterBasedComm(Expr* expr, CommunicationInfo communication_info) {
+void reorderForScatterBasedComm(
+    Expr* expr,
+    CommunicationInfo communication_info) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
-  
+
   IterDomain* sharded_id = communication_info.sharded_id;
 
   // For scatter operations i.e. ID goes from unsharded to sharded
@@ -73,8 +74,7 @@ void reorderForScatterBasedComm(Expr* expr, CommunicationInfo communication_info
   //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
   // Note that reduction axis shifts from axis=1 to axis=2.
 
-  int sharding_axis =
-      static_cast<int>(output->domain()->rootPosOf(sharded_id));
+  int sharding_axis = static_cast<int>(output->domain()->rootPosOf(sharded_id));
 
   TensorView* input_permute = permute(input, {{sharding_axis, 0}});
   TensorView* output_permute = nullptr;
@@ -84,7 +84,7 @@ void reorderForScatterBasedComm(Expr* expr, CommunicationInfo communication_info
   auto reduction_axis = output->getReductionAxis();
   int num_reduction_axes_before_sharding_axis =
       (reduction_axis.has_value() &&
-        sharding_axis > static_cast<int>(reduction_axis.value()))
+       sharding_axis > static_cast<int>(reduction_axis.value()))
       ? 1
       : 0;
   if (communication_info.type == CommunicationType::ReduceScatter) {
@@ -124,8 +124,7 @@ void reorderForScatterBasedComm(Expr* expr, CommunicationInfo communication_info
 
   // Set allocation domain for comm in/out
   input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
-  output_permute->setAllocationDomain(
-      output_permute->getLoopDomain(), true);
+  output_permute->setAllocationDomain(output_permute->getLoopDomain(), true);
 }
 
 } // namespace
@@ -137,23 +136,26 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
 
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    
-    if (!(expr->isA<LoadStoreOp>() 
-      && (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) 
-      && !expr->isA<ReductionOp>()) {
+
+    if (!(expr->isA<LoadStoreOp>() &&
+          (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) &&
+        !expr->isA<ReductionOp>()) {
       continue;
     }
-    
+
     if (!isResharding(expr)) {
       continue;
     }
-    
+
     if (isCommLayoutCompliant(expr)) {
       continue;
     }
 
     auto communication_info = getGatherOrScatterCommInfo(expr);
-    NVF_ERROR(communication_info.has_value(), "Communication info not found for ", expr->toString());
+    NVF_ERROR(
+        communication_info.has_value(),
+        "Communication info not found for ",
+        expr->toString());
 
     if ((*communication_info).type == CommunicationType::Gather) {
       reorderForGatherBasedComm(expr, *communication_info);
