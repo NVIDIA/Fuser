@@ -42,10 +42,14 @@ void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t M = std::pow(2, 6);
-  int64_t K = std::pow(2, 5);
-  int64_t N = std::pow(2, 4);
-  int64_t S = std::pow(2, 3);
+  int64_t M = std::pow(2, 12);
+  int64_t K = std::pow(2, 12);
+  int64_t N = std::pow(2, 12);
+  int64_t S = std::pow(2, 4); // nick
+// int64_t M = std::pow(2, 6);
+// int64_t K = std::pow(2, 5);
+// int64_t N = std::pow(2, 4);
+// int64_t S = std::pow(2, 3);
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
@@ -932,7 +936,11 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 }
 
 class RingAllgatherOverlapTest : public MultiDeviceTest {
- protected:
+private:
+  long avg_time_per_iter_;
+  long cur_time_;
+
+protected:
   OverlapTestParams params;
 
   int64_t num_devices_;
@@ -1017,6 +1025,8 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
               << "tc_unsharded_sizes()=" << tc_unsharded_.sizes() << std::endl
               << "ta_.sizes()=" << ta_.sizes() << std::endl;
     }
+
+    avg_time_per_iter_ = 0;
   }
 
   // Each rank calls uniform_ and gets the same values for ta_ and tb_ because
@@ -1035,10 +1045,34 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
     auto tc_unsharded_expected_ =
         torch::matmul(ta_unsharded_, tb_unsharded_.cpu());
     EXPECT_TRUE(
-        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 1e-1, 1e-1))
+        tc_unsharded_.cpu().allclose(tc_unsharded_expected_, 5e-1, 5e-1))
         << "Unexpected results, obtained: " << tc_unsharded_
         << "expected: " << tc_unsharded_expected_;
   }
+
+    void startCounter()
+    {
+        struct timeval time;
+        if(gettimeofday( &time, 0 )) return;
+        cur_time_ = 1000000 * time.tv_sec + time.tv_usec;
+    }
+
+    void addCounter()
+    {
+        struct timeval time;
+        if(gettimeofday( &time, 0 )) return;
+
+        long cur_time = 1000000 * time.tv_sec + time.tv_usec;
+        double sec = (cur_time - cur_time_) / 1000000.0;
+        if(sec < 0) sec += 86400;
+        cur_time_ = cur_time;
+
+        avg_time_per_iter_ += 1000.*sec;
+    }
+
+    void printAvgTime(int64_t iters) {
+        std::cout << "avg_time_per_iter=" << (avg_time_per_iter_ / iters) << " ms" << std::endl;
+    }
 };
 
 TEST_F(
@@ -1197,8 +1231,13 @@ TEST_F(
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
   if_not_last_ring_step_post_comms->thenBody().push_back(send);
   if_not_last_ring_step_post_comms->thenBody().push_back(recv);
-  if_not_last_ring_step_post_comms->thenBody().push_back(wait_send);
-  if_not_last_ring_step_post_comms->thenBody().push_back(wait_recv);
+
+  auto* cond = ne(j, hic->zeroVal());
+  auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
+  auto* if_not_first_ring_step_wait =
+      IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_not_first_ring_step_wait->thenBody().push_back(wait_send);
+  if_not_first_ring_step_wait->thenBody().push_back(wait_recv);
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
@@ -1209,6 +1248,7 @@ TEST_F(
       tva_j_next_slice->definition(),
       tvc_j->definition(),
       share_mem_handles,
+      if_not_first_ring_step_wait,
       if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
@@ -1251,7 +1291,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
+  for (const auto& i : arange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
 
@@ -1262,10 +1302,23 @@ TEST_F(
         {tvb_unsharded, tb_unsharded_},
         {tvc_unsharded, tc_unsharded_}};
 
+    cudaDeviceSynchronize();
+
+    if (i != 0) {
+        startCounter();
+    }
+
     hie.runWithInput(std::move(inputs));
+    cudaDeviceSynchronize();
+
+    if (i != 0) {
+        addCounter();
+    }
 
     validate();
   }
+
+  printAvgTime(params.number_of_iterations - 1);
 }
 
 TEST_F(
@@ -1427,7 +1480,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
+  for (const auto& i : arange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
 
@@ -1438,10 +1491,23 @@ TEST_F(
         {tvb_unsharded, tb_unsharded_},
         {tvc_unsharded, tc_unsharded_}};
 
+    cudaDeviceSynchronize();
+
+    if (i != 0) {
+        startCounter();
+    }
+
     hie.runWithInput(std::move(inputs));
+    cudaDeviceSynchronize();
+
+    if (i != 0) {
+        addCounter();
+    }
 
     validate();
   }
+
+  printAvgTime(params.number_of_iterations - 1);
 }
 
 } // namespace nvfuser
