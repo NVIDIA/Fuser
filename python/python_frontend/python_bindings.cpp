@@ -1254,6 +1254,43 @@ void initNvFuserPythonBindings(PyObject* module) {
           py::arg("_enable_options") = py::none(),
           py::arg("_disable_options") = py::none(),
           py::return_value_policy::reference)
+      .def(
+          "_evaluate",
+          [](FusionDefinition& self,
+             const py::iterable& iter) -> std::vector<at::Tensor> {
+            KernelArgumentHolder ins;
+            for (py::handle obj : iter) {
+              // Allows for a Vector of Sizes to be inputed as a list/tuple
+              if (py::isinstance<py::list>(obj) ||
+                  py::isinstance<py::tuple>(obj)) {
+                for (py::handle item : obj) {
+                  ins.push(torch::jit::toIValue(item, c10::AnyType::get()));
+                }
+              } else {
+                ins.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+              }
+            }
+            std::vector<at::Tensor> out_tensors;
+
+            Fusion* fusion = self.preschedFusion();
+
+            ExpressionEvaluator expr_eval =
+                executor_utils::bindInputs(ins, fusion);
+
+            out_tensors.reserve(fusion->outputs().size());
+            for (const auto& out : fusion->outputs()) {
+              // skip if this is an alias to an input
+              if (out->isA<TensorView>() &&
+                  !fusion->getOutputAlias(out).hide_output) {
+                PolymorphicValue o = expr_eval.evaluate(out);
+                out_tensors.push_back(o.as<at::Tensor>());
+              }
+            }
+            return out_tensors;
+          },
+          py::arg("inputs"),
+          py::kw_only(),
+          py::return_value_policy::reference)
       .def_static(
           "_profile",
           &FusionProfiler::profile,

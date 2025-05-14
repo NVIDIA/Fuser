@@ -574,7 +574,7 @@ class FusionDefinition(_C._FusionDefinition):
     def validate(
         self,
         inputs: list[torch.Tensor],
-        reference_outputs: list[torch.Tensor],
+        reference_outputs: list[torch.Tensor] | None = None,
         **kwargs,
     ):
         """
@@ -585,6 +585,8 @@ class FusionDefinition(_C._FusionDefinition):
             reference_outputs: A list of reference outputs to validate against
         """
         fusion_outputs = self.execute(inputs, **kwargs)
+        if reference_outputs is None:
+            reference_outputs = self._evaluate(inputs)
         assert len(fusion_outputs) == len(
             reference_outputs
         ), f"Expected {len(fusion_outputs)} reference outputs for validation."
