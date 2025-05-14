@@ -1067,19 +1067,18 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
       std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
       reshape_ids;
 
-  auto getReshapeIds =
-      [&reshape_ids](ViewOp* reshape) {
-        auto reshape_out_tv = reshape->out();
-        auto it = reshape_ids.find(reshape_out_tv);
-        if (it == reshape_ids.end()) {
-          it = reshape_ids
-                   .emplace(
-                       reshape->out(),
-                       ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
-                   .first;
-        }
-        return it->second;
-      };
+  auto getReshapeIds = [&reshape_ids](ViewOp* reshape) {
+    auto reshape_out_tv = reshape->out();
+    auto it = reshape_ids.find(reshape_out_tv);
+    if (it == reshape_ids.end()) {
+      it = reshape_ids
+               .emplace(
+                   reshape->out(),
+                   ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
+               .first;
+    }
+    return it->second;
+  };
 
   for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
     auto reshape_i = reshape_ops.at(i);
