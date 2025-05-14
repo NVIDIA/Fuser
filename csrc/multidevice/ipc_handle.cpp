@@ -121,29 +121,29 @@ void IpcHandleCache::exchangeHandles(
         tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = getTcpStoreKey(communication, my_rank);
+    // wait until the memhandle is removed from the store
+    while (store->check({key})) {
+    };
     // TODO: use multiSet
     store->set(key, toBytes(*buffer_handle));
+    // wait until the memhandle is available in the store
+    store->wait({key});
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
   }
-
-  // barrier to ensure all ranks have pushed their memhandles to the store
-  // TODO: precisely select what ranks need to wait on that barrier.
-  communicator->barrier();
 
   // get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
     const int64_t peer =
         expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
     std::string key = getTcpStoreKey(communication, peer);
-    NVF_ERROR(
-        store->check({key}),
-        "key ",
-        key,
-        " not found in store at rank ",
-        my_rank);
+    // get method waits until the memhandle is available in the store. Consider
+    // changing timeout in the future if necessary
     // TODO: use multiGet
     auto peer_ipc_handle = std::make_unique<IpcHandle>(store->get(key));
     store->deleteKey(key);
+    // wait until the memhandle is removed from the store
+    while (store->check({key})) {
+    };
     auto& local_ipc_handle = local_ipc_handles.at(communication);
 
     auto ipc_handles = std::make_unique<P2pIpcHandle>(
@@ -151,12 +151,6 @@ void IpcHandleCache::exchangeHandles(
 
     insert(communication, std::move(ipc_handles));
   }
-
-  // a second barrier is needed here to ensure all ranks have received the
-  // memhandles and the keys are deleted from the store before the next call to
-  // exchangeHandles
-  // TODO: precisely select what ranks need to wait on that barrier.
-  communicator->barrier();
 }
 
 } // namespace nvfuser
