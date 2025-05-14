@@ -675,28 +675,161 @@ bool isResharding(const Expr* expr) {
   return false;
 }
 
-bool isInnerResharding(Expr* expr) {
-  NVF_ERROR(
-      ir_utils::isTvOp(expr),
-      "Non-tv op is not supported : ",
-      expr->toString());
 
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto [shard_additions, shard_deletions] =
-          getShardingChanges(input, output);
-      NVF_ERROR(
-          shard_additions.size() + shard_deletions.size() <= 1,
-          "Resharding expr can only support one axis")
-      if ((!shard_deletions.empty() &&
-           allocationIndex(input, shard_deletions.at(0)) > 0) ||
-          (!shard_additions.empty() &&
-           allocationIndex(output, shard_additions.at(0)) > 0)) {
-        return true;
+namespace {
+
+IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
+  std::vector<IterDomain*> logical_ids = getInputsInTargetDomain(loop_id, tv->getLogicalDomain());
+  NVF_ERROR(logical_ids.size() == 1, "Expected exactly one logical ID producing the device dimension ", loop_id->toString());
+  return logical_ids.at(0);
+}
+
+bool isAllocatedOutermost(const std::vector<IterDomain*>& allocation_domain, IterDomain* logical_id) {
+  // This sharded logical ID may not directly present in allocation domain.
+  // This indicates allocation domain has DID transformations.
+  // Find the derived loop IDs in the allocation domain and their index.
+  // Note: This is only in the interim to support tests that manually set
+  // allocation as loop. Eventually, we would require allocation as a permutation of logical domain here.
+  auto transforms = DependencyCheck::getAllExprsBetween(
+          {logical_id},
+          {allocation_domain.begin(), allocation_domain.end()});
+  std::vector<IterDomain*> derived_ids = {logical_id};
+  scheduler_utils::applyTransforms(derived_ids, transforms);
+
+  // The logical ID is the outermost dimension in the allocation domain if
+  // the derived ids are present at the front of the allocation domain.
+  // Example:
+  // logical [i0, i1]
+  // loop [DIDx(d), i0, i1/d]
+  // allocation [DIDx(d), i0, i1/d]
+  // isAllocatedOutermost(allocation_domain, i1) == false
+  // isAllocatedOutermost(allocation_domain, i0) == true
+
+  auto no_reductions_allocation = TensorDomain::noReductions(allocation_domain);
+
+  // Check if derived_ids appear at the front.
+  size_t derived_idx = 0;
+  for (IterDomain* alloc_id : no_reductions_allocation) {
+    if (derived_idx >= derived_ids.size()) {
+      break;
+    }
+    if (alloc_id == derived_ids.at(derived_idx)) {
+      derived_idx++;
+    } 
+    if (alloc_id->isDeviceDim() || alloc_id->isBroadcast()) {
+      continue;
+    }
+    return false;
+  }
+  NVF_ERROR(derived_idx == derived_ids.size(), "Some derived ids ", derived_ids, " not found in allocation domain ", no_reductions_allocation);
+  return true;
+}
+
+} // namespace
+
+// Returns the communication info for the gather/scatter/reduce scatter communication
+// that may require reordering the allocation domain.
+std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
+  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
+  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+  bool has_sharding_change = false;
+  std::optional<CommunicationInfo> communication_info = std::nullopt;
+
+  auto update_communication_info = [&](CommunicationType type, IterDomain* logical_id) {
+    NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
+    has_sharding_change = true;
+    communication_info = CommunicationInfo{type, logical_id};
+  };
+
+  // This ignores device dimensions on reduction axis.
+  auto producer_pt_to_did = mapDeviceParallelTypeToId(producer->getLoopDomain());
+  auto consumer_pt_to_did = mapDeviceParallelTypeToId(consumer->getLoopDomain());
+  
+  for (ParallelType pt: kParallelTypeDIDs) {
+    IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
+    IterDomain* c_loop_did = getOrDefault(consumer_pt_to_did, pt);
+
+    if (p_loop_did == nullptr && c_loop_did == nullptr) {
+      // Not sharded on this parallel type
+      continue;
+    }
+
+    bool p_sharded = p_loop_did != nullptr;
+    bool c_sharded = c_loop_did != nullptr;
+
+    if (expr->isA<LoadStoreOp>()) {
+      if (p_sharded && !c_sharded) {
+        if (p_loop_did->isBroadcast()) {
+          continue;
+        }
+        // Gather / Allgather: For simplicity, we do not distinguish between them.
+        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        update_communication_info(CommunicationType::Gather, p_logical_id);
+      }
+      if (!p_sharded && c_sharded) {
+        if (c_loop_did->isBroadcast()) {
+          continue;
+        }
+        // Scatter
+        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+        update_communication_info(CommunicationType::Scatter, c_logical_id);
       }
     }
+    else if (expr->isA<ReductionOp>()) {
+      if (!p_sharded || !c_sharded) {
+        // Cannot be a reduce scatter communication.
+        continue;
+      }
+      
+      if (c_loop_did->isBroadcast()) {
+        continue;
+      }
+
+      // Check if the in_sharded_axis is reduced in the output.
+      IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+      IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+
+      const auto p2c_map = PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+      auto c_it = p2c_map.find(p_logical_id);
+      NVF_ERROR(c_it != p2c_map.end(), "Cannot find the mapped consumer logical ID for the producer logical ID ", p_logical_id->toString());
+      if (!c_it->second->isReduction()) {
+        continue;
+      }
+      update_communication_info(CommunicationType::ReduceScatter, c_logical_id);
+    } else {
+      NVF_THROW("Unsupported expression: ", expr->toString());
+    }
   }
-  return false;
+  return communication_info;
+}
+
+bool isTvContiguous(const TensorView* tv) {
+  // Reduction and broadcast axis do not have a contiguity value.
+  return std::all_of(
+      tv->getContiguity().begin(),
+      tv->getContiguity().end(),
+      [](std::optional<bool> c) { return c.value_or(true); });
+}
+
+bool isCommLayoutCompliant(Expr* expr) {
+  std::optional<CommunicationInfo> communication_info = getGatherOrScatterCommInfo(expr);
+  if (!communication_info.has_value()) {
+    return true;
+  }
+
+  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
+  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+
+  if (!isTvContiguous(producer) || !isTvContiguous(consumer)) {
+    return false;
+  }
+  std::vector<IterDomain*> domain;
+  if ((*communication_info).type == CommunicationType::Gather) {
+    domain = producer->getMaybeAllocationDomain();
+  } else {
+    domain = consumer->getMaybeAllocationDomain();
+  }
+  return isAllocatedOutermost(domain, (*communication_info).sharded_id);
 }
 
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {

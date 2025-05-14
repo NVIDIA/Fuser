@@ -592,7 +592,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
-    if (isResharding(expr) && isInnerResharding(expr)) {
+    if (isResharding(expr) && !isCommLayoutCompliant(expr)) {
       num_inner_reshardings++;
     }
   }
@@ -602,7 +602,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
-      EXPECT_FALSE(isInnerResharding(expr));
+      EXPECT_TRUE(isCommLayoutCompliant(expr));
     }
   }
 }
