@@ -289,6 +289,13 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
+    fusion->printMath();
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
+    fusion->print();
+  }
+
   analysis(fusion);
 }
 

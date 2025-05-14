@@ -109,7 +109,7 @@ void validateTensors(
 } // namespace
 
 KernelArgumentHolder HostIrExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
@@ -340,8 +340,9 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     }
   }
 
-  NVF_ERROR(
-      outputs.size() == launch_kernel->outputs().size(),
+  NVF_ERROR_EQ(
+      outputs.size(),
+      std::ssize(launch_kernel->outputs()),
       "Not all outputs to the kernel were preallocated");
 
   args.setDeviceIndex();
