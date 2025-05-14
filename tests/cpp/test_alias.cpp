@@ -1545,7 +1545,6 @@ TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
 }
 
 TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
-  // testing a complete fusion
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1613,6 +1612,35 @@ TEST_F(AliasTest, FusionEmpty) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(HeuristicIs(SchedulerType::ExprEval)));
+}
+
+TEST_F(AliasTest, IntermediateTensorWithAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({15, 2});
+  TensorView* x = transpose(in);
+  x = segment_set(x);
+  TensorView* out = reshape(x, {2, 15}, {2, 3, 5});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  x->setAllocationDomain(x->getLogicalDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({15, 2}, at::dtype(at::kFloat).device(at::kCUDA));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::ExprEval)));
 }
 
 } // namespace nvfuser
