@@ -3291,7 +3291,7 @@ std::string hopperPlusTestName(
   return os.str();
 }
 
-std::string hopperTestNameSwizzle(
+std::string hopperPlusTestNameSwizzle(
     const testing::TestParamInfo<HopperPlusMatmulSchedulerTestParams>& info) {
   std::unordered_map<MmaMacro, std::string> mma_macro_to_swizzle_str_map = {
       {MmaMacro::Hopper_64_256_16, "128BSwizzle"},
@@ -3299,11 +3299,11 @@ std::string hopperTestNameSwizzle(
       {MmaMacro::Hopper_64_64_16, "128BSwizzle"},
       {MmaMacro::Hopper_64_32_16, "64BSwizzle"},
       {MmaMacro::Hopper_64_16_16, "32BSwizzle"},
-      {MmaMacro::Blackwell_128_256_16, "128BSwizzle"},
-      {MmaMacro::Blackwell_128_128_16, "128BSwizzle"},
-      {MmaMacro::Blackwell_128_64_16, "128BSwizzle"},
-      {MmaMacro::Blackwell_128_32_16, "64BSwizzle"},
-      {MmaMacro::Blackwell_128_16_16, "32BSwizzle"}};
+      {MmaMacro::Blackwell1CTA_128_256_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_128_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_64_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_32_16, "64BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_16_16, "32BSwizzle"}};
   MmaMacro mma_macro = std::get<6>(info.param);
   std::ostringstream os;
   os << hopperPlusTestName(info);
@@ -3538,7 +3538,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(128), // K
         testing::Values(
             MmaMacro::Hopper_64_128_16,
-            MmaMacro::Blackwell_128_128_16), // mma_macros
+            MmaMacro::Blackwell1CTA_128_128_16), // mma_macros
         testing::Values(1, 2) // SplitK Factor
         ),
     hopperPlusTestName);
@@ -3559,11 +3559,11 @@ INSTANTIATE_TEST_SUITE_P(
             MmaMacro::Hopper_64_64_16,
             MmaMacro::Hopper_64_32_16,
             MmaMacro::Hopper_64_16_16,
-            MmaMacro::Blackwell_128_256_16,
-            MmaMacro::Blackwell_128_128_16,
-            MmaMacro::Blackwell_128_64_16,
-            MmaMacro::Blackwell_128_32_16,
-            MmaMacro::Blackwell_128_16_16), // mma_macros
+            MmaMacro::Blackwell1CTA_128_256_16,
+            MmaMacro::Blackwell1CTA_128_128_16,
+            MmaMacro::Blackwell1CTA_128_64_16,
+            MmaMacro::Blackwell1CTA_128_32_16,
+            MmaMacro::Blackwell1CTA_128_16_16), // mma_macros
         testing::Values(1) // SplitK Factor
         ),
     hopperPlusTestNameSwizzle);
