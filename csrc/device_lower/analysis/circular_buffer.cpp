@@ -246,6 +246,8 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
+// If compute warp groups are independent, then the mbarrier waits for 128
+// threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
@@ -286,6 +288,36 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
   // Step 5: Use independent warp groups if warp specialized axis is to the
   // left of the stage_slice_position
   return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
+}
+
+void validateStageSlicePosition(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return;
+  }
+
+  int64_t slice_position = warp_specialized.stage_slice_position.value();
+  NVF_ERROR(
+      slice_position >= 0, "Slice position must be non-negative integer.");
+  NVF_ERROR(
+      slice_position <= tv->nDims(),
+      "Slice position must be inside TensorView nDims.");
+
+  const std::vector<IterDomain*>& loop = tv->domain()->loop();
+  bool is_slice_after_bulk = std::all_of(
+      loop.begin(), loop.begin() + slice_position, [](IterDomain* id) {
+        return id->getParallelType() != ParallelType::Bulk;
+      });
+  NVF_ERROR(
+      is_slice_after_bulk,
+      "Detected an iterDomain with ParallelType::Bulk to the left of stage ",
+      "slice position.");
 }
 
 } // namespace
@@ -394,6 +426,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   if (GpuLower::hasCurrent()) {
     circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
   }
+  validateStageSlicePosition(circular_buffer_tv);
 
   // short-circuit: insertion position is only for warp specialization.
   if (!std::holds_alternative<WarpSpecialized>(

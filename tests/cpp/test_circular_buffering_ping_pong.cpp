@@ -100,7 +100,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     PingPongCircularBuffering,
-    ::testing::Combine(::testing::Range(0, 6)),
+    ::testing::Combine(::testing::Range(0, 7)),
     [](const testing::TestParamInfo<PingPongCircularBufferingParams>& info) {
       std::stringstream ss;
       ss << "stage_slice_position_" << std::get<0>(info.param);
