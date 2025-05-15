@@ -715,7 +715,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 }
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto indexed_id = hir_alias_select->in()->axis(hir_alias_select->axis());
+  auto indexed_id = hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
   auto index = indexed_id->isBroadcast()
       ? 0
       : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
