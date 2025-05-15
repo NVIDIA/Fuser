@@ -1174,7 +1174,13 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
 
 TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+
+  if (ws_enabled) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
+    return;
+  }
+
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
@@ -1231,7 +1237,12 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+
+  if (ws_enabled) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
+    return;
+  }
 
   std::vector<int64_t> norm_shape{dim1};
   std::vector<int64_t> input_shape{dim0, dim1};
