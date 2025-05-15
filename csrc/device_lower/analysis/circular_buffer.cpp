@@ -410,11 +410,14 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   int64_t outer_most_circular_buffer_position =
       getOuterMostCircularBufferPosition(circular_buffer_tv);
 
-  // The inner_most position is the first serial iterDomain to the left of the
-  // ComputeAt position. It can be specified in WarpSpecialized options.
+  // The default inner_most position is the first serial iterDomain to the left
+  // of the ComputeAt position. It can be specified in WarpSpecialized options.
+  // stage_slice_position is an inclusive range from
+  // [stage_slice_position, num_dimensions), so it corresponding for-loop is
+  // stage_slice_position - 1.
   int64_t inner_most_circular_buffer_position =
       (warp_specialized.stage_slice_position.has_value())
-      ? warp_specialized.stage_slice_position.value()
+      ? warp_specialized.stage_slice_position.value() - 1
       : getInnerMostCircularBufferPosition(circular_buffer_tv);
 
   NVF_ERROR(
