@@ -340,17 +340,29 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
     return;
   }
 
+  // short-circuit: stage_slice_position is specified in WarpSpecialized.
+  const auto& warp_specialized = std::get<WarpSpecialized>(
+      circular_buffer_tv->circularBufferOptions().type);
+
   // The outer_most position is the cloned for-loop for warp specialization.
-  // The inner_most position is the default cloned for-loop.
-  // When inner_most position is used for cloning, the insertion point
-  // for mbarrier synchronization is 1 or the cloned for-loop.
-  // When outer_most != inner_most position, then the mbarrier synchronization
-  // is still placed at inner_most for-loop. The insertion_point is the
-  // number of nested for-loops relative to the outer_most position.
   int64_t outer_most_circular_buffer_position =
       getOuterMostCircularBufferPosition(circular_buffer_tv);
+
+  // The inner_most position is the first serial iterDomain to the left of the
+  // ComputeAt position. It can be specified in WarpSpecialized options.
   int64_t inner_most_circular_buffer_position =
-      getInnerMostCircularBufferPosition(circular_buffer_tv);
+      (warp_specialized.stage_slice_position.has_value())
+      ? warp_specialized.stage_slice_position.value()
+      : getInnerMostCircularBufferPosition(circular_buffer_tv);
+
+  NVF_ERROR(
+      inner_most_circular_buffer_position < circular_buffer_tv->nDims(),
+      "Expected inner_most_circular_buffer_position <= number of tensor dimensions",
+      "but got ",
+      inner_most_circular_buffer_position,
+      " and ",
+      circular_buffer_tv->nDims());
+
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
@@ -359,6 +371,12 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       outer_most_circular_buffer_position,
       " and ",
       inner_most_circular_buffer_position);
+
+  // When inner_most position is used for cloning, the insertion point
+  // for mbarrier synchronization is 1 or the cloned for-loop.
+  // When outer_most != inner_most position, then the mbarrier synchronization
+  // is placed at inner_most for-loop. The insertion_point is the number of
+  // nested for-loops relative to the outer_most position.
   int64_t insertion_position = inner_most_circular_buffer_position -
       outer_most_circular_buffer_position + 1;
   circular_buffer_insertion_position_[circular_buffer_axis] =
