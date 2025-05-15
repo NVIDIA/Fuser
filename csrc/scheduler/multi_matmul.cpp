@@ -8,8 +8,8 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <multidevice/utils.h>
-#include <scheduler/ampere_multi_matmul.h>
-#include <scheduler/hopper_multi_matmul.h>
+#include <scheduler/multi_matmul_ampere-.h>
+#include <scheduler/multi_matmul_hopper+.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
@@ -142,9 +142,9 @@ void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams* params) {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const int cc = device_prop->major * 10 + device_prop->minor;
   if (cc >= 75 && cc < 90) {
-    AmpereMultipleMatmulScheduler(fusion, params).run();
-  } else if (cc >= 90 && cc < 100) {
-    HopperMultipleMatmulScheduler(fusion, params).run();
+    AmpereMinusMultipleMatmulScheduler(fusion, params).run();
+  } else if (cc >= 90 && cc < 110) {
+    HopperPlusMultipleMatmulScheduler(fusion, params).run();
   } else {
     NVF_THROW(
         "The matrix multiplication scheduler is unavailable for this device: ",

@@ -21,8 +21,6 @@ namespace nvfuser {
 namespace hir {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
@@ -226,11 +224,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   auto hicExprs =
       runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(
-      hicExprs,
-      Contains(Property(&Expr::isA<Deallocate>, IsTrue()))
-          .Times(testing::Eq(3)))
-      << "host ir container should have 3 deallocate ops";
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
 
   testValidate(
       executor_cache.fusion(),

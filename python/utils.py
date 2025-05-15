@@ -278,14 +278,24 @@ def override_build_config_from_env(config):
         config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
 
 
+def get_default_install_prefix():
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(cwd, "nvfuser_common")
+
+
 class build_ext(setuptools.command.build_ext.build_ext):
+    def __init__(self, *args, **kwargs):
+        install_dir = kwargs.pop("install_dir", "")
+        self.install_dir = install_dir if install_dir else get_default_install_prefix()
+        super().__init__(*args, **kwargs)
+
     def copy_library(self, ext, library_name):
         # Copy files on necessity.
         filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
         fileext = os.path.splitext(filename)[1]
 
         libnvfuser_path = os.path.join(
-            "./nvfuser_common/lib", f"{library_name}{fileext}"
+            os.path.join(self.install_dir, "lib"), f"{library_name}{fileext}"
         )
         assert os.path.exists(libnvfuser_path)
         install_dst = os.path.join(self.build_lib, filename)
@@ -296,8 +306,8 @@ class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
             self.copy_library(ext, "libnvfuser")
-        elif ext.name == "nvfuser_next._C_NEXT":
-            self.copy_library(ext, "libnvfuser_next")
+        elif ext.name == "nvfuser_direct._C_DIRECT":
+            self.copy_library(ext, "libnvfuser_direct")
         else:
             super().build_extension(ext)
 
@@ -398,9 +408,7 @@ def cmake(config, relative_path):
         os.makedirs(cmake_build_dir)
 
     install_prefix = (
-        os.path.join(cwd, "nvfuser_common")
-        if not config.install_dir
-        else config.install_dir
+        config.install_dir if config.install_dir else get_default_install_prefix()
     )
 
     from tools.gen_nvfuser_version import (
@@ -562,12 +570,14 @@ def run(config, version_tag, relative_path):
             packages=find_packages(),
             ext_modules=[
                 Extension(name="nvfuser._C", sources=[]),
-                Extension(name="nvfuser_next._C_NEXT", sources=[]),
+                Extension(name="nvfuser_direct._C_DIRECT", sources=[]),
             ],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
-                "build_ext": build_ext,
+                "build_ext": lambda *args, **kwargs: build_ext(
+                    *args, install_dir=config.install_dir, **kwargs
+                ),
                 "clean": create_clean(relative_path),
             },
             package_data={

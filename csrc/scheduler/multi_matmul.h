@@ -16,8 +16,8 @@
 
 namespace nvfuser {
 
-// Base class for AmpereMultipleMatmulScheduler and
-// HopperMultipleMatmulScheduler
+// Base class for AmpereMinusMultipleMatmulScheduler and
+// HopperPlusMultipleMatmulScheduler
 class MultipleMatmulScheduler {
  public:
   MultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
