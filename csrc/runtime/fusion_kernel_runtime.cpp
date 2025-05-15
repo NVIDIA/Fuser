@@ -476,45 +476,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     IrCloner ir_cloner(hic.get());
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      if (hic->hasKernelExecutor(group_to_run->groupId())) {
-        auto in_clone = ir_cloner.clone(group_to_run->inputs());
-        auto out_clone = ir_cloner.clone(group_to_run->outputs());
-        auto heuristic_params = schedulers().at(group_to_run->groupId()).get();
-        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-            group_to_run->groupId(),
-            heuristic_params->lparams,
-            heuristic_params->cparams,
-            std::vector<Val*>{in_clone},
-            std::vector<Val*>{out_clone});
-        for (auto* val : out_clone) {
-          NVF_ERROR(
-              val->isA<TensorView>(),
-              "Output must be a TensorView but got ",
-              val);
-          const AliasInfo& alias_info =
-              segmented_fusion_->completeFusion()->getOutputAlias(val);
-          NVF_ERROR(
-              alias_info.type == AllocationType::New,
-              "Output ",
-              val->toString(),
-              " must not be an alias, got ",
-              alias_info.toString());
-          auto* tv = val->as<TensorView>();
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-          hic->pushBackTopLevelExprs(allocate);
-        }
-        hic->pushBackTopLevelExprs(launch_kernel);
-      } else {
-        NVF_CHECK(
-            group_to_run->schedulerType() == SchedulerType::Communication ||
-                group_to_run->schedulerType() == SchedulerType::ExprEval,
-            "Expected SchedulerType::Communication or SchedulerType::ExprEval for group ",
-            run_order_id,
-            ", got ",
-            group_to_run->schedulerType());
-        if (group_to_run->schedulerType() == SchedulerType::Communication) {
+      SegmentedGroup* group_to_run =
+          runtime_workspace_.group_run_order.at(run_order_id);
+      switch (group_to_run->schedulerType()) {
+        case SchedulerType::Communication: {
           auto deviceid = Communicator::getInstance().deviceId();
           NVF_ERROR(
               group_to_run->exprs().size() == 1,
@@ -538,16 +503,52 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
             hic->pushBackTopLevelExprs(wait);
           }
-        } else {
+        } break;
+        case SchedulerType::ExprEval: {
           // push back segment's exprs into the container as top level
           // expressions
           for (auto* expr : group_to_run->stablyOrderedExprs()) {
             auto cloned_expr = ir_cloner.clone(expr);
             hic->pushBackTopLevelExprs(cloned_expr);
           }
-        }
+        } break;
+        default:
+          const int group_id = group_to_run->groupId();
+          NVF_ERROR(
+              hic->hasKernelExecutor(group_id),
+              "The kernel to be launched hasn't been compiled: group_id = ",
+              group_id);
+          auto in_clone = ir_cloner.clone(group_to_run->inputs());
+          auto out_clone = ir_cloner.clone(group_to_run->outputs());
+          auto heuristic_params = schedulers().at(group_id).get();
+          auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+              group_id,
+              heuristic_params->lparams,
+              heuristic_params->cparams,
+              std::vector<Val*>{in_clone},
+              std::vector<Val*>{out_clone});
+          for (auto* val : out_clone) {
+            NVF_ERROR(
+                val->isA<TensorView>(),
+                "Output must be a TensorView but got ",
+                val);
+            const AliasInfo& alias_info =
+                segmented_fusion_->completeFusion()->getOutputAlias(val);
+            NVF_ERROR(
+                alias_info.type == AllocationType::New,
+                "Output ",
+                val->toString(),
+                " must not be an alias, got ",
+                alias_info.toString());
+            auto* tv = val->as<TensorView>();
+            auto* allocate =
+                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            hic->pushBackTopLevelExprs(allocate);
+          }
+          hic->pushBackTopLevelExprs(launch_kernel);
       }
     }
+
     for (const Val* in : segmented_fusion_->inputs()) {
       hic->addInput(ir_cloner.clone(in));
     }
@@ -608,8 +609,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
-  for (int64_t group_id : arange(num_groups)) {
-    auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
+  for (int64_t run_order_id : arange(num_groups)) {
+    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
     // Create fusion for this segmented group
     Fusion* fusion_to_run = group_to_run->getFusion();
@@ -686,7 +687,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         evaluator_precomputed_values.get());
 
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, group_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
   }
   return heuristics;
 }
@@ -819,9 +820,9 @@ void FusionKernelRuntime::compileKernel(
   if (hic != nullptr &&
       (sg->schedulerType() == SchedulerType::ExprEval ||
        sg->schedulerType() == SchedulerType::Communication)) {
-    // When lowering to host IR, ExprEval and Communication segments are lowered
-    // to top-level expressions in the host IR container, not executors. Only
-    // kernels need to be compiled.
+    // When lowering to host IR, ExprEval and Communication segments are
+    // lowered to top-level expressions in the host IR container, not
+    // executors. Only kernels need to be compiled.
     return;
   }
 
