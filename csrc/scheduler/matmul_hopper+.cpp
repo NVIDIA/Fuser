@@ -15,7 +15,7 @@
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/multi_matmul_hopper+.h>
+#include <scheduler/matmul_hopper+.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -30,7 +30,9 @@
 
 namespace nvfuser {
 
-void HopperPlusMultipleMatmulScheduler::transformLikeMmaOutputWithK(
+namespace schedule_matmul {
+
+void HopperPlus::transformLikeMmaOutputWithK(
     TensorView* tv) {
   NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
   // The input is originally block tiled so that the inner dims are the CTA tile
@@ -64,7 +66,7 @@ void HopperPlusMultipleMatmulScheduler::transformLikeMmaOutputWithK(
   // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
 }
 
-void HopperPlusMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
+void HopperPlus::transformLikeMmaOutputWithoutK(
     TensorView* tv) {
   NVF_ERROR(
       tv->domain()->loop().size() >= 4,
@@ -96,7 +98,7 @@ void HopperPlusMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
   // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
-MatmulDimRole HopperPlusMultipleMatmulScheduler::findMatmulDimRole(
+MatmulDimRole HopperPlus::findMatmulDimRole(
     IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
@@ -104,7 +106,7 @@ MatmulDimRole HopperPlusMultipleMatmulScheduler::findMatmulDimRole(
   return it->second;
 }
 
-void HopperPlusMultipleMatmulScheduler::validate() const {
+void HopperPlus::validate() const {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const int cc = device_prop->major * 10 + device_prop->minor;
   NVF_ERROR(cc >= 90, "This matmul scheduler is restricted to Hopper.");
@@ -126,7 +128,7 @@ void HopperPlusMultipleMatmulScheduler::validate() const {
       "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
 }
 
-void HopperPlusMultipleMatmulScheduler::run() {
+void HopperPlus::run() {
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
@@ -169,7 +171,7 @@ void HopperPlusMultipleMatmulScheduler::run() {
   setUpCircularBuffering();
 }
 
-void HopperPlusMultipleMatmulScheduler::reorderBlockTileTraversal(
+void HopperPlus::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
   NVF_ERROR(params_->grid_traversal_factor.first >= 1);
@@ -320,7 +322,7 @@ void HopperPlusMultipleMatmulScheduler::reorderBlockTileTraversal(
   }
 }
 
-std::vector<std::vector<MatmulDimRole>> HopperPlusMultipleMatmulScheduler::
+std::vector<std::vector<MatmulDimRole>> HopperPlus::
     blockTileTensors(const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
     canonical_dim_ordering_ =
@@ -410,7 +412,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlusMultipleMatmulScheduler::
   return all_merged_roles;
 }
 
-void HopperPlusMultipleMatmulScheduler::inspectPrologues() const {
+void HopperPlus::inspectPrologues() const {
   for (TensorView* mma_result : mma_results_) {
     for (Val* v : mma_result->definition()->inputs()) {
       TensorView* op_input = v->as<TensorView>();
@@ -427,7 +429,7 @@ void HopperPlusMultipleMatmulScheduler::inspectPrologues() const {
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::scheduleOperands() {
+void HopperPlus::scheduleOperands() {
   NVF_CHECK(
       params_->async_gmem_load_operands,
       "Hopper+ matmul scheduler currently requires TMA to be enabled");
@@ -449,7 +451,7 @@ void HopperPlusMultipleMatmulScheduler::scheduleOperands() {
   scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
 }
 
-void HopperPlusMultipleMatmulScheduler::parallelizeBlocks(
+void HopperPlus::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
     switch (params_->tiling_strategy) {
@@ -485,7 +487,7 @@ void HopperPlusMultipleMatmulScheduler::parallelizeBlocks(
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::scheduleMmaResults() {
+void HopperPlus::scheduleMmaResults() {
   GemmTile instruction_tile = getMmaOpShape(params_->mma_macro);
   NVF_CHECK(
       params_->tile_sizes.cta_tile.k == params_->tile_sizes.warp_tile.k,
@@ -548,7 +550,7 @@ void HopperPlusMultipleMatmulScheduler::scheduleMmaResults() {
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::scheduleEpilogue() {
+void HopperPlus::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
   // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
   std::vector<TensorView*> tma_load_epilogue_inputs;
@@ -757,7 +759,7 @@ void HopperPlusMultipleMatmulScheduler::scheduleEpilogue() {
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::scheduleSplitKSum() {
+void HopperPlus::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -773,7 +775,7 @@ void HopperPlusMultipleMatmulScheduler::scheduleSplitKSum() {
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::setUpInlining() {
+void HopperPlus::setUpInlining() {
   // auto inline for all tensors except register tensors
   std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
@@ -788,7 +790,7 @@ void HopperPlusMultipleMatmulScheduler::setUpInlining() {
   }
 }
 
-void HopperPlusMultipleMatmulScheduler::setUpCircularBuffering() {
+void HopperPlus::setUpCircularBuffering() {
   // Propagate mma output swizzle and parallelization down the DAG
   if (params_->circular_buffer_options.circular_buffer_smem_write) {
     NVF_ERROR(
@@ -870,26 +872,9 @@ void HopperPlusMultipleMatmulScheduler::setUpCircularBuffering() {
 
   // NOTE: circular_buffer_smem_read is ignored for Hopper+ matmul since we do
   // not do any cache reads
-
-  /*
-  // TODO Investigate. Disable loop rotation with tma circular buffering
-  if (params_->circular_buffer_options.circular_buffer_smem_read &&
-      params_->circular_buffer_options.circular_buffer_smem_write) {
-    // rotate Kg loop
-    // This assumes we have a single main loop. If there were multiple main
-    // loops, then we would need to rotate each of them separately.
-    std::unordered_set<Statement*> all_smem_loads;
-    all_smem_loads.insert(acrs_.begin(), acrs_.end());
-    all_smem_loads.insert(bcrs_.begin(), bcrs_.end());
-    scheduler_utils::rotateLoop(
-        mma_results_.front(),
-        num_device_and_batch_dims_ + 2 + num_splitk_dims_,
-        all_smem_loads);
-  }
-  */
 }
 
-void HopperPlusMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+void HopperPlus::setOperandSmemLoadAndCacheOps(
     TensorView* operand,
     int64_t vec_size) {
   auto* lsop = operand->definition()->as<LoadStoreOp>();
@@ -899,4 +884,5 @@ void HopperPlusMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
   lsop->setOpType(load_op);
 }
 
+} // namespace schedule_matmul
 } // namespace nvfuser

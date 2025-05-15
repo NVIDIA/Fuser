@@ -14,7 +14,7 @@
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/multi_matmul_ampere-.h>
+#include <scheduler/matmul_ampere-.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -444,7 +444,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 } // namespace
 
-void AmpereMinusMultipleMatmulScheduler::validate() const {
+namespace schedule_matmul {
+void AmpereMinus::validate() const {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const int cc = device_prop->major * 10 + device_prop->minor;
   NVF_ERROR(
@@ -466,7 +467,7 @@ void AmpereMinusMultipleMatmulScheduler::validate() const {
       "Ampere & Turing matmul scheduler does not support warp specialization");
 }
 
-void AmpereMinusMultipleMatmulScheduler::run() {
+void AmpereMinus::run() {
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
@@ -506,7 +507,7 @@ void AmpereMinusMultipleMatmulScheduler::run() {
   setUpCircularBuffering();
 }
 
-void AmpereMinusMultipleMatmulScheduler::cacheOperandsToRegisters(
+void AmpereMinus::cacheOperandsToRegisters(
     const std::vector<TensorView*>& tv_smems,
     std::vector<TensorView*>& tv_rs) {
   tv_rs.resize(tv_smems.size(), nullptr);
@@ -532,7 +533,7 @@ void AmpereMinusMultipleMatmulScheduler::cacheOperandsToRegisters(
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::reorderBlockTileTraversal(
+void AmpereMinus::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
   NVF_ERROR(
@@ -600,7 +601,7 @@ void AmpereMinusMultipleMatmulScheduler::reorderBlockTileTraversal(
   }
 }
 
-TensorView* AmpereMinusMultipleMatmulScheduler::cacheAfter(
+TensorView* AmpereMinus::cacheAfter(
     TensorView* orig,
     LoadStoreOpType op_type,
     CacheOp cache_op,
@@ -635,7 +636,7 @@ TensorView* AmpereMinusMultipleMatmulScheduler::cacheAfter(
   return c;
 }
 
-std::vector<std::vector<MatmulDimRole>> AmpereMinusMultipleMatmulScheduler::
+std::vector<std::vector<MatmulDimRole>> AmpereMinus::
     blockTileTensors(const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
     canonical_dim_ordering_ =
@@ -710,7 +711,7 @@ std::vector<std::vector<MatmulDimRole>> AmpereMinusMultipleMatmulScheduler::
   return all_merged_roles;
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleOperandSmemStores() {
+void AmpereMinus::scheduleOperandSmemStores() {
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
                             const int64_t vec_size) {
@@ -734,7 +735,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleOperandSmemStores() {
   scheduleBranch(bs_, bcw_smems_, params_->supported_vec_size.b);
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleMmaOperands(
+void AmpereMinus::scheduleMmaOperands(
     std::vector<TensorView*>& tvs,
     const std::optional<MmaOperand> operand_type) {
   auto all_merged_roles = blockTileTensors(tvs);
@@ -776,7 +777,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleMmaOperands(
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleMmaResults() {
+void AmpereMinus::scheduleMmaResults() {
   auto all_merged_roles = blockTileTensors(mma_results_);
   for (size_t i : arange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
@@ -927,7 +928,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleMmaResults() {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::schedulePrologues() {
+void AmpereMinus::schedulePrologues() {
   // schedule all transfers from gmem to smem (acw_smems_ and bcw_smems_)
   scheduleOperandSmemStores();
 
@@ -1023,7 +1024,7 @@ void AmpereMinusMultipleMatmulScheduler::schedulePrologues() {
   schedulePrologueBranch(bcw_smems_, bcrs_, bbs_, MmaOperand::B);
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
+void AmpereMinus::scheduleOutputTensor(TensorView* c) {
   const MatMulTileOptions& gemm_tile = params_->tile_sizes;
   const int64_t vectorization_factor = params_->supported_vec_size.epilogue;
   // input tensor is in the form of [Mo,No,cta_tile_m,cta_tile_n]
@@ -1096,7 +1097,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleOutputTensor(TensorView* c) {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleEpilogue() {
+void AmpereMinus::scheduleEpilogue() {
   std::vector<TensorView*> output_tvs;
   for (Val* v : fusion_->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(v)) {
@@ -1151,7 +1152,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleEpilogue() {
   scheduleFusionInputsForEpilogue();
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleFusionInputsForEpilogue() {
+void AmpereMinus::scheduleFusionInputsForEpilogue() {
   std::vector<TensorView*> cached_tvs;
 
   // Handling transformations in fusion input tvs with assigned EPILOGUE_INPUT
@@ -1190,7 +1191,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleFusionInputsForEpilogue() {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::scheduleSplitKSum() {
+void AmpereMinus::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1232,7 +1233,7 @@ void AmpereMinusMultipleMatmulScheduler::scheduleSplitKSum() {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::setUpInlining() {
+void AmpereMinus::setUpInlining() {
   // auto inline for all tensors except register tensors
   std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
   smem_loads_and_mma_inputs.insert(acrs_.begin(), acrs_.end());
@@ -1251,7 +1252,7 @@ void AmpereMinusMultipleMatmulScheduler::setUpInlining() {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::setUpCircularBuffering() {
+void AmpereMinus::setUpCircularBuffering() {
   // Propagate mma output swizzle and parallelization down the DAG
   if (params_->circular_buffer_options.circular_buffer_smem_write) {
     NVF_ERROR(
@@ -1313,7 +1314,7 @@ void AmpereMinusMultipleMatmulScheduler::setUpCircularBuffering() {
   }
 }
 
-void AmpereMinusMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+void AmpereMinus::setOperandSmemLoadAndCacheOps(
     TensorView* operand,
     int64_t vec_size) {
   int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
@@ -1344,4 +1345,5 @@ void AmpereMinusMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
   lsop->setOpType(load_op);
 }
 
+} // namespace schedule_matmul
 } // namespace nvfuser
