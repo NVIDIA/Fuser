@@ -608,7 +608,7 @@ class FusionDefinition(_C._FusionDefinition):
             ):
                 assert torch.allclose(
                     fusion_output, reference_output, atol=atol, rtol=rtol
-                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
+                ), f"Max error: {torch.max(torch.abs(fusion_output - reference_output))}, \
                     Absolute tolerance: {atol}, Relative tolerance: {rtol}"
 
             else:
