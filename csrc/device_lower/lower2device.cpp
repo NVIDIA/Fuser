@@ -600,13 +600,8 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 
-  nonDivisibleSplitInfo().build(fusion_);
+  non_divisible_split_info_ = std::make_unique<NonDivisibleSplitInfo>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
-
-  // Detects all exprssions that don't need predicates. Depends on
-  // nonDivisibleSplitInfo.
-  pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
   circularBufferInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
@@ -615,12 +610,20 @@ void GpuLower::analysis(Fusion* fusion) {
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
   if (idModelOptions().loop()) {
+    // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
     id_model_->allocateLoopIndexVariables();
   }
 
   if (idModelOptions().buildTensorIndexer()) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    non_divisible_predicate_info_ =
+        std::make_unique<NonDivisiblePredicateInfo>(fusion_);
   }
+
+  // Detects all exprssions that don't need predicates. Depends on
+  // nonDivisibleSplitInfo.
+  pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");

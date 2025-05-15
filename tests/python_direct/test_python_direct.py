@@ -6,18 +6,18 @@
 
 def test_import_correct():
     try:
-        import nvfuser_next  # noqa: F401
+        import nvfuser_direct  # noqa: F401
     except Exception as e:
-        raise RuntimeError("Failed to import nvfuser_next.")
+        raise RuntimeError("Failed to import nvfuser_direct.")
 
 
-def test_import_conflict_next_then_nvfuser():
+def test_import_conflict_direct_then_nvfuser():
     try:
-        import nvfuser_next  # noqa: F401
+        import nvfuser_direct  # noqa: F401
         import nvfuser  # noqa: F401
     except AssertionError as e:
         expected_msg = (
-            "Cannot import nvfuser if nvfuser_next module is already imported."
+            "Cannot import nvfuser if nvfuser_direct module is already imported."
         )
         assert expected_msg in str(e)
         return

@@ -12,7 +12,7 @@ set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
 set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
-set(NVFUSER_PYTHON_NEXT_BINDINGS "${NVFUSER_ROOT}/python/python_next")
+set(NVFUSER_PYTHON_DIRECT_BINDINGS "${NVFUSER_ROOT}/python/python_direct")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -150,6 +150,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
@@ -216,6 +217,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
@@ -558,38 +560,38 @@ if(BUILD_PYTHON)
   # build nvfuser next python library
   # ------------------------------------------------
   # nvfuser next bindings API sources
-  set(NVFUSER_PYTHON_NEXT_SRCS)
-  list(APPEND NVFUSER_PYTHON_NEXT_SRCS
-    ${NVFUSER_PYTHON_NEXT_BINDINGS}/extension.cpp
-    ${NVFUSER_PYTHON_NEXT_BINDINGS}/bindings.cpp
-    ${NVFUSER_PYTHON_NEXT_BINDINGS}/ir.cpp
+  set(NVFUSER_PYTHON_DIRECT_SRCS)
+  list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/bindings.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
   )
-  add_library(nvf_py_next_internal OBJECT ${NVFUSER_PYTHON_NEXT_SRCS})
+  add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
-  # NOTE: For any future extension, change PYTHON_NEXT_EXTENSION to another
+  # NOTE: For any future extension, change PYTHON_DIRECT_EXTENSION to another
   # name other than EXTENSION_NAME.
-  target_compile_definitions(nvf_py_next_internal PRIVATE
+  target_compile_definitions(nvf_py_direct_internal PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
-    PYTHON_NEXT_EXTENSION=_C_NEXT
+    PYTHON_DIRECT_EXTENSION=_C_DIRECT
   )
 
-  add_library(nvfuser_next MODULE $<TARGET_OBJECTS:nvf_py_next_internal>)
-  target_compile_definitions(nvfuser_next PRIVATE
+  add_library(nvfuser_direct MODULE $<TARGET_OBJECTS:nvf_py_direct_internal>)
+  target_compile_definitions(nvfuser_direct PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
-    PYTHON_NEXT_EXTENSION=_C_NEXT
+    PYTHON_DIRECT_EXTENSION=_C_DIRECT
   )
 
   if(NOT MSVC)
-    target_compile_options(nvf_py_next_internal PRIVATE -Wall -Wno-unused-function)
-    target_compile_options(nvf_py_next_internal PRIVATE -Werror)
+    target_compile_options(nvf_py_direct_internal PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(nvf_py_direct_internal PRIVATE -Werror)
     set(NVF_LIB_SUFFIX ".so")
   else()
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
 
-  set_target_properties(nvf_py_next_internal PROPERTIES
+  set_target_properties(nvf_py_direct_internal PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
@@ -600,7 +602,7 @@ if(BUILD_PYTHON)
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
-  set_target_properties(nvfuser_next PROPERTIES
+  set_target_properties(nvfuser_direct PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
@@ -613,19 +615,19 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
-  target_include_directories(nvf_py_next_internal PUBLIC ${NVFUSER_PYTHON_NEXT_BINDINGS})
-  target_link_libraries(nvf_py_next_internal PRIVATE
+  target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
+  target_link_libraries(nvf_py_direct_internal PRIVATE
     codegen_internal
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
 
-  target_link_libraries(nvfuser_next PRIVATE
-    nvf_py_next_internal
+  target_link_libraries(nvfuser_direct PRIVATE
+    nvf_py_direct_internal
     codegen_internal
     Python::Module
   )
-  install(TARGETS nvfuser_next DESTINATION lib)
+  install(TARGETS nvfuser_direct DESTINATION lib)
 endif()
 
 set(JIT_TEST_SRCS)
