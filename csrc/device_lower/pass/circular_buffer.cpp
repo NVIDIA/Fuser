@@ -1458,7 +1458,8 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
   kir::IfThenElse* ite = nullptr;
   if (multiple_compute_warp_groups) {
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(ParallelType::TIDy),
+        NamedScalar::getParallelIndex(
+            GpuLower::current()->circularBufferInfo().getWarpSpecializedOn()),
         GpuLower::current()->kernel()->zeroVal());
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);

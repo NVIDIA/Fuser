@@ -315,13 +315,13 @@ void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
     auto ws_pt = std::get<WarpSpecialized>(option.type).on;
     int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
     auto consumer = ir_utils::consumerTvsOf(tv).at(0);
+    const auto& exact_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
     if (consumer->nDims() > next_pos &&
         consumer->axis(next_pos)->getParallelType() == ws_pt &&
         consumer->axis(next_pos)->extent()->isConst() &&
-        tv->axis(next_pos)->extent()->isConst() &&
-        tv->axis(next_pos)->getParallelType() == ParallelType::Serial &&
-        consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
-            tv->axis(next_pos)->extent()->value().as<int64_t>()) {
+        exact_graph.toGroup(consumer->axis(next_pos)) ==
+            exact_graph.toGroup(tv->axis(next_pos))) {
       new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
     }
   }
