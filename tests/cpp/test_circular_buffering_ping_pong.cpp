@@ -93,14 +93,45 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
       WarpSpecialized(ParallelType::TIDy, stage_slice_position));
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0});
+
+  try {
+    ke.compile(&fusion, {t0});
+  } catch (const std::exception& e) {
+    if (stage_slice_position == -1) {
+      const char* error_msg = R"(Slice position must be non-negative integer)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    } else if (stage_slice_position < 2) {
+      const char* error_msg =
+          R"(Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    } else if (stage_slice_position == 5) {
+      const char* error_msg =
+          R"(Detected an iterDomain with ParallelType::Bulk to the left of stage slice position.)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    } else if (stage_slice_position == 6) {
+      const char* error_msg =
+          R"(Slice position must be inside TensorView nDims.)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    }
+
+    throw;
+  }
+
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
     PingPongCircularBuffering,
-    ::testing::Combine(::testing::Range(0, 7)),
+    ::testing::Combine(::testing::Range(-1, 7)),
     [](const testing::TestParamInfo<PingPongCircularBufferingParams>& info) {
       std::stringstream ss;
       ss << "stage_slice_position_" << std::get<0>(info.param);
