@@ -56,7 +56,7 @@ using ValGroups = VectorOfUniqueEntries<ValGroup>;
 using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
 using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
-class NVF_API ValGraph {
+class ValGraph {
  public:
   ValGraph() = default;
 
