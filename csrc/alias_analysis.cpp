@@ -519,8 +519,8 @@ AliasAnalysisResult findAliases(
 }
 
 int64_t Layout::size() const {
-  NVF_ERROR(allocation_domain.size() == contiguity.size());
-  return static_cast<int64_t>(allocation_domain.size());
+  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
+  return std::ssize(allocation_domain);
 }
 
 std::string Layout::toString(const int indent_size) const {
