@@ -10,11 +10,10 @@
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/matmul.h>
 #include <scheduler/matmul_ampere-.h>
 #include <scheduler/matmul_hopper+.h>
+#include <scheduler/matmul_utils.h>
+#include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -271,9 +270,7 @@ void Common::cacheInputsAndOutputs(bool skip_intermediates) {
   }
 }
 
-TensorView* Common::cacheBefore(
-    TensorView* orig,
-    LoadStoreOpType op_type) {
+TensorView* Common::cacheBefore(TensorView* orig, LoadStoreOpType op_type) {
   TensorView* c = orig->cacheBefore(op_type);
 
   const std::vector<IterDomain*> orig_logical =

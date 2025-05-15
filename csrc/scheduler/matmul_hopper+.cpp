@@ -13,9 +13,9 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
+#include <scheduler/matmul_hopper+.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/matmul_hopper+.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -32,8 +32,7 @@ namespace nvfuser {
 
 namespace schedule_matmul {
 
-void HopperPlus::transformLikeMmaOutputWithK(
-    TensorView* tv) {
+void HopperPlus::transformLikeMmaOutputWithK(TensorView* tv) {
   NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
@@ -66,8 +65,7 @@ void HopperPlus::transformLikeMmaOutputWithK(
   // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
 }
 
-void HopperPlus::transformLikeMmaOutputWithoutK(
-    TensorView* tv) {
+void HopperPlus::transformLikeMmaOutputWithoutK(TensorView* tv) {
   NVF_ERROR(
       tv->domain()->loop().size() >= 4,
       "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
@@ -98,8 +96,7 @@ void HopperPlus::transformLikeMmaOutputWithoutK(
   // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
-MatmulDimRole HopperPlus::findMatmulDimRole(
-    IterDomain* id) {
+MatmulDimRole HopperPlus::findMatmulDimRole(IterDomain* id) {
   ValGroup vg = graph_->toGroup(id);
   auto it = id_roles_.find(vg);
   NVF_ERROR(it != id_roles_.end());
@@ -322,8 +319,8 @@ void HopperPlus::reorderBlockTileTraversal(
   }
 }
 
-std::vector<std::vector<MatmulDimRole>> HopperPlus::
-    blockTileTensors(const std::vector<TensorView*>& tvs) {
+std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
+    const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
     canonical_dim_ordering_ =
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
@@ -451,8 +448,7 @@ void HopperPlus::scheduleOperands() {
   scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
 }
 
-void HopperPlus::parallelizeBlocks(
-    const std::vector<TensorView*>& tvs) const {
+void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
     switch (params_->tiling_strategy) {
       case MatmulParams::TilingStrategy::OneTilePerCTA:

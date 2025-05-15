@@ -12,9 +12,9 @@
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_ampere-.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
-#include <scheduler/matmul_ampere-.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -636,8 +636,8 @@ TensorView* AmpereMinus::cacheAfter(
   return c;
 }
 
-std::vector<std::vector<MatmulDimRole>> AmpereMinus::
-    blockTileTensors(const std::vector<TensorView*>& tvs) {
+std::vector<std::vector<MatmulDimRole>> AmpereMinus::blockTileTensors(
+    const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
     canonical_dim_ordering_ =
         mma_utils::canonicalDimOrdering(tensor_roles_, id_roles_, *graph_);
