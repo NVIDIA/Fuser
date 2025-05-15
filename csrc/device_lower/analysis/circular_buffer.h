@@ -143,9 +143,6 @@ class CircularBufferInfo {
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
 
-  //! True if the fusion has warp specialized circular buffer
-  bool has_warp_sepcialized_ = false;
-
   //! warp specialized on, one fusion allows only one warp specialized dim
   ParallelType warp_specialized_on_ = ParallelType::Serial;
 };
