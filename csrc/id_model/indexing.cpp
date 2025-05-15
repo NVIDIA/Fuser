@@ -414,10 +414,20 @@ ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
   // The reason certain non-divisible splits are missed is because
   // size-one IDs, like r2 in the above example, may not need to be
   // traversed in the almost-exact graph. In order to find such IDs,
-  // it should be enough to visit each ID group on the path and see if
-  // it has a pattern like r0, that is, it is used by a split of a
-  // factor 1 and one of its outputs is in the same group in the
-  // almost-exact graph.
+  // we visit each ID group on the path and see if it has a pattern
+  // like r0, that is, it is used by a split of a factor 1 and one of
+  // its outputs is in the same group in the almost-exact graph. For
+  // each of the splits, the size-one output ID is potentially
+  // problematic as it may be further split in a non-divisible way and
+  // the ID is not in the indexing path, those non-divisible splits
+  // are never detected by NonDivisibleSplitInfo.
+  //
+  // See PredicateIndexingTest.AdditionalNonDivisibleSplit and
+  // PredicateIndexingTest.AdditionalNonDivisibleSplitAfterDivisibleSplit
+  // for concrete examples.
+
+  // The first step here is to find this pattern and gather all
+  // potentially problematic IDs.
 
   // Grab all involved ID groups.
   auto from_groups = traversalGraph().toGroups(index_info.loop_ids);
@@ -428,37 +438,45 @@ ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
       to_groups.vector(),
       traversalGraph());
 
+  // For each of the visited groups, look for the pattern like the
+  // above split of r0 to r1 and r2. Specifically, we want to find an
+  // ID that is split and one of the outputs is mapped with the split
+  // input in the AlmostExact graph.
+
+  // It's conceptually easier to use the Exact graph.
   const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
 
-  ValGroups exact_groups_to_predicate;
+  // All potentially problematic IDs
+  ValGroups exact_groups_to_check;
 
-  for (const auto& val_g : all_visited_groups) {
-    ValGroups exact_groups;
-    for (const auto& val : *val_g) {
+  for (const auto& almost_exact_group : all_visited_groups) {
+    // Find all Exact groups included in the AlmostExact group
+    ValGroups covered_exact_groups;
+    for (const auto& val : *almost_exact_group) {
       // Additional IDs may be created without getting added to the
-      // exact graph, so exact_graph.toGroup may fail. Should be safe
-      // to ignore them.
+      // exact graph, e.g., IDs for TMA and TMem, so
+      // exact_graph.toGroup may fail. Should be safe to ignore them.
       if (exact_graph.hasGroup(val)) {
-        exact_groups.pushBack(exact_graph.toGroup(val));
+        covered_exact_groups.pushBack(exact_graph.toGroup(val));
       }
     }
 
     // If all of the IDs are exact mapped, this node should not need
     // to be examined further
-    if (exact_groups.size() == 1) {
+    if (covered_exact_groups.size() == 1) {
       continue;
     }
 
     // Look for an exact ID group that is used by a split and one of
     // the outputs is mapped in the almost-exact graph
-    for (const auto& exact_group : exact_groups) {
-      for (const auto& use_eg : exact_graph.getUses(exact_group)) {
+    for (const auto& covered_exact_group : covered_exact_groups) {
+      for (const auto& use_eg : exact_graph.getUses(covered_exact_group)) {
         auto split = dynamic_cast<Split*>(use_eg->front());
         if (split == nullptr) {
           continue;
         }
-        bool inner_mapped = val_g->has(split->inner());
-        bool outer_mapped = val_g->has(split->outer());
+        bool inner_mapped = almost_exact_group->has(split->inner());
+        bool outer_mapped = almost_exact_group->has(split->outer());
 
         NVF_ERROR(
             !inner_mapped || !outer_mapped,
@@ -481,46 +499,42 @@ ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
           continue;
         }
 
-        exact_groups_to_predicate.pushBack(
-            exact_graph.toGroup(unmapped_output));
+        exact_groups_to_check.pushBack(exact_graph.toGroup(unmapped_output));
       }
     }
   }
 
-  if (!exact_groups_to_predicate.empty()) {
-    for (const auto& g : exact_groups_to_predicate) {
-      const auto path = ValGraphPermissiveBFS::getExprGroupsBetween(
-                            exact_graph,
-                            {g},
-                            exact_graph.toGroups(index_info.loop_ids),
-                            /*require_all_to_visited=*/false)
-                            .first;
+  // For each r2-like ID, check if there's any non-divisible split
+  // in the path from the loop IDs. Not all of them may need to be
+  // predicated. Similar to what NonDivisiblePredicateInfo does, we
+  // should be able to minimize IDs to predicate, but here for
+  // simplicity all of non-divisible splits are predicated
+  for (const auto& exact_group_to_check : exact_groups_to_check) {
+    const auto path = ValGraphPermissiveBFS::getExprGroupsBetween(
+                          exact_graph,
+                          {exact_group_to_check},
+                          exact_graph.toGroups(index_info.loop_ids),
+                          /*require_all_to_visited=*/false)
+                          .first;
 
-      for (const auto& [expr_g, dir] : path) {
-        auto split = dynamic_cast<Split*>(expr_g->front());
-        if (split == nullptr) {
-          continue;
-        }
-
-        if (dir == Direction::Backward) {
-          continue;
-        }
-
-        auto extent = split->in()->extent();
-        auto factor = split->factor();
-        if (extent->isConstScalar() && factor->isConstScalar() &&
-            (extent->evaluate().as<int64_t>() %
-                 factor->evaluate().as<int64_t>() ==
-             0)) {
-          continue;
-        }
-
-        if (GpuLower::current()->divisibleSplitSet().contains(split)) {
-          continue;
-        }
-
-        ids_to_predicate.pushBack(traversalGraph().toGroup(split->in()));
+    for (const auto& [expr_g, dir] : path) {
+      auto split = dynamic_cast<Split*>(expr_g->front());
+      if (split == nullptr) {
+        continue;
       }
+
+      // Note that the above traversal is from group_to_check to the
+      // loop domain, so the actual indexing direction is the opposite
+      if (dir == Direction::Backward) {
+        continue;
+      }
+
+      if (GpuLower::current()->divisibleSplitSet().contains(split) ||
+          simplifyExpr(split->isDivisible())->isTrue()) {
+        continue;
+      }
+
+      ids_to_predicate.pushBack(traversalGraph().toGroup(split->in()));
     }
   }
 
