@@ -287,6 +287,11 @@ void fillOptimalHopperTileSizes(
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
   for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
+    if (cta_k > k && cta_k > 16) {
+      // There is no reason to use a larger CTA tile than K unless K is smaller
+      // than 16
+      continue;
+    }
     for (const auto& [m_ratio, n_ratio] :
          std::vector<std::pair<int64_t, int64_t>>{
              {2L, 1L}, // coopA
