@@ -244,6 +244,52 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
   return map_.at(tv);
 }
 
+namespace {
+
+bool hasIndependentWarpGroups(const TensorView* tv) {
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  NVF_ERROR(warp_specialized.stage_slice_position.has_value());
+
+  // Step 1: Get warp specialized iterDomain in consumer
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+
+  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
+  ParallelType ws_pt = warp_specialized.on;
+  auto ws_id_iter = std::find_if(
+      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
+        return id->getParallelType() == ws_pt;
+      });
+  NVF_ERROR(ws_id_iter != consumer_loop.end());
+
+  // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
+  // Step 2: Get ValGroup for warp specialized iterDomain
+  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
+
+  // Step 3: Find corresponding producer iterDomain to warp specialized
+  // iterDomain
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  auto ws_id_producer_iter = std::find_if(
+      producer_loop.begin(), producer_loop.end(), [val_group](IterDomain* id) {
+        return val_group->has(id);
+      });
+  NVF_ERROR(ws_id_producer_iter != producer_loop.end());
+
+  // Step 4: Map iterDomain to position in producer's loop domain
+  int64_t ws_id_producer_pos =
+      std::distance(producer_loop.begin(), ws_id_producer_iter);
+
+  // Step 5: Use independent warp groups if warp specialized axis is to the
+  // left of the stage_slice_position
+  return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
+}
+
+} // namespace
+
 void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   IterDomain* cb_axis = nvfuser::getCircularBufferAxis(tv);
   NVF_ERROR(cb_axis != nullptr);
@@ -256,6 +302,13 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (warp_specialized.stage_slice_position.has_value()) {
+    independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
+  }
+
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
 
