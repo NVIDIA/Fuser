@@ -27,7 +27,7 @@ void reorderForGatherBasedComm(
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
 
-  IterDomain* sharded_id = communication_info.sharded_id;
+  IterDomain* sharded_id = communication_info.p_sharded_id;
 
   // For gather operations i.e. ID goes from sharded to unsharded
   // this will rematerialize a sharded axis.
@@ -62,7 +62,7 @@ void reorderForScatterBasedComm(
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
 
-  IterDomain* sharded_id = communication_info.sharded_id;
+  IterDomain* sharded_id = communication_info.c_sharded_id;
 
   // For scatter operations i.e. ID goes from unsharded to sharded
   // Update input to push the scattered axis to the front -> collective ->
@@ -127,6 +127,42 @@ void reorderForScatterBasedComm(
   output_permute->setAllocationDomain(output_permute->getLoopDomain(), true);
 }
 
+void handleForLoopSplit(Expr* expr, CommunicationInfo communication_info) {
+  TensorView* input = expr->inputs().at(0)->as<TensorView>();
+  TensorView* output = expr->outputs().at(0)->as<TensorView>();
+
+  IterDomain* p_sharded_id = communication_info.p_sharded_id;
+  IterDomain* c_sharded_id = communication_info.c_sharded_id;
+  int64_t reduction_axis = communication_info.reduction_axis;
+
+  TensorView* comm_input = set(input);
+  int64_t p_sharded_idx = posInDomain(input->getLogicalDomain(), p_sharded_id);
+  comm_input->setAllocationDomain(
+      TensorDomain::orderedAs(
+          comm_input->getLogicalDomain(),
+          std::unordered_map<int64_t, int64_t>{{p_sharded_idx, 0}}),
+          true);
+
+  TensorView* comm_output = nullptr;
+  if (expr->isA<LoadStoreOp>()) {
+    comm_output = set(comm_input);
+  } else {
+    comm_output = reductionOp(
+        expr->as<ReductionOp>()->getReductionOpType(),
+        {reduction_axis}, expr->as<ReductionOp>()->init(), comm_input);
+  }
+  int64_t c_sharded_idx = posInDomain(output->getLogicalDomain(), c_sharded_id);
+  comm_output->setAllocationDomain(
+      TensorDomain::orderedAs(
+          comm_output->getLogicalDomain(),
+          std::unordered_map<int64_t, int64_t>{{c_sharded_idx, 0}}),
+          true);
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_output);
+
+  shardAllLike(input, {comm_input});
+  shardAllLike(output, {comm_output});
+}
+
 } // namespace
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
@@ -157,11 +193,12 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
         "Communication info not found for ",
         expr->toString());
 
-    if ((*communication_info).type == CommunicationType::Gather) {
-      reorderForGatherBasedComm(expr, *communication_info);
-    } else {
-      reorderForScatterBasedComm(expr, *communication_info);
-    }
+    // if ((*communication_info).type == CommunicationType::Gather) {
+    //   reorderForGatherBasedComm(expr, *communication_info);
+    // } else {
+    //   reorderForScatterBasedComm(expr, *communication_info);
+    // }
+    handleForLoopSplit(expr, *communication_info);
   }
 }
 

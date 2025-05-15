@@ -44,7 +44,13 @@ bool haveDifferentShardings(
 
 struct CommunicationInfo {
   CommunicationType type; // Gather/Scatter/ReduceScatter
-  IterDomain* sharded_id; // The sharded logical ID
+  // p_sharded_id is the sharded ID in gather/allgather
+  // It is the id mapped to the scattered ID in scatter/reduce scatter
+  // Similarly, c_sharded_id is the scattered ID in gather/allgather
+  // It is the id mapped to the gathered ID in scatter/reduce scatter
+  IterDomain* p_sharded_id;
+  IterDomain* c_sharded_id;
+  int64_t reduction_axis = -1; // The reduction axis in reduce scatter
 };
 
 // Returns whether a TensorView is contiguous.
@@ -56,6 +62,9 @@ bool isTvContiguous(const TensorView* tv);
 // This is only supported for load/store and reduction ops.
 // Composite expressions that are communication + compute are not supported.
 bool isCommLayoutCompliant(Expr* expr);
+
+// Returns the position of an IterDomain in given domain.
+int64_t posInDomain(const std::vector<IterDomain*>& domain, const IterDomain* id);
 
 // Returns the communication info for the gather/scatter/reduce scatter
 // communication that may require reordering the allocation domain.
