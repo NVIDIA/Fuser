@@ -11,6 +11,8 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
@@ -284,7 +286,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 }
 
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
@@ -376,12 +378,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   std::lock_guard<std::mutex> guard(mutex_);
 
-  NVF_ERROR(
-      args.size() == segmented_fusion_->inputs().size(),
-      "Inputs were not set up correctly, received ",
+  NVF_ERROR_EQ(
       args.size(),
-      " inputs but expecting ",
-      segmented_fusion_->inputs().size());
+      std::ssize(segmented_fusion_->inputs()),
+      "Inputs were not set up correctly.");
 
   const int64_t num_groups = numGroups();
   if (isProfilerEnabled()) {
@@ -484,9 +484,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           NVF_ERROR(
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
-          HostIrLower lower;
-          for (auto* expr : lower.lower(
-                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          for (auto* expr : convertSingleOpToCommunication(
+                   ir_cloner.clone(group_to_run->exprs().at(0)),
+                   deviceid,
+                   HostIrLowerParams())) {
             NVF_ERROR(
                 expr->isA<Communication>(),
                 "Exprs in a Communication group should be Communication");
@@ -555,7 +556,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
-    insertDeallocations(hic.get());
+    hir_pass::InsertDeallocations().runPass(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
@@ -708,14 +709,12 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
 }
 
 std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args) {
+    runSegmentsWithInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
-  NVF_ERROR(
-      args.size() == segmented_fusion_->inputs().size(),
-      "Inputs were not set up correctly, received ",
+  NVF_ERROR_EQ(
       args.size(),
-      " inputs but expected ",
-      segmented_fusion_->inputs().size());
+      std::ssize(segmented_fusion_->inputs()),
+      "Inputs were not set up correctly.");
 
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
@@ -770,7 +769,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 }
 
 KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
