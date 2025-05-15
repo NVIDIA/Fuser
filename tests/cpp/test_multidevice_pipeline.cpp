@@ -92,6 +92,10 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     auto ref_output =
         shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
     auto obtained_output = outputs[i].as<at::Tensor>();
+    
+    EXPECT_EQ(ref_output.sizes(), obtained_output.sizes()) << "Sizes are not equal: Ref: " << ref_output.sizes() << " Output: " << obtained_output.sizes() << std::endl;
+    EXPECT_EQ(ref_output.strides(), obtained_output.strides()) << "Strides are not equal: Ref: " << ref_output.strides() << " Output: " << obtained_output.strides() << std::endl;
+
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
@@ -160,6 +164,20 @@ PipelineTest::PipelineTest() {
 // default with NVFUSER_DISTRIBUTED defined. Then, on a node with at least 6
 // GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
 // --gtest_filter=PipelineTestTwoStages*`.
+
+TEST_F(PipelineTest, AllocationDomain) {
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeConcreteTensor({2, 5});
+  TensorView* tv1 = set(tv0);
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  tv0->setDeviceMesh(DeviceMesh({0}));
+  tv1->setDeviceMesh(DeviceMesh({0}));
+
+  unsharded_args = {at::randn({2, 5}, tensor_options)};
+  executeAndValidate();
+}
 
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
