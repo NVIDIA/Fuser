@@ -422,7 +422,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
 
   NVF_ERROR(
       inner_most_circular_buffer_position < circular_buffer_tv->nDims(),
-      "Expected inner_most_circular_buffer_position <= number of tensor dimensions",
+      "Expected inner_most_circular_buffer_position <= number of tensor dimensions ",
       "but got ",
       inner_most_circular_buffer_position,
       " and ",
@@ -431,7 +431,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
-      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position",
+      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position ",
       "but got ",
       outer_most_circular_buffer_position,
       " and ",
@@ -519,8 +519,7 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     // Skip parallelized axes except for warp specialized dim
     // when warp specialized dim is used in computation branch,
     // it represents index of computation warp groups.
-    if (id->isParallelized() &&
-        (id->getParallelType() != getWarpSpecializedOn())) {
+    if (id->isThread() && (id->getParallelType() != getWarpSpecializedOn())) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
