@@ -18,7 +18,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 
-namespace nvfuser::hir {
+namespace nvfuser::hir_pass {
 
 namespace {
 
@@ -328,20 +328,36 @@ std::vector<Expr*> processForLoopBodies(
 
 // Step 4: Add stream management and synchronization
 std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
+  std::vector<Expr*> new_top_level_exprs;
+
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
     // Skip non-for-loop expressions
     if (!top_level_expr->isA<ForLoop>()) {
+      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
 
     auto* for_loop = top_level_expr->as<ForLoop>();
-    std::vector<Expr*> new_loop_body;
 
     // Get the current stream before entering the loop
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
     hir::Stream* original_stream = get_current_stream->stream();
-    new_loop_body.push_back(get_current_stream);
+    new_top_level_exprs.push_back(get_current_stream);
+
+    // Create a new for-loop for getting the current stream
+    auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
+        for_loop->iterDomain(),
+        for_loop->index(),
+        for_loop->start(),
+        for_loop->stop(),
+        for_loop->step(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
+        /*unroll_required=*/false,
+        CircularBufferLoopStage::NotApplicable,
+        /*circular_buffer_loop_stage_depth=*/0);
+    new_top_level_exprs.push_back(for_loop_initial_sync);
 
     // Set up a new stream for this iteration based on the loop index
     auto* number_of_streams =
@@ -349,14 +365,19 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     auto* stream_index = mod(for_loop->index(), number_of_streams);
     auto* stream = IrBuilder::create<hir::Stream>(stream_index);
     auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
-    new_loop_body.push_back(set_stream);
-
     // Synchronize with the original stream before starting computation
     auto* initial_sync_stream =
         IrBuilder::create<hir::Synchronize>(original_stream);
-    new_loop_body.push_back(initial_sync_stream);
 
-    // Add all the expressions to the loop body
+    for_loop_initial_sync->body().push_back(set_stream);
+    for_loop_initial_sync->body().push_back(initial_sync_stream);
+
+    // create the new body of the current for-loop
+    std::vector<Expr*> new_loop_body;
+    // When entering the loop, set the stream
+    new_loop_body.push_back(set_stream);
+
+    // Add all the current for-loop body expressions to the new loop body
     for (auto* expr : for_loop->body().exprs()) {
       new_loop_body.push_back(expr);
     }
@@ -373,9 +394,10 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
+    new_top_level_exprs.push_back(for_loop);
   }
 
-  return top_level_exprs;
+  return new_top_level_exprs;
 }
 
 } // anonymous namespace
@@ -399,7 +421,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
 // linear structure of the HostIrContainer::topLevelExpr to greedily merge the
 // adjacent compatible stream for-loop bodies. Ideally we should look at the dag
 // and use the segmenter.
-void StreamParallelType::runPass(Fusion* fusion) {
+void StreamParallelType::passImplementation(Fusion* fusion) {
   // Verify that input tensors don't have stream axes
   NVF_CHECK(
       std::all_of(
@@ -437,4 +459,4 @@ void StreamParallelType::runPass(Fusion* fusion) {
   hic->resetTopLevelExprs(top_level_exprs);
 }
 
-} // namespace nvfuser::hir
+} // namespace nvfuser::hir_pass

@@ -1108,7 +1108,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self) {
             self.finalizeDefinition();
             // Mark the end of a definition
-            inst::Trace::instance()->endEvent(nullptr);
+            inst::Trace::instance()->endEvent("FusionDefinition Definition");
           })
       .def(
           "_exist_schedule",

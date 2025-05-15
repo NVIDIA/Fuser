@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -18,8 +17,6 @@
 namespace nvfuser {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 
 using MoveSplitCatTest = NVFuserTest;
 
@@ -541,14 +538,13 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
 
   // Only region 1 is not mergeable, so we expect to see only that region
   // contains two slices and one cat in the pre-segmenter fusion.
-  EXPECT_THAT(
-      exprs, Contains(Property(&Expr::isA<SliceOp>, IsTrue())).Times(2));
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<CatOp>, IsTrue())).Times(1));
+  EXPECT_THAT(exprs, Contains(IsA<SliceOp>()).Times(2));
+  EXPECT_THAT(exprs, Contains(IsA<CatOp>()).Times(1));
   // The two permutes in region 0 are expected to be merged.
   EXPECT_THAT(exprs, Contains(IsPermute()).Times(1));
   // The two reshapes in region 1 stay as is and the two reshapes in region 2
   // are merged. Therefore, three reshapes in total.
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<ViewOp>, IsTrue())).Times(3));
+  EXPECT_THAT(exprs, Contains(IsA<ViewOp>()).Times(3));
 }
 
 TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {

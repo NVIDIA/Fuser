@@ -45,21 +45,6 @@ class AliasFinder : public OptOutConstDispatch {
   void handle(const ExpandOp*) override;
 
  private:
-  // A helper function used to compute the perferred output layout. It computes
-  // the mapping from `in_logical` to `out_root` and applies that mapping to
-  // `preferred_in_layout`. For many ops, this function returns a good initial
-  // preferred output layout for aliasing because it tries to preserve the input
-  // layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
-  // using expressions will have to modify this initial layout so its allocation
-  // domain will be a function of its logical domain.
-  //
-  // Returns `nullopt` if computation fails, so the caller can handle things
-  // conservatively.
-  static std::optional<Layout> mapInLayoutToOutRoot(
-      const Layout& preferred_in_layout,
-      TensorView* in,
-      TensorView* out);
-
   // Marks `alias` and `source` alias if `layout` is compliant with `alias`'s
   // existing allocation domain. Returns true if succeeded.
   bool aliasIfCompliant(
@@ -143,7 +128,17 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
   return {false, std::nullopt};
 }
 
-/*static*/ std::optional<Layout> AliasFinder::mapInLayoutToOutRoot(
+// A helper function used to compute the perferred output layout. It computes
+// the mapping from `in_logical` to `out_root` and applies that mapping to
+// `preferred_in_layout`. For many ops, this function returns a good initial
+// preferred output layout for aliasing because it tries to preserve the input
+// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
+// using expressions will have to modify this initial layout so its allocation
+// domain will be a function of its logical domain.
+//
+// Returns `nullopt` if computation fails, so the caller can handle things
+// conservatively.
+std::optional<Layout> mapInLayoutToOutRoot(
     const Layout& preferred_in_layout,
     TensorView* in,
     TensorView* out) {
@@ -160,16 +155,16 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
       PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
-  for (const auto i : arange(preferred_in_layout.size())) {
-    IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
+  for (auto&& [in_alloc_id, contiguity] :
+       zip(preferred_in_layout.allocation_domain,
+           preferred_in_layout.contiguity)) {
     IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
       // This can happen when in_alloc_id is of type reduction or squeezed out.
       continue;
     }
     preferred_out_layout.allocation_domain.push_back(out_root_id);
-    preferred_out_layout.contiguity.push_back(
-        preferred_in_layout.contiguity[i]);
+    preferred_out_layout.contiguity.push_back(contiguity);
   }
   return preferred_out_layout;
 }
@@ -233,7 +228,7 @@ void AliasFinder::handle(const ViewOp* view) {
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_logical.begin(), out_logical.end()})) {
-    if (Split* split = dynamic_cast<Split*>(transform)) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split->in());
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
@@ -241,7 +236,7 @@ void AliasFinder::handle(const ViewOp* view) {
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
-    } else if (Merge* merge = dynamic_cast<Merge*>(transform)) {
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       const auto [outer_contiguity, inner_i] =
           allocation_to_contiguity.erase(merge->outer());
       if (inner_i == allocation_to_contiguity.end() ||
@@ -266,8 +261,8 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   Layout out_logical_layout;
-  for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_logical_layout.allocation_domain.push_back(allocation_id);
+  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
+    out_logical_layout.allocation_domain.push_back(alloc_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
   aliasIfCompliant(out, in, std::move(out_logical_layout));
@@ -473,10 +468,7 @@ void AliasAnalysisResult::finalize() {
   }
 }
 
-Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
-  const auto* tv = dynamic_cast<const TensorView*>(v);
-  NVF_ERROR(tv != nullptr, "`v` is expected to be a TensorView. Found: ", v);
-
+Layout AliasAnalysisResult::preferredLayout(const TensorView* tv) const {
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
   }

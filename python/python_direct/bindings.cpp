@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <bindings.h>
-#include <torch/extension.h>
 
-PYBIND11_MODULE(PYTHON_NEXT_EXTENSION, m) {
-  m.doc() = "Python bindings for NvFuser Next CPP API";
-  python::initNvFuserPythonBindings(m.ptr());
+#include <bindings.h>
+
+namespace nvfuser::python {
+
+void initNvFuserPythonBindings(PyObject* module) {
+  auto nvfuser = py::handle(module).cast<py::module>();
+  bindFusionIr(nvfuser);
 }
+
+} // namespace nvfuser::python

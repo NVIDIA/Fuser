@@ -51,7 +51,13 @@ namespace nvfuser {
 
 using testing::UnorderedElementsAre;
 
-using GpuViewTest = NVFuserTest;
+class GpuViewTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
   Fusion fusion;
@@ -386,7 +392,14 @@ std::vector<ReshapeReductionParam> generateReshapeReductionParams() {
   return params;
 }
 
-using ReshapeReduction = NVFuserFixtureParamTest<ReshapeReductionParam>;
+class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(ReshapeReduction, FusionReshapeReduction) {
   const auto& param = GetParam();
   const auto& [input_shape, output_shape] = param.reshape_example;
