@@ -970,8 +970,9 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
@@ -1174,7 +1175,13 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
 
 TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+
+  if (ws_enabled) {
+    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
+    return;
+  }
+
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
