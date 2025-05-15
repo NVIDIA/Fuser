@@ -59,16 +59,13 @@ class AliasAnalysisResult {
   // Computes transitive aliases and caches them in `alias_to_root_`.
   void finalize();
 
-  // Returns the preferred layout. `alias` must be in `alias_to_source_`.
-  Layout preferredLayout(const TensorView* alias) const;
-
-  // FIXME: return Layout* for less copy
-  std::optional<Layout> createOrGetPreferredLayout(const TensorView* alias);
+  // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
+  // returns the `TensorView`'s initial layout.
+  std::optional<Layout> preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
 
-  // Returns the mapped value in `alias_to_root_` or nullptr. The return value
-  // is guaranteed to differ from `alias`.
+  // Returns the mapped value in `alias_to_root_` or null.
   TensorView* getRoot(const TensorView* alias) const;
 
  private:

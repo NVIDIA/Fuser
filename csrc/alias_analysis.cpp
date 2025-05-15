@@ -204,7 +204,7 @@ void AliasFinder::handle(const ViewOp* view) {
   // Collect the allocation order of `in`'s logical domain and thus `out`'s root
   // domain.
   std::optional<Layout> out_root_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_root_layout.has_value()) {
     return;
   }
@@ -297,7 +297,7 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   // {i0->i3,i1->i4,i2->i5}.
   // 2. Apply the map to `in`'s allocation and get [i5,i3,i4].
   std::optional<Layout> out_root_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_root_layout.has_value()) {
     return;
   }
@@ -311,7 +311,7 @@ void AliasFinder::handle(const SliceOp* slice) {
   TensorView* out = slice->out();
 
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -375,7 +375,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   auto* out = bcast->out()->as<TensorView>();
 
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -401,7 +401,7 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
 
   // Preserve the allocation order of existing dimensions.
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -418,7 +418,7 @@ void AliasFinder::handle(const ExpandOp* expand) {
 
   // Preserve the allocation order of existing dimensions.
   std::optional<Layout> out_layout =
-      mapInLayoutToOutRoot(analysis_.createOrGetPreferredLayout(in), in, out);
+      mapInLayoutToOutRoot(analysis_.preferredLayout(in), in, out);
   if (!out_layout.has_value()) {
     return;
   }
@@ -466,28 +466,10 @@ void AliasAnalysisResult::finalize() {
       if (i == alias_to_source_.end()) {
         break;
       }
-
-      TensorView* source = i->second.first;
-      if (source == root) {
-        break;
-      }
-      root = source;
+      root = i->second.first;
     }
-
-    if (root != alias) {
-      alias_to_root_[alias] = root;
-    }
+    alias_to_root_[alias] = root;
   }
-}
-
-Layout AliasAnalysisResult::preferredLayout(const TensorView* tv) const {
-  auto i = alias_to_source_.find(tv);
-  NVF_ERROR(
-      i != alias_to_source_.end(),
-      "`tv` must be an alias when calling preferredLayout: ",
-      tv);
-
-  return i->second.second;
 }
 
 namespace {
@@ -549,21 +531,13 @@ std::optional<Layout> computeLayout(const TensorView* tv) {
 }
 } // namespace
 
-std::optional<Layout> AliasAnalysisResult::createOrGetPreferredLayout(
-    const TensorView* tv) {
-  auto i = alias_to_source_.find(tv);
-  if (i != alias_to_source_.end()) {
+std::optional<Layout> AliasAnalysisResult::preferredLayout(
+    const TensorView* tv) const {
+  if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
   }
 
-  std::optional<Layout> layout = computeLayout(tv);
-  if (!layout.has_value()) {
-    return std::nullopt;
-  }
-
-  alias_to_source_.emplace(
-      tv, std::make_pair(const_cast<TensorView*>(tv), *layout));
-  return layout;
+  return computeLayout(tv);
 }
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
