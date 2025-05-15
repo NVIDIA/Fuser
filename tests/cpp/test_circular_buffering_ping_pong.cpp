@@ -24,7 +24,7 @@ namespace nvfuser {
 // For non-GEMM kernel there is no ping-pong switching between tensor cores and
 // cuda cores, but multiple warp groups work on different tiles and are
 // scheduled and synchronized separately on the same SM.
-using PingPongCircularBufferingParams = std::tuple<int64_t>;
+using PingPongCircularBufferingParams = std::tuple<int>;
 using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
@@ -100,7 +100,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     PingPongCircularBuffering,
-    ::testing::Combine(::testing::Values(2, 3)),
+    ::testing::Combine(::testing::Range(0, 6)),
     [](const testing::TestParamInfo<PingPongCircularBufferingParams>& info) {
       std::stringstream ss;
       ss << "stage_slice_position_" << std::get<0>(info.param);
