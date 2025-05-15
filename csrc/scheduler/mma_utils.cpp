@@ -379,17 +379,20 @@ void makeTile(
       abten.size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
+  std::unordered_set<MatmulDimRole> roles_split;
   // Split the inner dimensions
   size_t num_split_axes = 0;
   for (int64_t i = (int64_t)abten.size() - 1; i >= 0; --i) {
-    if (num_split_axes > 2) {
-      break;
-    }
     const std::optional<MatmulDimRole> id_role_opt = abten.getTag(i);
     if (!id_role_opt.has_value()) {
       continue;
     }
     const MatmulDimRole id_role = id_role_opt.value();
+    if (roles_split.count(id_role)) {
+      // Prevent doing multiple splits in case the roles are like M N M N
+      break;
+    }
+    roles_split.insert(id_role);
     // Assumes tile_sizes are given in m,n,k order
     switch (id_role) {
       case MatmulDimRole::M:
@@ -473,7 +476,7 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   tv->setLoopDomain(abten.as<IterDomain*>());
 }
 
-void makeTile(
+std::vector<MatmulDimRole> makeTile(
     TensorView* tv,
     const GemmTile& mnk_tile_sizes,
     const std::vector<MatmulDimRole>& axis_roles) {
@@ -481,16 +484,31 @@ void makeTile(
       tv->getLoopDomain().size() == axis_roles.size(),
       "Tensor dimension must equal number of provided axis roles");
 
-  std::unordered_set<MatmulDimRole> axis_set(
-      axis_roles.begin(), axis_roles.end());
-  NVF_ERROR(
-      axis_set.size() == axis_roles.size(),
-      "Repeated axis roles are not allowed");
   // Here we fill out tile_sizes to match the given axis roles. For example
   // axis_roles might be something like [N, M], in which case we should use
   // {mnk_tile_sizes.n, mnk_tile_sizes.m}.
+  //
+  // Note that if there are multiple instances of a role then we take the
+  // inner-most
+  std::unordered_set<MatmulDimRole> axis_set;
+  int64_t first_inner_pos = 0;
+  for (int64_t i : std::views::reverse(arange((int64_t)axis_roles.size()))) {
+    // First search for innermost M, N, K in case they are repeated.
+    // For instance, if we have axis_roles = {M, N, K, M, N, K}, we will find
+    // position 3 indicating the inner M, N, K dimensions should be used for
+    // creating the new tile.
+    MatmulDimRole role = axis_roles.at((size_t)i);
+    if (role == MatmulDimRole::Batch || axis_set.count(role)) {
+      // If we hit a repeated role or a Batch dimension, stop searching
+      first_inner_pos = i + 1;
+      break;
+    }
+    axis_set.insert(role);
+  }
+
   std::vector<int64_t> tile_sizes;
-  for (MatmulDimRole role : axis_roles) {
+  for (int64_t i : arange(first_inner_pos, (size_t)axis_roles.size())) {
+    MatmulDimRole role = axis_roles.at(i);
     switch (role) {
       case MatmulDimRole::Batch:
         NVF_ERROR(tile_sizes.empty(), "Batch dimension must be first");
@@ -507,7 +525,21 @@ void makeTile(
     }
   }
 
-  makeTile(tv, tile_sizes);
+  std::vector<std::unordered_set<MatmulDimRole>> axis_role_sets;
+  for (const MatmulDimRole role : axis_roles) {
+    axis_role_sets.push_back({role});
+  }
+  AbstractMatmulTensor abten(tv->getLoopDomain(), axis_role_sets);
+  makeTile(abten, tile_sizes);
+  tv->setLoopDomain(abten.as<IterDomain*>());
+
+  std::vector<MatmulDimRole> new_axis_roles;
+  new_axis_roles.reserve(abten.size());
+  for (int64_t i : arange((int64_t)abten.size())) {
+    new_axis_roles.push_back(abten.getTag(i).value());
+  }
+
+  return new_axis_roles;
 }
 
 namespace {
