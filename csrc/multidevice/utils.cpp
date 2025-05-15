@@ -736,6 +736,13 @@ bool isAllocatedOutermost(
 
 } // namespace
 
+int64_t posInDomain(const std::vector<IterDomain*>& domain, const IterDomain* id) {
+  auto pos = std::find(domain.begin(), domain.end(), id);
+  NVF_ERROR(pos != domain.end(), "Expected id ", id->toString(), " in domain ",
+            domain);
+  return std::distance(domain.begin(), pos);
+}
+
 // Returns the communication info for the gather/scatter/reduce scatter
 // communication that may require reordering the allocation domain.
 std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
@@ -745,11 +752,17 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
   auto update_communication_info = [&](CommunicationType type,
-                                       IterDomain* logical_id) {
+                                       IterDomain* p_sharded_id,
+                                       IterDomain* c_sharded_id,
+                                       int64_t reduction_axis = -1) {
     NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
     has_sharding_change = true;
-    communication_info = CommunicationInfo{type, logical_id};
+    communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id, reduction_axis};
   };
+
+  const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
+  const auto p2c_map = pairwise_map.mapProducerToConsumer();
+  const auto c2p_map = pairwise_map.mapConsumerToProducer();
 
   // This ignores device dimensions on reduction axis.
   auto producer_pt_to_did =
@@ -777,7 +790,10 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
         // Gather / Allgather: For simplicity, we do not distinguish between
         // them.
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        update_communication_info(CommunicationType::Gather, p_logical_id);
+        update_communication_info(
+            CommunicationType::Gather,
+            p_logical_id,
+            p2c_map.at(p_logical_id));
       }
       if (!p_sharded && c_sharded) {
         if (c_loop_did->isBroadcast()) {
@@ -785,7 +801,10 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
         }
         // Scatter
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        update_communication_info(CommunicationType::Scatter, c_logical_id);
+        update_communication_info(
+            CommunicationType::Scatter,
+            c2p_map.at(c_logical_id),
+            c_logical_id);
       }
     } else if (expr->isA<ReductionOp>()) {
       if (!p_sharded || !c_sharded) {
@@ -801,8 +820,6 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
       IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
       IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
 
-      const auto p2c_map =
-          PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
       auto c_it = p2c_map.find(p_logical_id);
       NVF_ERROR(
           c_it != p2c_map.end(),
@@ -811,7 +828,11 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
       if (!c_it->second->isReduction()) {
         continue;
       }
-      update_communication_info(CommunicationType::ReduceScatter, c_logical_id);
+      update_communication_info(
+          CommunicationType::ReduceScatter,
+          c2p_map.at(c_logical_id),
+          c_logical_id,
+          posInDomain(producer->getLogicalDomain(), p_logical_id));
     } else {
       NVF_THROW("Unsupported expression: ", expr->toString());
     }
@@ -841,12 +862,14 @@ bool isCommLayoutCompliant(Expr* expr) {
     return false;
   }
   std::vector<IterDomain*> domain;
+  // return isAllocatedOutermost(domain, (*communication_info).p_sharded_id);
   if ((*communication_info).type == CommunicationType::Gather) {
     domain = producer->getMaybeAllocationDomain();
+    return isAllocatedOutermost(domain, (*communication_info).p_sharded_id);
   } else {
     domain = consumer->getMaybeAllocationDomain();
+    return isAllocatedOutermost(domain, (*communication_info).c_sharded_id);
   }
-  return isAllocatedOutermost(domain, (*communication_info).sharded_id);
 }
 
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
