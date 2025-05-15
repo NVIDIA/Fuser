@@ -269,9 +269,18 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
-    has_warp_sepcialized_ =
-        (has_warp_sepcialized_ ||
-         std::holds_alternative<WarpSpecialized>(opt.type));
+    // Set the warp specialized dim and ensure there is only one
+    auto old_pt = warp_specialized_on_;
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      auto ws_pt = std::get<WarpSpecialized>(opt.type).on;
+      NVF_ERROR(
+          old_pt == ParallelType::Serial || old_pt == ws_pt,
+          "Multiple warp specialization is not supported: ",
+          old_pt,
+          " and ",
+          ws_pt);
+      warp_specialized_on_ = ws_pt;
+    }
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,

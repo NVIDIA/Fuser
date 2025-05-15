@@ -54,6 +54,9 @@
 
 namespace nvfuser {
 
+//! Warp specialization padded threads count
+constexpr int64_t ws_padded_threads = 128;
+
 class KernelArgumentHolder;
 
 int getNumThreads();
