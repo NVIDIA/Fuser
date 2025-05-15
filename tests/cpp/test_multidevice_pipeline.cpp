@@ -175,7 +175,19 @@ TEST_F(PipelineTest, AllocationDomain) {
   tv0->setDeviceMesh(DeviceMesh({0}));
   tv1->setDeviceMesh(DeviceMesh({0}));
 
-  unsharded_args = {at::randn({2, 5}, tensor_options)};
+  auto input = at::randn({2, 5}, tensor_options);
+  unsharded_args = {input};
+
+  auto ref_output = input.t().contiguous().t();
+
+  auto fusion_copy = std::make_unique<Fusion>(*fusion);
+  FusionExecutorCache fec(std::move(fusion_copy));
+  auto fec_outputs = fec.runFusionWithInputs(unsharded_args);
+
+  EXPECT_EQ(fec_outputs[0].as<at::Tensor>().sizes(), ref_output.sizes());
+  EXPECT_EQ(fec_outputs[0].as<at::Tensor>().strides(), ref_output.strides());
+  EXPECT_TRUE(torch::allclose(fec_outputs[0].as<at::Tensor>(), ref_output));
+
   executeAndValidate();
 }
 
