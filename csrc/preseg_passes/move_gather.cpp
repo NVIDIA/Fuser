@@ -77,10 +77,19 @@ auto prepareIndexTv(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   return gather_op->indexTv();
 }
 
-auto addPostGatherSqueeze(Fusion* fusion, GatherOp* new_gather, Expr* def) {
+auto addPostGatherSqueeze(
+    Fusion* fusion,
+    GatherOp* old_gather,
+    GatherOp* new_gather,
+    Expr* def) {
   auto new_squeeze_output = squeeze(
       new_gather->output(0)->as<TensorView>(),
       def->as<SqueezeOp>()->getSqueezeDimFlags());
+
+  TransformReplay::selfReplay(
+      old_gather->output(0)->as<TensorView>()->domain(),
+      new_squeeze_output->domain());
+
   return new_squeeze_output;
 }
 
@@ -100,6 +109,10 @@ auto addPostGatherOp(Fusion* fusion, GatherOp* new_gather, Expr* def) {
   cloned_def =
       ir_utils::transferDefinitionToNewOutputs(cloned_def, {cloned_output_tv});
 
+  TransformReplay::selfReplay(
+      new_gather->output(0)->as<TensorView>()->domain(),
+      cloned_def->output(0)->as<TensorView>()->domain());
+
   return cloned_def->output(0);
 }
 
@@ -110,7 +123,7 @@ auto addOrCloneNewNodeAfterGather(
     Expr* def) {
   // Create a new squeeze op or clone the unary pointwise op.
   auto output_of_post_gather_op = def->isA<SqueezeOp>()
-      ? addPostGatherSqueeze(fusion, new_gather, def)
+      ? addPostGatherSqueeze(fusion, old_gather, new_gather, def)
       : addPostGatherOp(fusion, new_gather, def);
 
   // Update the uses of the old gather.
