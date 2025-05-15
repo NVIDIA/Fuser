@@ -19,12 +19,11 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-std::pair<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>>
-getReshapedIds(
+std::unordered_set<IterDomain*> getReshapedIds(
     ViewOp* view_op,
     const std::unordered_map<IterDomain*, IterDomain*>& c2p) {
-  std::unordered_set<IterDomain*> p_reshaped_ids; // Reshaped logical IDs
-  std::unordered_set<IterDomain*> c_reshaped_ids; // Reshaped root IDs
+  std::unordered_set<IterDomain*>
+      p_reshaped_ids; // Reshaped producer logical IDs
 
   TensorView* consumer = view_op->out();
   std::vector<IterDomain*> c_root_domain = consumer->getMaybeRootDomain();
@@ -34,17 +33,12 @@ getReshapedIds(
         !id->definition()->isA<Resize>()) {
       auto root_ids = getInputsInTargetDomain(id, c_root_domain);
       for (auto root_id : root_ids) {
-        c_reshaped_ids.insert(root_id);
+        p_reshaped_ids.insert(c2p.at(root_id));
       }
     }
   }
 
-  for (auto id : c_reshaped_ids) {
-    if (auto p_id = c2p.find(id); p_id != c2p.end()) {
-      p_reshaped_ids.insert(p_id->second);
-    }
-  }
-  return std::make_pair(p_reshaped_ids, c_reshaped_ids);
+  return p_reshaped_ids;
 }
 
 // Returns true if the given iterdomain is divisible by the split factor of the
@@ -120,8 +114,7 @@ int64_t shardViewOp(ViewOp* view_op, int64_t did_pos) {
       pairwise_map.mapConsumerToProducer();
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       pairwise_map.mapProducerToConsumer();
-  auto [p_logical_reshaped_ids, c_root_reshaped_ids] =
-      getReshapedIds(view_op, c2p);
+  auto p_logical_reshaped_ids = getReshapedIds(view_op, c2p);
 
   auto p_loop_domain = producer->getLoopDomain();
 
