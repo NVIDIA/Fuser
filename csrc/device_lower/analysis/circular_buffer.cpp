@@ -256,6 +256,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
+  setComputationWarpGroups(tv);
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
 
@@ -269,9 +270,18 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
-    has_warp_sepcialized_ =
-        (has_warp_sepcialized_ ||
-         std::holds_alternative<WarpSpecialized>(opt.type));
+    // Set the warp specialized dim and ensure there is only one
+    auto old_pt = warp_specialized_on_;
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      auto ws_pt = std::get<WarpSpecialized>(opt.type).on;
+      NVF_ERROR(
+          old_pt == ParallelType::Serial || old_pt == ws_pt,
+          "Multiple warp specialization is not supported: ",
+          old_pt,
+          " and ",
+          ws_pt);
+      warp_specialized_on_ = ws_pt;
+    }
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,
@@ -284,6 +294,44 @@ void CircularBufferInfo::setCircularBufferOptions(
         " by ",
         concrete_loop_id->toString());
   }
+}
+
+// Derive number of computation warp groups from loop domain of its consumer
+// For example, in normalization kernel:
+// circular buffer: Ts[BIDy, Circular(S), compute groups(S),...], ca 2
+// its consumer is: Tl[BIDy, Circular(S), compute groups(TIDy),...], ca 3
+// Look for the corresponding loop domain in its consumer and make sure it
+// is parallelized same as warp specialized dim. Then, its content represents
+// number of computation warp groups.
+
+// TODO: Another approach is we can just save `computation_warp_groups_`
+// in  `circularBufferOptions` since it is a scheduler parameter.
+void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
+  auto option = tv->circularBufferOptions();
+  auto old_val = computation_warp_groups_;
+  // -1 indicates not set yet, if set, should not change
+  int64_t new_val = (old_val == -1) ? 1 : old_val;
+  if (std::holds_alternative<WarpSpecialized>(option.type)) {
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
+    int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
+    auto consumer = ir_utils::consumerTvsOf(tv).at(0);
+    if (consumer->nDims() > next_pos &&
+        consumer->axis(next_pos)->getParallelType() == ws_pt &&
+        consumer->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->getParallelType() == ParallelType::Serial &&
+        consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
+            tv->axis(next_pos)->extent()->value().as<int64_t>()) {
+      new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
+    }
+  }
+  NVF_ERROR(
+      old_val == -1 || old_val == new_val,
+      "Different number of computation warp group is not supported: ",
+      old_val,
+      " and ",
+      new_val);
+  computation_warp_groups_ = new_val;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(
@@ -361,6 +409,13 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       inner_most_circular_buffer_position);
   int64_t insertion_position = inner_most_circular_buffer_position -
       outer_most_circular_buffer_position + 1;
+
+  // If multiple computation warp groups are used, move insertion position
+  // to the next for-loop to sync the load for different warp groups separately.
+  if (computation_warp_groups_ > 1) {
+    insertion_position += 1;
+  }
+
   circular_buffer_insertion_position_[circular_buffer_axis] =
       insertion_position;
 }
@@ -429,8 +484,15 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   Val* index = GpuLower::current()->kernel()->zeroVal();
   Val* extent = GpuLower::current()->kernel()->oneVal();
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
-    if (loops[i]->iter_domain()->isParallelized() ||
-        loops[i]->iter_domain()->isBroadcast()) {
+    auto id = loops[i]->iter_domain();
+    if (id->isBroadcast()) {
+      continue;
+    }
+    // skip parallelized axes except for warp specialized dim
+    // when warp specialized dim is used in computation branch,
+    // it represents index of computation warp groups.
+    if (id->isParallelized() &&
+        (id->getParallelType() != getWarpSpecializedOn())) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
