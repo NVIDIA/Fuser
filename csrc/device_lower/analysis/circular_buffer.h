@@ -62,12 +62,16 @@ class CircularBufferInfo {
 
   Val* getOriginalAllocSize(const TensorView* tv);
 
+  ParallelType getWarpSpecializedOn() const {
+    return warp_specialized_on_;
+  }
+
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
   //! Returns true if the fusion has warp specialized circular buffer
-  const bool& hasWarpSpecialized() const {
-    return has_warp_sepcialized_;
+  bool hasWarpSpecialized() const {
+    return warp_specialized_on_ != ParallelType::Serial;
   };
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
@@ -136,8 +140,9 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
-  //! True if the fusion has warp specialized circular buffer
-  bool has_warp_sepcialized_ = false;
+  //! The warp specialized axis for circular buffering.
+  //! Only one warp specialized axis for the fusion.
+  ParallelType warp_specialized_on_ = ParallelType::Serial;
 };
 
 } // namespace nvfuser

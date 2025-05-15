@@ -269,9 +269,18 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
-    has_warp_sepcialized_ =
-        (has_warp_sepcialized_ ||
-         std::holds_alternative<WarpSpecialized>(opt.type));
+    // Set the warp specialized dim and ensure there is only one
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      auto ws_pt = std::get<WarpSpecialized>(opt.type).on;
+      NVF_ERROR(
+          warp_specialized_on_ == ParallelType::Serial ||
+              warp_specialized_on_ == ws_pt,
+          "Multiple warp specialization is not supported: ",
+          warp_specialized_on_,
+          " and ",
+          ws_pt);
+      warp_specialized_on_ = ws_pt;
+    }
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,
@@ -447,8 +456,15 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   Val* index = GpuLower::current()->kernel()->zeroVal();
   Val* extent = GpuLower::current()->kernel()->oneVal();
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
-    if (loops[i]->iter_domain()->isParallelized() ||
-        loops[i]->iter_domain()->isBroadcast()) {
+    IterDomain* id = loops[i]->iter_domain();
+    if (id->isBroadcast()) {
+      continue;
+    }
+    // Skip parallelized axes except for warp specialized dim
+    // when warp specialized dim is used in computation branch,
+    // it represents index of computation warp groups.
+    if (id->isParallelized() &&
+        (id->getParallelType() != getWarpSpecializedOn())) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
