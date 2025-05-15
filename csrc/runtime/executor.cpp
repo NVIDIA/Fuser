@@ -1001,12 +1001,6 @@ KernelArgumentHolder KernelExecutor::run(
       __func__,
       " provided number of outputs does not match fusion output");
 
-  if (args.getCacheId().has_value()) {
-    NVF_ERROR(
-        output_args.empty(),
-        "short cut input cache is not compatible with pre-allocated output");
-  }
-
   validateIndexType(compiled_kernel_->kernel(), compile_params);
 
   const auto num_inputs = args.size();
