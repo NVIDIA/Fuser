@@ -1452,18 +1452,18 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
     }
     mbarriers.pushBack(it->second);
   }
-
   auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
 
-  // only the first compute warp group needs to set the arrive of the prefetch
-  // loop
+  // If compute warp groups are independent, then only the first compute warp
+  // group needs to set the arrive of the prefetch loop
   const auto& cb_info = GpuLower::current()->circularBufferInfo();
   bool independent_compute_warp_groups =
       cb_info.hasIndependentComputeWarpGroups();
   kir::IfThenElse* ite = nullptr;
   if (independent_compute_warp_groups) {
+    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(cb_info.getWarpSpecializedOn()),
+        NamedScalar::getParallelIndex(warp_specialize_on),
         GpuLower::current()->kernel()->zeroVal());
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);
