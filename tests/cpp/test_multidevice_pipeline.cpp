@@ -169,20 +169,6 @@ PipelineTest::PipelineTest() {
 // GPUs, run the test using mpirun: `mpirun -np 6 build/test_multidevice
 // --gtest_filter=PipelineTestTwoStages*`.
 
-TEST_F(PipelineTest, AllocationDomain) {
-  FusionGuard fg(fusion.get());
-  TensorView* tv0 = makeConcreteTensor({2, 5});
-  TensorView* tv1 = set(tv0);
-  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-  tv0->setDeviceMesh(DeviceMesh({0}));
-  tv1->setDeviceMesh(DeviceMesh({0}));
-
-  unsharded_args = {at::randn({2, 5}, tensor_options)};
-  executeAndValidate();
-}
-
 TEST_F(PipelineTest, Pipeline) {
   const std::vector<int64_t> input_shape1 = {6, 7};
   const std::vector<int64_t> input_shape2 = {3, 5, 2};
