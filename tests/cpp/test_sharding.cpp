@@ -435,8 +435,8 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   for (auto tv : fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
-  NVF_CHECK(getShardedLogicalAxis(tv1, ParallelType::DIDx) == 0);
-  NVF_CHECK(getShardedLogicalAxis(tv1, ParallelType::DIDy) == 1);
+  EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDx), 0);
+  EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
 }
 
 INSTANTIATE_TEST_SUITE_P(
