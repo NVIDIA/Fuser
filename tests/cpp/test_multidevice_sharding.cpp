@@ -970,7 +970,7 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
-  NVF_CHECK(at::allclose(nvf_out, sharded_inp.view({b * s * h, e})));
+  EXPECT_TRUE(at::allclose(nvf_out, sharded_inp.view({b * s * h, e})));
 }
 
 } // namespace nvfuser
