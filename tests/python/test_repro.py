@@ -157,9 +157,6 @@ class TestRepro(NVFuserTest):
             fd.add_output(T253)
             fd.add_output(T254)
 
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-
         inputs = [
             torch.testing.make_tensor(
                 (1, 64, 16384, 128), dtype=torch.bfloat16, device="cuda:0"
@@ -177,4 +174,5 @@ class TestRepro(NVFuserTest):
                 (1, 64, 16384, 128), dtype=torch.bfloat16, device="cuda:0"
             ),
         ]
-        outputs = fd.execute(inputs)
+
+        self.exec_nvfuser(fusion_func, inputs, validate=True)
