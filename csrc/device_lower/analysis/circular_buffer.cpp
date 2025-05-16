@@ -246,6 +246,32 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
+// For warp specialization, a separate warp group is created for mbarrier async
+// operations by padding a thread axis. We cannot use this thread axis in async
+// operations.
+void checkWarpSpecializedAxis(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  auto ws_id_producer_iter = std::find_if(
+      producer_loop.begin(),
+      producer_loop.end(),
+      [&warp_specialized](IterDomain* id) {
+        return !id->isBroadcast() &&
+            id->getParallelType() == warp_specialized.on;
+      });
+  NVF_ERROR(
+      ws_id_producer_iter == producer_loop.end(),
+      "The warp specialized thread axis cannot appear in the AsyncWarp ",
+      "TensorView: ",
+      tv->toString());
+}
+
 // If compute warp groups are independent, then the mbarrier waits for 128
 // threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
@@ -297,6 +323,28 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
   return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
 }
 
+// All the iterDomains to the left of the slice position in the producer and
+// consumer must belong to same iterDomain and have the same parallelization.
+void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  for (int64_t idx : arange(slice_position + 1)) {
+    IterDomain* producer_id = producer_loop.at(idx);
+    NVF_ERROR(
+        idx < consumer->nDims(),
+        "The corresponding consumer axis does not exist.");
+    IterDomain* consumer_id = consumer_loop.at(idx);
+    NVF_ERROR(
+        exact_graph.toGroup(producer_id) == exact_graph.toGroup(consumer_id),
+        "All iterDomains of the producer and consumer TensorViews to the left ",
+        "of the stage_slice_position must be in the same Exact ValGroup.");
+  }
+}
+
 void validateStageSlicePosition(const TensorView* tv) {
   if (!std::holds_alternative<WarpSpecialized>(
           tv->circularBufferOptions().type)) {
@@ -325,6 +373,8 @@ void validateStageSlicePosition(const TensorView* tv) {
       is_slice_after_bulk,
       "Detected an iterDomain with ParallelType::Bulk to the left of stage ",
       "slice position.");
+
+  checkTraversalIterDomains(tv, slice_position);
 }
 
 } // namespace
@@ -429,6 +479,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   if (GpuLower::hasCurrent()) {
     circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
   }
+  checkWarpSpecializedAxis(circular_buffer_tv);
   validateStageSlicePosition(circular_buffer_tv);
 
   // short-circuit: insertion position is only for warp specialization.
