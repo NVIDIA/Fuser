@@ -663,7 +663,6 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
   FusionProfiler* fp = get();
   fp->cupti_disabled_ = cupti_disable;
-  reset();
   if (!fp->cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
         cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
@@ -782,6 +781,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   fprof.compile_time_ms = fp->compile_timer_.time();
 
   fp->state_ = ProfilerState::Processed;
+  reset();
 }
 
 void FusionProfiler::startCompile() {
