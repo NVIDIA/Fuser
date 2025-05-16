@@ -39,6 +39,8 @@
 #include <tests/cpp/multidevice.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser {
 
