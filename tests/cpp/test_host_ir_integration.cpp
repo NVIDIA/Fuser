@@ -37,12 +37,13 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
   auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
   ke->compile(&fusion, {t0});
 
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
-  hic->setKernelExecutor(0, std::move(ke));
+  hic->addKernelExecutor(std::move(ke));
 
   IrCloner ir_cloner(hic.get());
   auto hic_in = ir_cloner.clone(in);

@@ -48,13 +48,13 @@ class HostIrContainer final : public Fusion {
 
   void insertExprAfter(int64_t index, Expr* expr);
 
-  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
+  void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
 
-  bool hasKernelExecutor(int64_t index) const {
-    return kernel_executors_.at(index) != nullptr;
+  bool hasKernelExecutor(int64_t group_id) const {
+    return kernel_executors_.at(group_id) != nullptr;
   }
 
-  KernelExecutor* getKernelExecutor(int64_t index) const;
+  KernelExecutor* getKernelExecutor(int64_t group_id) const;
 
   Stream* getDefaultStream();
 
