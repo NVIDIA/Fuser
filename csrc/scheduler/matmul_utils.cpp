@@ -286,10 +286,13 @@ void fillOptimalHopperTileSizes(
 
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
-  for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
-    if (cta_k > k && cta_k > 16) {
-      // There is no reason to use a larger CTA tile than K unless K is smaller
-      // than 16
+  for (int64_t cta_k = 256; cta_k > 0; cta_k -= 16) {
+    if (cta_k > k + 15) {
+      // There is no reason to use a larger CTA tile than K + 15 since K+16
+      // would include an extra instruction which is unnecessary. We do allow
+      // cta_k larger than k though in order to catch cases like K=248 which we
+      // can compute in a single K=256 tile even though the last instruction
+      // tile is half empty.
       continue;
     }
     for (const auto& [m_ratio, n_ratio] :
