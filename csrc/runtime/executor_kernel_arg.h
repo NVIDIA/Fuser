@@ -28,7 +28,7 @@ struct GlobalBufferInfo;
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. It takes ownership of
 //! at::Tensors so care should be taken when using it relative to tensor.
-class KernelArgumentHolder {
+class NVF_API KernelArgumentHolder {
  public:
   KernelArgumentHolder() = default;
 
