@@ -381,8 +381,6 @@ std::vector<std::vector<MatmulDimRole>> HopperPlusMultipleMatmulScheduler::
 
     reorderBlockTileTraversal(tv, merged_roles);
 
-    all_merged_roles.push_back(merged_roles);
-
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
       for (size_t i : arange(merged_roles.size())) {
@@ -392,7 +390,20 @@ std::vector<std::vector<MatmulDimRole>> HopperPlusMultipleMatmulScheduler::
       }
     }
 
+    // Merge in batch dims to the BIDy dim for non-persistent
     if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::OneTilePerCTA) {
+      if (merged_roles.front() == MatmulDimRole::Batch) {
+        // Merge batch dim into the dimension that will be parallelized BIDy
+        int64_t outer_grid_dim = params_->cta_order ==
+                MatmulParams::TileRasterizationOrder::ColumnMajor
+            ? num_device_dims_ + 2L
+            : num_device_dims_ + 1L;
+        tv->merge(num_device_dims_, outer_grid_dim);
+        merged_roles.erase(merged_roles.begin());
+      }
+    } else if (
+        params_->tiling_strategy ==
         MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
       // Persistent kernel scheduling
       if (params_->cta_order ==
@@ -402,10 +413,26 @@ std::vector<std::vector<MatmulDimRole>> HopperPlusMultipleMatmulScheduler::
       }
       tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
 
+      if (merged_roles.front() == MatmulDimRole::Batch) {
+        // Merge batch dims before doing the persistent split
+        tv->merge(num_device_dims_);
+        num_device_and_batch_dims_--;
+        merged_roles.erase(merged_roles.begin());
+      }
+
       const int64_t num_sms =
           at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
       tv->split(num_device_and_batch_dims_, num_sms);
+    } else {
+      NVF_THROW("Unsupported tiling strategy");
     }
+
+    all_merged_roles.push_back(merged_roles);
+  }
+  if (num_local_batch_dims_ > 0) {
+    // These should be merged out by now
+    num_local_batch_dims_--;
+    num_device_and_batch_dims_--;
   }
   return all_merged_roles;
 }
