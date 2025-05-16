@@ -150,6 +150,10 @@ class LaunchKernel : public Expr {
     return attribute<CompileParams>(2);
   }
 
+  // A NamedScalar that holds the input cache ID. This NamedScalar is expected
+  // to be bound by HostIrEvaluate::runWithInputs. If it's not bound,
+  // KernelExecutor::runFusion will create a KernelArgumentHolder without cache
+  // ID and initializeExecutorEntry every time, slow yet functional.
   Val* cacheId() const {
     return attributeVal(3);
   }
