@@ -116,9 +116,7 @@ class LaunchKernel : public Expr {
   using Expr::Expr;
   LaunchKernel(
       IrBuilderPasskey passkey,
-      int64_t hic_executor_index, // Index into the HostIrContainer's vector of
-                                  // KernelExecutors--i.e., the kernel this IR
-                                  // should launch
+      int64_t group_id,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
@@ -138,7 +136,7 @@ class LaunchKernel : public Expr {
     return "hir::LaunchKernel";
   }
 
-  int64_t index() const {
+  int64_t groupId() const {
     return attribute<int64_t>(0);
   }
 

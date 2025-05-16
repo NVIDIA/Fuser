@@ -377,7 +377,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   args.setDeviceIndex();
 
   // run the compiled kernel
-  container_->getKernelExecutor(launch_kernel->index())
+  container_->getKernelExecutor(launch_kernel->groupId())
       ->run(
           args,
           outputs,

@@ -842,13 +842,14 @@ void FusionKernelRuntime::compileKernel(
 
   if (hic != nullptr) {
     auto ke = std::make_unique<KernelExecutor>();
+    ke->setGroupId(group_id);
     ke->compile(
         fusion_to_run.get(),
         args,
         heuristic_params->lparams,
         heuristic_params->cparams,
         heuristic_params->scheduler_type);
-    hic->setKernelExecutor(group_id, std::move(ke));
+    hic->addKernelExecutor(std::move(ke));
   } else {
     // Initialize associated executors
     executors_[group_id] = ExecutorDispatch::makeExecutor(
