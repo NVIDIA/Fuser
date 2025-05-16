@@ -58,7 +58,7 @@ std::optional<Expr*> getAllowedLookupTvDef(const GatherOp* gather_op) {
   return std::nullopt;
 }
 
-auto positionOfSqueezedDim(const std::vector<bool>& squeeze_dim_flags) {
+int64_t positionOfSqueezedDim(const std::vector<bool>& squeeze_dim_flags) {
   auto it = std::find(squeeze_dim_flags.begin(), squeeze_dim_flags.end(), true);
   return it != squeeze_dim_flags.end()
       ? std::distance(squeeze_dim_flags.begin(), it)
@@ -67,8 +67,10 @@ auto positionOfSqueezedDim(const std::vector<bool>& squeeze_dim_flags) {
 
 // If the def of lookUpTv is squeeze, and we're moving the squeeze to
 // after the gather/take_along_axis, then we need to add an unsqueeze
-// to the IndexTv
-auto prepareIndexTv(Fusion* fusion, GatherOp* gather_op, Expr* def) {
+// to the IndexTv.
+// The def in the arugment is the Expr that define the lookupTv for the
+// original take_along_axis.
+TensorView* prepareIndexTv(GatherOp* gather_op, Expr* def) {
   if (def->isA<SqueezeOp>()) {
     auto squeeze_dim_flags = def->as<SqueezeOp>()->getSqueezeDimFlags();
     auto dim = positionOfSqueezedDim(squeeze_dim_flags);
@@ -77,8 +79,8 @@ auto prepareIndexTv(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   return gather_op->indexTv();
 }
 
-auto addPostGatherSqueeze(
-    Fusion* fusion,
+// def is the Expr the defines the lookupTv for take_along_axis.
+TensorView* addPostGatherSqueeze(
     GatherOp* old_gather,
     GatherOp* new_gather,
     Expr* def) {
@@ -93,7 +95,8 @@ auto addPostGatherSqueeze(
   return new_squeeze_output;
 }
 
-auto addPostGatherOp(
+// def is the Expr the defines the lookupTv for take_along_axis.
+TensorView* addPostGatherOp(
     Fusion* fusion,
     GatherOp* old_gather,
     GatherOp* new_gather,
@@ -117,9 +120,12 @@ auto addPostGatherOp(
       old_gather->output(0)->as<TensorView>()->domain(),
       cloned_def->output(0)->as<TensorView>()->domain());
 
-  return cloned_def->output(0);
+  return cloned_def->output(0)->as<TensorView>();
 }
 
+// old_gather is the original take_along_axis Expr
+// new_gather is the new Expr that will replace the old_gather
+// def is the Expr the defines the lookupTv for take_along_axis.
 auto addOrCloneNewNodeAfterGather(
     Fusion* fusion,
     GatherOp* old_gather,
@@ -127,7 +133,7 @@ auto addOrCloneNewNodeAfterGather(
     Expr* def) {
   // Create a new squeeze op or clone the unary pointwise op.
   auto output_of_post_gather_op = def->isA<SqueezeOp>()
-      ? addPostGatherSqueeze(fusion, old_gather, new_gather, def)
+      ? addPostGatherSqueeze(old_gather, new_gather, def)
       : addPostGatherOp(fusion, old_gather, new_gather, def);
 
   // Update the uses of the old gather.
@@ -150,7 +156,7 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   // If the def for gather's lookup tv is a squeeze op
   // then as we move gather ahead of squeeze, we need to
   // add a unsqueeze to the index tv.
-  auto index_tv = prepareIndexTv(fusion, gather_op, def);
+  auto index_tv = prepareIndexTv(gather_op, def);
 
   // If we are moving ahead of a squeeze then we need to update
   // the dim on which we are gathering. We restrict ourselves
@@ -190,7 +196,7 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 // new Gather op. Update the uses of the old Gather op to use the output of D'
 // 3. We delete the old Gather op.
 
-// If D is a squeeze op (please not we currently support squeeze with a single
+// If D is a squeeze op (please note we currently support squeeze with a single
 // dim being squeezed) we slightly modify the above algorithm. Let's say the def
 // of the index Tv of the Gather Op is I. We add an unsqueeze op to output of I.
 // The ouptut of the unsqueeze is then an input to the new
@@ -201,16 +207,18 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
   do {
     auto producer = getAllowedLookupTvDef(gather_op);
-    if (!producer.has_value() ||
-        (producer.has_value() && producer.value() == nullptr)) {
+    if (!producer.has_value()) {
       return;
     }
 
     auto def = producer.value();
     auto new_gather_op = moveGatherOp(fusion, gather_op, def);
+
+    // Nothing has been modified in the fusion as there's nothing to do.
     if (new_gather_op == gather_op) {
       return;
     }
+
     gather_op = new_gather_op;
   } while (true);
 }
