@@ -453,32 +453,13 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  TensorView* output_tv = communication->out();
-  auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
-  // The output tensor is sharded on scattered_axis and needs to be mapped
-  // back onto the input. The input has an reduced axis, so the scattered axis
-  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
-  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
-  if (reduction_axis <= scattered_axis) {
-    scattered_axis++;
-  }
-
-  std::vector<at::Tensor> input_tensors = at::tensor_split(
-      input_tensor, communication->team_size(), scattered_axis);
-  // We could have checked the output shape as well if reduction_axis is
-  // available. It's not always available via
-  // `communication->out()->getReductionAxis()` for manually constructed host
-  // IRs like
-  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
-  assertBuffersHaveSameSize(input_tensors, {});
-
-  // reduce_scatter primitive in c10d induces extra buffering time to copy the
-  // user's input tensors to an internal source buffer. It is therefore always
-  // preferable to use _reduce_scatter_base (which does not perform any extra
-  // copy) when the tensors are stored contiguously (i.e., when
-  // scattered_axis==1). Note however than only nccl supports
-  // _reduce_scatter_base, not ucc.
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
   auto isOutermostDeviceDim = [](TensorView* tv) {
     for (auto* loop_id : tv->getLoopDomain()) {
@@ -486,28 +467,24 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
         return loop_id->isDeviceDim();
       }
     }
-    NVF_THROW("No DeviceDim found in ", tv->toString());
+    return false;
   };
+  NVF_ERROR(
+      isOutermostDeviceDim(communication->out()),
+      "Output tensor is not outermost sharded");
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
-  auto isTvContiguous = [](TensorView* tv) {
-    return std::all_of(
-        tv->getContiguity().begin(),
-        tv->getContiguity().end(),
-        [](const std::optional<bool>& c) { return c.value_or(true); });
-  };
-
-  if (isTvContiguous(output_tv) && isOutermostDeviceDim(output_tv) &&
-      isTvContiguous(communication->in())) {
-    return backend->_reduce_scatter_base(
-        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
-  }
-
-  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
-  std::vector<at::Tensor> output_tensor_vec({output_tensor});
-  return backend->reduce_scatter(
-      output_tensor_vec,
-      input_tensors_vec,
-      {.reduceOp = communication->reduceOp()});
+  // reduce_scatter primitive in c10d induces extra buffering time to copy the
+  // user's input tensors to an internal source buffer. It is therefore always
+  // preferable to use _reduce_scatter_base (which does not perform any extra
+  // copy) when the tensors are stored contiguously (i.e., when
+  // scattered_axis==1). Note however than only nccl supports
+  // _reduce_scatter_base, not ucc.
+  return backend->_reduce_scatter_base(
+      output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
