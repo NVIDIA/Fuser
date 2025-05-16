@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
