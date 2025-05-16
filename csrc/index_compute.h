@@ -450,7 +450,8 @@ class Index {
   static std::vector<Val*> getConsumerAllocationIndices(
       const TensorView* tv,
       const std::vector<ForLoop*>& loops,
-      const IndexFromIdGraph& index_from_id_graph);
+      const IndexFromIdGraph& index_from_id_graph,
+      const std::unordered_map<int, Val*>& override_index = {});
 
   // get the allocation indices of a producer tensor
   static std::vector<Val*> getProducerAllocationIndices(
