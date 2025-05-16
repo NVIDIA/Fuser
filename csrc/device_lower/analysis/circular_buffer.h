@@ -67,10 +67,6 @@ class CircularBufferInfo {
     return independent_compute_warp_groups_;
   }
 
-  ParallelType getWarpSpecializedOn() const {
-    return warp_specialized_on_;
-  }
-
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);

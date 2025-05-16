@@ -552,7 +552,7 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     // Skip parallelized axes except for warp specialized dim
     // when warp specialized dim is used in computation branch,
     // it represents index of computation warp groups.
-    if (id->isThread() && (id->getParallelType() != getWarpSpecializedOn())) {
+    if (id->isThread() && (id->getParallelType() != warp_specialized_on_)) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
