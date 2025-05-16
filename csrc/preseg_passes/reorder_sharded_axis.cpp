@@ -195,31 +195,33 @@ void propagateDIDTransform(
   }
 }
 
+int64_t mappedAxisInConsumer(TensorView* producer, TensorView* consumer, IterDomain* p_logical_id) {
+  const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+  auto c_it = pairwise_map.find(p_logical_id);
+  NVF_ERROR(c_it != pairwise_map.end(), p_logical_id->toString(), " not mapped to any ID in ", consumer->toString());
+  return posInDomain(consumer->getLogicalDomain(), c_it->second);
+} 
+
 void handleForLoopSplit(Expr* expr, CommunicationInfo communication_info) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
 
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
-  // int64_t reduction_axis = communication_info.reduction_axis;
 
   TensorView* comm_input = set(input);
-  int64_t p_sharded_idx = posInDomain(input->getLogicalDomain(), p_sharded_id);
+  
+  int64_t p_sharded_idx = mappedAxisInConsumer(input, comm_input, p_sharded_id);
+
   comm_input->setAllocationDomain(
       TensorDomain::orderedAs(
           comm_input->getLogicalDomain(),
           std::unordered_map<int64_t, int64_t>{{p_sharded_idx, 0}}),
           true);
 
-  // TensorView* comm_output = nullptr;
   if (expr->isA<LoadStoreOp>()) {
-    // comm_output = set(comm_input);
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_input);
   } else {
-    // comm_output = reductionOp(
-    //     expr->as<ReductionOp>()->getReductionOpType(),
-    //     {reduction_axis}, expr->as<ReductionOp>()->init(), comm_input);
-    // output->setLoopDomain(TensorDomain::noReductions(output->getLoopDomain()));
     IrBuilder::create<ReductionOp>(
         expr->as<ReductionOp>()->getReductionOpType(),
         expr->as<ReductionOp>()->init(),
@@ -227,22 +229,25 @@ void handleForLoopSplit(Expr* expr, CommunicationInfo communication_info) {
         comm_input
     );
   }
-  int64_t c_sharded_idx = posInDomain(output->getLogicalDomain(), c_sharded_id);
+  
+  TensorView* comm_output = set(output);
+  
+  int64_t output_sharded_idx = posInDomain(output->getLogicalDomain(), c_sharded_id);
   output->setAllocationDomain(
       TensorDomain::orderedAs(
           output->getLogicalDomain(),
-          std::unordered_map<int64_t, int64_t>{{c_sharded_idx, 0}}),
+          std::unordered_map<int64_t, int64_t>{{output_sharded_idx, 0}}),
           true);
   
-  TensorView* comm_output = set(output);
+  int64_t c_sharded_idx = mappedAxisInConsumer(output, comm_output, c_sharded_id);
+  // TODO: Revert this to output allocation domain instead.
   comm_output->setAllocationDomain(
       TensorDomain::orderedAs(
           comm_output->getLogicalDomain(),
           std::unordered_map<int64_t, int64_t>{{0, c_sharded_idx}}),
           true);
-  ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, comm_output);
 
-  // IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_output);
+  ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, comm_output);
 
   propagateDIDTransform(
       input, {comm_input}, -1, PropagationDirection::kForward);
