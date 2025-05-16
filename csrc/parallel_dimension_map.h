@@ -73,14 +73,26 @@ class ParallelDimensionMap {
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
 
+  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
+  Val* getLinearThreadIndexAsync() const;
+
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
-    return !warp_specialized_types_.empty();
+    return warp_specialized_parallel_type_.has_value();
+  }
+
+  //! Check if ParallelType is WarpSpecialized parallel type.
+  bool isWarpSpecialized(ParallelType pt) const {
+    return warp_specialized_parallel_type_.value_or(ParallelType::Serial) == pt;
   }
 
   bool has(ParallelType pt) const {
     return dim_map_.count(pt) > 0;
   }
+
+  // If warp specialized on TIDx and padded value is less than 32 threads, then
+  // elect-sync cannot be used.
+  bool canUseElectSyncInAsyncWarp() const;
 
  private:
   //! Get number of threads for ParallelType axis
@@ -104,12 +116,8 @@ class ParallelDimensionMap {
   //! exactly the same as extents of mapped domains.
   std::unordered_set<ParallelType> exact_types_;
 
-  //! Set of parallel types that we are doing warp specialization on
-  std::unordered_set<ParallelType> warp_specialized_types_;
-
-  //! warp specialization with register sharing, keep track of
-  //! the parallel type and the threads padding
-  std::optional<ParallelType> ws_with_register_sharing_pt_;
-  std::optional<int64_t> ws_with_register_sharing_pad_val_;
+  //! Keep track of warp specialized parallel type and padding value
+  std::optional<ParallelType> warp_specialized_parallel_type_;
+  std::optional<int64_t> warp_specialized_padding_value_;
 };
 } // namespace nvfuser

@@ -176,6 +176,46 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
+// A test to check that scheduling loop domains can handle the
+// case when there is a 0-d TV which is not an input to the fusion.
+// The rest of the fusion here is arbitrary.
+TEST_F(LoopDomainSchedulingTest, HandleTVsWithNoLogicalDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  auto tv0 = makeConcreteTensor(shape);
+  auto tv1 = makeSymbolicTensor(0);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      slice(tv0, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv1);
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
+  ASSERT_NO_THROW(
+      scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::tensor(1.00f, options).squeeze();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+
+  auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
+
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
+}
+
 // Iter domain cannot have multiple definitions, whereas ValGroup can.
 // This means that the traversal path in ValGraph may not be a valid
 // history to construct within a tensor domain. For example, a path

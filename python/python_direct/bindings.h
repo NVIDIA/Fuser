@@ -10,8 +10,11 @@
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
 
-namespace python {
+namespace nvfuser::python {
 
 void initNvFuserPythonBindings(PyObject* module);
 
-} // namespace python
+// Add bindings for Fusion IR
+void bindFusionIr(py::module& nvfuser);
+
+} // namespace nvfuser::python
