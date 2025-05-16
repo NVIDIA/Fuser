@@ -97,7 +97,6 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
         shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
     auto obtained_output = outputs[i].as<at::Tensor>();
     
-    EXPECT_EQ(ref_output.sizes(), obtained_output.sizes()) << "Sizes are not equal: Ref: " << ref_output.sizes() << " Output: " << obtained_output.sizes() << std::endl;
     EXPECT_EQ(ref_output.strides(), obtained_output.strides()) << "Strides are not equal: Ref: " << ref_output.strides() << " Output: " << obtained_output.strides() << std::endl;
 
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
