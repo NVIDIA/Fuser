@@ -1004,11 +1004,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
     Val* expected_bytes = tma_info.tileSizeBytes();
 
-    const auto& warp_specialized =
-        std::get<WarpSpecialized>(consumer_tv->circularBufferOptions().type);
-    size_t start_idx = (warp_specialized.stage_slice_position.has_value())
-        ? warp_specialized.stage_slice_position.value()
-        : consumer_tv->getComputeAtPosition();
+    size_t start_idx = consumer_tv->getComputeAtPosition();
+    bool is_warp_specialized = std::holds_alternative<WarpSpecialized>(
+        consumer_tv->circularBufferOptions().type);
+    if (is_warp_specialized) {
+      const auto& warp_specialized =
+          std::get<WarpSpecialized>(consumer_tv->circularBufferOptions().type);
+      if (warp_specialized.stage_slice_position.has_value()) {
+        start_idx = warp_specialized.stage_slice_position.value();
+      }
+    }
 
     // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
     // load operations launched for each circular buffer stage. We take the
@@ -1461,6 +1466,7 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
       cb_info.hasIndependentComputeWarpGroups();
   kir::IfThenElse* ite = nullptr;
   if (independent_compute_warp_groups) {
+    NVF_ERROR(isWarpSpecialized(circular_buffer_loop));
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(warp_specialize_on),

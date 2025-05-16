@@ -249,13 +249,20 @@ namespace {
 // If compute warp groups are independent, then the mbarrier waits for 128
 // threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return false;
+  }
+
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
       GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
-  NVF_ERROR(warp_specialized.stage_slice_position.has_value());
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return false;
+  }
 
   // Step 1: Get warp specialized iterDomain in consumer
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
@@ -335,11 +342,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
 
-  const auto& warp_specialized =
-      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
-  if (warp_specialized.stage_slice_position.has_value()) {
-    independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
-  }
+  independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
