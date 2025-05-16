@@ -869,6 +869,110 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs[0].as<at::Tensor>()));
 }
 
+// Let us now present a real world scenario, used in transformer, where we need
+// to execute a matmul followed by a Reduce-Scatter MPI collective. This is the
+// first example we provide where host IRs are used in a multidevice setting.
+// The host program can be summarized as follows:
+/*
+  | tva, tvb: inputs
+  | tvc = Matmul(tva, tvb)
+  | tvd = Reduce-Scatter (tvc)
+  | Wait for the completion of Reduce-Scatter
+  | tvd: output
+*/
+// here, all the tensors are implicitely sharded tensors accross devices.
+// `Matmul` and MPI-collectives are Host IRs that can be used directly in the
+// host program.
+TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
+  // Instantiate an HostIrContainer
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  constexpr int64_t kNDims = 2;
+  TensorView* tva = makeContigTensor(kNDims);
+  TensorView* tvb = makeContigTensor(kNDims);
+  // some ops, like MatMulOp are natively supported as HostIrs, and do not need
+  // to be implemented as a Fusion
+  TensorView* tvc = matmul(tva, tvb);
+  Expr* matmul_op = tvc->definition();
+
+  TensorView* tvd = makeContigTensor(kNDims);
+  // Before defining the communication (reduce-scatter) that produces tvd from
+  // tvc, it is required to set tvd and tvc device mesh (this might be removed
+  // in the future)
+  std::vector<int64_t> all_devices(communicator_->size());
+  std::iota(
+      all_devices.begin(),
+      all_devices.end(),
+      0); // all_devices = [0,1,..., communicator_->size()-1]
+  DeviceMesh mesh_full(all_devices);
+  tvc->setDeviceMesh(mesh_full);
+  tvd->setDeviceMesh(mesh_full);
+
+  auto* reduce_scatter = IrBuilder::create<Communication>(
+      CommunicationType::ReduceScatter,
+      /*out=*/tvd,
+      /*in=*/tvc,
+      /*team=*/all_devices,
+      /*(unused)root=*/-1,
+      RedOpType::SUM);
+
+  // Since communications are non-blocking, it is always required to wait for a
+  // posted communication. Node that "wait" blocks the stream but not the CPU
+  // (except for barrier)
+  auto* wait = IrBuilder::create<hir::Wait>(reduce_scatter);
+
+  // Let us create the host program and the I/O
+  hic->pushBackTopLevelExprs(matmul_op);
+  hic->pushBackTopLevelExprs(reduce_scatter);
+  hic->pushBackTopLevelExprs(wait);
+
+  hic->addInput(tva);
+  hic->addInput(tvb);
+  hic->addInput(tvd); // a buffer must be provided for tvd, this is why it is
+                      // tagged as an input
+  hic->addOutput(tvd);
+
+  if (verbose_ && communicator_->deviceId() == 0) {
+    hic->print(debug());
+    // We reproduce, for convenience, what gets printed:
+    // clang-format off
+    /*
+    %HostIrContainer { (T0_g[ iS0{i0}, iS1{i2} ], T1_g[ iS2{i3}, iS3{i4} ], T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7})) -> (T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7})) :
+      T2_l[ iS4{i0}, iS5{i4}, rS6{i2} ] (DeviceMesh{0 1 2 3 4 5 6 7})
+        = matmul(T0_g[ iS0{i0}, iS1{i2} ],
+                  T1_g[ iS2{i3}, iS3{i4} ])
+      Communication 1 (type=ReduceScatter, team=(0 1 2 3 4 5 6 7), input=T2_l[ iS4{i0}, iS5{i4}, rS6{i2} ] (DeviceMesh{0 1 2 3 4 5 6 7}), output=T3_g[ iS7{i11}, iS8{i12} ] (DeviceMesh{0 1 2 3 4 5 6 7}))
+      Wait Communication 1
+    } // %HostIrContainer
+    */
+    // clang-format on
+  }
+
+  // define a concrete input
+  constexpr int64_t M = 1680;
+  constexpr int64_t K = 16;
+  constexpr int64_t N = 64;
+  ASSERT_EQ(M % communicator_->size(), 0)
+      << "the test must be launched with a number of devices n that divides M="
+      << M << ", but we have n=" << communicator_->size();
+
+  auto options = at::TensorOptions().device(communicator_->device());
+  at::Tensor aten_tva = at::randn({M, K}, options);
+  at::Tensor aten_tvb = at::randn({K, N}, options);
+  at::Tensor aten_tvd = at::empty({M / communicator_->size(), N}, options);
+
+  // Let us now execute the Host program. When multidevice is requested, we
+  // need to pass a pointer to a Communicator
+  HostIrEvaluator hie(std::move(hic), communicator_);
+  auto outputs =
+      hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
+
+  // "validate" the result
+  EXPECT_EQ(
+      outputs[0].as<at::Tensor>().numel(), (M * N) / communicator_->size());
+}
+
 // Let us now show how to implement Kernel Pipelining with Host IR. Let us
 // consider a program summarized as
 /*

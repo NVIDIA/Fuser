@@ -369,9 +369,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(3);
   in->setDeviceMesh(full_mesh_);
-  in->axis(0)->parallelize(ParallelType::DIDx);
   auto* out = newForReduction(in, {0});
-  out->axis(1)->parallelize(ParallelType::DIDx);
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
       out,
