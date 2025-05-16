@@ -9,7 +9,6 @@
 
 #include <disjoint_set.h>
 
-
 namespace nvfuser {
 
 // These types define ValGraph nodes. They are separted from
