@@ -123,13 +123,13 @@ bool PostOnStream::sameAs(const Statement* other) const {
 
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
-    int64_t hic_executor_index,
+    int64_t group_id,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs)
     : Expr(passkey, inputs, outputs, {}) {
-  addDataAttribute(hic_executor_index);
+  addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
 }
@@ -139,7 +139,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "LaunchKernel(" << std::endl;
-  indent(ss, indent_size + 1) << "Index: " << getIndex() << "," << std::endl;
+  indent(ss, indent_size + 1) << "Group ID: " << groupId() << "," << std::endl;
   indent(ss, indent_size + 1)
       << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
   indent(ss, indent_size + 1)

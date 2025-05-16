@@ -71,6 +71,8 @@ class HostIrContainer final : public Fusion {
 
  private:
   std::vector<Expr*> top_level_exprs_;
+  // Indexed by group ID. This way, parallel compilation can write to disjoint
+  // locations without having to precompute a global index.
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
   std::unordered_map<const Val*, Val*> alias_;

@@ -348,12 +348,12 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   args.setDeviceIndex();
 
   // run the compiled kernel
-  container_->getKernelExecutor(launch_kernel->getIndex())
+  container_->getKernelExecutor(launch_kernel->groupId())
       ->run(
           args,
           outputs,
-          launch_kernel->launch_params(),
-          launch_kernel->compile_params());
+          launch_kernel->launchParams(),
+          launch_kernel->compileParams());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
