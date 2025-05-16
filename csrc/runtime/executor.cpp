@@ -469,6 +469,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           reduction_broadcast_workspace,
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
+    std::cout << "reduction_broadcast_workspace: "
+              << reduction_broadcast_workspace << std::endl;
   }
 
   const auto dynamic_smem_size = computeSharedMemory(

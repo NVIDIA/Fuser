@@ -168,7 +168,7 @@ void getHeuristics(
   // of 128 / (sizeof(uint64) * 2) = 16 stages.
   const int64_t max_stages = 16;
   const int64_t aligned_mbarrier_size = 128;
-  const int64_t available_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor -
+  const int64_t available_smem = (int64_t)dev_prop->sharedMemPerBlockOptin -
       smem_overhead - aligned_mbarrier_size;
   const int64_t max_n_copies =
       std::min(available_smem / smem_buffer_size, max_stages);
@@ -178,7 +178,7 @@ void getHeuristics(
       smem_buffer_size,
       ", available_smem: ",
       available_smem);
-  std::cout << "sharedMemPerMultiprocessor: " << dev_prop->sharedMemPerMultiprocessor << std::endl;
+  std::cout << "sharedMemPerBlockOptin: " << dev_prop->sharedMemPerBlockOptin << std::endl;
   std::cout << "smem_overhead: " << smem_overhead << std::endl;
   std::cout << "available_smem: " << available_smem << std::endl;
   std::cout << "smem_buffer_size: " << smem_buffer_size << std::endl;
