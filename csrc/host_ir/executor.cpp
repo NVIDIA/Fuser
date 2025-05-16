@@ -202,7 +202,8 @@ HostIrEvaluator::HostIrEvaluator(
       params_(params),
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
-      ipc_handle_cache_(expr_evaluator_) {
+      ipc_handle_cache_(expr_evaluator_),
+      allocation_cache_() {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -700,6 +701,14 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (isKnown(tv)) {
     return;
   }
+
+  // Check the cache
+  auto it = allocation_cache_.find(allocate);
+  if (it != allocation_cache_.end()) {
+    bind(tv, it->second);
+    return;
+  }
+
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -711,6 +720,9 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
+
+  // Cache the allocation using the allocation operation as the key
+  allocation_cache_[allocate] = tensor;
   bind(tv, tensor);
 }
 

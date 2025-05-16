@@ -191,6 +191,8 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
   IpcHandleCache ipc_handle_cache_;
+  // Allocation cache
+  std::unordered_map<kir::Allocate*, at::Tensor> allocation_cache_;
 };
 
 } // namespace hir
