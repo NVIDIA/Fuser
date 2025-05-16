@@ -11,6 +11,8 @@
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
