@@ -145,37 +145,19 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  Val* getAlias(Val* val) const {
-    const auto& aliases = container_->alias();
-    auto it = aliases.find(val);
-    return it != aliases.end() ? getAlias(it->second) : val;
-  }
-
-  bool isKnown(Val* value) const {
-    return expr_evaluator_.isKnown(getAlias(value));
-  }
-
   PolymorphicValue getKnownConcreteValue(Val* val) const {
     NVF_ERROR(
-        isKnown(val),
+        expr_evaluator_.isKnown(val),
         "value ",
         val->toString(),
         "must be precomputed before being retrieved");
-    return expr_evaluator_.evaluate(getAlias(val));
+    return expr_evaluator_.evaluate(val);
   }
 
   at::Tensor getKnownTensorOrUndefined(Val* val) const {
-    return isKnown(val)
-        ? expr_evaluator_.evaluate(getAlias(val)).as<at::Tensor>()
+    return expr_evaluator_.isKnown(val)
+        ? expr_evaluator_.evaluate(val).as<at::Tensor>()
         : at::Tensor();
-  }
-
-  void bind(Val* value, PolymorphicValue concrete_value) {
-    expr_evaluator_.bind(getAlias(value), concrete_value);
-  }
-
-  void invalidate(Val* value) {
-    expr_evaluator_.invalidate(getAlias(value));
   }
 
   std::unique_ptr<HostIrContainer> container_;
