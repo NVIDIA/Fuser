@@ -83,7 +83,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     const std::vector<TensorView*>& reduction_tvs,
     const int64_t vectorize_factor,
     const int64_t threads_per_block_min,
-    const int64_t threads_per_block_max);
+    const int64_t threads_per_block_max,
+    const bool is_warp_specialized);
 
 // Prioritize keeping buffers used by outer broadcast tensors to shared memory
 // because:

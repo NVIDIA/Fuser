@@ -929,7 +929,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
       nvfuser, "SchedulerHyperParameters");
-  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t, bool>());
   hyperparameters.def_property(
       "vectorize_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -964,7 +964,15 @@ void initNvFuserPythonBindings(PyObject* module) {
          int64_t threads_per_block_max_) {
         self.threads_per_block_max = threads_per_block_max_;
       });
-
+  hyperparameters.def_property(
+      "is_warp_specialized",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.is_warp_specialized;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t is_warp_specialized_) {
+        self.is_warp_specialized = is_warp_specialized_;
+      });
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");

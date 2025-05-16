@@ -133,7 +133,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     const std::vector<TensorView*>& reduction_tvs,
     const int64_t vectorize_factor,
     const int64_t threads_per_block_min,
-    const int64_t threads_per_block_max) {
+    const int64_t threads_per_block_max,
+    const bool is_warp_specialized) {
   FUSER_PERF_SCOPE(
       "normalization_inner_outer::getPersistentBufferStorageParams");
 
@@ -161,8 +162,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Warp specialized persistent kernel always cache inputs in shared memory,
   // should project to inputs.
   const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
-  bool skip_check_buffer_size = !outer_broadcast_tvs.empty() ||
-      isOptionEnabled(EnableOption::WarpSpecializedNormalization);
+  bool skip_check_buffer_size =
+      !outer_broadcast_tvs.empty() || is_warp_specialized;
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
@@ -210,7 +211,26 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       }
     }
   }
-
+  // Outerbroadcast tvs can't be circular buffered, instead of TMA copied to
+  // smem,then copied from smem to regs, prefer to directly load to regs. Each
+  // CTA loads once and re-used in each circular buffer iteration.
+  if (is_warp_specialized) {
+    buffer_params.regs_buffer_size = 0;
+    for (auto buffer : buffers) {
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&buffer](TensorView* tv) {
+                return DependencyCheck::isDependencyOf(buffer, tv);
+              })) {
+        buffers.erase(
+            std::remove(buffers.begin(), buffers.end(), buffer), buffers.end());
+        buffer_params.regs_buffer_size +=
+            scheduler_utils::getPersistentBufferSizeOfTensor(
+                buffer, runtime_info, persistent_buffer_info);
+      }
+    }
+  }
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
   // val : register size and rounded shared memory size
@@ -220,19 +240,23 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   for (auto buffer : buffers) {
     int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
-    int64_t buffer_size_smem = roundUpSharedMemory(
-        buffer_size_regs,
-        dataTypeSize(buffer->getDataType().value()),
-        vectorize_factor,
-        threads_per_block_min,
-        threads_per_block_max,
-        dev_prop->warpSize);
+    // When warp specialized, the whole buffer is loaded in a single TMA
+    // instruction. No round up issue due to non-divisible split.
+    int64_t buffer_size_smem = is_warp_specialized
+        ? buffer_size_regs
+        : roundUpSharedMemory(
+              buffer_size_regs,
+              dataTypeSize(buffer->getDataType().value()),
+              vectorize_factor,
+              threads_per_block_min,
+              threads_per_block_max,
+              dev_prop->warpSize);
     required_size_regs_smem_map[buffer] =
         std::make_pair(buffer_size_regs, buffer_size_smem);
     total_smem_buffer_size += buffer_size_smem;
   }
   buffer_params.smem_buffer_size = total_smem_buffer_size;
-  buffer_params.regs_buffer_size =
+  buffer_params.regs_buffer_size +=
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {

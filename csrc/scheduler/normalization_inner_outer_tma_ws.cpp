@@ -160,9 +160,29 @@ void getHeuristics(
 
   // TODO: This is a heuristic, need to be tuned.
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
-  // n_stages is also limited by smem
-  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
-      (smem_overhead + smem_buffer_size);
+  // n_stages is also limited by smem.
+  // Each circular buffer stage requires two smem barriers, one for RAW
+  // (computation), the other for WAR (TMA loading). SMEM is aligned at
+  // 128 Bytes, so we add 128 bytes for barriers, which allows a maximum
+  // of 128 / (sizeof(uint64) * 2) = 16 stages.
+  const int64_t max_stages = 16;
+  const int64_t aligned_mbarrier_size = 128;
+  const int64_t available_smem = (int64_t)dev_prop->sharedMemPerMultiprocessor -
+      smem_overhead - aligned_mbarrier_size;
+  const int64_t max_n_copies =
+      std::min(available_smem / smem_buffer_size, max_stages);
+  NVF_ERROR(
+      max_n_copies > 0,
+      "Not enough shared memory for circular buffer, smem_buffer_size: ",
+      smem_buffer_size,
+      ", available_smem: ",
+      available_smem);
+  std::cout << "sharedMemPerMultiprocessor: " << dev_prop->sharedMemPerMultiprocessor << std::endl;
+  std::cout << "smem_overhead: " << smem_overhead << std::endl;
+  std::cout << "available_smem: " << available_smem << std::endl;
+  std::cout << "smem_buffer_size: " << smem_buffer_size << std::endl;
+  std::cout << "max_n_copies: " << max_n_copies
+            << std::endl;
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages = std::min(n_stages_prefered, max_n_copies);

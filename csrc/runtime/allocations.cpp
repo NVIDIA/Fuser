@@ -103,6 +103,11 @@ int64_t computeSharedMemory(
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
+      // if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+      if (true) {
+        debug() << "first_byte: " << first_byte << " last_byte: " << last_byte  << std::endl;
+        debug() << smem_alloc->toString() << std::endl;
+      }
     }
   }
   return total;

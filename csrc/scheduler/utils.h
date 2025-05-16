@@ -220,11 +220,13 @@ struct SchedulerHyperParameters {
       int64_t vectorize_factor_,
       int64_t unroll_factor_,
       int64_t threads_per_block_min_,
-      int64_t threads_per_block_max_)
+      int64_t threads_per_block_max_,
+      bool is_warp_specialized_)
       : vectorize_factor(vectorize_factor_),
         unroll_factor(unroll_factor_),
         threads_per_block_min(threads_per_block_min_),
-        threads_per_block_max(threads_per_block_max_) {}
+        threads_per_block_max(threads_per_block_max_),
+        is_warp_specialized(is_warp_specialized_) {}
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
@@ -237,6 +239,9 @@ struct SchedulerHyperParameters {
 
   //! Maximum number of threads per block.
   int64_t threads_per_block_max = 1;
+
+  //! Use warp specialized version
+  bool is_warp_specialized = false;
 };
 
 struct PersistentBufferInfo {

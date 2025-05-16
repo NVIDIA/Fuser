@@ -507,7 +507,8 @@ void bindSchedule(py::class_<FusionDefinition>& fusion_def) {
                   /*vectorize_factor=*/1,
                   /*unroll_factor=*/1,
                   /*threads_per_block_min=*/1,
-                  /*threads_per_block_max=*/1);
+                  /*threads_per_block_max=*/1,
+                  /*is_warp_specialized=*/false);
             });
         return scheduler_hyperparameters_entry.get();
       },
