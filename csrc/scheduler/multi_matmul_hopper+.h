@@ -64,11 +64,11 @@ namespace nvfuser {
 //
 // Each of the named tensors above is scheduled differently. We schedule them
 // by building AbstractTensors for each tensor category; these are held in
-// HopperMultipleMatmulScheduler::schedules_.
+// HopperPlusMultipleMatmulScheduler::schedules_.
 // TODO: Inherit from SchedulerEntry
-class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
+class HopperPlusMultipleMatmulScheduler : public MultipleMatmulScheduler {
  public:
-  HopperMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
+  HopperPlusMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : MultipleMatmulScheduler(fusion, params) {
     validate();
   }

@@ -1167,12 +1167,6 @@ NVF_API CompiledKernel::CompiledKernel(
       device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
-
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
@@ -1215,7 +1209,7 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
-  disable_parameter_cache_ = requiresDisabledParamCache(kernel());
+  launch_param_cache_disabled_ = requiresDisabledParamCache(kernel());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
