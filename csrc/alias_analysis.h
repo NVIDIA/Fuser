@@ -27,9 +27,7 @@ struct Layout {
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa. As a special case,
-  // an empty `required.allocation` indicates no requirements, i.e., the method
-  // always returns true.
+  // `contiguity=[f,f]` but not vice versa.
   bool isCompliantWith(const Layout& required) const;
 };
 

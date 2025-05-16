@@ -314,6 +314,17 @@ TEST_F(AliasAnalysisTest, DidLoopSplit) {
   fusion.addInput(in);
   fusion.addOutput(out);
 
+  at::Tensor in_tensor =
+      at::randn({2, 3, 768 / kNumDevices}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+
+  DynamicTransform::concretizeFusion(&fusion, args);
+  ASSERT_EQ(fusion.inputs().size(), 1);
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  // Concretization updates fusion's inputs and outputs.
+  in = fusion.inputs()[0]->as<TensorView>();
+  out = fusion.outputs()[0]->as<TensorView>();
+
   AliasAnalysisResult analysis = findAliases(&fusion);
   EXPECT_TRUE(analysis.getRoot(out) == in);
 }

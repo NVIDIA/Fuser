@@ -174,6 +174,63 @@ std::optional<Layout> mapInLayoutToOutRoot(
 }
 
 namespace {
+std::optional<Layout> computeLayout(
+    const std::vector<IterDomain*>& logical,
+    const std::vector<IterDomain*>& allocation,
+    const std::vector<std::optional<bool>>& contiguities) {
+  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
+  for (auto&& [alloc_id, contiguity] : zip(allocation, contiguities)) {
+    allocation_to_contiguity.pushBack(alloc_id, contiguity);
+  }
+
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+                             {logical.begin(), logical.end()},
+                             {allocation.begin(), allocation.end()}) |
+           std::views::reverse) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      const auto [outer_contiguity, next_i] =
+          allocation_to_contiguity.erase(split->outer());
+      const bool adjacent =
+          (next_i != allocation_to_contiguity.end() &&
+           next_i->first == split->inner());
+      const auto [inner_contiguity, merge_i] =
+          allocation_to_contiguity.erase(split->inner());
+      NVF_ERROR(!split->inner()->isParallelized());
+      if (split->outer()->isParallelized()) {
+        // Ignore adjacent
+        allocation_to_contiguity.insert(merge_i, split->in(), inner_contiguity);
+      } else {
+        if (!adjacent) {
+          return std::nullopt;
+        }
+        const auto [mergeable, contiguity] = mergeContiguity(
+            split->outer()->hasExpandedExtent(),
+            outer_contiguity,
+            split->inner()->hasExpandedExtent(),
+            inner_contiguity);
+        if (!mergeable) {
+          return std::nullopt;
+        }
+        allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  Layout layout;
+  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
+    layout.allocation_domain.push_back(alloc_id);
+    layout.contiguity.push_back(contiguity);
+  }
+  NVF_ERROR(std::is_permutation(
+      logical.begin(),
+      logical.end(),
+      layout.allocation_domain.begin(),
+      layout.allocation_domain.end()));
+  return layout;
+}
+
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
@@ -182,7 +239,16 @@ bool okToRelayout(
       (empty_allocation_as == EmptyAllocationAs::kUndetermined
            ? tv->getAllocationDomain()
            : tv->getMaybeAllocationDomain());
-  return new_layout.isCompliantWith({allocation, tv->getContiguity()});
+  if (allocation.empty()) {
+    return true;
+  }
+
+  std::optional<Layout> old_layout =
+      computeLayout(tv->getLogicalDomain(), allocation, tv->getContiguity());
+  if (!old_layout.has_value()) {
+    return false;
+  }
+  return new_layout.isCompliantWith(*old_layout);
 }
 } // namespace
 
@@ -472,72 +538,16 @@ void AliasAnalysisResult::finalize() {
   }
 }
 
-namespace {
-std::optional<Layout> computeLayout(const TensorView* tv) {
-  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  const std::vector<IterDomain*>& allocation = tv->getMaybeAllocationDomain();
-
-  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (auto&& [alloc_id, contiguity] : zip(allocation, tv->getContiguity())) {
-    allocation_to_contiguity.pushBack(alloc_id, contiguity);
-  }
-
-  for (Expr* transform : DependencyCheck::getAllExprsBetween(
-                             {logical.begin(), logical.end()},
-                             {allocation.begin(), allocation.end()}) |
-           std::views::reverse) {
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_contiguity, next_i] =
-          allocation_to_contiguity.erase(split->outer());
-      const bool adjacent =
-          (next_i != allocation_to_contiguity.end() &&
-           next_i->first == split->inner());
-      const auto [inner_contiguity, merge_i] =
-          allocation_to_contiguity.erase(split->inner());
-      NVF_ERROR(!split->inner()->isParallelized());
-      if (split->outer()->isParallelized()) {
-        // Ignore adjacent
-        allocation_to_contiguity.insert(merge_i, split->in(), inner_contiguity);
-      } else {
-        if (!adjacent) {
-          return std::nullopt;
-        }
-        const auto [mergeable, contiguity] = mergeContiguity(
-            split->outer()->hasExpandedExtent(),
-            outer_contiguity,
-            split->inner()->hasExpandedExtent(),
-            inner_contiguity);
-        if (!mergeable) {
-          return std::nullopt;
-        }
-        allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
-      }
-    } else {
-      return std::nullopt;
-    }
-  }
-
-  Layout layout;
-  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
-    layout.allocation_domain.push_back(alloc_id);
-    layout.contiguity.push_back(contiguity);
-  }
-  NVF_ERROR(std::is_permutation(
-      logical.begin(),
-      logical.end(),
-      layout.allocation_domain.begin(),
-      layout.allocation_domain.end()));
-  return layout;
-}
-} // namespace
-
 std::optional<Layout> AliasAnalysisResult::preferredLayout(
     const TensorView* tv) const {
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
   }
 
-  return computeLayout(tv);
+  return computeLayout(
+      tv->getLogicalDomain(),
+      tv->getMaybeAllocationDomain(),
+      tv->getContiguity());
 }
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
@@ -610,10 +620,6 @@ bool contiguityIsCompliant(
 } // namespace
 
 bool Layout::isCompliantWith(const Layout& required) const {
-  if (required.allocation_domain.empty()) {
-    return true;
-  }
-
   if (allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.
