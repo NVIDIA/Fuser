@@ -16,6 +16,8 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <transform_replay.h>
+#include <scheduler/utils.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -127,13 +129,79 @@ void reorderForScatterBasedComm(
   output_permute->setAllocationDomain(output_permute->getLoopDomain(), true);
 }
 
+// Returns the set of parallel types seen on the loop domain of the given tvs.
+std::unordered_set<ParallelType> getParallelTypesToPropagate(
+    std::vector<TensorView*> tvs) {
+  // Get the set of parallel types seen on the loop domain of the given tvs.
+  std::unordered_set<ParallelType> existing_parallel_types;
+  for (auto tv : tvs) {
+    for (auto id : tv->getLoopDomain()) {
+      if (!id->isReduction() && id->isDeviceDim()) {
+        existing_parallel_types.insert(id->getParallelType());
+      }
+    }
+  }
+  std::unordered_set<ParallelType> selected_parallel_types;
+  for (ParallelType pt : kParallelTypeDIDs) {
+    if (!existing_parallel_types.count(pt)) {
+      selected_parallel_types.insert(pt);
+    }
+  }
+  return selected_parallel_types;
+}
+
+
+// Reorder the DID axis with the given parallel types to the front.
+// Returns the number of device dimensions that were reordered to the front.
+// This allows us to limit propagation to only the relevant DID axis.
+int64_t selectiveReorderDIDToFront(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& selected_parallel_types) {
+  std::unordered_map<int64_t, int64_t> old2new;
+  int64_t current_pos = 0;
+
+  for (auto&& [pos, id] : enumerate(tv->getLoopDomain())) {
+    if (id->isDeviceDim() &&
+        selected_parallel_types.count(id->getParallelType())) {
+      old2new[pos] = current_pos;
+      current_pos++;
+    }
+  }
+
+  tv->reorder(old2new);
+  return current_pos;
+}
+
+using PropagationDirection = scheduler_utils::PropagateDirection;
+void propagateDIDTransform(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    int64_t did_pos,
+    PropagationDirection direction) {
+  TensorDomain* replayed_domain = nullptr;
+  std::unordered_set<ParallelType> selected_parallel_types =
+          getParallelTypesToPropagate(tvs);
+
+  // This restricts the transform propagation to only the relevant DID axis.
+  did_pos =
+      selectiveReorderDIDToFront(ref, selected_parallel_types);
+  for (TensorView* tv : tvs) {
+    if (direction == PropagationDirection::kForward) {
+      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
+    } else {
+      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
+    }
+    tv->setLoopDomain(replayed_domain->loop());
+  }
+}
+
 void handleForLoopSplit(Expr* expr, CommunicationInfo communication_info) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
 
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
-  int64_t reduction_axis = communication_info.reduction_axis;
+  // int64_t reduction_axis = communication_info.reduction_axis;
 
   TensorView* comm_input = set(input);
   int64_t p_sharded_idx = posInDomain(input->getLogicalDomain(), p_sharded_id);
@@ -143,23 +211,45 @@ void handleForLoopSplit(Expr* expr, CommunicationInfo communication_info) {
           std::unordered_map<int64_t, int64_t>{{p_sharded_idx, 0}}),
           true);
 
-  TensorView* comm_output = nullptr;
+  // TensorView* comm_output = nullptr;
   if (expr->isA<LoadStoreOp>()) {
-    comm_output = set(comm_input);
+    // comm_output = set(comm_input);
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_input);
   } else {
-    comm_output = reductionOp(
+    // comm_output = reductionOp(
+    //     expr->as<ReductionOp>()->getReductionOpType(),
+    //     {reduction_axis}, expr->as<ReductionOp>()->init(), comm_input);
+    // output->setLoopDomain(TensorDomain::noReductions(output->getLoopDomain()));
+    IrBuilder::create<ReductionOp>(
         expr->as<ReductionOp>()->getReductionOpType(),
-        {reduction_axis}, expr->as<ReductionOp>()->init(), comm_input);
+        expr->as<ReductionOp>()->init(),
+        output,
+        comm_input
+    );
   }
   int64_t c_sharded_idx = posInDomain(output->getLogicalDomain(), c_sharded_id);
+  output->setAllocationDomain(
+      TensorDomain::orderedAs(
+          output->getLogicalDomain(),
+          std::unordered_map<int64_t, int64_t>{{c_sharded_idx, 0}}),
+          true);
+  
+  TensorView* comm_output = set(output);
   comm_output->setAllocationDomain(
       TensorDomain::orderedAs(
           comm_output->getLogicalDomain(),
-          std::unordered_map<int64_t, int64_t>{{c_sharded_idx, 0}}),
+          std::unordered_map<int64_t, int64_t>{{0, c_sharded_idx}}),
           true);
-  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_output);
+  ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, comm_output);
 
+  // IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_output);
+
+  propagateDIDTransform(
+      input, {comm_input}, -1, PropagationDirection::kForward);
   shardAllLike(input, {comm_input});
+  
+  propagateDIDTransform(
+      output, {comm_output}, -1, PropagationDirection::kForward);
   shardAllLike(output, {comm_output});
 }
 
