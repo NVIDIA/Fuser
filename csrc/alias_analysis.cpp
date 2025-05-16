@@ -174,12 +174,28 @@ std::optional<Layout> mapInLayoutToOutRoot(
 }
 
 namespace {
-std::optional<Layout> computeLayout(
-    const std::vector<IterDomain*>& logical,
-    const std::vector<IterDomain*>& allocation,
-    const std::vector<std::optional<bool>>& contiguities) {
+// Given a TV, returns its layout with repsect to the logical domain. When
+// `allocation` is a split of `logical`, walks backwards from `allocation` to
+// `logical` to find a permutation of `logical` that satisfies the order in
+// `allocation`. The returned contiguity is computed according to
+// splitContiguity and mergeContiguity.
+//
+// Example:
+//   input TV:
+//     logical: [b, s, h]
+//     allocation: [s, d, h/d, b]
+//     contiguity: [t, t, f, t]
+//   output layout:
+//     allocation: [s, h, b]
+//     contiguity: [t, f, t]
+//
+// I chose to canonicalize layouts to logical so I didn't have to change the
+// main bulk of alias analysis which was written for single GPU.
+std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  const std::vector<IterDomain*>& allocation = tv->getMaybeAllocationDomain();
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (auto&& [alloc_id, contiguity] : zip(allocation, contiguities)) {
+  for (auto&& [alloc_id, contiguity] : zip(allocation, tv->getContiguity())) {
     allocation_to_contiguity.pushBack(alloc_id, contiguity);
   }
 
@@ -188,31 +204,42 @@ std::optional<Layout> computeLayout(
                              {allocation.begin(), allocation.end()}) |
            std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
+      // When split->outer() is parallelized and split->inner() is serial, we
+      // remove split->outer() regardless of its position and replace
+      // split->inner() with split->in(). This way, even when split->outer() is
+      // not adjacent to split->inner() (e.g. when it's outermost), we can
+      // still undo the split.
+      //
+      // Several other cases that I haven't implemented for simplicity.
+      //
+      // When split->outer() is serial and split->inner() is parallelized, we
+      // could remove split->inner() and replace split->outer() with
+      // split->in() regardless of split->inner()'s position.
+      //
+      // When split->outer() and split->inner() are both parallelized, we could
+      // replace either of them with split->in() and remove the other.
+      NVF_ERROR(!split->inner()->isParallelized());
+
       const auto [outer_contiguity, next_i] =
           allocation_to_contiguity.erase(split->outer());
-      const bool adjacent =
-          (next_i != allocation_to_contiguity.end() &&
-           next_i->first == split->inner());
+      if (!split->outer()->isParallelized()) {
+        // Don't check adjacency if split->outer() is parallelized.
+        if (next_i == allocation_to_contiguity.end() ||
+            next_i->first != split->inner()) {
+          return std::nullopt;
+        }
+      }
       const auto [inner_contiguity, merge_i] =
           allocation_to_contiguity.erase(split->inner());
-      NVF_ERROR(!split->inner()->isParallelized());
-      if (split->outer()->isParallelized()) {
-        // Ignore adjacent
-        allocation_to_contiguity.insert(merge_i, split->in(), inner_contiguity);
-      } else {
-        if (!adjacent) {
-          return std::nullopt;
-        }
-        const auto [mergeable, contiguity] = mergeContiguity(
-            split->outer()->hasExpandedExtent(),
-            outer_contiguity,
-            split->inner()->hasExpandedExtent(),
-            inner_contiguity);
-        if (!mergeable) {
-          return std::nullopt;
-        }
-        allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+      const auto [mergeable, contiguity] = mergeContiguity(
+          split->outer()->hasExpandedExtent(),
+          outer_contiguity,
+          split->inner()->hasExpandedExtent(),
+          inner_contiguity);
+      if (!mergeable) {
+        return std::nullopt;
       }
+      allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
     } else {
       return std::nullopt;
     }
@@ -223,11 +250,15 @@ std::optional<Layout> computeLayout(
     layout.allocation_domain.push_back(alloc_id);
     layout.contiguity.push_back(contiguity);
   }
-  NVF_ERROR(std::is_permutation(
-      logical.begin(),
-      logical.end(),
-      layout.allocation_domain.begin(),
-      layout.allocation_domain.end()));
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(),
+          logical.end(),
+          layout.allocation_domain.begin(),
+          layout.allocation_domain.end()),
+      "This indicates that logical and allocation are not connected via "
+      "transforms. This is most often caused by forgetting to concretize "
+      "a fusion with dynamic reshapes.");
   return layout;
 }
 
@@ -235,16 +266,12 @@ bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
-  const std::vector<IterDomain*> allocation =
-      (empty_allocation_as == EmptyAllocationAs::kUndetermined
-           ? tv->getAllocationDomain()
-           : tv->getMaybeAllocationDomain());
-  if (allocation.empty()) {
+  if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
+      !tv->hasAllocation()) {
     return true;
   }
 
-  std::optional<Layout> old_layout =
-      computeLayout(tv->getLogicalDomain(), allocation, tv->getContiguity());
+  std::optional<Layout> old_layout = canonicalizeLayout(tv);
   if (!old_layout.has_value()) {
     return false;
   }
@@ -544,10 +571,7 @@ std::optional<Layout> AliasAnalysisResult::preferredLayout(
     return i->second.second;
   }
 
-  return computeLayout(
-      tv->getLogicalDomain(),
-      tv->getMaybeAllocationDomain(),
-      tv->getContiguity());
+  return canonicalizeLayout(tv);
 }
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
