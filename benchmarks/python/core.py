@@ -164,9 +164,13 @@ class NVFBenchmark:
             for inp in inputs:
                 if isinstance(inp, torch.Tensor):
                     iobytes += inp.element_size() * inp.numel()
-            for out in outputs:
-                if isinstance(out, torch.Tensor):
-                    iobytes += out.element_size() * out.numel()
+
+            if isinstance(outputs, torch.Tensor) and outputs.dim() == 0:
+                iobytes += outputs.element_size() 
+            else:    
+                for out in outputs:
+                    if isinstance(out, torch.Tensor):
+                        iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
         bandwidth_bps = (
