@@ -378,24 +378,32 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
-  std::vector<at::Tensor> output_tensors({output_tensor});
+
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
 
   auto root_relative_index = communication->getRootRelativeIndex();
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  bool output_has_root = output_device_mesh.has(communication->root());
   std::vector<std::vector<at::Tensor>> input_tensors;
+  std::vector<at::Tensor> output_tensors({flattened_output_tensor});
+
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(flattened_input_tensor, output_device_mesh.size(), /*dim=*/0);
+    if (!output_has_root) {
+      output_tensors[0] = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
-        input_tensors.front().push_back(output_tensor);
+          !output_has_root) {
+        input_tensors.front().push_back(output_tensors[0]);
         continue;
       }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
+      input_tensors.front().push_back(splits.at(j));
       j++;
     }
 
