@@ -127,11 +127,13 @@ LaunchKernel::LaunchKernel(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
-    const std::vector<Val*>& outputs)
+    const std::vector<Val*>& outputs,
+    Val* cache_id)
     : Expr(passkey, inputs, outputs, {}) {
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
+  addAttribute(cache_id);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
