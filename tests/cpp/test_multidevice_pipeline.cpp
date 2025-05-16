@@ -37,13 +37,14 @@
 #include <tests/cpp/multidevice.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser {
 
 class PipelineTest : public MultiDeviceTest {
  protected:
   PipelineTest();
-
   // Utility function used for validation in the tests. It compares the
   // (sharded) outputs with ref_unsharded_outputs. if
   // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
@@ -59,6 +60,9 @@ class PipelineTest : public MultiDeviceTest {
   KernelArgumentHolder outputs;
   KernelArgumentHolder ref_unsharded_outputs;
   hir::HostIrEvaluatorParams host_ir_executor_params;
+
+  private:
+    preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> optimization_guard_;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -155,7 +159,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-PipelineTest::PipelineTest() {
+PipelineTest::PipelineTest() : optimization_guard_(false) {
   fusion = std::make_unique<Fusion>();
 }
 

@@ -948,4 +948,37 @@ TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
       Contains(HeuristicIs(SchedulerType::Transpose)));
 }
 
+TEST_F(MultiDeviceTest, ShardedTensorWithAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  TensorView* tv1 = set(tv0);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  auto ref_out_tensor = in_tensor.t().contiguous().t();
+
+  EXPECT_EQ(out_tensor.sizes(), ref_out_tensor.sizes());
+  EXPECT_EQ(out_tensor.strides(), ref_out_tensor.strides());
+  EXPECT_TRUE(at::allclose(out_tensor, ref_out_tensor));
+}
+
 } // namespace nvfuser
