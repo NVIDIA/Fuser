@@ -189,7 +189,7 @@ def test_overlap_allgather_matmul_stream_outermost(
     validate_output=False,
 ):
     """Test overlapping all-gather with matrix multiplication using stream parallelism.
-    
+
     Args:
         benchmark: pytest-benchmark fixture
         multidevice_settings: Settings for multi-device execution
@@ -235,9 +235,9 @@ def test_overlap_allgather_matmul_stream_outermost(
         return outputs[0]
 
     benchmark_cuda_events_pedantic(
-        benchmark, 
-        benchmark_fn, 
-        [inputs], 
-        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"], 
+        benchmark,
+        benchmark_fn,
+        [inputs],
+        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
         rounds=BENCHMARK_CONFIG["rounds"],
     )
