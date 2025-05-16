@@ -378,33 +378,39 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
   auto output_device_mesh = communication->out()->getDeviceMesh();
   bool output_has_root = output_device_mesh.has(communication->root());
   auto root_relative_index = communication->getRootRelativeIndex();
 
   std::vector<std::vector<at::Tensor>> input_tensors;
-  std::vector<at::Tensor> output_tensors({output_tensor.as_strided({output_tensor.numel()}, {1})});
-  
+
+  std::vector<at::Tensor> output_tensors(
+      {output_tensor.as_strided({output_tensor.numel()}, {1})});
+
   if (my_device_index == communication->root()) {
-    auto splits = at::tensor_split(input_tensor.as_strided({input_tensor.numel()}, {1}), output_device_mesh.size(), /*dim=*/0);
-    if (!output_has_root) {
-      output_tensors[0] = at::empty_like(splits.at(0));
-    }
+    auto splits = at::tensor_split(
+        input_tensor.as_strided({input_tensor.numel()}, {1}),
+        output_device_mesh.size(),
+        /*dim=*/0);
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !output_has_root) {
-        input_tensors.front().push_back(output_tensor);
+        input_tensors.front().push_back(at::empty_like(splits.at(0)));
         continue;
       }
       input_tensors.front().push_back(splits.at(j));
       j++;
-  }
+    }
 
-  assertBufferCount(input_tensors[0], communication->team().size());
-  assertBuffersHaveSameSize(input_tensors[0], output_tensors);
+    assertBufferCount(input_tensors[0], communication->team().size());
+    assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(

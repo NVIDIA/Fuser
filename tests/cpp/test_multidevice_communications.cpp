@@ -461,40 +461,48 @@ TEST_P(CommunicationTest, ScatterLoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const auto d = communicator_->size();
-  
+
   DeviceMesh mesh_zero({0});
-  TensorView* tv0 = makeConcreteTensor({5, d*3});
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
   TensorView* tv1 = set(tv0);
-  
+
   tv0->setDeviceMesh(mesh_zero);
   tv0->outer_split(1, d);
   tv0->axis(1)->parallelize(ParallelType::Serial);
-  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  tv0->reorder(
+      {{1, 0},
+       {2, 1},
+       {0, 2}}); // tv0: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
 
   tv1->setDeviceMesh(full_mesh_);
   tv1->outer_split(1, d);
   tv1->axis(1)->parallelize(ParallelType::DIDx);
-  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
-  
+  tv1->reorder(
+      {{1, 0},
+       {2, 1},
+       {0, 2}}); // tv1: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
+
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  
+
   for (auto tv : {tv0, tv1}) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
-  at::Tensor unsharded_in_tensor = at::randn({d*3, 5}, tensor_options);
+  at::Tensor unsharded_in_tensor =
+      at::randn({d * 3, 5}, tensor_options).transpose(0, 1);
 
-  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
-  
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh_);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({unsharded_in_tensor.transpose(0, 1)})[0].as<at::Tensor>();
-  
+      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
+          .as<at::Tensor>();
+
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
-      {unsharded_in_tensor.transpose(0, 1)},
+      {unsharded_in_tensor},
       {expected_output},
       __LINE__,
       __FILE__);
