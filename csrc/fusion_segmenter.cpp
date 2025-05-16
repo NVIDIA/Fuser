@@ -3852,6 +3852,10 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   const auto merge_candidates = group->getMergeCandidates();
 
+  if (merge_candidates.empty()) {
+    return std::nullopt;
+  }
+
   for (auto expr : group->exprs()) {
     auto pad = dynamic_cast<PadOp*>(expr);
     if (pad == nullptr) {
@@ -3882,8 +3886,8 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       // Don't try to merge if not a candidate
       if (std::ranges::find_if(
               merge_candidates,
-              [&](const SegmentedGroup::NeighborGroup& neighbor) {
-                return neighbor.group != consumer_group;
+              [&](const SegmentedGroup::NeighborGroup& merge_candidate) {
+                return merge_candidate.group == consumer_group;
               }) == merge_candidates.end()) {
         continue;
       }
