@@ -20,6 +20,9 @@ namespace nvfuser {
 // Returns true iff nvFuser was compiled with distributed APIs enabled.
 NVF_API bool distributedEnabled();
 
+// Return true if the TensorView is contiguous.
+bool isTvContiguous(const TensorView* tv);
+
 // For a resharding expression, either a set or reduce, returns root IDs
 // that change sharding.
 // (1) sharded root IterDomains that are added by the expression
