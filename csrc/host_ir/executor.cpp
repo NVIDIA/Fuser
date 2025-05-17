@@ -6,6 +6,13 @@
  */
 // clang-format on
 
+#include <algorithm>
+#include <format>
+#include <iterator>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <dynamic_transform.h>
