@@ -358,6 +358,87 @@ TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
       "Expected tv4 to be sharded like tv2 due to forward propagation of shardings.");
 }
 
+TEST_F(ShardingTest, ShardedNonDivisibleReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+  int64_t d = mesh.size();
+
+  TensorView* tv0 = makeContigConcreteTensor({6});
+  TensorView* tv1 = reshape(tv0, {6}, {3, 2});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto run_propagate_shardings = [&]() {
+    preseg_passes::OptimizationPass<
+        preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  };
+
+  // tv1 should be sharded on the outer reshape id i.e. {3}
+  // but it is not divisible by d=2
+  EXPECT_THAT(
+      run_propagate_shardings,
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Require the sharded ID to be divisible by the split factor")));
+}
+
+TEST_F(ShardingTest, ShardedInnerReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+  int64_t d = mesh.size();
+
+  TensorView* tv0 = makeContigConcreteTensor({3, 5 * d});
+  TensorView* tv1 = reshape(tv0, {3, 5 * d}, {15 * d});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  auto run_propagate_shardings = [&]() {
+    preseg_passes::OptimizationPass<
+        preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  };
+
+  EXPECT_THAT(
+      run_propagate_shardings,
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Expected the sharding to be on the outer reshaped id")));
+}
+
+TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+  int64_t d = mesh.size();
+
+  TensorView* tv0 = makeContigConcreteTensor({3 * d, 5, 7 * d, 9});
+  TensorView* tv1 = reshape(tv0, {3 * d, 5, 7 * d, 9}, {3 * d * 5, 7 * d * 9});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv0->outer_split(3, d);
+  tv0->axis(3)->parallelize(ParallelType::DIDy);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  for (auto tv : fusion->allTvs()) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+  EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDx), 0);
+  EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     ShardingTest,
