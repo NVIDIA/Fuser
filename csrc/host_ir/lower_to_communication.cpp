@@ -72,7 +72,6 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -105,7 +104,6 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -126,7 +124,6 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -151,7 +148,6 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -193,7 +189,6 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          /*scatter_axis=*/-1,
           params.communicator_backend));
     }
   } else {
@@ -242,7 +237,6 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -263,7 +257,6 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -276,15 +269,6 @@ void lowerToReduceScatter(
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
-  auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
-  // The output tensor is sharded on scattered_axis and needs to be mapped
-  // back onto the input. The input has an reduced axis, so the scattered axis
-  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
-  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
-  if (reduction_axis <= scattered_axis) {
-    scattered_axis++;
-  }
 
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
@@ -293,7 +277,6 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      scattered_axis,
       params.communicator_backend));
 }
 
@@ -427,7 +410,6 @@ std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(
       /*team=*/tva->getDeviceMesh().vector(),
       /*root=*/-1,
       /*red_op=*/RedOpType::UNUSED,
-      /*scattered_axis=*/-1,
       params.communicator_backend);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
