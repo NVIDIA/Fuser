@@ -106,7 +106,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
       ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
   NVF_ERROR(
       permutation.has_value(),
-      "Failed to find a valid permutation for reordering",
+      "Failed to find a valid permutation for reordering ",
       tv->getLoopDomain(),
       " as ",
       alloc_dom);

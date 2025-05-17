@@ -640,13 +640,10 @@ TEST_F(MultiDeviceTest, ViewWithSplit) {
     tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-  in->setAllocationDomain(in->getLoopDomain(), true);
-  out->setAllocationDomain(out->getLoopDomain(), true);
-
   // So the View won't be treated as a meta op and will trigger Pointwise, the
   // purpose of the test.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      optimization_guard(false);
+  in->setAllocationDomain(in->getLoopDomain(), false);
+  out->setAllocationDomain(out->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 15}, tensor_options);
@@ -684,13 +681,10 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
     tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-  in->setAllocationDomain(in->getLoopDomain(), true);
+  // contiguity=false so the View won't be treated as a meta op and will
+  // trigger Pointwise, the purpose of the test.
+  in->setAllocationDomain(in->getLoopDomain(), false);
   out->setAllocationDomain(out->getLoopDomain(), true);
-
-  // So the View won't be treated as a meta op and will trigger Pointwise, the
-  // purpose of the test.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}, tensor_options);
@@ -942,6 +936,7 @@ TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
   at::Tensor ref_out = at::linear(t0, t1).view({b, s, h, 3 * e / h});
   at::Tensor sharded_ref_out = shardTensor(ref_out, 2, mesh);
   validate({sharded_ref_out}, {nvf_out}, {0.02});
+
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
