@@ -79,7 +79,8 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
           transform_exprs.begin(),
           transform_exprs.end(),
           [](Expr* expr) { return expr->isA<Split>(); }),
-      "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
+      "Expected all transform exprs to be a split between logical and "
+      "loop domain during sharding propagation.");
 
   for (auto* expr : transform_exprs) {
     Split* split = dynamic_cast<Split*>(expr);
@@ -106,7 +107,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
       ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
   NVF_ERROR(
       permutation.has_value(),
-      "Failed to find a valid permutation for reordering",
+      "Failed to find a valid permutation for reordering ",
       tv->getLoopDomain(),
       " as ",
       alloc_dom);
