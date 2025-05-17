@@ -389,14 +389,18 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
   std::vector<std::vector<at::Tensor>> input_tensors;
 
-  std::vector<at::Tensor> output_tensors(
-      {output_tensor.as_strided({output_tensor.numel()}, {1})});
+  if (output_tensor.defined()) {
+    output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
+  }
 
   if (my_device_index == communication->root()) {
     auto splits = at::tensor_split(
         input_tensor.as_strided({input_tensor.numel()}, {1}),
         output_device_mesh.size(),
         /*dim=*/0);
+    if (!output_has_root) {
+      output_tensor = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
@@ -410,8 +414,10 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     }
 
     assertBufferCount(input_tensors[0], communication->team().size());
-    assertBuffersHaveSameSize(input_tensors[0], output_tensors);
+    assertBuffersHaveSameSize(input_tensors[0], {output_tensor});
   }
+
+  std::vector<at::Tensor> output_tensors({output_tensor});
 
   return backend->scatter(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
