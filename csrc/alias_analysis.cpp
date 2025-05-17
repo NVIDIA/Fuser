@@ -203,46 +203,48 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
                              {logical.begin(), logical.end()},
                              {allocation.begin(), allocation.end()}) |
            std::views::reverse) {
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      // When split->outer() is parallelized and split->inner() is serial, we
-      // remove split->outer() regardless of its position and replace
-      // split->inner() with split->in(). This way, even when split->outer() is
-      // not adjacent to split->inner() (e.g. when it's outermost), we can
-      // still undo the split.
-      //
-      // Several other cases that I haven't implemented for simplicity.
-      //
-      // When split->outer() is serial and split->inner() is parallelized, we
-      // could remove split->inner() and replace split->outer() with
-      // split->in() regardless of split->inner()'s position.
-      //
-      // When split->outer() and split->inner() are both parallelized, we could
-      // replace either of them with split->in() and remove the other.
-      NVF_ERROR(!split->inner()->isParallelized());
-
-      const auto [outer_contiguity, next_i] =
-          allocation_to_contiguity.erase(split->outer());
-      if (!split->outer()->isParallelized()) {
-        // Check adjacency only if split->outer() is not parallelized.
-        if (next_i == allocation_to_contiguity.end() ||
-            next_i->first != split->inner()) {
-          return std::nullopt;
-        }
-      }
-      const auto [inner_contiguity, merge_i] =
-          allocation_to_contiguity.erase(split->inner());
-      const auto [mergeable, contiguity] = mergeContiguity(
-          split->outer()->hasExpandedExtent(),
-          outer_contiguity,
-          split->inner()->hasExpandedExtent(),
-          inner_contiguity);
-      if (!mergeable) {
-        return std::nullopt;
-      }
-      allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
-    } else {
+    auto* split = dynamic_cast<Split*>(transform);
+    if (split == nullptr) {
+      // We can handle merges using a similar logic if/when we need to.
       return std::nullopt;
     }
+
+    // When split->outer() is parallelized and split->inner() is serial, we
+    // remove split->outer() regardless of its position and replace
+    // split->inner() with split->in(). This way, even when split->outer() is
+    // not adjacent to split->inner() (e.g. when it's outermost), we can
+    // still undo the split.
+    //
+    // Several other cases that I haven't implemented for simplicity.
+    //
+    // When split->outer() is serial and split->inner() is parallelized, we
+    // could remove split->inner() and replace split->outer() with
+    // split->in() regardless of split->inner()'s position.
+    //
+    // When split->outer() and split->inner() are both parallelized, we could
+    // replace either of them with split->in() and remove the other.
+    NVF_ERROR(!split->inner()->isParallelized());
+
+    const auto [outer_contiguity, next_i] =
+        allocation_to_contiguity.erase(split->outer());
+    if (!split->outer()->isParallelized()) {
+      // Check adjacency only if split->outer() is not parallelized.
+      if (next_i == allocation_to_contiguity.end() ||
+          next_i->first != split->inner()) {
+        return std::nullopt;
+      }
+    }
+    const auto [inner_contiguity, merge_i] =
+        allocation_to_contiguity.erase(split->inner());
+    const auto [mergeable, contiguity] = mergeContiguity(
+        split->outer()->hasExpandedExtent(),
+        outer_contiguity,
+        split->inner()->hasExpandedExtent(),
+        inner_contiguity);
+    if (!mergeable) {
+      return std::nullopt;
+    }
+    allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
   }
 
   Layout layout;
