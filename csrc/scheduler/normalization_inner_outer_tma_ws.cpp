@@ -168,8 +168,14 @@ void getHeuristics(
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
   int64_t n_prefetch = n_stages - 1L;
+  // Non Warp Specialized dim can't have more than 128 threads
+  // see https://github.com/NVIDIA/Fuser/pull/4398.
+  // Still want to use TIDy if bdimx <=128, which is more convenient for
+  // ping-pong computations.
+  ParallelType ws_pt =
+      iop.bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
   CircularBufferOptions circular_buffer_options{
-      .type = WarpSpecialized(ParallelType::TIDy),
+      .type = WarpSpecialized(ws_pt),
       .stage = n_stages,
       .prefetch = n_prefetch};
   rparams->circular_buffer_options = circular_buffer_options;
@@ -206,7 +212,9 @@ void getHeuristics(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
       LaunchParams::UNINITIALIZED_VAL,
-      iop.bdimx,
+      n_stages > 1 && ws_pt == ParallelType::TIDx
+          ? iop.bdimx + ws_padded_threads
+          : iop.bdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -306,7 +314,15 @@ void scheduleOuterReduction(
     }
 
     if (rparams->lparams.bdimx() > 1) {
-      outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
+      int64_t compute_bdimx = rparams->lparams.bdimx();
+      if (std::holds_alternative<WarpSpecialized>(
+              rparams->circular_buffer_options.type) &&
+          std::get<WarpSpecialized>(rparams->circular_buffer_options.type).on ==
+              ParallelType::TIDx) {
+        compute_bdimx = rparams->lparams.bdimx() - 128;
+      }
+
+      outer_reduction_tv->split(axisID, compute_bdimx);
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
     }
 
@@ -435,8 +451,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // (a) Tvs in boundaryNodesSet are excluded since they should follow outer
     // reduction pattern.
     // (b) TMA tvs are excluded since they require special scheduling.
-    // (3) Excluding tma tvs breaks the propagation path from inner reduction tv
-    // to cached_gmem which stores the results of the first-stage of outer
+    // (3) Excluding tma tvs breaks the propagation path from inner reduction
+    // tv to cached_gmem which stores the results of the first-stage of outer
     // reduction. The solution is adding a dummy output to link them. The same
     // trick is used when projecting persistent buffers to inputs.
     auto inner_reduction_input =
@@ -604,10 +620,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       }
     }
 
-    // Cached input with inner bcast [Iter, 1], is not marked as vectorizable in
-    // getCachedTvsToUnrollOrVectorize().
-    // However, if iteration domain is unrolled, the tv is scheduled as:
-    // [I/Unroll/BIDy, BIDy, Unroll, ...],
+    // Cached input with inner bcast [Iter, 1], is not marked as vectorizable
+    // in getCachedTvsToUnrollOrVectorize(). However, if iteration domain is
+    // unrolled, the tv is scheduled as: [I/Unroll/BIDy, BIDy, Unroll, ...],
     // the unrolled domain, axis-2, can be vectorized.
     if (group_inner_reduction) {
       auto is_redu_mapped_to_bcast = [](TensorView* redu_tv,
@@ -625,9 +640,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         return true;
       };
 
-      // Heuristic ensures the iteration dim is divisible by the unroll factor.
-      // Here, we only need to further confirm all the iteration domains are
-      // contiguous.
+      // Heuristic ensures the iteration dim is divisible by the unroll
+      // factor. Here, we only need to further confirm all the iteration
+      // domains are contiguous.
       auto can_vectorize = [](TensorView* redu_tv, TensorView* bcast_tv) {
         const auto& alloc_dom_1 = redu_tv->getMaybeAllocationDomain();
         const auto& alloc_dom_2 = bcast_tv->getMaybeAllocationDomain();
@@ -682,10 +697,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     CircularBufferType circular_buffer_type =
         rparams->circular_buffer_options.type;
     for (auto tv : tma_load_tvs) {
-      // Circular buffer requires a valid axis to circulate on, and only applies
-      // to TVs with a computeAt position. For example,  the weight tensor in
-      // RMS Norm Bwd is scheduled as:
-      // T36_s___bfloat[iB91{i2}]
+      // Circular buffer requires a valid axis to circulate on, and only
+      // applies to TVs with a computeAt position. For example,  the weight
+      // tensor in RMS Norm Bwd is scheduled as: T36_s___bfloat[iB91{i2}]
       //  logical domain : (iB91{i2})
       //  contiguity: t
       //  loop domain : (iB91{i2})
