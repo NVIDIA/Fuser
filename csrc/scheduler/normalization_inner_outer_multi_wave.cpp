@@ -144,8 +144,7 @@ void getHeuristics(
     int64_t max_blocks_per_sm_regs = scheduler_utils::safeDiv(
         threads_per_sm / warp_size, allocated_warps_per_block);
     // check shared memory limitation on blocks per sm
-    int64_t max_blocks_per_sm_smem =
-        (int64_t)dev_prop->sharedMemPerMultiprocessor /
+    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin /
         (smem_overhead + smem_buffer_size);
     return std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   };
