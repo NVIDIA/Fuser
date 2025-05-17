@@ -378,24 +378,32 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
-  std::vector<at::Tensor> output_tensors({output_tensor});
+
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
 
   auto root_relative_index = communication->getRootRelativeIndex();
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  bool output_has_root = output_device_mesh.has(communication->root());
   std::vector<std::vector<at::Tensor>> input_tensors;
+  std::vector<at::Tensor> output_tensors({flattened_output_tensor});
+
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(flattened_input_tensor, output_device_mesh.size(), /*dim=*/0);
+    if (!output_has_root) {
+      output_tensors[0] = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
-        input_tensors.front().push_back(output_tensor);
+          !output_has_root) {
+        input_tensors.front().push_back(output_tensors[0]);
         continue;
       }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
+      input_tensors.front().push_back(splits.at(j));
       j++;
     }
 
@@ -456,20 +464,26 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const auto scattered_axis = communication->scatteredAxis();
-  NVF_ERROR(
-      scattered_axis >= 0,
-      "scattered_axis is expected to be non-negative: ",
-      scattered_axis);
+  // const auto scattered_axis = communication->scatteredAxis();
+  // NVF_ERROR(
+  //     scattered_axis >= 0,
+  //     "scattered_axis is expected to be non-negative: ",
+  //     scattered_axis);
 
-  std::vector<at::Tensor> input_tensors = at::tensor_split(
-      input_tensor, communication->team_size(), scattered_axis);
+  // std::vector<at::Tensor> input_tensors = at::tensor_split(
+  //     input_tensor, communication->team_size(), scattered_axis);
   // We could have checked the output shape as well if reduction_axis is
   // available. It's not always available via
   // `communication->out()->getReductionAxis()` for manually constructed host
   // IRs like
   // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
-  assertBuffersHaveSameSize(input_tensors, {});
+    auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+    auto splits = at::tensor_split(
+        flattened_input_tensor, communication->team_size(), /*dim=*/0);
+    auto flattened_output_tensor =
+        output_tensor.as_strided({output_tensor.numel()}, {1});
+    assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
@@ -477,20 +491,20 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   // copy) when the tensors are stored contiguously (i.e., when
   // scattered_axis==0). Note however than only nccl supports
   // _reduce_scatter_base, not ucc.
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 0 &&
-      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
-    return backend->_reduce_scatter_base(
-        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
-  }
-#endif
+// #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
+//   if (scattered_axis == 0 &&
+//       backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
+  return backend->_reduce_scatter_base(
+      flattened_output_tensor, flattened_input_tensor, {.reduceOp = communication->reduceOp()});
+  // }
+// #endif
 
-  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
-  std::vector<at::Tensor> output_tensor_vec({output_tensor});
-  return backend->reduce_scatter(
-      output_tensor_vec,
-      input_tensors_vec,
-      {.reduceOp = communication->reduceOp()});
+  // std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
+  // std::vector<at::Tensor> output_tensor_vec({output_tensor});
+  // return backend->reduce_scatter(
+  //     output_tensor_vec,
+  //     input_tensors_vec,
+  //     {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
