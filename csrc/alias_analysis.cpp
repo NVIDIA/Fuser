@@ -223,7 +223,7 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
       const auto [outer_contiguity, next_i] =
           allocation_to_contiguity.erase(split->outer());
       if (!split->outer()->isParallelized()) {
-        // Check adjacency only if split->outer() is parallelized.
+        // Check adjacency only if split->outer() is not parallelized.
         if (next_i == allocation_to_contiguity.end() ||
             next_i->first != split->inner()) {
           return std::nullopt;
