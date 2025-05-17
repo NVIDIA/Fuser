@@ -27,6 +27,8 @@
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
@@ -37,8 +39,6 @@
 #include <tests/cpp/multidevice.h>
 #include <transform_replay.h>
 #include <transform_rfactor.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/reorder_sharded_axis.h>
 
 namespace nvfuser {
 
@@ -61,8 +61,9 @@ class PipelineTest : public MultiDeviceTest {
   KernelArgumentHolder ref_unsharded_outputs;
   hir::HostIrEvaluatorParams host_ir_executor_params;
 
-  private:
-    preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> optimization_guard_;
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
+      optimization_guard_;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -96,8 +97,10 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     auto ref_output =
         shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
     auto obtained_output = outputs[i].as<at::Tensor>();
-    
-    EXPECT_EQ(ref_output.strides(), obtained_output.strides()) << "Strides are not equal: Ref: " << ref_output.strides() << " Output: " << obtained_output.strides() << std::endl;
+
+    EXPECT_EQ(ref_output.strides(), obtained_output.strides())
+        << "Strides are not equal: Ref: " << ref_output.strides()
+        << " Output: " << obtained_output.strides() << std::endl;
 
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
