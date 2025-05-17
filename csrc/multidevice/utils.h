@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <multidevice/multidevice.h>
+#include <scheduler/utils.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -165,5 +166,13 @@ std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView*);
 std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes);
+
+// Propagates the DID transform of `ref` to `tvs` upto the `did_pos` axis in
+// the direction specified by `direction`.
+void propagateDIDTransform(
+    const TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    int64_t did_pos,
+    PropagateDirection direction);
 
 } // namespace nvfuser

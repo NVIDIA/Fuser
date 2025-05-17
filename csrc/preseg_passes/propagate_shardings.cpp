@@ -301,23 +301,6 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
-using PropagationDirection = scheduler_utils::PropagateDirection;
-void propagateDIDTransform(
-    const TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    int64_t did_pos,
-    PropagationDirection direction) {
-  TensorDomain* replayed_domain = nullptr;
-  for (TensorView* tv : tvs) {
-    if (direction == PropagationDirection::kForward) {
-      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
-    } else {
-      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
-    }
-    tv->setLoopDomain(replayed_domain->loop());
-  }
-}
-
 } // namespace
 
 // This presegmentation pass propagates shardings from fusion inputs to
@@ -385,7 +368,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
           /*did_pos=*/did_pos,
-          PropagationDirection::kForward);
+          PropagateDirection::kForward);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
@@ -450,7 +433,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
         /*did_pos=*/did_pos,
-        PropagationDirection::kBackward);
+        PropagateDirection::kBackward);
     shardAllLike(ref_output, sharding_candidates, selected_parallel_types);
   }
 }
