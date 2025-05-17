@@ -926,12 +926,16 @@ TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
-  // TODO(#4381): MarkAliasesPreparePass would insert a segment_set (T4). This
-  // seemed to have triggered bugs in PropagateShardingsPass, causing it to
-  // assign T4 a weird loop domain that doesn't post-dominate allocation. The
-  // split-by-16 appears to be an artifact of backproping the split by head.
-  // Workarounds are possible, but I prefer disabling this test until we
+  // TODO(#4381): MarkAliasesPreparePass triggered a bug in
+  // PropagateShardingsPass so I'm disabling MarkAliasesPreparePass until we
   // fix #4381 properly.
+  //
+  // Details:
+  //
+  // When turned on, MarkAliasesPreparePass inserted a segment_set (T4). This
+  // caused PropagateShardingsPass to assign T4 an incorrect loop domain that
+  // doesn't post-dominate allocation. The split-by-16 appears to be an
+  // artifact of backproping the split by head.
   //
   // clang-format off
   // T4_l_float[ideviceIdx.x28{1}, iS29{16}, iS27{144}, iS21{2}, iS22{128}] (DeviceMesh{0})
