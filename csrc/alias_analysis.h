@@ -62,7 +62,8 @@ class AliasAnalysisResult {
   void finalize();
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
-  // returns the `TensorView`'s initial layout.
+  // returns `TensorView`'s canonicalized layout or nullopt if canonicalization
+  // failed (cf. canoncalizeLayout).
   std::optional<Layout> preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
