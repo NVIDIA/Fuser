@@ -12,6 +12,7 @@
 #include <cuda_utils.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
@@ -1198,6 +1199,8 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
+NVF_API CompiledKernel::~CompiledKernel() = default;
+
 void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
@@ -1366,6 +1369,11 @@ void CompiledKernel::createKernelId() {
     ss << "_g" << group_id_;
   }
   kernel_id_ = ss.str();
+}
+
+kir::Kernel* CompiledKernel::kernel() const {
+  NVF_ERROR(lowered_);
+  return lowered_->kernel();
 }
 
 void RtcKernel::compile(

@@ -15,6 +15,7 @@
 
 #include <debug.h>
 #include <mma_type.h>
+#include <options.h>
 #include <tma.h>
 #include <type.h>
 
