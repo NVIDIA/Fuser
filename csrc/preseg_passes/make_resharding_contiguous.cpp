@@ -135,13 +135,6 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
   tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
 }
 
-bool isTvContiguous(TensorView* tv) {
-  return std::all_of(
-      tv->getContiguity().begin(),
-      tv->getContiguity().end(),
-      [](const std::optional<bool>& c) { return c.value_or(true); });
-}
-
 } // namespace
 
 void MakeReshardingContiguousPass::runPass(Fusion* fusion) {

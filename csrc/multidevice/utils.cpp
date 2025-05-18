@@ -53,6 +53,14 @@ int64_t allocationIndex(TensorView* tv, IterDomain* id) {
 
 } // namespace
 
+bool isTvContiguous(const TensorView* tv) {
+  // Reduction and broadcast axis do not have a contiguity value.
+  return std::all_of(
+      tv->getContiguity().begin(),
+      tv->getContiguity().end(),
+      [](std::optional<bool> c) { return c.value_or(true); });
+}
+
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
     TensorView* producer,
     TensorView* consumer) {
