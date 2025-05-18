@@ -6,19 +6,18 @@
  */
 // clang-format on
 
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <tests/cpp/utils.h>
 
 namespace nvfuser {
 
-class ExprEvalTest : public NVFuserTest {};
+using ExprEvalTest = NVFuserTest;
 
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
@@ -823,6 +822,66 @@ TEST_F(ExprEvalTest, NamedScalar) {
   evaluator.bind("cacheId", kCacheIdValue);
   PolymorphicValue cache_id_pvalue = evaluator.evaluate(cache_id);
   EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
+}
+
+TEST_F(ExprEvalTest, View_FlattenUsingMetadata) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = reshape(in, {mul(size(in, 0), size(in, 1))});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  auto out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, in_tensor.view({-1})));
+}
+
+TEST_F(ExprEvalTest, View_FlattenToMinusOneAsValue) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = reshape(in, {IrBuilder::create<Val>(-1)});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  auto out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, in_tensor.view({-1})));
+}
+
+TEST_F(ExprEvalTest, View_FlattenToMinusOneAsInput) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeSymbolicTensor(2);
+  auto* out_dim_size = IrBuilder::create<Val>(DataType::Int);
+  TensorView* out = reshape(in, {out_dim_size});
+  fusion.addInput(in);
+  fusion.addInput(out_dim_size);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  evaluator.bind(out_dim_size, -1);
+  auto out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, in_tensor.view({-1})));
 }
 
 } // namespace nvfuser
