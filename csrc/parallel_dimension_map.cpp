@@ -172,65 +172,48 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
 
   // Warp specialization with register sharing on parallel type pt
   // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
-  auto pt = warp_specialized_parallel_type_.value();
-  auto dim_it = dim_map_.find(pt);
-  int64_t pad_n_threads = 0;
-  int64_t after_pad = 0;
+  auto ws_pt = warp_specialized_parallel_type_.value();
+  auto dim_it = dim_map_.find(ws_pt);
 
-  for (auto pt : kParallelTypeTIDs) {
+  int64_t other_active_pts_threads = 1;
+  for (ParallelType pt : kParallelTypeTIDs) {
+    if (pt == ws_pt) {
+      continue;
+    }
+    int64_t thread_count_for_pt = getThreadCountInDim(pt);
     NVF_ERROR(
-        getThreadCountInDim(pt) != -1,
+        thread_count_for_pt != -1,
         "Detected dynamic size for parallel type ",
         pt,
         " in warp specialization kernel.");
+    other_active_pts_threads *= thread_count_for_pt;
   }
-
-  // switch is not used to avoid explicitly handle all parallel types
-  if (pt == ParallelType::TIDx) {
-    // If on TIDx, pad by 128
-    pad_n_threads = 128;
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        after_pad % 128 == 0,
-        "Illegal register sharing on TIDx, bdimx = ",
-        after_pad);
-  } else if (pt == ParallelType::TIDy) {
-    // If on TIDy, pad by 128 / bdimx
-    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
-    pad_n_threads = scheduler_utils::safeDiv(128, bdimx);
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        (after_pad * bdimx) % 128 == 0,
-        "Illegal register sharing on TIDy, bdimx = ",
-        bdimx,
-        ", bdimy = ",
-        after_pad);
-  } else if (pt == ParallelType::TIDz) {
-    // If on TIDz, pad by 128 / (bdimx * bdimy)
-    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
-    int64_t bdimy = getThreadCountInDim(ParallelType::TIDy);
-    pad_n_threads = scheduler_utils::safeDiv(128, bdimx * bdimy);
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        (after_pad * bdimx * bdimy) % 128 == 0,
-        "Illegal register sharing on TIDz, bdimx = ",
-        bdimx,
-        ", bdimy = ",
-        bdimy,
-        ", bdimz = ",
-        after_pad);
-  } else {
-    NVF_THROW("Unsupported parallel type for register sharing: ", pt);
-  }
+  NVF_ERROR(
+      other_active_pts_threads <= 128,
+      "The # active threads in other thread dimensions > 128 threads.");
+  NVF_ERROR(
+      128 % other_active_pts_threads == 0,
+      "The # active threads in other thread dimensions is not evenly ",
+      "divisible with 128 threads.");
+  int64_t ws_num_threads_pad = 128 / other_active_pts_threads;
+  int64_t after_pad = getThreadCountInDim(ws_pt) + ws_num_threads_pad;
+  NVF_ERROR(
+      (after_pad * other_active_pts_threads) % 128 == 0,
+      "Illegal register sharing on ",
+      ws_pt,
+      " with padded size ",
+      after_pad,
+      " and remaining active cta threads ",
+      other_active_pts_threads);
 
   // Apply the pad
-  warp_specialized_padding_value_ = pad_n_threads;
-  auto off_set = IrBuilder::create<Val>(pad_n_threads, DataType::Index);
+  warp_specialized_padding_value_ = ws_num_threads_pad;
+  auto offset = IrBuilder::create<Val>(ws_num_threads_pad, DataType::Index);
   auto current_val = dim_it == dim_map_.end()
       ? IrBuilder::create<Val>(1, DataType::Index)
       : dim_it->second;
-  dim_map_[pt] = IrBuilder::addExpr(current_val, off_set);
-  exact_types_.erase(pt);
+  dim_map_[ws_pt] = IrBuilder::addExpr(current_val, offset);
+  exact_types_.erase(ws_pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
@@ -275,6 +258,14 @@ Val* ParallelDimensionMap::getRawAsync(ParallelType pt) const {
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
+    // Skip warp specialized ParallelType if the are computation warp groups
+    // are independent.
+    if (isWarpSpecialized(pt) &&
+        GpuLower::current()
+            ->circularBufferInfo()
+            .hasIndependentComputeWarpGroups()) {
+      continue;
+    }
     auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;

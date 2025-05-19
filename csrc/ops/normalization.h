@@ -212,6 +212,17 @@ NVF_API BackwardRMSNormResult rms_norm_backward(
     TensorView* weight,
     const std::vector<bool>& output_mask);
 
+// From thunder generated python definiton
+// root-mean-square is saved instead of reciprocal rms.
+// Only quires one inner reduction instead of two.
+NVF_API BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
+    TensorView* weight,
+    const std::vector<bool>& output_mask);
+
 NVF_API ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
