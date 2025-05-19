@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <format>
 #include <iterator>
 #include <unordered_map>
 #include <unordered_set>
@@ -96,7 +95,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return (bool)host_ir_container_;
+  return host_ir_container_ != nullptr;
 }
 
 namespace {
@@ -244,7 +243,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
 
   for (Expr* e : container_->topLevelExprs()) {
     const std::string event_name =
-        std::format("HostIrEvaluator::dispatch {}", e->getOpString());
+        std::string("HostIrEvaluator::dispatch ") + e->getOpString();
     FUSER_PERF_SCOPE(event_name.c_str());
     dispatch(e);
   }
