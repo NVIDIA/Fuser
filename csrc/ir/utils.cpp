@@ -1596,6 +1596,53 @@ int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
   return vec_size_in_bytes / tmem_unit_size_bytes;
 }
 
+TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
+    : tv_(tv), prev_domain_(tv_->domain()) {
+  tv_->setDomain(td);
+}
+
+TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
+    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
+  std::swap(tv_, guard.tv_);
+}
+
+TVDomainGuard::~TVDomainGuard() {
+  if (tv_ != nullptr) {
+    tv_->setDomain(prev_domain_);
+  }
+}
+
+ir_utils::TVDomainGuard overrideContiguityGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getAllocationDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getMaybeAllocationDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getLogicalDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   NVF_ERROR(

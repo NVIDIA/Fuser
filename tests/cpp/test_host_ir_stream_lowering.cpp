@@ -36,8 +36,7 @@ TEST_F(HirLowerStreamTest, InputsAreNotStreamParallelized) {
   hic->addInput(tv);
   tv->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Split) {
@@ -51,8 +50,7 @@ TEST_F(HirLowerStreamTest, Split) {
   tv1->split(0, 2);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Merge) {
@@ -66,8 +64,7 @@ TEST_F(HirLowerStreamTest, Merge) {
   tv1->merge(0, 1);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, SingleSetOp) {
@@ -82,7 +79,7 @@ TEST_F(HirLowerStreamTest, SingleSetOp) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -113,7 +110,7 @@ TEST_F(HirLowerStreamTest, SingleSetOpNonOutermost) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(1)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -147,7 +144,7 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   tv2->setMemoryType(MemoryType::Global);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -160,7 +157,6 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor tv0_input = at::rand({4, 4}, options);
   at::Tensor tv1_input = at::rand({4, 4}, options);
-  // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
   auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}})[0]
                     .as<at::Tensor>();
   auto expected_output = tv0_input + tv1_input;
@@ -184,7 +180,7 @@ TEST_F(HirLowerStreamTest, TwoSetOps) {
   tv1->axis(0)->parallelize(ParallelType::Stream);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 5);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -223,7 +219,7 @@ TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
   tv1->axis(0)->parallelize(ParallelType::Stream);
   tv3->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 9);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -259,8 +255,7 @@ TEST_F(HirLowerStreamTest, ReductionUnsupported) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Reduction) {
@@ -275,7 +270,7 @@ TEST_F(HirLowerStreamTest, Reduction) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -310,7 +305,7 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
   c->setMemoryType(MemoryType::Global);
   c->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -348,7 +343,7 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
   c->setMemoryType(MemoryType::Global);
   c->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -386,7 +381,7 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
   c->setMemoryType(MemoryType::Global);
   c->axis(1)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 4);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -424,8 +419,7 @@ TEST_F(HirLowerStreamTest, Matmul_K) {
   c->setMemoryType(MemoryType::Global);
   c->axis(-1)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 // We don's support PostOnStream because it does not support well pre-allocated
@@ -472,8 +466,7 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
 
   output->axis(-1)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(
-      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(hir_pass::StreamParallelType().runPass(hic.get()));
 }
 
 } // namespace hir

@@ -12,7 +12,6 @@
 
 #include <c10/core/DeviceType.h>
 
-#include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -28,6 +27,8 @@
 #include <utils.h>
 
 namespace nvfuser {
+
+class GpuLower;
 
 //! Internal tests only. Compiles CUDA code with NVRTC directly from
 //! string. This util provides a path to test runtime code, i.e. the resource
@@ -60,6 +61,8 @@ class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   CompiledKernel() = delete;
+
+  NVF_API ~CompiledKernel();
 
   NVF_API CompiledKernel(
       Fusion* fusion,
@@ -111,10 +114,7 @@ class CompiledKernel : public NonCopyable {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const {
-    NVF_ERROR(lowered_);
-    return lowered_->kernel();
-  }
+  kir::Kernel* kernel() const;
 
   //! Returns the string of the compiled kernel
   NVF_API std::string kernelString() const {
@@ -274,7 +274,7 @@ class CompiledKernel : public NonCopyable {
   // Kernel name for fusion executor
   std::string kernel_id_;
 
-  std::unique_ptr<GpuLower> lowered_ = nullptr;
+  std::unique_ptr<GpuLower> lowered_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
