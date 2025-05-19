@@ -32,6 +32,24 @@ namespace nvfuser {
 
 namespace schedule_matmul {
 
+namespace {
+
+// Find the first MatmulDimRole from left to right in a vector of roles
+int64_t findFirstRole(
+    std::vector<MatmulDimRole>& roles,
+    MatmulDimRole role_to_find) {
+  auto role_iter =
+      std::find_if(roles.begin(), roles.end(), [&](MatmulDimRole role) {
+        return role == role_to_find;
+      });
+  if (role_iter == roles.end()) {
+    return -1;
+  }
+  return std::distance(roles.begin(), role_iter);
+}
+
+} // namespace
+
 void HopperPlus::transformLikeMmaOutputWithK(TensorView* tv) {
   NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
   // The input is originally block tiled so that the inner dims are the CTA tile
@@ -199,14 +217,8 @@ void HopperPlus::reorderBlockTileTraversal(
   }
 
   // Find position of outer M and N dims in schedule_.tiled
-  int64_t Mo_pos = -1, No_pos = -1;
-  for (size_t i : arange(outer_dim_roles.size())) {
-    if (outer_dim_roles[i] == MatmulDimRole::M) {
-      Mo_pos = (int64_t)i;
-    } else if (outer_dim_roles[i] == MatmulDimRole::N) {
-      No_pos = (int64_t)i;
-    }
-  }
+  int64_t Mo_pos = findFirstRole(outer_dim_roles, MatmulDimRole::M);
+  int64_t No_pos = findFirstRole(outer_dim_roles, MatmulDimRole::N);
 
   // Multi-factor grid traversal.
   // M and N roles must be present and consecutive.
