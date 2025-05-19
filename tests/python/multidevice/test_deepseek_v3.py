@@ -32,16 +32,45 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+def load_config(model_name: str) -> transformers.PretrainedConfig:
+    rank: int = dist.get_rank()
+    if rank == 0:
+        # Download only once
+        config = transformers.AutoConfig.from_pretrained(
+            model_name, trust_remote_code=True
+        )
+
+    dist.barrier()
+
+    # Other ranks load from cache
+    if rank != 0:
+        config = transformers.AutoConfig.from_pretrained( model_name, trust_remote_code=True)
+
+    return config
+
+
+def load_model(config: transformers.PretrainedConfig) -> transformers.PreTrainedModel:
+    rank: int = dist.get_rank()
+    if dist.get_rank() == 0:
+        # Download only once
+        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
+
+    dist.barrier()
+
+    # Other ranks load from cache
+    if rank != 0:
+        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
+
+    return model
+
+
 # This test timed out once when downloading
 # "/deepseek-ai/DeepSeek-V3/resolve/main/configuration_deepseek.py" (cf.
 # http://nv/eCm). I consider this a one-off, but please let me know if this
 # error becomes consistent.
 @pytest.mark.mpi
 def test_transformer_layer(setup_default_process_group):
-    config = transformers.AutoConfig.from_pretrained(
-        "deepseek-ai/deepseek-v3", trust_remote_code=True
-    )
-
+    config = load_config("deepseek-ai/deepseek-v3")
     # Create only one layer which is sufficient for the test.
     config.num_hidden_layers = 1
     # Without this, the first and only layer will have a dense MLP instead of MoE.
@@ -49,19 +78,20 @@ def test_transformer_layer(setup_default_process_group):
     # Disable quantization so the test can run on A100 and is made easier for nvFuser.
     delattr(config, "quantization_config")
 
-    d = dist.get_world_size()
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
+
     # This ensures the input tokens are identically replicated on all ranks.
     # Otherwise, some ranks may skip an expert because they have no tokens to
     # send, while other ranks don't. This will cause a deadlock because a NCCL
     # collective is expected to be called by all ranks in the process group.
     torch.manual_seed(0)
 
+    d = dist.get_world_size()
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
-        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
+        model = load_model(config)
         # Training is unavailable (cf. https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439)
         model.eval()
 
