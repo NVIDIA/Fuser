@@ -150,6 +150,13 @@ class HopperPlus : public Common {
   std::vector<std::vector<MatmulDimRole>> blockTileTensors(
       const std::vector<TensorView*>& tvs);
 
+  // Schedule TensorViews for Ping-Pong schedule
+  // Split inner-most non-K dimension by number of compute warp groups
+  // Parallelize all TensorViews except TMA Loads with ParallelType::TIDy
+  void schedulePingPong(
+      TensorView* tv,
+      std::vector<MatmulDimRole>& outer_dim_roles);
+
   //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
   //! data
   void setCGADims() const {
