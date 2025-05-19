@@ -286,6 +286,7 @@ void fillOptimalHopperTileSizes(
 
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
+  constexpr int64_t reserved_mbarrier_bytes = 1024L;
   for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
     for (const auto& [m_ratio, n_ratio] :
          std::vector<std::pair<int64_t, int64_t>>{
@@ -303,7 +304,7 @@ void fillOptimalHopperTileSizes(
         // to smem constraint
         const int64_t smem_bytes =
             at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
-        if (bytes_per_stage * 3L > smem_bytes) {
+        if (bytes_per_stage * 3L > smem_bytes - reserved_mbarrier_bytes) {
           continue;
         }
 
@@ -357,7 +358,8 @@ bool fillDefaultHopperHeuristic(
   int64_t operand_smem_per_stage =
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
   // We leave a bit of space for semaphores.
-  int64_t max_operand_smem = (int64_t)device_prop->sharedMemPerBlockOptin;
+  int64_t max_operand_smem =
+      (int64_t)device_prop->sharedMemPerBlockOptin - (1L << 7);
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
