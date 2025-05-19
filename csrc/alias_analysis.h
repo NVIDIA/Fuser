@@ -16,6 +16,10 @@
 
 namespace nvfuser {
 
+// With respect to the logical domain. `allocation_domain` must be a
+// permutation of the corresponding logcial domain, and `contiguity` must be of
+// the same length as `allocation`. See canonicalizeLayout for how we handle DID
+// loop splits.
 struct Layout {
   std::vector<IterDomain*> allocation_domain;
   std::vector<std::optional<bool>> contiguity;
@@ -27,9 +31,7 @@ struct Layout {
 
   // Returns whether this layout is compliant with `required`. This is
   // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa. As a special case,
-  // an empty `required.allocation` indicates no requirements, i.e., the method
-  // always returns true.
+  // `contiguity=[f,f]` but not vice versa.
   bool isCompliantWith(const Layout& required) const;
 };
 
@@ -60,8 +62,9 @@ class AliasAnalysisResult {
   void finalize();
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
-  // returns the `TensorView`'s initial layout.
-  Layout preferredLayout(const TensorView* alias) const;
+  // returns `TensorView`'s canonicalized layout or nullopt if canonicalization
+  // failed (cf. canoncalizeLayout).
+  std::optional<Layout> preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
 

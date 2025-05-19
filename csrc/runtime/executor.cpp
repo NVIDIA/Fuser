@@ -11,6 +11,8 @@
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
@@ -1000,10 +1002,6 @@ KernelArgumentHolder KernelExecutor::run(
            std::ssize(compiledKernel()->kernel()->outputs())),
       __func__,
       " provided number of outputs does not match fusion output");
-
-  NVF_ERROR(
-      !args.getCacheId().has_value() || output_args.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
 
