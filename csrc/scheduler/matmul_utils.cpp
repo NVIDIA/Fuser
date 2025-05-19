@@ -357,7 +357,8 @@ bool fillDefaultHopperHeuristic(
   int64_t operand_smem_per_stage =
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
   // We leave a bit of space for semaphores.
-  int64_t max_operand_smem = (int64_t)device_prop->sharedMemPerBlockOptin;
+  int64_t max_operand_smem =
+      (int64_t)device_prop->sharedMemPerBlockOptin - (1L << 7);
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
