@@ -105,6 +105,10 @@ constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
   return x % n == 0 ? x : x + (n - x % n);
 }
 
+constexpr int64_t roundDownToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x - x % n;
+}
+
 // Div x by y, but min at 1
 inline int64_t safeDiv(const int64_t x, const int64_t y) {
   return std::max(x / y, (int64_t)1);

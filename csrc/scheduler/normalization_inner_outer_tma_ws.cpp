@@ -142,7 +142,7 @@ void getHeuristics(
   // Set bdimx, will be revised in heuristics tuning.
   // bdimy is reserved for warp specialization
   // bdimz is not used
-  const int64_t max_persistent_batch = 10L;
+  const int64_t max_persistent_batch = 7L;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   int64_t bdimx = std::min(128L, after_vect);
   bdimx = std::max(bdimx, ceilDiv(after_vect, max_persistent_batch));
@@ -194,10 +194,22 @@ void getHeuristics(
   // ping-pong computations.
   ParallelType ws_pt =
       iop.bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
+  WarpSpecialized ws(ws_pt);
+  int64_t computation_groups = 1;
+  int64_t computation_threads = iop.bdimx * computation_groups;
+  if (computation_threads >= 256) {
+    int64_t reg_per_thread =
+        getRegPerThreadGivenThreadsPerSM(computation_threads + 128);
+    int64_t tma_branch_registers = 32;
+    int64_t compute_branch_registers = reg_per_thread +
+        (reg_per_thread - tma_branch_registers) * 128 / computation_threads;
+    compute_branch_registers =
+        scheduler_utils::roundDownToN(compute_branch_registers, 8);
+    ws.num_registers =
+        std::make_pair(tma_branch_registers, compute_branch_registers);
+  }
   CircularBufferOptions circular_buffer_options{
-      .type = WarpSpecialized(ws_pt),
-      .stage = n_stages,
-      .prefetch = n_prefetch};
+      .type = ws, .stage = n_stages, .prefetch = n_prefetch};
   rparams->circular_buffer_options = circular_buffer_options;
 
   // TODO: This is a heuristic, need to be tuned.
@@ -710,7 +722,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // reduction, we will leave this for heuristic tuning since unroll all
         // consumers may lead to better performance if register usage is not a
         // concern.
-        tv->axis(2)->parallelize(ParallelType::Unroll);
+        // tv->axis(2)->parallelize(ParallelType::Unroll);
+        tv_inline_pos_map.emplace(tv, tma_inline_pos);
       }
     }
 
