@@ -202,7 +202,7 @@ TEST_F(PingPongCircularBuffering, ProducerWarpSpecializedError) {
     ke.compile(&fusion, {t0});
   } catch (const std::exception& e) {
     const char* error_msg =
-        R"(The warp specialized thread axis cannot appear in the AsyncWarp TensorView.)";
+        R"(The warp specialized thread axis cannot appear in the AsyncWarp TensorView)";
     const char* str_match_pointer = strstr(e.what(), error_msg);
     ASSERT_TRUE(str_match_pointer != nullptr);
     return;
