@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <scheduler/normalization_inner_outer_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry_utils.h>
