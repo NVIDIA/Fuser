@@ -80,6 +80,16 @@ class HopperPlus : public Common {
  private:
   void validate() const;
 
+  bool isCooperative() const {
+    return params_->buffering_loop_level ==
+        MatmulParams::BufferingLoopLevel::CTATiles;
+  }
+
+  bool isPingPong() const {
+    return params_->buffering_loop_level ==
+        MatmulParams::BufferingLoopLevel::WarpTiles;
+  }
+
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
   //  in fact the whole body of this function will

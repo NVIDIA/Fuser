@@ -61,8 +61,10 @@ void HopperPlus::transformLikeMmaOutputWithK(TensorView* tv) {
   // After Reorder: [..., Mo, No, Mw, Nw, Kw, Mi, Ni, Ki]
   tv->merge(-8);
   // After Merge: [..., Mo * No, Mw, Nw, Kw, Mi, Ni]
-  tv->axis(-7)->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
+  if (isCooperative()) {
+    tv->axis(-7)->parallelize(ParallelType::TIDy);
+    // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
+  }
 }
 
 void HopperPlus::transformLikeMmaOutputWithoutK(TensorView* tv) {
@@ -92,8 +94,10 @@ void HopperPlus::transformLikeMmaOutputWithoutK(TensorView* tv) {
   // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
   tv->merge(-6);
   // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
-  tv->axis(-5)->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
+  if (isCooperative()) {
+    tv->axis(-5)->parallelize(ParallelType::TIDy);
+    // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
+  }
 }
 
 MatmulDimRole HopperPlus::findMatmulDimRole(IterDomain* id) {
@@ -119,10 +123,18 @@ void HopperPlus::validate() const {
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across SMs a la stream-K");
 
-  NVF_CHECK(
-      params_->buffering_loop_level ==
-          MatmulParams::BufferingLoopLevel::CTATiles,
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+  if (isCooperative()) {
+    NVF_CHECK(
+        params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
+        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+    NVF_CHECK(
+        params_->tile_sizes.cta_tile.m / params_->tile_sizes.warp_tile.m == 2,
+        "Expected m dimension for cta_tile to be 2x warp_tile.");
+  } else if (isPingPong()) {
+    NVF_CHECK(
+        params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
+        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul Kernels");
+  }
 }
 
 void HopperPlus::run() {
