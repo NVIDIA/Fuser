@@ -178,12 +178,12 @@ void getHeuristics(
       smem_buffer_size,
       ", available_smem: ",
       available_smem);
-  std::cout << "sharedMemPerBlockOptin: " << dev_prop->sharedMemPerBlockOptin << std::endl;
+  std::cout << "sharedMemPerBlockOptin: " << dev_prop->sharedMemPerBlockOptin
+            << std::endl;
   std::cout << "smem_overhead: " << smem_overhead << std::endl;
   std::cout << "available_smem: " << available_smem << std::endl;
   std::cout << "smem_buffer_size: " << smem_buffer_size << std::endl;
-  std::cout << "max_n_copies: " << max_n_copies
-            << std::endl;
+  std::cout << "max_n_copies: " << max_n_copies << std::endl;
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
@@ -681,6 +681,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         return true;
       };
       for (auto cached_tv : cached_inputs) {
+        std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
         if (cached_tv->hasBroadcast() &&
             is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
           if (can_vectorize(inner_reference_tv, cached_tv)) {
@@ -688,6 +689,17 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           } else {
             cached_tv->axis(2)->parallelize(ParallelType::Unroll);
           }
+        }
+      }
+      for (auto tv : fusion->allTvs()) {
+        if (tv->isFusionInput() || tv->isFusionOutput()) {
+          continue;
+        }
+        if (!tv->hasBroadcast()) {
+          continue;
+        }
+        if (!is_redu_mapped_to_bcast(inner_reference_tv, tv)) {
+          continue;
         }
         // Unroll the consumers to prevent inlineMost from inlining them
         // to the right of the vectorized axis, which can cause expression
@@ -698,9 +710,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // reduction, we will leave this for heuristic tuning since unroll all
         // consumers may lead to better performance if register usage is not a
         // concern.
-        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-          consumer->axis(2)->parallelize(ParallelType::Unroll);
-        }
+        tv->axis(2)->parallelize(ParallelType::Unroll);
       }
     }
 
@@ -732,6 +742,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   } else {
     inlineMost();
   }
+  fusion->printMath();
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser
