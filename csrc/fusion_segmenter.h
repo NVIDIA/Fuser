@@ -480,7 +480,6 @@ class GroupDependencyAnalysis;
 // Manual node merging passes
 class CombineReductions;
 class MergeUpAndDownCast;
-class MergePadAndCat;
 
 //! Options to configure/debug candidate finder
 struct SegmentCandidateFinderOptions {
@@ -704,7 +703,6 @@ class SegmentCandidateFinder {
   //!  instead of keeping adding friends
   friend class CombineReductions;
   friend class MergeUpAndDownCast;
-  friend class MergePadAndCat;
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
