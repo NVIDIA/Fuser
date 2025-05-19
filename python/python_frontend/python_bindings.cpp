@@ -799,6 +799,25 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
 
 #undef PARAM
 #undef INITPARAMS
+
+  py::class_<MultiDeviceExecutorParams>(nvfuser, "MultiDeviceExecutorParams")
+      .def(py::init<>())
+      .def_property(
+          "use_allocation_cache",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.executor.use_allocation_cache;
+          },
+          [](MultiDeviceExecutorParams& self, bool value) {
+            self.executor.use_allocation_cache = value;
+          })
+      .def_property(
+          "backend_type",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.lower.communicator_backend;
+          },
+          [](MultiDeviceExecutorParams& self, CommunicatorBackend value) {
+            self.lower.communicator_backend = value;
+          });
 }
 
 } // namespace
@@ -1089,11 +1108,15 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t, bool, CommunicatorBackend>(),
+          py::init<
+              std::optional<size_t>,
+              size_t,
+              bool,
+              MultiDeviceExecutorParams>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024),
           py::arg("use_multidevice_executor") = false,
-          py::arg("backend_type") = CommunicatorBackend::kNccl)
+          py::arg("multi_device_executor_params") = MultiDeviceExecutorParams())
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(
