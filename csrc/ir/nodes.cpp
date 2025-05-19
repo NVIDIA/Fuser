@@ -5057,12 +5057,15 @@ bool ForLoop::isUnrollable() const {
 
 bool ForLoop::isUnrolled() const {
   if (isUnrollRequired() && !isUnrollable()) {
-    TORCH_WARN(
-        iter_domain()->isBroadcast() || vectorize(),
-        "Unroll required but not possible. Register allocation disabled. Loop index: ",
-        index()->toString(),
-        ", ",
-        toString());
+    // Broadcast and vectorized loops are not generated and do not
+    // matter if unrolled or not.
+    if (!iter_domain()->isBroadcast() && !vectorize()) {
+      TORCH_WARN(
+          "Unroll required but not possible. Register allocation disabled. Loop index: ",
+          index()->toString(),
+          ", ",
+          toString());
+    }
     return false;
   }
 
