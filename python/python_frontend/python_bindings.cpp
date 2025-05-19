@@ -1335,44 +1335,18 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "The number of sizes does not match the number of strides.",
                 sizes.size(),
                 strides.size());
-
-            // TensorViewBuilder assumes any dim with a compile time constant
-            // size == 1 is a "maybe broadcast" axis, symbolic sizes are
-            // identified by -1, and size == 0 is not supported.
-
-            // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> dim_sizes;
-            dim_sizes.reserve(sizes.size());
-            for (const auto i : arange(sizes.size())) {
-              NVF_ERROR(
-                  sizes[i] >= 0,
-                  "Size of ",
-                  sizes[i],
-                  " is not supported in nvFuser. Expected size >= 0.");
-              if (static_sizes) {
-                dim_sizes.push_back(sizes[i]);
-              } else { // Symbolic defined tensor for dynamic shape usage
-                if (sizes[i] == 1) {
-                  dim_sizes.push_back(1);
-                } else {
-                  dim_sizes.push_back(-1);
-                }
-              }
-            }
-
             Tensor out = self.defineTensor(sizes.size());
             std::vector<std::optional<bool>> contiguity;
             std::vector<int64_t> stride_order;
             std::tie(contiguity, stride_order) =
-                computeTensorDescriptor(sizes, strides),
-                                 self.defineRecord(new TensorRecord(
-                                     {self.recordingState(out())},
-                                     std::move(dim_sizes),
-                                     contiguity,
-                                     dtype,
-                                     is_cpu,
-                                     stride_order));
-
+                computeTensorDescriptor(sizes, strides);
+            self.defineRecord(new TensorRecord(
+                {self.recordingState(out())},
+                getTensorViewBuilderSizes(sizes, static_sizes),
+                contiguity,
+                dtype,
+                is_cpu,
+                stride_order));
             return out;
           },
           py::arg("sizes"),

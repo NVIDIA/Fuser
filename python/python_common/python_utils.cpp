@@ -122,7 +122,7 @@ void verifyShape(const std::vector<int64_t>& shape) {
 std::vector<std::optional<bool>> getContiguityVec(
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& stride_order,
-    const bool contiguity) {
+    bool contiguity) {
   const auto rank = static_cast<int64_t>(shape.size());
   std::vector<std::optional<bool>> contiguity_vec(rank);
   for (const auto index : arange(rank)) {
@@ -135,6 +135,33 @@ std::vector<std::optional<bool>> getContiguityVec(
     }
   }
   return contiguity_vec;
+}
+
+std::vector<int64_t> getTensorViewBuilderSizes(
+    const std::vector<int64_t>& sizes,
+    bool static_sizes) {
+  // TensorViewBuilder assumes any dim with a compile time constant
+  // size == 1 is a broadcast axis, symbolic sizes are
+  // identified by -1, and size == 0 is not supported.
+  std::vector<int64_t> dim_sizes;
+  dim_sizes.reserve(sizes.size());
+  for (size_t i : arange(sizes.size())) {
+    NVF_ERROR(
+        sizes[i] >= 0,
+        "Size of ",
+        sizes[i],
+        " is not supported in nvFuser. Expected size >= 0.");
+    if (static_sizes) {
+      dim_sizes.push_back(sizes[i]);
+    } else { // Symbolic defined tensor for dynamic shape usage
+      if (sizes[i] == 1) {
+        dim_sizes.push_back(1);
+      } else {
+        dim_sizes.push_back(-1);
+      }
+    }
+  }
+  return dim_sizes;
 }
 
 } // namespace nvfuser

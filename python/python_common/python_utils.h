@@ -82,6 +82,12 @@ void verifyShape(const std::vector<int64_t>& shape);
 std::vector<std::optional<bool>> getContiguityVec(
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& stride_order,
-    const bool contiguity);
+    bool contiguity);
+
+// This helper function translates python sizes into to TensorViewBuilder's view
+// of the world.
+std::vector<int64_t> getTensorViewBuilderSizes(
+    const std::vector<int64_t>& sizes,
+    bool static_sizes);
 
 } // namespace nvfuser
