@@ -7,6 +7,7 @@ import transformers
 import torch
 import torch.distributed as dist
 from contextlib import contextmanager
+from functools import wraps
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -32,36 +33,33 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+def download_once(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        rank = dist.get_rank()
+        if rank == 0:
+            # Download only once.
+            result = fn(*args, **kwargs)
+
+        dist.barrier()
+
+        if rank != 0:
+            # Other ranks load from cache.
+            result = fn(*args, **kwargs)
+
+        return result
+
+    return wrapper
+
+
+@download_once
 def load_config(model_name: str) -> transformers.PretrainedConfig:
-    rank: int = dist.get_rank()
-    if rank == 0:
-        # Download only once
-        config = transformers.AutoConfig.from_pretrained(
-            model_name, trust_remote_code=True
-        )
-
-    dist.barrier()
-
-    # Other ranks load from cache
-    if rank != 0:
-        config = transformers.AutoConfig.from_pretrained( model_name, trust_remote_code=True)
-
-    return config
+    return transformers.AutoConfig.from_pretrained(model_name, trust_remote_code=True)
 
 
+@download_once
 def load_model(config: transformers.PretrainedConfig) -> transformers.PreTrainedModel:
-    rank: int = dist.get_rank()
-    if dist.get_rank() == 0:
-        # Download only once
-        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
-
-    dist.barrier()
-
-    # Other ranks load from cache
-    if rank != 0:
-        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
-
-    return model
+    return transformers.AutoModel.from_config(config, trust_remote_code=True)
 
 
 # This test timed out once when downloading
