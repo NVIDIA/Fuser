@@ -1116,7 +1116,7 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
       const ValGroups out_groups_j =
           exact_graph.toGroups(getReshapeIds(reshape_j).second);
 
-      if (!inp_groups_i.computeIntersect(out_groups_j).empty()) {
+      if (inp_groups_i.hasIntersect(out_groups_j)) {
         return true;
       }
     }
