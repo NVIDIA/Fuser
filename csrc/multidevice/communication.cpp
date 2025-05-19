@@ -453,6 +453,11 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
   auto flattened_input_tensor =
       input_tensor.as_strided({input_tensor.numel()}, {1});
   auto splits = at::tensor_split(
@@ -460,11 +465,6 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   auto flattened_output_tensor =
       output_tensor.as_strided({output_tensor.numel()}, {1});
   assertBuffersHaveSameSize(splits, {flattened_output_tensor});
-
-  NVF_ERROR(
-      isTvContiguous(communication->in()), "Input tensor is not contiguous");
-  NVF_ERROR(
-      isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
