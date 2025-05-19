@@ -62,6 +62,11 @@ class CircularBufferInfo {
 
   Val* getOriginalAllocSize(const TensorView* tv);
 
+  // Returns true if the warp groups run independently.
+  bool hasIndependentComputeWarpGroups() const {
+    return independent_compute_warp_groups_;
+  }
+
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
@@ -142,9 +147,13 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
-
-  //! warp specialized on, one fusion allows only one warp specialized dim
+  //! The warp specialized axis for circular buffering.
+  //! Only one warp specialized axis for the fusion.
   ParallelType warp_specialized_on_ = ParallelType::Serial;
+  //! If false, then the mbarrier in the ComputeWarp should be for all threads
+  //! in ComputeWarp. Otherwise, it is per warp-group or 128 threads. It is True
+  //! if the warp specialized axis is to the left of the stage_slice_position.
+  bool independent_compute_warp_groups_ = false;
 };
 
 } // namespace nvfuser
