@@ -150,6 +150,25 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // domain.
   std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
+
+  Val* numel = FusionGuard::getCurFusion()->oneVal();
+  for (const auto j : arange(inp_dom.size())) {
+    numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
+  }
+
+  const auto neg_one_size = [&numel, &new_sizes](size_t pos) {
+    Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
+    for (const auto j : arange(new_sizes.size())) {
+      if (pos == j) {
+        continue;
+      }
+      other_new_numel =
+          SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
+    }
+    Val* new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
+    return simplifyExpr(new_size);
+  };
+
   for (const auto i : arange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
     if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
@@ -162,20 +181,13 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           "A maximum of one value of -1 can be provided to reshape.");
       found_neg_one = true;
 
-      Val* numel = FusionGuard::getCurFusion()->oneVal();
-      Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
-      for (const auto j : arange(inp_dom.size())) {
-        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
-      }
-      for (const auto j : arange(new_sizes.size())) {
-        if (i == j) {
-          continue;
-        }
-        other_new_numel =
-            SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
-      }
-      new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
-      new_size = simplifyExpr(new_size);
+      new_size = neg_one_size(i);
+    } else if (!new_size->isConstScalar()) {
+      // Dynamic size could be -1. Here we build a correct shape expression
+      new_size = where(
+          eq(new_size, IrBuilder::create<Val>(-1L, DataType::Index)),
+          neg_one_size(i),
+          new_size);
     }
     new_size = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_size);
     auto rf_id =
