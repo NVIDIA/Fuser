@@ -237,6 +237,15 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
   } catch (const std::exception& e) {
     SUCCEED();
   }
+
+  try {
+    FusionProfiler::start();
+    FAIL()
+        << "Expected FusionProfiler::start to assert because state is Running! "
+        << FusionProfiler::state();
+  } catch (const std::exception& e) {
+    SUCCEED();
+  }
 }
 
 } // namespace nvfuser
