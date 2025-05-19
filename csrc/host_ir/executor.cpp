@@ -702,11 +702,13 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
     return;
   }
 
-  // Check the cache
-  auto it = allocation_cache_.find(allocate);
-  if (it != allocation_cache_.end()) {
-    bind(tv, it->second);
-    return;
+  // Check the cache if enabled
+  if (params_.use_allocation_cache) {
+    auto it = allocation_cache_.find(allocate);
+    if (it != allocation_cache_.end()) {
+      bind(tv, it->second);
+      return;
+    }
   }
 
   GlobalBufferInfo info =
@@ -721,8 +723,10 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
 
-  // Cache the allocation using the allocation operation as the key
-  allocation_cache_[allocate] = tensor;
+  // Cache the allocation if enabled
+  if (params_.use_allocation_cache) {
+    allocation_cache_[allocate] = tensor;
+  }
   bind(tv, tensor);
 }
 

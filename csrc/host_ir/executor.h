@@ -65,6 +65,8 @@ struct HostIrEvaluatorParams {
   // number of additional cuda streams to use at runtime for comm+compute
   // pipelining
   int64_t number_of_streams = 4;
+  // Whether to use allocation cache for tensor allocations
+  bool use_allocation_cache = false;
 };
 
 // A HostIrEvaluator evaluates a host programs represented through a
