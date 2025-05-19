@@ -3715,6 +3715,105 @@ class MergeUpAndDownCast {
   SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
 };
 
+class MergePadAndCat {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergePadAndCat merge_pad_and_cat(segment_candidate_finder);
+  }
+
+ private:
+  MergePadAndCat(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {
+    merge();
+  }
+
+  void merge() {
+    bool merged = true;
+    while (merged) {
+      merged = false;
+      std::unordered_set<SegmentedGroup*> considered_cat_groups;
+
+      for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
+        if (considered_cat_groups.contains(group)) {
+          continue;
+        }
+
+        if (group->exprs().size() != 1) {
+          continue;
+        }
+
+        auto cat = dynamic_cast<CatOp*>(group->exprs().at(0));
+        if (cat == nullptr) {
+          continue;
+        }
+
+        considered_cat_groups.insert(group);
+
+        bool failed = false;
+
+        std::vector<SegmentedGroup*> groups_to_merge;
+        groups_to_merge.reserve(cat->inputs().size() + 1);
+        for (const auto cat_inp : cat->inputs()) {
+          auto pad = dynamic_cast<PadOp*>(cat_inp->definition());
+          if (pad == nullptr) {
+            failed = true;
+            break;
+          }
+
+          auto producer_edge_it = std::ranges::find_if(
+              group->producer_edges, [&](SegmentedEdge* producer_edge) {
+                SegmentedGroup* producer_group = producer_edge->from;
+                return producer_group->exprs().size() == 1 &&
+                    producer_group->exprs().at(0) == pad &&
+                    producer_group->consumer_edges.size() == 1;
+              });
+          if (producer_edge_it == group->producer_edges.end()) {
+            failed = true;
+            break;
+          }
+
+          groups_to_merge.push_back((*producer_edge_it)->from);
+        }
+
+        if (failed) {
+          continue;
+        }
+
+        groups_to_merge.push_back(group);
+
+        // Try merging the detected group
+        if (mergeGroups(groups_to_merge)) {
+          merged = true;
+          break;
+        }
+      }
+    }
+  }
+
+  bool mergeGroups(const std::vector<SegmentedGroup*>& groups) {
+    auto sched_type = tryMerge(
+        segment_candidate_finder_->segmented_fusion_.get(),
+        segment_candidate_finder_->runtimeInfo(),
+        groups);
+
+    if (sched_type == SchedulerType::None) {
+      return false;
+    }
+
+    std::cerr << "Merging pad and cat\n";
+    for (const auto g : groups) {
+      std::cerr << "\t" << toString(g) << "\n";
+    }
+
+    segment_candidate_finder_->mergeAllGivenGroups(groups);
+
+    return true;
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Allow the segmentation algorithm to prefer certain exprs to merge
@@ -3852,6 +3951,16 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
   }
 
   const auto merge_candidates = group->getMergeCandidates();
+
+  if (merge_candidates.empty()) {
+    return std::nullopt;
+  }
+
+  std::cerr << "PadPrefer: " << toString(group) << "\n";
+  std::cerr << "Candidates\n";
+  for (const auto& neighbor : merge_candidates) {
+    std::cerr << toString(neighbor.group) << "\n";
+  }
 
   for (auto expr : group->exprs()) {
     auto pad = dynamic_cast<PadOp*>(expr);
@@ -4141,6 +4250,10 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
+
+  MergePadAndCat::run(this);
+  validateIfDebug(true);
+
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 
