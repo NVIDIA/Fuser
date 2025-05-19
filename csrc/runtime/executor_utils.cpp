@@ -11,6 +11,7 @@
 
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>

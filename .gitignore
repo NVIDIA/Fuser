@@ -23,7 +23,7 @@ python/nvfuser_common/cmake
 **/__pycache__
 */*.so
 python/nvfuser/*.so
-python/nvfuser_next/*.so
+python/nvfuser_direct/*.so
 
 # Editor temporaries
 *.swa
