@@ -237,9 +237,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul_ampere-.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul_hopper+.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/matmul_hopper+.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
@@ -645,6 +644,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
