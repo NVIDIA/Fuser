@@ -180,7 +180,7 @@ class TestRepro(NVFuserTest):
         outputs = fd.execute(inputs)
 
     def test_issue4459(self):
-        def nvfuser_fusion_id0(fd: FusionDefinition) -> None :
+        def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 shape=[4, 32],
                 contiguity=[True, True],
