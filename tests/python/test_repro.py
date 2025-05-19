@@ -180,48 +180,48 @@ class TestRepro(NVFuserTest):
         outputs = fd.execute(inputs)
 
     def test_issue4459(self):
-        def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
+        def nvfuser_fusion_id0(fd: FusionDefinition) -> None :
             T0 = fd.define_tensor(
                 shape=[4, 32],
                 contiguity=[True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[0, 1]
+                stride_order=[0, 1],
             )
             T1 = fd.define_tensor(
                 shape=[4, 32, 1, 1, 1],
                 contiguity=[True, True, None, None, None],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[4, 3, 2, 1, 0]
+                stride_order=[4, 3, 2, 1, 0],
             )
             T2 = fd.define_tensor(
                 shape=[4, 32, 10, 64, 64],
                 contiguity=[True, True, True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[4, 3, 2, 1, 0]
+                stride_order=[4, 3, 2, 1, 0],
             )
             T3 = fd.define_tensor(
                 shape=[320],
                 contiguity=[True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[0]
+                stride_order=[0],
             )
             T4 = fd.define_tensor(
                 shape=[320],
                 contiguity=[True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[0]
+                stride_order=[0],
             )
             T5 = fd.define_tensor(
                 shape=[4, 320, 66, 66],
                 contiguity=[True, True, True, True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[3, 2, 1, 0]
+                stride_order=[3, 2, 1, 0],
             )
             T12 = fd.ops.broadcast_in_dim(
                 T0, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
@@ -339,22 +339,17 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id0(fd)
 
         inputs = [
-            torch.randn(
-                128, dtype=torch.float32, device='cuda:0'
-            ).as_strided((4, 32), (1, 4)),
+            torch.randn(128, dtype=torch.float32, device='cuda:0').as_strided(
+                (4, 32), (1, 4)
+            ),
             torch.testing.make_tensor(
                 (4, 32, 1, 1, 1), dtype=torch.float32, device='cuda:0'
             ),
             torch.testing.make_tensor(
-                (4, 32, 10, 64, 64), dtype=torch.float32,
-                device='cuda:0'
+                (4, 32, 10, 64, 64), dtype=torch.float32, device='cuda:0'
             ),
-            torch.testing.make_tensor(
-                (320,), dtype=torch.float32, device='cuda:0'
-            ),
-            torch.testing.make_tensor(
-                (320,), dtype=torch.float32, device='cuda:0'
-            ),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device='cuda:0'),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device='cuda:0'),
             torch.testing.make_tensor(
                 (4, 320, 66, 66), dtype=torch.float32, device='cuda:0'
             ),
