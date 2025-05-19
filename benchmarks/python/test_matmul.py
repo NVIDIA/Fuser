@@ -42,6 +42,18 @@ def load_matmul_problems():
         return rows
 
 
+def maybe_skip_oom_case(m: int, n: int, k: int):
+    expected_mem = (m * k + n * k + m * n) * 2  # operands plus output
+    expected_mem *= 2  # account for multiple runs/deferred frees
+
+    _, total = torch.cuda.mem_get_info()
+    max_mem = total * 0.9
+    if expected_mem > max_mem:
+        pytest.skip(
+            f"Case takes more than {max_mem / (2 ** 30): .2f} GiB. Skipping to avoid OOM"
+        )
+
+
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
 @pytest.mark.parametrize("executor", ["eager"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
@@ -59,15 +71,7 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
-    expected_mem = (m * k + n * k + m * n) * 2  # operands plus output
-    expected_mem *= 2  # account for multiple runs/deferred frees
-
-    _, total = torch.cuda.mem_get_info()
-    max_mem = total * 0.9
-    if expected_mem > total * 0.9:
-        pytest.skip(
-            "Case takes more than {max_mem / (2 ** 30)} GiB. Skipping to avoid OOM"
-        )
+    maybe_skip_oom_case(m, n, k)
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
@@ -103,15 +107,7 @@ def test_matmul_nvf_benchmark(
 ):
     m, n, k, layout = config
 
-    expected_mem = (m * k + n * k + m * n) * 2  # operands plus output
-    expected_mem *= 2  # account for multiple runs/deferred frees
-
-    _, total = torch.cuda.mem_get_info()
-    max_mem = total * 0.9
-    if expected_mem > total * 0.9:
-        pytest.skip(
-            "Case takes more than {max_mem / (2 ** 30)} GiB. Skipping to avoid OOM"
-        )
+    maybe_skip_oom_case(m, n, k)
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
