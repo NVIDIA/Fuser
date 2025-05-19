@@ -136,6 +136,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(PingPongCircularBuffering, ProducerWarpSpecializedError) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -209,6 +210,7 @@ TEST_F(PingPongCircularBuffering, ProducerWarpSpecializedError) {
 }
 
 TEST_F(PingPongCircularBuffering, ProducerConsumerDifferentError) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
 
