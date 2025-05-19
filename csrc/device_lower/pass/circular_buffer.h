@@ -182,6 +182,57 @@ class TmaCircularBufferInfo {
   std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
 };
 
+class HopperPingPongMbarriers {
+ public:
+  HopperPingPongMbarriers(int64_t num_warp_groups, ParallelType ws_axis)
+      : num_warp_groups_{num_warp_groups}, ws_axis_{ws_axis} {
+    NVF_ERROR(
+        num_warp_groups == 2,
+        "Expected the number of warp groups to be two for Hopper ping-pong ",
+        "matmuls");
+    NVF_ERROR(
+        ws_axis == ParallelType::TIDy,
+        "Expected the warp specialized axis to be ParallelType::TIDy");
+  }
+
+  //! Track the mbarriers used to manage ping-pong computation phases.
+  //! It is used in the allocation phase.
+  void trackMbarriers(TensorView* ping_pong_mbarriers) {
+    NVF_ERROR(ping_pong_mbarriers != nullptr);
+    NVF_ERROR(getMemoryType() == MemoryType::Shared);
+    mbarriers_ = ping_pong_mbarriers;
+  }
+
+  //! Create a IfThenElse that releases the TensorCore and Epilogue mbarriers
+  //! for the first independent warp group.
+  kir::IfThenElse* createPrefetchIfThenElse();
+
+  //! Select mbarrier for the given computation phase and independent warp
+  //! group.
+  Val* indexByComputeType(bool is_epilogue);
+
+  //! Create mbarrier::wait to pause warp group until the computation phase is
+  //! unused by the other warp groups.
+  //!
+  //! Pseudo-code:
+  //!   mbarrier::wait(ping_pong_mbarriers[indexByComputeType(is_epilogue)],
+  //!                  phase_index % 2)
+  Expr* createMbarrierWait(bool is_epilogue, Val* phase_index);
+
+  //! Create mbarrier::arrive to release given computation phase to the other
+  //! warp groups.
+  //!
+  //! Pseudo-code:
+  //!   mbarrier::arrive(ping_pong_mbarriers[indexByComputeType(is_epilogue)],
+  //!                    phase_index % 2)
+  Expr* createMbarrierArrive(bool is_epilogue, Val* phase_index);
+
+ private:
+  int64_t num_warp_groups_ = 0;
+  ParallelType ws_axis_ = ParallelType::Serial;
+  TensorView* mbarriers_ = nullptr;
+};
+
 class CircularBufferPass {
  public:
   //! Apply circular buffering transformations
