@@ -123,26 +123,36 @@ void normalizeStrideOrder(std::vector<int64_t>& stride_order) {
     return;
   }
   int64_t rank = (int64_t)stride_order.size();
+
+  // Validate first
+  std::for_each(
+      stride_order.begin(), stride_order.end(), [rank](int64_t order) {
+        if (order < 0) {
+          NVF_CHECK(
+              order >= -rank,
+              "defineTensor stride_order argument is out of range, expects >= ",
+              -rank,
+              ", but got: ",
+              order);
+        } else {
+          NVF_CHECK(
+              order < rank,
+              "defineTensor stride_order argument is out of range, expects < ",
+              rank,
+              ", but got: ",
+              order);
+        }
+      });
+
+  // Then, normalize negative values.
   std::unordered_set<int64_t> order_set;
-  for (auto& order : stride_order) {
-    order_set.insert(order);
-    if (order < 0) {
-      NVF_CHECK(
-          order >= -rank,
-          "defineTensor stride_order argument is out of range, expects >= ",
-          -rank,
-          ", but got: ",
-          order);
-      order += rank;
-    } else {
-      NVF_CHECK(
-          order < rank,
-          "defineTensor stride_order argument is out of range, expects < ",
-          rank,
-          ", but got: ",
-          order);
-    }
-  }
+  order_set.reserve(rank);
+  std::transform(
+      stride_order.begin(),
+      stride_order.end(),
+      std::inserter(order_set, order_set.begin()),
+      [rank](int64_t order) { return wrapDim(order, rank); });
+
   NVF_CHECK(
       order_set.size() == stride_order.size(),
       "defineTensor got duplicated stride_order entries: " +
