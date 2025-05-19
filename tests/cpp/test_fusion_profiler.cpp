@@ -241,7 +241,7 @@ TEST_F(FusionProfilerTest, FusionProfilerErrorChecks) {
   try {
     FusionProfiler::start();
     FAIL()
-        << "Expected FusionProfiler::start to assert because state is Running! "
+        << "Expected FusionProfiler::start to assert because state should not be Running! "
         << FusionProfiler::state();
   } catch (const std::exception& e) {
     SUCCEED();
