@@ -339,19 +339,19 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id0(fd)
 
         inputs = [
-            torch.randn(128, dtype=torch.float32, device='cuda:0').as_strided(
+            torch.randn(128, dtype=torch.float32, device="cuda:0").as_strided(
                 (4, 32), (1, 4)
             ),
             torch.testing.make_tensor(
-                (4, 32, 1, 1, 1), dtype=torch.float32, device='cuda:0'
+                (4, 32, 1, 1, 1), dtype=torch.float32, device="cuda:0"
             ),
             torch.testing.make_tensor(
-                (4, 32, 10, 64, 64), dtype=torch.float32, device='cuda:0'
+                (4, 32, 10, 64, 64), dtype=torch.float32, device="cuda:0"
             ),
-            torch.testing.make_tensor((320,), dtype=torch.float32, device='cuda:0'),
-            torch.testing.make_tensor((320,), dtype=torch.float32, device='cuda:0'),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device="cuda:0"),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device="cuda:0"),
             torch.testing.make_tensor(
-                (4, 320, 66, 66), dtype=torch.float32, device='cuda:0'
+                (4, 320, 66, 66), dtype=torch.float32, device="cuda:0"
             ),
         ]
         fd.execute(inputs)
