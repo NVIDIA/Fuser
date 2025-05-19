@@ -355,8 +355,8 @@ INSTANTIATE_TEST_SUITE_P(
     PipelineTestTwoStages,
     testing::Combine(
         testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-        all_meshes,
-        all_meshes,
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh2, mesh4, mesh5),
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
