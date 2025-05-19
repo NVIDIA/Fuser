@@ -9,6 +9,7 @@
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <C++20/compare>
 

@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner_outer_multi_wave.h>
 #include <scheduler/normalization_inner_outer_tma_ws.h>

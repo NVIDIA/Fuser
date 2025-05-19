@@ -813,4 +813,16 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   checkIntValue(evaluator, logical_size_1, 4);
 }
 
+TEST_F(ExprEvalTest, NamedScalar) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+
+  ExpressionEvaluator evaluator;
+  constexpr int64_t kCacheIdValue = 1;
+  evaluator.bind("cacheId", kCacheIdValue);
+  PolymorphicValue cache_id_pvalue = evaluator.evaluate(cache_id);
+  EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
+}
+
 } // namespace nvfuser

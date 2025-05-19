@@ -23,6 +23,12 @@ class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
+//! Utility enum to signify which direction
+//! transform propagation passes will propagate the transforms.
+//! For example, in sharding propagation or
+//! BoundedDirectionalTransformPropagator.
+enum class PropagateDirection { kBackward = 0, kForward };
+
 namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
@@ -834,10 +840,6 @@ TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 //! See device_lower/analysis/tensor_producer_aliases.h
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
-//! Utility enum to signify which direction
-//! transform propagation passes will propagate the transforms.
-//! For example, in sharding propagation or
-//! BoundedDirectionalTransformPropagator.
-enum class PropagateDirection { kBackward = 0, kForward };
 } // namespace scheduler_utils
+
 } // namespace nvfuser

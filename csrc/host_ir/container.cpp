@@ -20,8 +20,8 @@ namespace nvfuser {
 
 namespace hir {
 
-HostIrContainer::HostIrContainer(int64_t num_kernel_executors)
-    : kernel_executors_(num_kernel_executors) {}
+HostIrContainer::HostIrContainer(int64_t num_groups)
+    : kernel_executors_(num_groups) {}
 
 HostIrContainer::~HostIrContainer() = default;
 
