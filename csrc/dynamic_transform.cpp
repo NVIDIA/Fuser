@@ -796,6 +796,13 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
     TensorView* incomplete_out_tv,
     const AnalyzeViewResult& view_analysis) {
   TensorView* concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+  // Inherit the mesh from the original output TV instead of the input TV.  If
+  // the original output TV doesn't have a mesh, it's subject to sharding
+  // propagation so we should assign the new output TV an empty mesh.
+  // Otherwise, the original output TV has a user-specified sharding, which
+  // TransformRepaly::selfReplay will clone (cf. #3950), and we should assign
+  // the output TV the same mesh.
+  concrete_reshape_out_tv->setDeviceMesh(incomplete_out_tv->getDeviceMesh());
 
   // Extent expressions often change when concretizing a reshape. Here we
   // replace these in all downstream expressions so that the Fusion looks just
@@ -920,10 +927,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
       concrete_reshape_out_tv = concretizeEmptyReshape(
           inp_tv, incomplete_out_tv, std::get<std::vector<int64_t>>(view_info));
     }
-    // TODO(#4336): Without this, the concretized reshape produces a TV with a
-    // non-empty mesh but no shardings, disabling the downstream sharding
-    // propagation.
-    concrete_reshape_out_tv->setDeviceMesh(DeviceMesh());
 
     // NOTE: The replacement might not yet actually be valid. For example, if
     // inp_tv contains Symbolic domains that need to be squeezed, this check
