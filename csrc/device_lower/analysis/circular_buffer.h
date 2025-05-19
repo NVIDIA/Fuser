@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 
+#include <device_lower/pass/circular_buffer.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
@@ -28,6 +29,8 @@ class CircularBufferInfo {
 
  public:
   void build(Fusion* fusion);
+
+  void initializePingPongTracking(const TensorView* tv, IterDomain* cb_axis);
 
   void setCircularBufferTv(const TensorView* tv);
 
@@ -83,6 +86,8 @@ class CircularBufferInfo {
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
+  //! Get HopperPingPongMbarriers for the given axis.
+  HopperPingPongMbarriers* getPingPongMbarriersFor(IterDomain* axis);
 
   //! Get the circular buffer insertion position for the given axis.
   int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
@@ -142,6 +147,10 @@ class CircularBufferInfo {
   //! can indeed shared with the same prolog extent and main loop offset.
   std::unordered_map<IterDomain*, CircularBufferOptions>
       circular_buffer_options_;
+
+  //! Map IterDomain to HopperPingPongMbarriers
+  std::unordered_map<IterDomain*, std::shared_ptr<HopperPingPongMbarriers>>
+      ping_pong_mbarriers_;
 
   //! Keeps track of circular buffer tvs for each disjoint set of loop mapped
   //! iterdomains.

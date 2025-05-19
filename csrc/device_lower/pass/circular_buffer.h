@@ -199,7 +199,7 @@ class HopperPingPongMbarriers {
   //! It is used in the allocation phase.
   void trackMbarriers(TensorView* ping_pong_mbarriers) {
     NVF_ERROR(ping_pong_mbarriers != nullptr);
-    NVF_ERROR(getMemoryType() == MemoryType::Shared);
+    NVF_ERROR(ping_pong_mbarriers->getMemoryType() == MemoryType::Shared);
     mbarriers_ = ping_pong_mbarriers;
   }
 
