@@ -142,9 +142,6 @@ void HopperPlus::validate() const {
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across SMs a la stream-K");
 
-  NVF_CHECK(
-      isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
