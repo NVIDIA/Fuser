@@ -15,7 +15,6 @@
 #include <vector>
 
 #include <runtime/executor_kernel_arg.h>
-#include <torch/csrc/utils/pybind.h>
 
 namespace nvfuser {
 
@@ -76,6 +75,63 @@ computeTensorDescriptor(
 // The shape must be a list of integers, where each integer is either a positive
 // integer, -1, or 1.
 void verifyShape(const std::vector<int64_t>& shape);
+
+// Normalizes and validates the stride order for a tensor.
+//
+// This function processes the stride order vector to ensure it's valid and
+// consistent:
+// 1. Handles negative indices by converting them to positive indices
+// 2. Validates that all indices are within the valid range
+// 3. Ensures there are no duplicate entries
+//
+// Parameters
+// ----------
+// stride_order : vector<int64_t>
+//     The stride order vector to normalize. Can be empty or contain indices
+//     from -rank to rank-1, where rank is the size of the vector.
+//
+// Notes
+// -----
+// - Negative indices are converted to positive by adding the rank
+// - All indices must be within the range [-rank, rank-1]
+// - No duplicate indices are allowed
+// - An empty stride_order vector is valid and will be left unchanged
+void normalizeStrideOrder(std::vector<int64_t>& stride_order);
+
+// Determines which dimensions of a tensor are expanded.
+//
+// A dimension is considered expanded if:
+// 1. It is marked as a broadcast dimension (contiguity is None)
+// 2. It has a non-broadcast size (shape != 1)
+//
+// Parameters
+// ----------
+// shape : vector<int64_t>
+//     The shape of the tensor
+// contiguity : vector<optional<bool>>
+//     The contiguity flags for each dimension. None indicates a broadcast
+//     dimension.
+// stride_order : vector<int64_t>
+//     The stride order of dimensions, mapping logical domain to allocation
+//     domain.
+//
+// Returns
+// -------
+// vector<bool>
+//     A vector of boolean flags indicating which dimensions are expanded.
+//     The order of this vector corresponds to the logical domain of TensorView.
+//
+// Notes
+// -----
+// The function handles the mapping between logical domain and allocation domain
+// using the stride order. For each dimension i:
+// - If stride_order is empty, contiguity[i] corresponds to dimension i
+// - Otherwise, contiguity[i] corresponds to dimension
+// (rank - 1 - stride_order[i])
+std::vector<bool> getExpanded(
+    const std::vector<int64_t>& shape,
+    const std::vector<std::optional<bool>>& contiguity,
+    const std::vector<int64_t>& stride_order);
 
 // If shape indicates a broadcast dimension, then the contiguity is optional.
 // Otherwise, assign each dimension the given contiguity value.

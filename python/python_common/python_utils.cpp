@@ -6,10 +6,9 @@
  */
 // clang-format on
 
-#include <python_utils.h>
+#include <python_common/python_utils.h>
 
 #include <polymorphic_value.h>
-#include <torch/csrc/jit/python/pybind_utils.h>
 #include <algorithm>
 #include <ranges>
 
@@ -117,6 +116,66 @@ void verifyShape(const std::vector<int64_t>& shape) {
         i,
         " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
   }
+}
+
+void normalizeStrideOrder(std::vector<int64_t>& stride_order) {
+  if (stride_order.empty()) {
+    return;
+  }
+  int64_t rank = (int64_t)stride_order.size();
+  std::unordered_set<int64_t> order_set;
+  for (auto& order : stride_order) {
+    order_set.insert(order);
+    if (order < 0) {
+      NVF_CHECK(
+          order >= -rank,
+          "defineTensor stride_order argument is out of range, expects >= ",
+          -rank,
+          ", but got: ",
+          order);
+      order += rank;
+    } else {
+      NVF_CHECK(
+          order < rank,
+          "defineTensor stride_order argument is out of range, expects < ",
+          rank,
+          ", but got: ",
+          order);
+    }
+  }
+  NVF_CHECK(
+      order_set.size() == stride_order.size(),
+      "defineTensor got duplicated stride_order entries: " +
+          toDelimitedString(stride_order));
+}
+
+std::vector<bool> getExpanded(
+    const std::vector<int64_t>& shape,
+    const std::vector<std::optional<bool>>& contiguity,
+    const std::vector<int64_t>& stride_order) {
+  size_t rank = shape.size();
+  std::vector<bool> is_expand(rank);
+  for (size_t index : arange(rank)) {
+    // since contiguity vector is given to the corresponding order in alloc
+    // domain, while is_expand is given to root domain, we need to map it
+    // correctly with `contig_index` and `index`.
+    //
+    // stride_order[i] indicates that:
+    //   `logical_domain[i]` maps to `alloc_domain[rank - 1 - stride_order_[i]]`
+    //
+    // Hence `index` on root domain would be corresponding to the contiguity
+    // index `contig_index = rank - 1 - stride_order[index]`
+    const size_t contig_index = stride_order.empty()
+        ? index
+        : rank - 1 - static_cast<size_t>(stride_order[index]);
+    const bool is_broadcast = !contiguity[contig_index].has_value();
+    const bool has_non_broadcast_size = (shape[index] != 1);
+    // A root dimension is expand dimension if:
+    //   The dimension is marked a broadcast; and
+    //   The dimension has an expanded extent.
+    is_expand[index] = is_broadcast && has_non_broadcast_size;
+  }
+  return is_expand;
 }
 
 std::vector<std::optional<bool>> getContiguityVec(

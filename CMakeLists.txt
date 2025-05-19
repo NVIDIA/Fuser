@@ -308,6 +308,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
+    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
   )
 endif()
 
@@ -473,7 +474,6 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
     ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
     ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
-    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
@@ -568,7 +568,6 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/bindings.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
-    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
