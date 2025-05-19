@@ -25,16 +25,26 @@ def load_matmul_problems():
         rows = list((int(m), int(n), int(k), layout) for m, n, k, layout in reader)
 
         def row_mem(row):
+            """Compute gmem bytes used in a half-precision GEMM
+
+            This computes only the space required for operands and output,
+            ignoring intermediates like split-K buffers and assuming no bias
+            terms.
+            """
             m, n, k, _ = row
             return ((m + n) * k + m * n) * 2
 
-        def mem_cmp(row1, row2):
-            for a, b in [(row_mem(row1), row_mem(row2)), (row1[3], row2[3])]:
-                if a < b:
-                    return -1
-                elif a > b:
-                    return 1
+        def three_way_cmp(a, b) -> int:
+            """Perform a three-way comparison like the Python2 cmp() function"""
+            if a < b:
+                return -1
+            elif a > b:
+                return 1
             return 0
+
+        def mem_cmp(row1, row2):
+            """Compare two rows based on memory use"""
+            return three_way_cmp(row_mem(row1), row_mem(row2))
 
         # Reverse sort by expected memory use to avoid fragmentation
         rows.sort(key=functools.cmp_to_key(mem_cmp), reverse=True)
