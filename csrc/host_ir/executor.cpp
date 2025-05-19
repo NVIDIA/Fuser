@@ -6,6 +6,12 @@
  */
 // clang-format on
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <dynamic_transform.h>
@@ -89,7 +95,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return (bool)host_ir_container_;
+  return host_ir_container_ != nullptr;
 }
 
 namespace {
@@ -224,6 +230,7 @@ HostIrEvaluator::HostIrEvaluator(
 
 KernelArgumentHolder HostIrEvaluator::runWithInputs(
     const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
   NVF_ERROR(args.getCacheId().has_value());
@@ -234,8 +241,11 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
     bind(in_val, arg);
   }
 
-  for (auto expr : container_->topLevelExprs()) {
-    dispatch(expr);
+  for (Expr* e : container_->topLevelExprs()) {
+    const std::string event_name =
+        std::string("HostIrEvaluator::dispatch ") + e->getOpString();
+    FUSER_PERF_SCOPE(event_name.c_str());
+    dispatch(e);
   }
 
   KernelArgumentHolder outs;
