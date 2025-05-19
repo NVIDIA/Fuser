@@ -77,4 +77,11 @@ computeTensorDescriptor(
 // integer, -1, or 1.
 void verifyShape(const std::vector<int64_t>& shape);
 
+// If shape indicates a broadcast dimension, then the contiguity is optional.
+// Otherwise, assign each dimension the given contiguity value.
+std::vector<std::optional<bool>> getContiguityVec(
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& stride_order,
+    const bool contiguity);
+
 } // namespace nvfuser

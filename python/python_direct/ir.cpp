@@ -298,7 +298,6 @@ void bindDefineTensor(py::module& nvfuser) {
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
-
             return defineTensor(shape, contiguity, dtype, is_cpu, stride_order);
           },
           py::arg("shape"),
@@ -316,21 +315,12 @@ void bindDefineTensor(py::module& nvfuser) {
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
-
-            const int64_t rank = static_cast<int64_t>(shape.size());
-            std::vector<std::optional<bool>> contiguity_vec(rank);
-            for (int64_t index : std::views::iota(0LL, rank)) {
-              const int64_t contig_index =
-                  stride_order.empty() ? index : rank - 1 - stride_order[index];
-              if (shape[index] == 1) {
-                contiguity_vec[contig_index] = std::nullopt;
-              } else {
-                contiguity_vec[contig_index] = contiguity;
-              }
-            }
-
             return defineTensor(
-                shape, contiguity_vec, dtype, is_cpu, stride_order);
+                shape,
+                getContiguityVec(shape, stride_order, contiguity),
+                dtype,
+                is_cpu,
+                stride_order);
           },
           py::arg("shape"),
           py::arg("contiguity") = false,

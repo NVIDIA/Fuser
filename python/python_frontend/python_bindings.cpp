@@ -1301,29 +1301,11 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
 
             verifyShape(shape);
-
-            const auto rank = static_cast<int64_t>(shape.size());
-            std::vector<std::optional<bool>> contiguity_vec(rank);
-            // This duplicates some code around
-            // https://github.com/NVIDIA/Fuser/blob/b60f2341bbe2ec276b1fe60f4f25a4a5b093faa9/csrc/python_frontend/fusion_record.h#L1370.
-            // Alternatively, I can extend TensorRecord to allow contiguity as
-            // a boolean. If you think it's worth doing, I'm happy to pursue it
-            // in a separate PR.
-            for (const auto index : arange(rank)) {
-              const auto contig_index =
-                  stride_order.empty() ? index : rank - 1 - stride_order[index];
-              if (shape[index] == 1) {
-                contiguity_vec[contig_index] = std::nullopt;
-              } else {
-                contiguity_vec[contig_index] = contiguity;
-              }
-            }
-
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 shape,
-                contiguity_vec,
+                getContiguityVec(shape, stride_order, contiguity),
                 dtype,
                 is_cpu,
                 stride_order));

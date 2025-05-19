@@ -119,4 +119,22 @@ void verifyShape(const std::vector<int64_t>& shape) {
   }
 }
 
+std::vector<std::optional<bool>> getContiguityVec(
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& stride_order,
+    const bool contiguity) {
+  const auto rank = static_cast<int64_t>(shape.size());
+  std::vector<std::optional<bool>> contiguity_vec(rank);
+  for (const auto index : arange(rank)) {
+    const auto contig_index =
+        stride_order.empty() ? index : rank - 1 - stride_order[index];
+    if (shape[index] == 1) {
+      contiguity_vec[contig_index] = std::nullopt;
+    } else {
+      contiguity_vec[contig_index] = contiguity;
+    }
+  }
+  return contiguity_vec;
+}
+
 } // namespace nvfuser
