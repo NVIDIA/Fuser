@@ -1615,6 +1615,31 @@ TEST_P(LitgptRopeTest, Bwd) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
+
+  // Make sure the cat is grouped together with the pad ops of its inputs
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  auto cat_group_it = std::ranges::find_if(
+      runtime->fusionSegments()->groups(), [&](const auto& group) {
+        return std::ranges::any_of(group->exprs(), [&](Expr* expr) {
+          return expr->isA<CatOp>() && expr->output(0)->name() == T245->name();
+        });
+      });
+  EXPECT_NE(cat_group_it, runtime->fusionSegments()->groups().end())
+      << "Could not find a segment for the cat op";
+
+  // Check if the inputs of `cat({T244, T237, T230}, 2)` are also in
+  // the same segment
+  for (const auto pad_input : {T244, T237, T230}) {
+    EXPECT_NE(
+        std::ranges::find_if(
+            (*cat_group_it)->exprs(),
+            [&](Expr* expr) {
+              return expr->isA<PadOp>() &&
+                  expr->input(0)->name() == pad_input->name();
+            }),
+        (*cat_group_it)->exprs().end())
+        << "Could not find pad input: " << pad_input->toString();
+  }
 }
 
 // Testing the scheduling of an ending repeat pattern, which is

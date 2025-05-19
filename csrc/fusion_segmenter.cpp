@@ -3755,6 +3755,8 @@ class MergeCatWithInputPads {
     }
   }
 
+  // Given a segmented group, try to detect a concat pattern, where
+  // all of the inputs are produced by pad groups.
   std::optional<std::vector<SegmentedGroup*>> getGroupsToMerge(
       SegmentedGroup* cat_group) {
     // This pass is assumed to be applied before the iterative
@@ -3764,16 +3766,33 @@ class MergeCatWithInputPads {
       return std::nullopt;
     }
 
+    // Technically, this can be just an add operation as concat can be
+    // represented with pad and add.
+    // TODO: Consider extending this pattern matching to support
+    // add-based concat
     auto cat = dynamic_cast<CatOp*>(cat_group->exprs().at(0));
     if (cat == nullptr) {
       return std::nullopt;
     }
 
+    // Check if a given pad is for the cat. More strictly, the actual
+    // padding widths do matter, but it's unikely to make any
+    // difference. Since this is a heuristic, this check should be
+    // good enough.
+    auto is_matching_pad = [&cat](PadOp* pad) {
+      if (!pad->value()->isZero()) {
+        return false;
+      }
+      auto padded_axes = pad->getPaddedAxes();
+      return padded_axes.size() == 1 &&
+          padded_axes.at(0) == cat->concatenatedDim();
+    };
+
     std::vector<SegmentedGroup*> groups_to_merge;
     groups_to_merge.reserve(cat->inputs().size() + 1);
     for (const auto cat_inp : cat->inputs()) {
       auto pad = dynamic_cast<PadOp*>(cat_inp->definition());
-      if (pad == nullptr) {
+      if (pad == nullptr || !is_matching_pad(pad)) {
         return std::nullopt;
       }
 
@@ -3790,6 +3809,8 @@ class MergeCatWithInputPads {
 
       groups_to_merge.push_back((*producer_edge_it)->from);
     }
+
+    groups_to_merge.push_back(cat_group);
 
     return groups_to_merge;
   }
@@ -3958,12 +3979,6 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   if (merge_candidates.empty()) {
     return std::nullopt;
-  }
-
-  std::cerr << "PadPrefer: " << toString(group) << "\n";
-  std::cerr << "Candidates\n";
-  for (const auto& neighbor : merge_candidates) {
-    std::cerr << toString(neighbor.group) << "\n";
   }
 
   for (auto expr : group->exprs()) {
