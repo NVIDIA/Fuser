@@ -676,8 +676,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       // factor. Here, we only need to further confirm all the iteration
       // domains are contiguous.
       auto can_vectorize = [](TensorView* redu_tv, TensorView* bcast_tv) {
-        const auto& alloc_dom_1 = redu_tv->getMaybeAllocationDomain();
-        const auto& alloc_dom_2 = bcast_tv->getMaybeAllocationDomain();
+        const auto& alloc_dom_1 = redu_tv->getMaybeRootDomain();
+        const auto& alloc_dom_2 = bcast_tv->getMaybeRootDomain();
         if (alloc_dom_1.size() != alloc_dom_2.size()) {
           return false;
         }
@@ -694,13 +694,17 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       };
       for (auto cached_tv : cached_inputs) {
         std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
-        if (cached_tv->hasBroadcast() &&
-            is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
-          if (can_vectorize(inner_reference_tv, cached_tv)) {
-            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
-          } else {
-            cached_tv->axis(2)->parallelize(ParallelType::Unroll);
-          }
+        if (!cached_tv->hasBroadcast()) {
+          continue;
+        }
+        if (!is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
+          continue;
+        }
+
+        if (can_vectorize(inner_reference_tv, cached_tv)) {
+          cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+        } else {
+          cached_tv->axis(2)->parallelize(ParallelType::Unroll);
         }
       }
       for (auto tv : fusion->allTvs()) {
@@ -722,8 +726,16 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // reduction, we will leave this for heuristic tuning since unroll all
         // consumers may lead to better performance if register usage is not a
         // concern.
-        // tv->axis(2)->parallelize(ParallelType::Unroll);
-        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+        // if(tv->definition()->isA<UnaryOp>() &&
+        //    tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+        //        UnaryOpType::Reciprocal) {
+        //   tv->axis(2)->parallelize(ParallelType::Unroll);
+        // }
+          tv->axis(2)->parallelize(ParallelType::Unroll);
+          // if (tv->axis(2)->getParallelType() != ParallelType::Vectorize) {
+        //   tv->axis(2)->parallelize(ParallelType::Unroll);
+        // }
+        // tv_inline_pos_map.emplace(tv, tma_inline_pos);
       }
     }
 
