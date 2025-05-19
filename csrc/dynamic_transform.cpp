@@ -800,7 +800,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   // the original output TV doesn't have a mesh, it's subject to sharding
   // propagation so we should assign the new output TV an empty mesh.
   // Otherwise, the original output TV has a user-specified sharding, which
-  // TransformRepaly::selfReplay will clone (cf. #3950), and we should assign
+  // TransformReplay::selfReplay will clone (cf. #3950), and we should assign
   // the output TV the same mesh.
   concrete_reshape_out_tv->setDeviceMesh(incomplete_out_tv->getDeviceMesh());
 
