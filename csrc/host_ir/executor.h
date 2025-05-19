@@ -83,6 +83,10 @@ class HostIrEvaluator final : public OptOutDispatch {
       Communicator* communicator = nullptr,
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
+  // Used by FusionExecutor, the main stack.
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+
+  // Used by MultiDeviceExecutor.
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 

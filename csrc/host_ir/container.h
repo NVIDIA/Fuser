@@ -24,9 +24,10 @@ namespace hir {
 // structure.
 class HostIrContainer final : public Fusion {
  public:
-  // num_kernel_executors is only needed when the container has LaunchKernel
-  // instructions.
-  explicit HostIrContainer(int64_t num_kernel_executors = 0);
+  // num_groups is only needed when the container has LaunchKernel
+  // instructions. It's used to initialize `kernel_executors_` for parallel
+  // compilation.
+  explicit HostIrContainer(int64_t num_groups = 0);
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
@@ -60,6 +61,8 @@ class HostIrContainer final : public Fusion {
 
  private:
   std::vector<Expr*> top_level_exprs_;
+  // Indexed by group ID. This way, parallel compilation can write to disjoint
+  // locations without having to precompute a global index.
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
 };
