@@ -11,6 +11,8 @@
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
@@ -686,12 +688,7 @@ void KernelExecutor::initializeExecutorEntry(
       launch_params.bdimx());
 
   std::vector<GlobalBufferInfo> input_info;
-  NVF_ERROR(
-      compiled_kernel_->kernel()->inputs().size() == args.size(),
-      "Input size mismatch, expected: ",
-      compiled_kernel_->kernel()->inputs().size(),
-      " got: ",
-      args.size());
+  NVF_ERROR_EQ(std::ssize(compiled_kernel_->kernel()->inputs()), args.size());
   for (auto inp_idx : arange(compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (auto input_tv = dynamic_cast<TensorView*>(input)) {
@@ -805,17 +802,13 @@ void KernelExecutor::computeArgs(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
-  if (entry.args.size() != args.size()) {
+  if (std::ssize(entry.args) != args.size()) {
     entry.args.resize(args.size());
     entry.arg_ptrs.resize(args.size());
   }
 
-  NVF_ERROR(
-      args.size() == compiled_kernel_->kernel()->parameters().size(),
-      "Argument size mismatch, expected: ",
-      compiled_kernel_->kernel()->parameters().size(),
-      " got: ",
-      args.size());
+  NVF_ERROR_EQ(
+      args.size(), std::ssize(compiled_kernel_->kernel()->parameters()));
 
   for (auto inp : compiled_kernel_->kernel()->inputs()) {
     if (!inp->isA<TensorView>()) {
@@ -825,13 +818,12 @@ void KernelExecutor::computeArgs(
 
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   int64_t buffer_info_idx = 0;
-  for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
-    if (args[arg_idx].is<at::Tensor>() &&
-        args[arg_idx].as<at::Tensor>().is_cuda()) {
+  for (auto&& [arg_idx, arg] : enumerate(args)) {
+    if (arg.is<at::Tensor>() && arg.as<at::Tensor>().is_cuda()) {
       const auto& buffer_info =
           linear_buffer_info_getter(entry, buffer_info_idx++);
       entry.args[arg_idx] = tensorToBytes(
-          args[arg_idx],
+          arg,
           buffer_info.shape_info.logical_sizes,
           buffer_info.shape_info.allocation_strides.empty()
               ? buffer_info.shape_info.logical_strides
@@ -840,11 +832,11 @@ void KernelExecutor::computeArgs(
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
-      if (args[arg_idx].is<at::Tensor>()) {
+      if (arg.is<at::Tensor>()) {
         buffer_info_idx++;
       }
       auto bytes = polymorphicValueToBytes(
-          args[arg_idx],
+          arg,
           compiled_kernel_->kernel()->parameters()[arg_idx]->dtype(),
           idx_type);
       entry.args[arg_idx] = bytes;
@@ -1006,13 +998,10 @@ KernelArgumentHolder KernelExecutor::run(
   NVF_ERROR(isCompiled());
   NVF_ERROR(
       output_args.empty() ||
-          (output_args.size() == compiledKernel()->kernel()->outputs().size()),
+          (output_args.size() ==
+           std::ssize(compiledKernel()->kernel()->outputs())),
       __func__,
       " provided number of outputs does not match fusion output");
-
-  NVF_ERROR(
-      !args.getCacheId().has_value() || output_args.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
 
@@ -1032,7 +1021,7 @@ KernelArgumentHolder KernelExecutor::run(
   KernelExecutorEntry temporary_executor_entry;
 
   KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
-          !compiled_kernel_->disablePaarameterCache()
+          !compiled_kernel_->launchParamCacheDisabled()
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
 
@@ -1167,7 +1156,7 @@ KernelArgumentHolder KernelExecutor::run(
     }
   }
 
-  if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
+  if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
     NVF_ERROR(
         has_tma_ || has_rng_,
         "No TMA or RNG found in the kernel, but detected an argument size mismatch.");

@@ -623,11 +623,14 @@ class PredicateChcker : public IterVisitor {
     if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
-    const auto& non_divisible_split_info =
-        GpuLower::current()->nonDivisibleSplitInfo();
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      if (non_divisible_split_info.splitsToPredicate().find(output) !=
-          non_divisible_split_info.splitsToPredicate().end()) {
+
+    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      if ((GpuLower::current()->isTensorIndexerEnabled() &&
+           GpuLower::current()->nonDivisiblePredicateInfo().hasPredicate(
+               output_tv)) ||
+          (!GpuLower::current()->isTensorIndexerEnabled() &&
+           GpuLower::current()->nonDivisibleSplitInfo().hasPredicate(
+               output_tv))) {
         RECORD_AND_RETURN(true);
       }
     }
