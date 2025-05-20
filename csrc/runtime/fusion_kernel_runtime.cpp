@@ -295,11 +295,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, PolymorphicValue> tensor_map;
-    for (const auto i : arange(args.size())) {
-      tensor_map.emplace(hie_->inputs()[i], args[i]);
-    }
-    auto outputs = hie_->runWithInput(tensor_map);
+    auto outputs = hie_->runWithInputs(args);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
@@ -475,6 +471,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (hic != nullptr) {
     IrCloner ir_cloner(hic.get());
     FusionGuard::setCurFusion(hic.get());
+    auto* cache_id =
+        IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       SegmentedGroup* group_to_run =
           runtime_workspace_.group_run_order.at(run_order_id);
@@ -526,7 +524,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               heuristic_params->lparams,
               heuristic_params->cparams,
               std::vector<Val*>{in_clone},
-              std::vector<Val*>{out_clone});
+              std::vector<Val*>{out_clone},
+              cache_id);
           for (auto* val : out_clone) {
             NVF_ERROR(
                 val->isA<TensorView>(),

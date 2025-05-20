@@ -325,16 +325,6 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
-namespace {
-bool isTvContiguous(const TensorView* tv) {
-  // Reduction and broadcast axis do not have a contiguity value.
-  return std::all_of(
-      tv->getContiguity().begin(),
-      tv->getContiguity().end(),
-      [](std::optional<bool> c) { return c.value_or(true); });
-}
-} // namespace
-
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,

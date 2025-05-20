@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <scheduler/normalization_inner_outer_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry_utils.h>
@@ -180,10 +181,10 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
            ProjectToInputs);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
+  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspace(
       fusion, reduction_tvs, threads_per_block_max);
   int64_t available_smem =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+      (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
   int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
 
