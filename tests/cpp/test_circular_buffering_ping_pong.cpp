@@ -140,6 +140,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 using PingPongTest = NVFuserTest;
 TEST_F(PingPongTest, TwoTmaLoads) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
   int rows_per_stage = 4, compute_warp_groups = 2, circular_loop = 12;
