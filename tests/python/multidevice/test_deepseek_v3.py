@@ -7,13 +7,17 @@ import transformers
 import torch
 import torch.distributed as dist
 from contextlib import contextmanager
+from enum import Enum, auto
 from functools import wraps
+from linear import ColumnParallelLinear, RowParallelLinear
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
+    ParallelStyle,
     RowwiseParallel,
     ColwiseParallel,
 )
+from typing import Optional
 
 
 @contextmanager
@@ -33,6 +37,8 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+# This decorator ensures that the model/config is downloaded only once by rank
+# 0. Other ranks will load from the cache that's stored on the same machine.
 def download_once(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -62,12 +68,74 @@ def load_model(config: transformers.PretrainedConfig) -> transformers.PreTrained
     return transformers.AutoModel.from_config(config, trust_remote_code=True)
 
 
+class Executor(Enum):
+    # https://docs.pytorch.org/docs/stable/distributed.tensor.parallel.html
+    TORCH_TP = auto()
+    NVFUSER = auto()
+
+
+def parallelize_linear_with_nvfuser(
+    linear: torch.nn.Linear,
+    num_devices: int,
+    parallel_style: ParallelStyle,
+) -> torch.nn.Linear:
+    assert isinstance(linear, torch.nn.Linear), f"Unsupported layer: {linear}"
+
+    assert len(parallel_style.input_layouts) == 1, "Expect 1D mesh"
+    input_layout = parallel_style.input_layouts[0]
+    assert len(parallel_style.output_layouts) == 1, "Expect 1D mesh"
+    output_layout = parallel_style.output_layouts[0]
+
+    if isinstance(parallel_style, RowwiseParallel):
+        assert input_layout.is_shard(-1), "We only implemented TP."
+        assert output_layout.is_replicate(), "We only implemented TP."
+        return RowParallelLinear.distribute(linear, num_devices)
+
+    if isinstance(parallel_style, ColwiseParallel):
+        assert input_layout.is_replicate(), "We only implemented TP."
+        assert output_layout.is_shard(-1), "We only implemented TP."
+        return ColumnParallelLinear.distribute(linear, num_devices)
+
+    assert False, f"Unsupported parallel style: {parallel_style}"
+
+
+def parallelize_module_with_nvfuser(
+    module: torch.nn.Module,
+    num_devices: int,
+    parallel_plan: dict[str, ParallelStyle],
+    fqn: str,  # stands for fully qualified name
+    parent_module: Optional[torch.nn.Module] = None,
+):
+    for child_module_name, child_module in module.named_children():
+        if fqn:
+            child_fqn = f"{fqn}.{child_module_name}"
+        else:
+            child_fqn = child_module_name
+
+        parallelize_module_with_nvfuser(
+            child_module, num_devices, parallel_plan, child_fqn, module
+        )
+
+    if (parallel_style := parallel_plan.get(fqn)) is None:
+        return
+
+    new_module = parallelize_linear_with_nvfuser(module, num_devices, parallel_style)
+    assert parent_module is not None
+    module_name = fqn.split(".")[-1]
+    setattr(parent_module, module_name, new_module)
+
+
 # This test timed out once when downloading
 # "/deepseek-ai/DeepSeek-V3/resolve/main/configuration_deepseek.py" (cf.
 # http://nv/eCm). I consider this a one-off, but please let me know if this
 # error becomes consistent.
 @pytest.mark.mpi
-def test_transformer_layer(setup_default_process_group):
+@pytest.mark.parametrize(
+    "executor",
+    [Executor.TORCH_TP, Executor.NVFUSER],
+    ids=lambda e: e.name,
+)
+def test_transformer_layer(setup_default_process_group, executor: Executor):
     config = load_config("deepseek-ai/deepseek-v3")
     # Create only one layer which is sufficient for the test.
     config.num_hidden_layers = 1
@@ -120,23 +188,30 @@ def test_transformer_layer(setup_default_process_group):
         parallel_plan["mlp.shared_experts.up_proj"] = ColwiseParallel()
         parallel_plan["mlp.shared_experts.down_proj"] = RowwiseParallel()
 
-        transformer_layer = parallelize_module(
-            transformer_layer,
-            mesh,
-            parallel_plan,
-        )
+        match executor:
+            case Executor.TORCH_TP:
+                transformer_layer = parallelize_module(
+                    transformer_layer,
+                    mesh,
+                    parallel_plan,
+                )
 
-        # Sanity-check parameters are indeed distributed
-        distributed_params: list[str] = [
-            name
-            for name, parameter in transformer_layer.named_parameters()
-            if isinstance(parameter.data, DTensor)
-        ]
-        assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
+                # Sanity-check parameters are indeed distributed
+                distributed_params: list[str] = [
+                    name
+                    for name, parameter in transformer_layer.named_parameters()
+                    if isinstance(parameter.data, DTensor)
+                ]
+                assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
+            case Executor.NVFUSER:
+                # FIXME: pass in mesh instead?
+                parallelize_module_with_nvfuser(transformer_layer, d, parallel_plan, "")
 
         batch_size = 1
         seq_len = 2048
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
+        # if executor == Executor.NVFUSER:
+        #     inp = DTensor.from_local(inp, mesh, [Replicate()])
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
