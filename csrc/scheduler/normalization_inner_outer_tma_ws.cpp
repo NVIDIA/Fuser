@@ -184,6 +184,7 @@ void getHeuristics(
   std::cout << "available_smem: " << available_smem << std::endl;
   std::cout << "smem_buffer_size: " << smem_buffer_size << std::endl;
   std::cout << "max_n_copies: " << max_n_copies << std::endl;
+
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
@@ -194,6 +195,7 @@ void getHeuristics(
   // ping-pong computations.
   ParallelType ws_pt =
       iop.bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
+
   WarpSpecialized ws(ws_pt);
   int64_t computation_groups = 1;
   int64_t computation_threads = iop.bdimx * computation_groups;
@@ -210,6 +212,7 @@ void getHeuristics(
   }
   CircularBufferOptions circular_buffer_options{
       .type = ws, .stage = n_stages, .prefetch = n_prefetch};
+
   rparams->circular_buffer_options = circular_buffer_options;
 
   // TODO: This is a heuristic, need to be tuned.

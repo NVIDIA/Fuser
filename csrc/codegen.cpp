@@ -3864,7 +3864,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   LaunchParams lparams_;
   //! Whether the kernel has warp specialization
   bool has_warp_specialized_ = false;
-  //! Warp specilized on parallel type
+  //! Warp specialized on parallel type
   ParallelType warp_specialized_on_ = ParallelType::Serial;
 };
 
