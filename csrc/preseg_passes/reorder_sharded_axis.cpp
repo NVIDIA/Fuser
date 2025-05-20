@@ -66,7 +66,6 @@ void makeCommunicationLayoutCompliant(
           comm_input->getLogicalDomain(),
           std::unordered_map<int64_t, int64_t>{{comm_input_device_idx, 0}}),
       true);
-  transform_and_parallelize_like(input, comm_input);
 
   // Communication expression.
   // We do not create a new output tensorview for the communication.
@@ -104,6 +103,8 @@ void makeCommunicationLayoutCompliant(
       true);
 
   ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, comm_output);
+  
+  transform_and_parallelize_like(input, comm_input);
   transform_and_parallelize_like(output, comm_output);
 }
 
