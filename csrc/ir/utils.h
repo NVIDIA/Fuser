@@ -13,6 +13,7 @@
 #include <type.h>
 #include <visibility.h>
 
+#include <linked_hash_map.h>
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
@@ -838,5 +839,42 @@ class TVDomainGuard {
 // subset includes those that are produced by the reshape ID ops.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
+// Computes `Split`'s output contiguity. Returns the outer contiguity and then
+// the inner contiguity.
+std::pair<std::optional<bool>, std::optional<bool>> splitContiguity(
+    const std::optional<bool>& contiguity);
+
+// Computes `Merge`'s output contiguity. Returns a pair
+// `<mergeable,contiguity>`. `mergeable` indicates whether the two IterDomains
+// can be merged without materialization. For example, there's no way to merge
+// `outer=f,inner=t` while keeping the output as an alias, because a dimension
+// can only have one stride. `contiguity` is the contiguity of the merged output
+// IterDomain.
+//
+// Credits to @jacobhinkle:
+// https://github.com/NVIDIA/Fuser/pull/1124#discussion_r1368682735
+std::pair<bool, std::optional<bool>> mergeContiguity(
+    const bool outer_is_expanded,
+    const std::optional<bool>& outer_contiguity,
+    const bool inner_is_expanded,
+    const std::optional<bool>& inner_contiguity);
+
+// Given a TV, returns its layout with repsect to the logical domain. When
+// `allocation` is a split of `logical`, walks backwards from `allocation` to
+// `logical` to find a permutation of `logical` that satisfies the order in
+// `allocation`. The returned contiguity is computed according to
+// splitContiguity and mergeContiguity.
+//
+// Example:
+//   input TV:
+//     logical: [b, s, h]
+//     allocation: [s, d, h/d, b]
+//     contiguity: [t, t, f, t]
+//   output layout:
+//     allocation: [s, h, b]
+//     contiguity: [t, f, t]
+std::optional<LinkedHashMap<IterDomain*, std::optional<bool>>>
+canonicalizeAllocationToLogical(const TensorView* tv);
 
 } // namespace nvfuser::ir_utils
