@@ -3825,11 +3825,6 @@ class MergeCatWithInputPads {
       return false;
     }
 
-    std::cerr << "Merging pad and cat\n";
-    for (const auto g : groups) {
-      std::cerr << "\t" << toString(g) << "\n";
-    }
-
     segment_candidate_finder_->mergeAllGivenGroups(groups);
 
     return true;
