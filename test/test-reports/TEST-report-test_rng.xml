@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites tests="4" failures="0" disabled="0" errors="0" time="11.083" timestamp="2025-05-20T08:09:19.965" name="AllTests">
-  <testsuite name="RNGTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="11.083" timestamp="2025-05-20T08:09:19.965">
-    <testcase name="ManualScheduleValidateWithCURand2" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="140" status="run" result="completed" time="9.03" timestamp="2025-05-20T08:09:19.965" classname="RNGTest" />
-    <testcase name="BroadcastingRNGSmem" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="245" status="run" result="completed" time="0.513" timestamp="2025-05-20T08:09:28.995" classname="RNGTest" />
-    <testcase name="Normal" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="349" status="run" result="completed" time="1.15" timestamp="2025-05-20T08:09:29.509" classname="RNGTest" />
-    <testcase name="DifferentOffsets" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="515" status="run" result="completed" time="0.388" timestamp="2025-05-20T08:09:30.659" classname="RNGTest" />
-  </testsuite>
-</testsuites>

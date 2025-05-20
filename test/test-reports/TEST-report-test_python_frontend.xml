@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites tests="1" failures="0" disabled="0" errors="0" time="7.134" timestamp="2025-05-20T08:09:10.163" name="AllTests">
-  <testsuite name="NVFuserTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="7.134" timestamp="2025-05-20T08:09:10.163">
-    <testcase name="RecordFunctorEquality_CUDA" file="/opt/pytorch/nvfuser/python/tests/python_frontend/test_nvfuser_fusion_record.cpp" line="21" status="run" result="completed" time="7.134" timestamp="2025-05-20T08:09:10.163" classname="NVFuserTest" />
-  </testsuite>
-</testsuites>
