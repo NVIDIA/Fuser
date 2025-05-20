@@ -394,10 +394,9 @@ void IterDomainGraph::build(Fusion* fusion) {
           std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
           for (const auto i :
                arange(first_output_tv->getMaybeRootDomain().size())) {
-            c2f_root_map.insert(
-                std::make_pair(
-                    c_tv->getMaybeRootDomain()[i],
-                    first_output_tv->getMaybeRootDomain()[i]));
+            c2f_root_map.insert(std::make_pair(
+                c_tv->getMaybeRootDomain()[i],
+                first_output_tv->getMaybeRootDomain()[i]));
           }
 
           // Multi output mapping, outputs are required to have the same domain
