@@ -209,9 +209,8 @@ std::vector<std::optional<bool>> getContiguityVec(
 std::vector<int64_t> getTensorViewBuilderSizes(
     const std::vector<int64_t>& sizes,
     bool static_sizes) {
-  // TensorViewBuilder assumes any dim with a compile time constant
-  // size == 1 is a broadcast axis, symbolic sizes are
-  // identified by -1, and size == 0 is not supported.
+  // TensorViewBuilder assumes any dim with a compile-time constant size == 1
+  // is a broadcast axis and symbolic sizes are identified by -1.
   std::vector<int64_t> dim_sizes;
   dim_sizes.reserve(sizes.size());
   for (size_t i : arange(sizes.size())) {
