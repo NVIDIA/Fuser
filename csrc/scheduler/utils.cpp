@@ -2656,7 +2656,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspace(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2679,10 +2679,7 @@ int64_t getSharedMemoryOverheadPerBlock(
   int64_t reduction_broadcast_workspace =
       threads_per_block * dtype_size * welford_factor;
 
-  // (2) part-2, space reserved by the CUDA driver
-  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
-
-  return reduction_broadcast_workspace + smem_overhead_driver;
+  return reduction_broadcast_workspace;
 }
 
 bool isResharding(Fusion* fusion) {
