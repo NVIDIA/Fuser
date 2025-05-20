@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <python_common/python_utils.h>
+#include <python_utils.h>
 
 #include <polymorphic_value.h>
 #include <algorithm>

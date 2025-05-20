@@ -13,9 +13,9 @@
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
 #include <options.h>
-#include <python_common/python_utils.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <python_utils.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
