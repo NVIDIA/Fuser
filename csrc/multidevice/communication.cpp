@@ -409,7 +409,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     }
 
     assertBufferCount(input_tensors[0], output_device_mesh.size());
-    assertBuffersHaveSameSize(input_tensors[0], {output_tensor});
+    assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(

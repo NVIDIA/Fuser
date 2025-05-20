@@ -598,12 +598,12 @@ TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
   tv0->setDeviceMesh(mesh_zero);
   tv0->outer_split(1, d);
   tv0->axis(1)->parallelize(ParallelType::Serial);
-  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  tv0->reorder({2, 0, 1});
 
   tv1->setDeviceMesh(full_mesh);
   tv1->outer_split(1, d);
   tv1->axis(1)->parallelize(ParallelType::DIDx);
-  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  tv1->reorder({2, 0, 1});
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
