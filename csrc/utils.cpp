@@ -184,8 +184,7 @@ const char* getNvFuserEnv(const char* env_name, const char* default_value) {
 size_t deviceAvailableSharedMemoryBytes() {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
-  const size_t shared_memory_overhead = properties->reservedSharedMemPerBlock;
-  return device_smem_limit - shared_memory_overhead;
+  return device_smem_limit;
 }
 
 } // namespace nvfuser
