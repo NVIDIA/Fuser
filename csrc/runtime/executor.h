@@ -6,7 +6,6 @@
  */
 // clang-format on
 #pragma once
-#include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -46,7 +45,7 @@ class ExprEvalExecutor : public ExecutorAbstract {
   bool isCompiled() const override;
 
   NVF_API KernelArgumentHolder
-  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;
@@ -85,6 +84,8 @@ struct KernelExecutorEntry {
   // requires an array of this form.
   std::vector<void*> arg_ptrs;
 };
+
+class GpuLower;
 
 class KernelExecutor : public ExecutorAbstract {
  public:
@@ -171,6 +172,10 @@ class KernelExecutor : public ExecutorAbstract {
 
   static int64_t getGlobalFusionCount() {
     return CompiledKernel::getGlobalFusionCount();
+  }
+
+  int64_t groupId() const {
+    return group_id_;
   }
 
   void setGroupId(int64_t gid) {

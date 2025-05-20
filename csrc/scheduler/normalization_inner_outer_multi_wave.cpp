@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <options.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>

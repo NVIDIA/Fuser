@@ -62,22 +62,24 @@ class CircularBufferInfo {
 
   Val* getOriginalAllocSize(const TensorView* tv);
 
-  int64_t getComputationWarpGroups() const {
-    return computation_warp_groups_;
-  }
-
-  ParallelType getWarpSpecializedOn() const {
-    return warp_specialized_on_;
+  // Returns true if the warp groups run independently.
+  bool hasIndependentComputeWarpGroups() const {
+    return independent_compute_warp_groups_;
   }
 
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
-  bool isComputationWarpGroupIterDomain(IterDomain* id);
+
+  ParallelType getWarpSpecializedOn() const {
+    return warp_specialized_on_;
+  }
+
   //! Returns true if the fusion has warp specialized circular buffer
   bool hasWarpSpecialized() const {
     return warp_specialized_on_ != ParallelType::Serial;
   };
+
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
@@ -148,17 +150,13 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
-
-  //! Number of computation warp groups
-  int64_t computation_warp_groups_ = -1;
-
-  //! warp specialized on, one fusion allows only one warp specialized dim
+  //! The warp specialized axis for circular buffering.
+  //! Only one warp specialized axis for the fusion.
   ParallelType warp_specialized_on_ = ParallelType::Serial;
-
-  //! Keeps track of which domain is parallelized by computation warp groups in
-  //! computation branch. In loading branch, these domains are merged into one
-  //! loop, so they should share the same index in allocateIndexVariables()
-  std::unordered_set<const IterDomain*> computation_warp_groups_loop_id_;
+  //! If false, then the mbarrier in the ComputeWarp should be for all threads
+  //! in ComputeWarp. Otherwise, it is per warp-group or 128 threads. It is True
+  //! if the warp specialized axis is to the left of the stage_slice_position.
+  bool independent_compute_warp_groups_ = false;
 };
 
 } // namespace nvfuser

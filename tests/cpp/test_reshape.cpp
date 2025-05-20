@@ -31,6 +31,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/registry_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -51,9 +52,15 @@ namespace nvfuser {
 
 using testing::UnorderedElementsAre;
 
-using GpuViewTest = NVFuserTest;
+class ReshapeTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
-TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
+TEST_F(ReshapeTest, ViewDtypeSameSizeOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -78,7 +85,7 @@ TEST_F(GpuViewTest, FusionViewDtypeSameSizeOutput) {
   testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionViewDtypeFailMismatchSize) {
+TEST_F(ReshapeTest, ViewDtypeFailMismatchSize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -96,7 +103,7 @@ TEST_F(GpuViewTest, FusionViewDtypeFailMismatchSize) {
   ASSERT_ANY_THROW(view(x_add_bias, DataType::Half));
 }
 
-TEST_F(GpuViewTest, FusionViewAsRealOutput) {
+TEST_F(ReshapeTest, ViewAsRealOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -140,7 +147,7 @@ TEST_F(GpuViewTest, FusionViewAsRealOutput) {
   testValidate(&fusion, outputs, {at_x, at_bias, at_y}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeRfactorExtentReplacement) {
+TEST_F(ReshapeTest, ReshapeRfactorExtentReplacement) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -166,7 +173,7 @@ TEST_F(GpuViewTest, FusionReshapeRfactorExtentReplacement) {
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeOutput) {
+TEST_F(ReshapeTest, ReshapeOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -192,7 +199,7 @@ TEST_F(GpuViewTest, FusionReshapeOutput) {
   testValidate(&fusion, cg_outputs, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeFailMismatchSize) {
+TEST_F(ReshapeTest, ReshapeFailMismatchSize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -213,7 +220,7 @@ TEST_F(GpuViewTest, FusionReshapeFailMismatchSize) {
   ASSERT_ANY_THROW(reshape(x_add_bias, input_shape, output_shape));
 }
 
-TEST_F(GpuViewTest, FusionReshapeFailMulitDimInference) {
+TEST_F(ReshapeTest, ReshapeFailMulitDimInference) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -386,7 +393,14 @@ std::vector<ReshapeReductionParam> generateReshapeReductionParams() {
   return params;
 }
 
-using ReshapeReduction = NVFuserFixtureParamTest<ReshapeReductionParam>;
+class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(ReshapeReduction, FusionReshapeReduction) {
   const auto& param = GetParam();
   const auto& [input_shape, output_shape] = param.reshape_example;
@@ -449,7 +463,7 @@ void persistentViewAddFusion(
   }
 }
 
-TEST_F(GpuViewTest, FusionReshapePersistentShmoo) {
+TEST_F(ReshapeTest, ReshapePersistentShmoo) {
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
@@ -499,25 +513,25 @@ void addViewGeluFusion(
   }
 }
 
-TEST_F(GpuViewTest, FusionReshapeSplit) {
+TEST_F(ReshapeTest, ReshapeSplit) {
   std::vector<int64_t> input_shape{80};
   std::vector<int64_t> output_shape{2, 4, 10};
   addViewGeluFusion(input_shape, output_shape);
 }
 
-TEST_F(GpuViewTest, FusionReshapeBroadcast) {
+TEST_F(ReshapeTest, ReshapeBroadcast) {
   std::vector<int64_t> input_shape{80};
   std::vector<int64_t> output_shape{1, 80};
   addViewGeluFusion(input_shape, output_shape);
 }
 
-TEST_F(GpuViewTest, FusionReshapeMerge) {
+TEST_F(ReshapeTest, ReshapeMerge) {
   std::vector<int64_t> input_shape{2, 40, 7};
   std::vector<int64_t> output_shape{560};
   addViewGeluFusion(input_shape, output_shape);
 }
 
-TEST_F(GpuViewTest, FusionReshapeAllShmoo) {
+TEST_F(ReshapeTest, ReshapeAllShmoo) {
   for (auto e : all_reshape_examples) {
     // Shmoo tests can occupy a lot of memory due to allocating many
     // different tensor sizes. So in order to avoid an OOM during this
@@ -565,7 +579,7 @@ void geluViewAddFusion(
   }
 }
 
-TEST_F(GpuViewTest, FusionReshapeStride) {
+TEST_F(ReshapeTest, ReshapeStride) {
   for (const auto& e : all_reshape_examples) {
     geluViewAddFusion(e.first, e.second);
   }
@@ -605,12 +619,12 @@ void geluViewBinaryAddFusion(
   }
 }
 
-TEST_F(GpuViewTest, FusionReshapeBinary) {
+TEST_F(ReshapeTest, ReshapeBinary) {
   geluViewBinaryAddFusion({27454, 2}, {54908}, {7844, 7});
 }
 
 // Repro of issue #1493
-TEST_F(GpuViewTest, FusionReshapeConcreteDomain) {
+TEST_F(ReshapeTest, ReshapeConcreteDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -641,7 +655,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeConcreteDomain2) {
+TEST_F(ReshapeTest, ReshapeConcreteDomain2) {
   constexpr int kAxis = -1;
   std::vector<int64_t> input_shape = {19, 12, 7, 99};
   std::vector<int64_t> output_shape = {19, 3, 2772};
@@ -671,7 +685,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain2) {
 }
 
 // Repro of issue #1608
-TEST_F(GpuViewTest, FusionReshapeConcreteDomain3) {
+TEST_F(ReshapeTest, ReshapeConcreteDomain3) {
   std::vector<int64_t> input_shape = {14, 12, 8, 100};
   std::vector<int64_t> bcast_shape = {14, 12, 8, 1};
   std::vector<int64_t> other_shape = {14, 100, 96};
@@ -705,7 +719,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain3) {
   testValidate(&fusion, outputs, {at_x, at_y, at_z}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeConcreteDomain4) {
+TEST_F(ReshapeTest, ReshapeConcreteDomain4) {
   std::vector<int64_t> shape1 = {3, 4, 5};
   std::vector<int64_t> shape2 = {3 * 4 * 5};
 
@@ -747,7 +761,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain4) {
       concrete_id->toString());
 }
 
-TEST_F(GpuViewTest, FusionReshapeConcreteDomain5) {
+TEST_F(ReshapeTest, ReshapeConcreteDomain5) {
   const std::vector<int64_t> shape1 = {12};
   const std::vector<int64_t> shape2 = {4, 3};
   const std::vector<int64_t> shape3 = {12, 5};
@@ -820,7 +834,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain5) {
   }
 }
 
-TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
+TEST_F(ReshapeTest, FlattenAfterUnsqueezeOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -851,7 +865,7 @@ TEST_F(GpuViewTest, FusionFlattenAfterUnsqueezeOutput) {
   testValidate(&fusion, outputs, {at_x, at_bias}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionComputeAtLogicalDomainMapWithView) {
+TEST_F(ReshapeTest, ComputeAtLogicalDomainMapWithView) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -888,7 +902,7 @@ TEST_F(GpuViewTest, FusionComputeAtLogicalDomainMapWithView) {
       tv1->axis(1)->toString());
 }
 
-TEST_F(GpuViewTest, FusionExpandRepro) {
+TEST_F(ReshapeTest, ExpandRepro) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -919,7 +933,7 @@ TEST_F(GpuViewTest, FusionExpandRepro) {
   testValidate(&fusion, outputs, {at_x, at_y}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionExpandView1) {
+TEST_F(ReshapeTest, ExpandView1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -950,7 +964,7 @@ TEST_F(GpuViewTest, FusionExpandView1) {
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionExpandView2) {
+TEST_F(ReshapeTest, ExpandView2) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -978,7 +992,7 @@ TEST_F(GpuViewTest, FusionExpandView2) {
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeTransformCache) {
+TEST_F(ReshapeTest, ReshapeTransformCache) {
   auto assert_matches = [](ReshapeExample example_0, ReshapeExample example_1) {
     NVF_ERROR(
         analyzeViewConstraint(example_0.first, example_0.second) ==
@@ -1125,7 +1139,7 @@ TEST_F(GpuViewTest, FusionReshapeTransformCache) {
       {{19, 3 * 4, 7, 99}, {19, -1, 3}}, {{19, 3 * 5, 7, 99}, {19, -1, 3}});
 }
 
-TEST_F(GpuViewTest, FusionReshapeIdGraph) {
+TEST_F(ReshapeTest, ReshapeIdGraph) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1182,7 +1196,7 @@ TEST_F(GpuViewTest, FusionReshapeIdGraph) {
       tv2->getRootDomain()[3], tv12->getRootDomain()[3]));
 }
 
-TEST_F(GpuViewTest, FusionReshapeVectorize) {
+TEST_F(ReshapeTest, ReshapeVectorize) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1222,7 +1236,7 @@ TEST_F(GpuViewTest, FusionReshapeVectorize) {
   }
 }
 
-TEST_F(GpuViewTest, FusionExpandFlatten) {
+TEST_F(ReshapeTest, ExpandFlatten) {
 #ifdef FBCODE_CAFFE2
   GTEST_SKIP() << "Fails accuracy on V100 32gb";
 #endif
@@ -1250,7 +1264,7 @@ TEST_F(GpuViewTest, FusionExpandFlatten) {
       executor_cache.fusion(), cg_outputs, {input}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionIllegalReductionFlatten) {
+TEST_F(ReshapeTest, IllegalReductionFlatten) {
   EXPECT_THAT(
       []() {
         auto fusion = std::make_unique<Fusion>();
@@ -1267,7 +1281,7 @@ TEST_F(GpuViewTest, FusionIllegalReductionFlatten) {
           testing::HasSubstr("Invalid end_dim")));
 }
 
-TEST_F(GpuViewTest, FusionReductionFlatten1) {
+TEST_F(ReshapeTest, ReductionFlatten1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1287,7 +1301,7 @@ TEST_F(GpuViewTest, FusionReductionFlatten1) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
+TEST_F(ReshapeTest, PwiseViewSchedule) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1349,7 +1363,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionSumViewSchedule) {
+TEST_F(ReshapeTest, SumViewSchedule) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1416,7 +1430,7 @@ TEST_F(GpuViewTest, FusionSumViewSchedule) {
 }
 
 // Make sure matching reshapes are segmented into the same kernel
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule1) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule1) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1472,7 +1486,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule1) {
 }
 
 // Make sure reshapes of reshapes are correct
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule2) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1506,7 +1520,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule2) {
 // Make sure broadcasts not on the reshape path that don't interfere with
 // reshape are segmented in one kernel and correctly trigger 2D pointwise
 // scheduling
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule3) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1568,7 +1582,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule3) {
 
 // Make sure broadcasts through reshapes when not conflicting with reshape are
 // segmented into one kernel and trigger 2D pointwise scheduler.
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule4) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1624,7 +1638,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule4) {
 
 // Make sure different reshapes that are consumed by the reference are segmented
 // into a single kernel.
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule5) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule5) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1662,7 +1676,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule5) {
 }
 
 // Test reshape/transpose and its impact on vectorization
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule6) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule6) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1704,7 +1718,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule6) {
 }
 
 // View with 3D reduction scheduling
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule7) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule7) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1743,7 +1757,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule7) {
 }
 
 // View with 3D normalization scheduling
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule8) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule8) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1785,7 +1799,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule8) {
 }
 
 // AlbertForMaskedLM repro https://github.com/csarofeen/pytorch/issues/2066
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule9) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule9) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1838,7 +1852,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule9) {
 }
 
 // Simpler version of FusionReshapeMagicSchedule9_CUDA
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule10) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule10) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1870,7 +1884,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule10) {
 }
 
 // CamemBert repro
-TEST_F(GpuViewTest, FusionReshapeMagicSchedule11) {
+TEST_F(ReshapeTest, ReshapeMagicSchedule11) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1895,7 +1909,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule11) {
 
 // Make sure different reshapes that are consumed by the reference are segmented
 // into a single kernel.
-TEST_F(GpuViewTest, FusionReshapeMapping) {
+TEST_F(ReshapeTest, ReshapeMapping) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1944,7 +1958,7 @@ TEST_F(GpuViewTest, FusionReshapeMapping) {
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
+TEST_F(ReshapeTest, LowerDivisibleSplits) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -2018,7 +2032,7 @@ TEST_F(GpuViewTest, FusionLowerDivisibleSplits) {
   }
 }
 
-TEST_F(GpuViewTest, FusionIssue2076) {
+TEST_F(ReshapeTest, Issue2076) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -2125,7 +2139,7 @@ TEST_F(GpuViewTest, FusionIssue2076) {
 }
 
 // Simplify first to reproduce compute at issue
-TEST_F(GpuViewTest, FusionIssue2076_v2) {
+TEST_F(ReshapeTest, Issue2076_v2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -2167,7 +2181,7 @@ TEST_F(GpuViewTest, FusionIssue2076_v2) {
   testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeZeroDimInput) {
+TEST_F(ReshapeTest, ReshapeZeroDimInput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2194,7 +2208,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInput) {
   testValidate(&fusion, cg_outputs, {at_x, at_y}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeZeroDimOutput) {
+TEST_F(ReshapeTest, ReshapeZeroDimOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2228,7 +2242,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimOutput) {
   testValidate(&fusion, cg_outputs, {at_x, at_y, at_z}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionReshapeZeroDimInputOutput) {
+TEST_F(ReshapeTest, ReshapeZeroDimInputOutput) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2257,7 +2271,7 @@ TEST_F(GpuViewTest, FusionReshapeZeroDimInputOutput) {
   testValidate(&fusion, cg_outputs, {at_x, at_y}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, ReshapeOfReshape) {
+TEST_F(ReshapeTest, ReshapeOfReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2286,7 +2300,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
 }
 
 // A reproducer for #1116.
-TEST_F(GpuViewTest, ExpandedBroadcast) {
+TEST_F(ReshapeTest, ExpandedBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2312,7 +2326,7 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
   testValidate(&fusion, cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
+TEST_F(ReshapeTest, SplitMergePointwiseSplitMerge) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const std::vector<int64_t> input_shape = {12, 20};
@@ -2348,7 +2362,7 @@ TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {
 }
 
 // segmented into 2 kernels: pointwise and reduction
-TEST_F(GpuViewTest, GroupNormOriginal) {
+TEST_F(ReshapeTest, GroupNormOriginal) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const int64_t N = 2, C = 128, H = 16, W = 16, G = 32;
@@ -2515,7 +2529,7 @@ INSTANTIATE_TEST_SUITE_P(
 // GroupNorm with the last reshape moved to output tensors
 // first 3 reshapes are fused in InnerPersistent
 // last reshape is NoOp
-TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
+TEST_F(ReshapeTest, GroupNormReshapeMovedToOutput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   constexpr int64_t n = 2, c = 128, h = 16, w = 16, g = 32;
@@ -2574,7 +2588,7 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);
 }
 
-TEST_F(GpuViewTest, FusionMismatchingReshape) {
+TEST_F(ReshapeTest, MismatchingReshape) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2699,7 +2713,7 @@ TEST_F(GpuViewTest, FusionMismatchingReshape) {
 // output of a Split and another IterDomain with no definition, so the logical
 // domain was not a simple transformation of the root domain.
 // See https://github.com/NVIDIA/Fuser/issues/2671
-TEST_F(GpuViewTest, ReplacedScalarInSplitOutput) {
+TEST_F(ReshapeTest, ReplacedScalarInSplitOutput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   DataType dtype = DataType::Half;
@@ -2730,7 +2744,7 @@ TEST_F(GpuViewTest, ReplacedScalarInSplitOutput) {
 // This is a more specific version of the above test. Here we are directly
 // replacing one of the Split outputs' extents and testing that we successfully
 // perform the replacement and that the definition is intact.
-TEST_F(GpuViewTest, ReplaceScalarInSplitOutputManually) {
+TEST_F(ReshapeTest, ReplaceScalarInSplitOutputManually) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeSymbolicTensor(1);
@@ -2764,6 +2778,43 @@ TEST_F(GpuViewTest, ReplaceScalarInSplitOutputManually) {
   EXPECT_TRUE(new_id->definition()->isA<Split>());
   EXPECT_FALSE(tv2->axis(0)->definition() == nullptr);
   EXPECT_TRUE(tv2->axis(0)->definition() == new_id->definition());
+}
+
+TEST_F(ReshapeTest, CyclicReshape) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{4, 8};
+  std::vector<int64_t> shape2{32};
+
+  // Create a fusion with a cyclic reshape pattern
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, shape1, shape2);
+  auto tv2 = reshape(tv1, shape2, shape1);
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  EXPECT_TRUE(
+      registry_utils::SchedulerTopologyChecker::hasCyclicReshape(&fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  // Make sure there's no cycle in each segment
+  auto segmented_fusion =
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments();
+  for (const auto group : segmented_fusion->groups()) {
+    auto segment_fusion = segmented_fusion->makeFusion(group).second;
+    EXPECT_FALSE(registry_utils::SchedulerTopologyChecker::hasCyclicReshape(
+        segment_fusion.get()));
+  }
 }
 
 } // namespace nvfuser

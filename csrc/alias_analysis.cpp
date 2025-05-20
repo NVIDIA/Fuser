@@ -45,21 +45,6 @@ class AliasFinder : public OptOutConstDispatch {
   void handle(const ExpandOp*) override;
 
  private:
-  // A helper function used to compute the perferred output layout. It computes
-  // the mapping from `in_logical` to `out_root` and applies that mapping to
-  // `preferred_in_layout`. For many ops, this function returns a good initial
-  // preferred output layout for aliasing because it tries to preserve the input
-  // layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
-  // using expressions will have to modify this initial layout so its allocation
-  // domain will be a function of its logical domain.
-  //
-  // Returns `nullopt` if computation fails, so the caller can handle things
-  // conservatively.
-  static std::optional<Layout> mapInLayoutToOutRoot(
-      const Layout& preferred_in_layout,
-      TensorView* in,
-      TensorView* out);
-
   // Marks `alias` and `source` alias if `layout` is compliant with `alias`'s
   // existing allocation domain. Returns true if succeeded.
   bool aliasIfCompliant(
@@ -143,12 +128,26 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
   return {false, std::nullopt};
 }
 
-/*static*/ std::optional<Layout> AliasFinder::mapInLayoutToOutRoot(
-    const Layout& preferred_in_layout,
+// A helper function used to compute the perferred output layout. It computes
+// the mapping from `in_logical` to `out_root` and applies that mapping to
+// `preferred_in_layout`. For many ops, this function returns a good initial
+// preferred output layout for aliasing because it tries to preserve the input
+// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
+// using expressions will have to modify this initial layout so its allocation
+// domain will be a function of its logical domain.
+//
+// Returns `nullopt` if computation fails, so the caller can handle things
+// conservatively.
+std::optional<Layout> mapInLayoutToOutRoot(
+    const std::optional<Layout>& preferred_in_layout,
     TensorView* in,
     TensorView* out) {
+  if (!preferred_in_layout.has_value()) {
+    return std::nullopt;
+  }
+
   if (!ir_utils::computePermutation(
-           in->getLogicalDomain(), preferred_in_layout.allocation_domain)
+           in->getLogicalDomain(), preferred_in_layout->allocation_domain)
            .has_value()) {
     // Give up when `in`'s allocation domain is not an logical permutation. As
     // an extension, we could map in_alloc to in_logical and apply the inverse
@@ -160,30 +159,125 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
       PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
-  for (const auto i : arange(preferred_in_layout.size())) {
-    IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
+  for (auto&& [in_alloc_id, contiguity] :
+       zip(preferred_in_layout->allocation_domain,
+           preferred_in_layout->contiguity)) {
     IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
       // This can happen when in_alloc_id is of type reduction or squeezed out.
       continue;
     }
     preferred_out_layout.allocation_domain.push_back(out_root_id);
-    preferred_out_layout.contiguity.push_back(
-        preferred_in_layout.contiguity[i]);
+    preferred_out_layout.contiguity.push_back(contiguity);
   }
   return preferred_out_layout;
 }
 
 namespace {
+// Given a TV, returns its layout with repsect to the logical domain. When
+// `allocation` is a split of `logical`, walks backwards from `allocation` to
+// `logical` to find a permutation of `logical` that satisfies the order in
+// `allocation`. The returned contiguity is computed according to
+// splitContiguity and mergeContiguity.
+//
+// Example:
+//   input TV:
+//     logical: [b, s, h]
+//     allocation: [s, d, h/d, b]
+//     contiguity: [t, t, f, t]
+//   output layout:
+//     allocation: [s, h, b]
+//     contiguity: [t, f, t]
+//
+// I chose to canonicalize layouts to logical so I didn't have to change the
+// main bulk of alias analysis which was written for single GPU.
+std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  const std::vector<IterDomain*>& allocation = tv->getMaybeAllocationDomain();
+  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
+  for (auto&& [alloc_id, contiguity] : zip(allocation, tv->getContiguity())) {
+    allocation_to_contiguity.pushBack(alloc_id, contiguity);
+  }
+
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+                             {logical.begin(), logical.end()},
+                             {allocation.begin(), allocation.end()}) |
+           std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(transform);
+    if (split == nullptr) {
+      // We can handle merges using a similar logic if/when we need to.
+      return std::nullopt;
+    }
+
+    // When split->outer() is parallelized and split->inner() is serial, we
+    // remove split->outer() regardless of its position and replace
+    // split->inner() with split->in(). This way, even when split->outer() is
+    // not adjacent to split->inner() (e.g. when it's outermost), we can
+    // still undo the split.
+    //
+    // Several other cases that I haven't implemented for simplicity.
+    //
+    // When split->outer() is serial and split->inner() is parallelized, we
+    // could remove split->inner() and replace split->outer() with
+    // split->in() regardless of split->inner()'s position.
+    //
+    // When split->outer() and split->inner() are both parallelized, we could
+    // replace either of them with split->in() and remove the other.
+    NVF_ERROR(!split->inner()->isParallelized());
+
+    const auto [outer_contiguity, next_i] =
+        allocation_to_contiguity.erase(split->outer());
+    if (!split->outer()->isParallelized()) {
+      // Check adjacency only if split->outer() is not parallelized.
+      if (next_i == allocation_to_contiguity.end() ||
+          next_i->first != split->inner()) {
+        return std::nullopt;
+      }
+    }
+    const auto [inner_contiguity, merge_i] =
+        allocation_to_contiguity.erase(split->inner());
+    const auto [mergeable, contiguity] = mergeContiguity(
+        split->outer()->hasExpandedExtent(),
+        outer_contiguity,
+        split->inner()->hasExpandedExtent(),
+        inner_contiguity);
+    if (!mergeable) {
+      return std::nullopt;
+    }
+    allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+  }
+
+  Layout layout;
+  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
+    layout.allocation_domain.push_back(alloc_id);
+    layout.contiguity.push_back(contiguity);
+  }
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(),
+          logical.end(),
+          layout.allocation_domain.begin(),
+          layout.allocation_domain.end()),
+      "This indicates that logical and allocation are not connected via "
+      "transforms. This is most often caused by forgetting to concretize "
+      "a fusion with dynamic reshapes.");
+  return layout;
+}
+
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
-  const std::vector<IterDomain*> allocation =
-      (empty_allocation_as == EmptyAllocationAs::kUndetermined
-           ? tv->getAllocationDomain()
-           : tv->getMaybeAllocationDomain());
-  return new_layout.isCompliantWith({allocation, tv->getContiguity()});
+  if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
+      !tv->hasAllocation()) {
+    return true;
+  }
+
+  std::optional<Layout> old_layout = canonicalizeLayout(tv);
+  if (!old_layout.has_value()) {
+    return false;
+  }
+  return new_layout.isCompliantWith(*old_layout);
 }
 } // namespace
 
@@ -233,7 +327,7 @@ void AliasFinder::handle(const ViewOp* view) {
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
            {out_root.begin(), out_root.end()},
            {out_logical.begin(), out_logical.end()})) {
-    if (Split* split = dynamic_cast<Split*>(transform)) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split->in());
       auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
@@ -241,7 +335,7 @@ void AliasFinder::handle(const ViewOp* view) {
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
           split_i, split->inner(), inner_contiguity);
-    } else if (Merge* merge = dynamic_cast<Merge*>(transform)) {
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       const auto [outer_contiguity, inner_i] =
           allocation_to_contiguity.erase(merge->outer());
       if (inner_i == allocation_to_contiguity.end() ||
@@ -266,8 +360,8 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   Layout out_logical_layout;
-  for (const auto& [allocation_id, contiguity] : allocation_to_contiguity) {
-    out_logical_layout.allocation_domain.push_back(allocation_id);
+  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
+    out_logical_layout.allocation_domain.push_back(alloc_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
   aliasIfCompliant(out, in, std::move(out_logical_layout));
@@ -473,14 +567,13 @@ void AliasAnalysisResult::finalize() {
   }
 }
 
-Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
-  const auto* tv = dynamic_cast<const TensorView*>(v);
-  NVF_ERROR(tv != nullptr, "`v` is expected to be a TensorView. Found: ", v);
-
+std::optional<Layout> AliasAnalysisResult::preferredLayout(
+    const TensorView* tv) const {
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
   }
-  return {tv->getMaybeAllocationDomain(), tv->getContiguity()};
+
+  return canonicalizeLayout(tv);
 }
 
 std::string AliasAnalysisResult::toString(const int indent_size) const {
@@ -527,8 +620,8 @@ AliasAnalysisResult findAliases(
 }
 
 int64_t Layout::size() const {
-  NVF_ERROR(allocation_domain.size() == contiguity.size());
-  return static_cast<int64_t>(allocation_domain.size());
+  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
+  return std::ssize(allocation_domain);
 }
 
 std::string Layout::toString(const int indent_size) const {
@@ -553,10 +646,6 @@ bool contiguityIsCompliant(
 } // namespace
 
 bool Layout::isCompliantWith(const Layout& required) const {
-  if (required.allocation_domain.empty()) {
-    return true;
-  }
-
   if (allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.

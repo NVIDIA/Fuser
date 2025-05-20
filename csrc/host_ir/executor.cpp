@@ -6,12 +6,20 @@
  */
 // clang-format on
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -73,9 +81,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      HostIrLower lower;
-      std::vector<Expr*> communications =
-          lower.lower(cloner.clone(e), my_device_idx);
+      std::vector<Expr*> communications = convertSingleOpToCommunication(
+          cloner.clone(e), my_device_idx, HostIrLowerParams());
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -88,7 +95,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return (bool)host_ir_container_;
+  return host_ir_container_ != nullptr;
 }
 
 namespace {
@@ -108,7 +115,7 @@ void validateTensors(
 } // namespace
 
 KernelArgumentHolder HostIrExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
@@ -154,7 +161,7 @@ KernelArgumentHolder HostIrExecutor::run(
             communication->out()));
 
     NVF_ERROR(
-        out_idx < (int64_t)host_ir_container_->outputs().size(),
+        out_idx < std::ssize(host_ir_container_->outputs()),
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
@@ -219,6 +226,34 @@ HostIrEvaluator::HostIrEvaluator(
           container_->inputs().end(),
           [this](Val* input) { return !container_->alias().count(input); }),
       "Inputs cannot be aliased");
+}
+
+KernelArgumentHolder HostIrEvaluator::runWithInputs(
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  NVF_ERROR(args.getCacheId().has_value());
+  expr_evaluator_.bind("cacheId", static_cast<int64_t>(*args.getCacheId()));
+
+  NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
+  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
+    bind(in_val, arg);
+  }
+
+  for (Expr* e : container_->topLevelExprs()) {
+    const std::string event_name =
+        std::string("HostIrEvaluator::dispatch ") + e->getOpString();
+    FUSER_PERF_SCOPE(event_name.c_str());
+    dispatch(e);
+  }
+
+  KernelArgumentHolder outs;
+  outs.reserve(container_->outputs().size());
+  for (Val* out_val : container_->outputs()) {
+    outs.push(getKnownTensorOrUndefined(out_val));
+  }
+  return outs;
 }
 
 KernelArgumentHolder HostIrEvaluator::runWithInput(
@@ -327,6 +362,11 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
+  PolymorphicValue cache_id =
+      expr_evaluator_.evaluate(launch_kernel->cacheId());
+  if (!cache_id.is<std::monostate>()) {
+    args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
+  }
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
@@ -339,19 +379,20 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     }
   }
 
-  NVF_ERROR(
-      outputs.size() == launch_kernel->outputs().size(),
+  NVF_ERROR_EQ(
+      outputs.size(),
+      std::ssize(launch_kernel->outputs()),
       "Not all outputs to the kernel were preallocated");
 
   args.setDeviceIndex();
 
   // run the compiled kernel
-  container_->getKernelExecutor(launch_kernel->getIndex())
+  container_->getKernelExecutor(launch_kernel->groupId())
       ->run(
           args,
           outputs,
-          launch_kernel->launch_params(),
-          launch_kernel->compile_params());
+          launch_kernel->launchParams(),
+          launch_kernel->compileParams());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
