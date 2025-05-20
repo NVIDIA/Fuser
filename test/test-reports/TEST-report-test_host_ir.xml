@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="27" failures="0" disabled="0" errors="0" time="13.255" timestamp="2025-05-20T07:55:30.207" name="AllTests">
+  <testsuite name="StreamTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="8.042" timestamp="2025-05-20T07:55:30.207">
+    <testcase name="HostIrGetCurrentStream" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="569" status="run" result="completed" time="8.041" timestamp="2025-05-20T07:55:30.207" classname="StreamTest" />
+  </testsuite>
+  <testsuite name="MatmulHostIrTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.433" timestamp="2025-05-20T07:55:38.249">
+    <testcase name="HostIrMatmulOut" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="866" status="run" result="completed" time="0.433" timestamp="2025-05-20T07:55:38.249" classname="MatmulHostIrTest" />
+  </testsuite>
+  <testsuite name="ViewTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-05-20T07:55:38.683">
+    <testcase name="SimpleReshape" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1054" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.683" classname="ViewTest" />
+  </testsuite>
+  <testsuite name="AllocationTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-05-20T07:55:38.684">
+    <testcase name="HostIr" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1178" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.684" classname="AllocationTest" />
+  </testsuite>
+  <testsuite name="HirAlias" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-05-20T07:55:38.684">
+    <testcase name="SetAndGetReversedOrder" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1265" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.684" classname="HirAlias" />
+  </testsuite>
+  <testsuite name="HirSetTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-05-20T07:55:38.684">
+    <testcase name="HostIr" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1350" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.684" classname="HirSetTest" />
+  </testsuite>
+  <testsuite name="HostIrEvaluatorTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.062" timestamp="2025-05-20T07:55:38.685">
+    <testcase name="LaunchKernel" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_integration.cpp" line="28" status="run" result="completed" time="0.062" timestamp="2025-05-20T07:55:38.685" classname="HostIrEvaluatorTest" />
+  </testsuite>
+  <testsuite name="HostIrIntegrationTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.004" timestamp="2025-05-20T07:55:38.747">
+    <testcase name="ViewPermute_ExprEval" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_integration.cpp" line="131" status="run" result="completed" time="0.004" timestamp="2025-05-20T07:55:38.747" classname="HostIrIntegrationTest" />
+  </testsuite>
+  <testsuite name="HirLowerStreamTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0.04" timestamp="2025-05-20T07:55:38.752">
+    <testcase name="InputsAreNotStreamParallelized" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="32" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.752" classname="HirLowerStreamTest" />
+    <testcase name="SingleSetOp" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="70" status="run" result="completed" time="0.002" timestamp="2025-05-20T07:55:38.752" classname="HirLowerStreamTest" />
+    <testcase name="TwoSetOps" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="167" status="run" result="completed" time="0.001" timestamp="2025-05-20T07:55:38.755" classname="HirLowerStreamTest" />
+    <testcase name="Reduction" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="261" status="run" result="completed" time="0.015" timestamp="2025-05-20T07:55:38.756" classname="HirLowerStreamTest" />
+    <testcase name="Matmul_N" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="369" status="run" result="completed" time="0.02" timestamp="2025-05-20T07:55:38.772" classname="HirLowerStreamTest" />
+  </testsuite>
+  <testsuite name="MultiDeviceExecutorLowerStreamTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="0.017" timestamp="2025-05-20T07:55:38.792">
+    <testcase name="InputsAreNotStreamParallelized" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="476" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:38.792" classname="MultiDeviceExecutorLowerStreamTest" />
+    <testcase name="SingleSetOp" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="515" status="run" result="completed" time="0.002" timestamp="2025-05-20T07:55:38.792" classname="MultiDeviceExecutorLowerStreamTest" />
+    <testcase name="TwoSetOps" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="602" status="run" result="completed" time="0.002" timestamp="2025-05-20T07:55:38.795" classname="MultiDeviceExecutorLowerStreamTest" />
+    <testcase name="Reduction" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="682" status="run" result="completed" time="0.003" timestamp="2025-05-20T07:55:38.797" classname="MultiDeviceExecutorLowerStreamTest" />
+    <testcase name="Matmul_N" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_stream_lowering.cpp" line="777" status="run" result="completed" time="0.008" timestamp="2025-05-20T07:55:38.801" classname="MultiDeviceExecutorLowerStreamTest" />
+  </testsuite>
+  <testsuite name="HostIrTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="4.575" timestamp="2025-05-20T07:55:38.809">
+    <testcase name="SingleFusion/useFusionExecutor" value_param="(false)" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="88" status="run" result="completed" time="4.272" timestamp="2025-05-20T07:55:38.809" classname="HostIrTest" />
+    <testcase name="TwoFusions/useFusionExecutorCache" value_param="(true)" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="159" status="run" result="completed" time="0.171" timestamp="2025-05-20T07:55:43.081" classname="HostIrTest" />
+    <testcase name="ForLoops/useFusionExecutor" value_param="(false)" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="378" status="run" result="completed" time="0.058" timestamp="2025-05-20T07:55:43.253" classname="HostIrTest" />
+    <testcase name="PreAllocatedOutputs/useFusionExecutorCache" value_param="(true)" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="459" status="run" result="completed" time="0.072" timestamp="2025-05-20T07:55:43.312" classname="HostIrTest" />
+  </testsuite>
+  <testsuite name="StreamHostIrTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.054" timestamp="2025-05-20T07:55:43.384">
+    <testcase name="SingleFusionMultipleStreams/useFusionExecutorCache_NStreams4_NIterations1" value_param="(true, 4, 1)" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="648" status="run" result="completed" time="0.054" timestamp="2025-05-20T07:55:43.384" classname="StreamHostIrTest" />
+  </testsuite>
+  <testsuite name="SliceHostIrTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0." timestamp="2025-05-20T07:55:43.439">
+    <testcase name="SlicingTensor/SliceOpInTopLevelExpr" value_param="true" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="756" status="run" result="completed" time="0." timestamp="2025-05-20T07:55:43.439" classname="SliceHostIrTest" />
+  </testsuite>
+  <testsuite name="HirBinaryOpTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.022" timestamp="2025-05-20T07:55:43.440">
+    <testcase name="PreAllocatedOutputs/BinaryOpType_add" value_param="add" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1395" status="run" result="completed" time="0.001" timestamp="2025-05-20T07:55:43.440" classname="HirBinaryOpTest" />
+    <testcase name="PreAllocatedOutputs/BinaryOpType_div" value_param="div" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1395" status="run" result="completed" time="0.013" timestamp="2025-05-20T07:55:43.441" classname="HirBinaryOpTest" />
+    <testcase name="NonPreAllocatedOutputs/BinaryOpType_mul" value_param="mul" file="/opt/pytorch/nvfuser/tests/cpp/test_host_irs.cpp" line="1426" status="run" result="completed" time="0.007" timestamp="2025-05-20T07:55:43.455" classname="HirBinaryOpTest" />
+  </testsuite>
+</testsuites>
