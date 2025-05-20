@@ -93,7 +93,8 @@ def test_cross_entropy_mini_benchmark_fwd(benchmark, executor: str, vocab_size: 
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    batch_size = 8192 // 2
+    # picking a value that doesn't OOM for large vocab sizes
+    batch_size = 4096
 
     def fwd_call(inp):
         return SyntheticMiniModel.mini_model(*inp)
