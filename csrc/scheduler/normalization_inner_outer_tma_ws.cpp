@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -161,7 +162,7 @@ void getHeuristics(
   // TODO: This is a heuristic, need to be tuned.
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
   // n_stages is also limited by smem
-  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerBlockOptin /
       (smem_overhead + smem_buffer_size);
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
@@ -225,6 +226,10 @@ void getHeuristics(
             << "\n"
             << "bdimx: " << iop.bdimx << "\n"
             << "gdimy: " << iop.gdimy << "\n";
+    debug() << "smem_persistent_buffers: " << "\n";
+    for (auto buffer : rparams->smem_persistent_buffers) {
+      debug() << buffer->toString() << "\n";
+    }
     debug() << rparams->toString() << std::endl;
   }
 }
@@ -619,6 +624,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
         return true;
       };
+
       // Heuristic ensures the iteration dim is divisible by the unroll factor.
       // Here, we only need to further confirm all the iteration domains are
       // contiguous.
@@ -647,6 +653,18 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           } else {
             cached_tv->axis(2)->parallelize(ParallelType::Unroll);
           }
+        }
+        // Unroll the consumers to prevent inlineMost from inlining them
+        // to the right of the vectorized axis, which can cause expression
+        // sort errors.
+        // TODO: Revise inlineMost to handle this automatically.
+        // TODO: Ideally, we only need to unroll the consumers that are
+        // used in the for-loop before and after the iteration grouped
+        // reduction, we will leave this for heuristic tuning since unroll all
+        // consumers may lead to better performance if register usage is not a
+        // concern.
+        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
+          consumer->axis(2)->parallelize(ParallelType::Unroll);
         }
       }
     }

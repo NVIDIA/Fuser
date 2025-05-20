@@ -24,9 +24,10 @@ namespace hir {
 // structure.
 class HostIrContainer final : public Fusion {
  public:
-  // num_kernel_executors is only needed when the container has LaunchKernel
-  // instructions.
-  explicit HostIrContainer(int64_t num_kernel_executors = 0);
+  // num_groups is only needed when the container has LaunchKernel
+  // instructions. It's used to initialize `kernel_executors_` for parallel
+  // compilation.
+  explicit HostIrContainer(int64_t num_groups = 0);
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
@@ -48,13 +49,13 @@ class HostIrContainer final : public Fusion {
 
   void insertExprAfter(int64_t index, Expr* expr);
 
-  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
+  void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
 
-  bool hasKernelExecutor(int64_t index) const {
-    return kernel_executors_.at(index) != nullptr;
+  bool hasKernelExecutor(int64_t group_id) const {
+    return kernel_executors_.at(group_id) != nullptr;
   }
 
-  KernelExecutor* getKernelExecutor(int64_t index) const;
+  KernelExecutor* getKernelExecutor(int64_t group_id) const;
 
   Stream* getDefaultStream();
 
@@ -71,6 +72,8 @@ class HostIrContainer final : public Fusion {
 
  private:
   std::vector<Expr*> top_level_exprs_;
+  // Indexed by group ID. This way, parallel compilation can write to disjoint
+  // locations without having to precompute a global index.
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
   std::unordered_map<const Val*, Val*> alias_;

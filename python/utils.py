@@ -306,8 +306,8 @@ class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
             self.copy_library(ext, "libnvfuser")
-        elif ext.name == "nvfuser_next._C_NEXT":
-            self.copy_library(ext, "libnvfuser_next")
+        elif ext.name == "nvfuser_direct._C_DIRECT":
+            self.copy_library(ext, "libnvfuser_direct")
         else:
             super().build_extension(ext)
 
@@ -570,7 +570,7 @@ def run(config, version_tag, relative_path):
             packages=find_packages(),
             ext_modules=[
                 Extension(name="nvfuser._C", sources=[]),
-                Extension(name="nvfuser_next._C_NEXT", sources=[]),
+                Extension(name="nvfuser_direct._C_DIRECT", sources=[]),
             ],
             license_files=("LICENSE",),
             cmdclass={

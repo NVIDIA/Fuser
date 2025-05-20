@@ -1596,4 +1596,93 @@ int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
   return vec_size_in_bytes / tmem_unit_size_bytes;
 }
 
+TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
+    : tv_(tv), prev_domain_(tv_->domain()) {
+  tv_->setDomain(td);
+}
+
+TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
+    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
+  std::swap(tv_, guard.tv_);
+}
+
+TVDomainGuard::~TVDomainGuard() {
+  if (tv_ != nullptr) {
+    tv_->setDomain(prev_domain_);
+  }
+}
+
+ir_utils::TVDomainGuard overrideContiguityGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getAllocationDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getMaybeAllocationDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getLogicalDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
+  NVF_ERROR(
+      reshape_out_tv->definition() != nullptr &&
+          reshape_out_tv->definition()->isA<ViewOp>(),
+      "Not a reshape output: ",
+      reshape_out_tv->toString());
+
+  auto all_reshape_exprs = DependencyCheck::getAllExprsBetween(
+      {reshape_out_tv->getRootDomain().begin(),
+       reshape_out_tv->getRootDomain().end()},
+      {reshape_out_tv->getLogicalDomain().begin(),
+       reshape_out_tv->getLogicalDomain().end()});
+
+  std::vector<IterDomain*> reshaped_root_ids;
+  std::vector<IterDomain*> reshaped_logical_ids;
+  for (auto expr : all_reshape_exprs) {
+    std::ranges::copy(
+        expr->inputs() | std::views::filter([&](Val* inp) {
+          return inp->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getRootDomain(), inp->as<IterDomain>()) !=
+              reshape_out_tv->getRootDomain().end();
+        }) | std::views::transform([](Val* inp) {
+          return inp->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_root_ids));
+    std::ranges::copy(
+        expr->outputs() | std::views::filter([&](Val* out) {
+          return out->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getLogicalDomain(), out->as<IterDomain>()) !=
+              reshape_out_tv->getLogicalDomain().end();
+        }) | std::views::transform([](Val* out) {
+          return out->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_logical_ids));
+  }
+
+  return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
+}
+
 } // namespace nvfuser::ir_utils
