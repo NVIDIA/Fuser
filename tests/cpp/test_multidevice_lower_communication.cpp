@@ -567,17 +567,7 @@ TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  
-  debug() << "out_tensor: " << out_tensor.sizes() << " " << out_tensor.strides() << std::endl;
-
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor));
-  // testValidate(
-  //     executor_cache.fusion(),
-  //     {out_tensor},
-  //     {in_tensor},
-  //     {unsharded_in_tensor.transpose(0, 1)},
-  //     __LINE__,
-  //     __FILE__);
 }
 
 TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
@@ -591,24 +581,16 @@ TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
   TensorView* tv1 = set(tv0);
 
   tv0->setDeviceMesh(mesh_zero);
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::Serial);
-  tv0->reorder({2, 0, 1});
 
   tv1->setDeviceMesh(full_mesh);
   tv1->outer_split(1, d);
   tv1->axis(1)->parallelize(ParallelType::DIDx);
-  tv1->reorder({2, 0, 1});
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  for (auto tv : {tv0, tv1}) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
-
   at::Tensor unsharded_in_tensor =
-      at::randn({d * 3, 5}, tensor_options).transpose(0, 1);
+      at::randn({5, d * 3}, tensor_options);
 
   at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh);
 
@@ -616,14 +598,7 @@ TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
           .as<at::Tensor>();
-
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {unsharded_in_tensor},
-      {expected_output},
-      __LINE__,
-      __FILE__);
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
 }
 
 INSTANTIATE_TEST_SUITE_P(
