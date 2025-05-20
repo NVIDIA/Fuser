@@ -35,12 +35,11 @@ def load_matmul_problems():
             return ((m + n) * k + m * n) * 2
 
         def three_way_cmp(a, b) -> int:
-            """Perform a three-way comparison like the Python2 cmp() function"""
-            if a < b:
-                return -1
-            elif a > b:
-                return 1
-            return 0
+            """Perform a three-way comparison like the Python2 cmp() function
+
+            This returns 0 if a == b, -1 if a < b, and 1 if a > b
+            """
+            return int(a > b) - int(a < b)
 
         def mem_cmp(row1, row2):
             """Compare two rows based on memory use"""
