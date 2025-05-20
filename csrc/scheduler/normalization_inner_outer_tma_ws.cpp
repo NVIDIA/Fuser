@@ -162,7 +162,7 @@ void getHeuristics(
   // TODO: This is a heuristic, need to be tuned.
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
   // n_stages is also limited by smem
-  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerBlockOptin /
       (smem_overhead + smem_buffer_size);
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);

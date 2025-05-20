@@ -3837,7 +3837,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
   auto merge_candidates = group->getMergeCandidates();
   if (std::ranges::find_if(
           merge_candidates, [&](const SegmentedGroup::NeighborGroup& neighbor) {
-            return neighbor.group != producer_group;
+            return neighbor.group == producer_group;
           }) == merge_candidates.end()) {
     return std::nullopt;
   }
@@ -3884,7 +3884,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       if (std::ranges::find_if(
               merge_candidates,
               [&](const SegmentedGroup::NeighborGroup& neighbor) {
-                return neighbor.group != consumer_group;
+                return neighbor.group == consumer_group;
               }) == merge_candidates.end()) {
         continue;
       }

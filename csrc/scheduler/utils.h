@@ -749,15 +749,14 @@ int64_t getPersistentBufferSizeOfTensor(
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
 
-//! The required shared memory size for a block inclues two parts: (1) smem
-//! for persistent buffers and (2) overhead. The overhead includes space
-//! reserved by the CUDA driver and reduction workspace which depends on the
+//! The required shared memory size for a block includes two parts: (1) smem
+//! for persistent buffers and (2) reduction workspace which depends on the
 //! number of threads per block specified by the parameter threads_per_block.
 //! By default, the function uses the maximum allowed number of threads per
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspace(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
