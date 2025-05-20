@@ -54,17 +54,24 @@ void lowerToScatter(
     TensorView* output_tv,
     const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
-  // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
       receiver_mesh.rank() == 1,
       "Gather only supported on a 1D mesh. Given ",
       receiver_mesh);
-  auto root = input_tv->getDeviceMesh().at(0);
+
+  // Find a common device between input and receiver meshes to be the root
+  auto it = std::ranges::find_if(
+      input_tv->getDeviceMesh().vector(),
+      [&receiver_mesh](DeviceIdxType device) {
+        return receiver_mesh.has(device);
+      });
+  NVF_ERROR(
+      it != input_tv->getDeviceMesh().vector().end(),
+      "No common device found between input and receiver meshes");
+  DeviceIdxType root = *it;
+
   Team team = receiver_mesh.vector();
-  if (!receiver_mesh.has(root)) {
-    team.push_back(root);
-  }
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Scatter,
       output_tv,

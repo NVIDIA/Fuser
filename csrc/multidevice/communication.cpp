@@ -365,33 +365,44 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  NVF_ERROR(
+      output_device_mesh.has(communication->root()),
+      "communication->root() ",
+      communication->root(),
+      " is not in the output device mesh ",
+      output_device_mesh,
+      ".");
+
+  std::vector<std::vector<at::Tensor>> input_tensors;
+
+  output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex();
-  std::vector<std::vector<at::Tensor>> input_tensors;
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(
+        input_tensor.as_strided({input_tensor.numel()}, {1}),
+        output_device_mesh.size(),
+        /*dim=*/0);
+
     input_tensors.resize(1);
-    int64_t j = 0;
-    for (auto i : arange(communication->team().size())) {
-      if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
-        input_tensors.front().push_back(output_tensor);
-        continue;
-      }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
-      j++;
+    for (const auto& split : splits) {
+      input_tensors.front().push_back(split);
     }
 
-    assertBufferCount(input_tensors[0], communication->team().size());
+    assertBufferCount(input_tensors[0], output_device_mesh.size());
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(
-      output_tensors, input_tensors, {.rootRank = root_relative_index});
+      output_tensors,
+      input_tensors,
+      {.rootRank = communication->getRootRelativeIndex()});
 }
 
 c10::intrusive_ptr<c10d::Work> postReduce(
