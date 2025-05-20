@@ -226,9 +226,10 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
   return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
-bool CircularBufferInfo::isComputationWarpGroupIterDomain(IterDomain* id) {
+bool CircularBufferInfo::isIndependentComputeWarpGroupsIterDomain(
+    IterDomain* id) {
   auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
-  return computation_warp_groups_loop_id_.count(concrete_loop_id);
+  return independent_warp_group_ids_.count(concrete_loop_id);
 }
 
 CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
@@ -250,57 +251,6 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 }
 
 namespace {
-
-// If compute warp groups are independent, then the mbarrier waits for 128
-// threads. Otherwise, it waits for all threads in ComputeWarp.
-bool hasIndependentWarpGroups(const TensorView* tv) {
-  if (!std::holds_alternative<WarpSpecialized>(
-          tv->circularBufferOptions().type)) {
-    return false;
-  }
-
-  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
-  const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
-
-  const auto& warp_specialized =
-      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
-  if (!warp_specialized.stage_slice_position.has_value()) {
-    return false;
-  }
-
-  // Step 1: Get warp specialized iterDomain in consumer
-  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
-
-  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
-  ParallelType ws_pt = warp_specialized.on;
-  auto ws_id_iter = std::find_if(
-      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
-        return id->getParallelType() == ws_pt;
-      });
-  NVF_ERROR(ws_id_iter != consumer_loop.end());
-
-  // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
-  // Step 2: Get ValGroup for warp specialized iterDomain
-  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
-
-  // Step 3: Find corresponding producer iterDomain to warp specialized
-  // iterDomain
-  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
-  auto ws_id_producer_iter = std::find_if(
-      producer_loop.begin(), producer_loop.end(), [val_group](IterDomain* id) {
-        return val_group->has(id);
-      });
-  NVF_ERROR(ws_id_producer_iter != producer_loop.end());
-
-  // Step 4: Map iterDomain to position in producer's loop domain
-  int64_t ws_id_producer_pos =
-      std::distance(producer_loop.begin(), ws_id_producer_iter);
-
-  // Step 5: Use independent warp groups if warp specialized axis is to the
-  // left of the stage_slice_position
-  return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
-}
 
 void validateStageSlicePosition(const TensorView* tv) {
   if (!std::holds_alternative<WarpSpecialized>(
@@ -347,9 +297,66 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
 
-  independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
+  setIndependentWarpGroupIds(tv);
 
   setCircularBufferInsertionPosition(tv, cb_axis);
+}
+
+// For warp specialized circular buffered tensors, check whether its consumer
+// is parallelized by the same warp specialized parallel type. If so, the
+// corresponding producer iterDomain is added to the
+// independent_warp_group_ids_. These warp groups are independent of each other,
+// e.g. synchronized separately.
+void CircularBufferInfo::setIndependentWarpGroupIds(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return;
+  }
+
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return;
+  }
+
+  // Step 1: Get warp specialized iterDomain in consumer
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+
+  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
+  ParallelType ws_pt = warp_specialized.on;
+  auto ws_id_iter = std::find_if(
+      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
+        return id->getParallelType() == ws_pt;
+      });
+  NVF_ERROR(ws_id_iter != consumer_loop.end());
+
+  // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
+  // Step 2: Get ValGroup for warp specialized iterDomain
+  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
+
+  // Step 3: Find corresponding producer iterDomain to warp specialized
+  // iterDomain
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  auto ws_id_producer_iter = std::find_if(
+      producer_loop.begin(), producer_loop.end(), [val_group](IterDomain* id) {
+        return val_group->has(id);
+      });
+  NVF_ERROR(ws_id_producer_iter != producer_loop.end());
+
+  // Step 4: Map iterDomain to position in producer's loop domain
+  int64_t ws_id_producer_pos =
+      std::distance(producer_loop.begin(), ws_id_producer_iter);
+
+  // Step 5: Use independent warp groups if warp specialized axis is to the
+  // left of the stage_slice_position
+  if (ws_id_producer_pos < warp_specialized.stage_slice_position.value()) {
+    independent_warp_group_ids_.insert(*ws_id_producer_iter);
+    independent_compute_warp_groups_ = true;
+  }
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -386,45 +393,6 @@ void CircularBufferInfo::setCircularBufferOptions(
         " by ",
         concrete_loop_id->toString());
   }
-}
-
-// Derive number of computation warp groups from loop domain of its consumer
-// For example, in normalization kernel:
-// circular buffer: Ts[BIDy, Circular(S), compute groups(S),...], ca 2
-// its consumer is: Tl[BIDy, Circular(S), compute groups(TIDy),...], ca 3
-// Look for the corresponding loop domain in its consumer and make sure it
-// is parallelized same as warp specialized dim. Then, its content represents
-// number of computation warp groups.
-
-// TODO: Another approach is we can just save `computation_warp_groups_`
-// in  `circularBufferOptions` since it is a scheduler parameter.
-void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
-  auto option = tv->circularBufferOptions();
-  auto old_val = computation_warp_groups_;
-  // -1 indicates not set yet, if set, should not change
-  int64_t new_val = (old_val == -1) ? 1 : old_val;
-  if (std::holds_alternative<WarpSpecialized>(option.type)) {
-    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
-    int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
-    auto consumer = ir_utils::consumerTvsOf(tv).at(0);
-    if (consumer->nDims() > next_pos &&
-        consumer->axis(next_pos)->getParallelType() == ws_pt &&
-        consumer->axis(next_pos)->extent()->isConst() &&
-        tv->axis(next_pos)->extent()->isConst() &&
-        tv->axis(next_pos)->getParallelType() == ParallelType::Serial &&
-        consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
-            tv->axis(next_pos)->extent()->value().as<int64_t>()) {
-      new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
-      computation_warp_groups_loop_id_.insert(tv->axis(next_pos));
-    }
-  }
-  NVF_ERROR(
-      old_val == -1 || old_val == new_val,
-      "Different number of computation warp group is not supported: ",
-      old_val,
-      " and ",
-      new_val);
-  computation_warp_groups_ = new_val;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(
@@ -524,12 +492,6 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   // nested for-loops relative to the outer_most position.
   int64_t insertion_position = inner_most_circular_buffer_position -
       outer_most_circular_buffer_position + 1;
-
-  // If multiple computation warp groups are used, move insertion position
-  // to the next for-loop to sync the load for different warp groups separately.
-  if (computation_warp_groups_ > 1) {
-    insertion_position += 1;
-  }
 
   circular_buffer_insertion_position_[circular_buffer_axis] =
       insertion_position;

@@ -938,7 +938,8 @@ void ComputeAtMap::allocateIndexVariables() {
       }
     } else if (GpuLower::current()
                    ->circularBufferInfo()
-                   .isComputationWarpGroupIterDomain(concrete_loop_id)) {
+                   .isIndependentComputeWarpGroupsIterDomain(
+                       concrete_loop_id)) {
       if (!computation_warp_group_index) {
         computation_warp_group_index = IrBuilder::create<Val>(DataType::Index);
       }
