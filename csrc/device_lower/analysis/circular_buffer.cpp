@@ -258,6 +258,8 @@ void checkWarpSpecializedAxis(const TensorView* tv) {
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  // Broadcast axis are not materialized in a TensorView, so it can be thread
+  // parallelized.
   auto ws_id_producer_iter = std::find_if(
       producer_loop.begin(),
       producer_loop.end(),
@@ -282,7 +284,7 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::PERMISSIVE);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -328,11 +330,11 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::PERMISSIVE);
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
   const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
-  for (int64_t idx : arange(slice_position + 1)) {
+  for (int64_t idx : arange(slice_position)) {
     IterDomain* producer_id = producer_loop.at(idx);
     NVF_ERROR(
         idx < consumer->nDims(),
