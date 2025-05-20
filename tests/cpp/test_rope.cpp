@@ -1618,27 +1618,32 @@ TEST_P(LitgptRopeTest, Bwd) {
 
   // Make sure the cat is grouped together with the pad ops of its inputs
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  auto cat_group_it = std::ranges::find_if(
-      runtime->fusionSegments()->groups(), [&](const auto& group) {
-        return std::ranges::any_of(group->exprs(), [&](Expr* expr) {
-          return expr->isA<CatOp>() && expr->output(0)->name() == T245->name();
-        });
-      });
-  EXPECT_NE(cat_group_it, runtime->fusionSegments()->groups().end())
-      << "Could not find a segment for the cat op";
+  CatOp* cat = nullptr;
+  SegmentedGroup* cat_group = nullptr;
+  for (const auto& group : runtime->fusionSegments()->groups()) {
+    auto it = std::ranges::find_if(group->exprs(), [&](Expr* expr) {
+      return expr->isA<CatOp>() && expr->output(0)->name() == T245->name();
+    });
+    if (it == group->exprs().end()) {
+      continue;
+    }
+    cat = (*it)->as<CatOp>();
+    cat_group = group;
+    break;
+  }
+  EXPECT_NE(cat, nullptr)
+      << "Could not find the cat expr in the scheduled segmented fusion";
 
-  // Check if the inputs of `cat({T244, T237, T230}, 2)` are also in
-  // the same segment
-  for (const auto pad_input : {T244, T237, T230}) {
+  // Check if the inputs of `cat({T244, T237, T230}, 2)` are also
+  // produced in the same segment
+  for (const auto cat_input : cat->inputs()) {
+    auto pad = dynamic_cast<PadOp*>(cat_input->definition());
+    EXPECT_NE(pad, nullptr)
+        << "Unexpected cat input: " << cat_input->toString();
     EXPECT_NE(
-        std::ranges::find_if(
-            (*cat_group_it)->exprs(),
-            [&](Expr* expr) {
-              return expr->isA<PadOp>() &&
-                  expr->input(0)->name() == pad_input->name();
-            }),
-        (*cat_group_it)->exprs().end())
-        << "Could not find pad input: " << pad_input->toString();
+        std::ranges::find(cat_group->exprs(), pad), cat_group->exprs().end())
+        << "Could not find the input pad in the same segment: "
+        << pad->toString();
   }
 }
 
