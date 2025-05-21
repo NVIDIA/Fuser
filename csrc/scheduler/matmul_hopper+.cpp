@@ -567,9 +567,13 @@ void HopperPlus::scheduleMmaResults() {
 
     transformLikeMmaOutputWithK(mma_result);
 
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+    mma_result->setMemoryType(MemoryType::Tensor);
+    mma_result->setAllocationDomain(mma_result->getLoopDomain(), true);
+    mma_result->setTMemDimSepPos(-3);
+
+    // auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+    //     mma_result->getLoopDomain());
+    // mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
     mma_result->axis(-1)->parallelize(ParallelType::Mma);
     mma_result->axis(-2)->parallelize(ParallelType::Mma);
     mma_result->axis(-3)->parallelize(ParallelType::Mma);
@@ -594,9 +598,15 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
     parallelizeBlocks({d});
     transformLikeMmaOutputWithoutK(d);
 
-    const AbstractTensor s =
-        mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(d->getLoopDomain());
-    d->setLoopDomain(s.as<IterDomain*>());
+    d->axis(-2)->parallelize(ParallelType::TIDx);
+    int64_t tmem_vectorize_factor = 1;
+    const int64_t n_mma = getN(params_->mma_macro);
+    while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
+      tmem_vectorize_factor *= 2;
+    }
+    if (tmem_vectorize_factor < n_mma) {
+      d->split(-1, tmem_vectorize_factor);
+    }
 
     // TODO: We need to check bank conflicts in this path.
     // Propagate schedule changes back to the outputs of the Mma op.
@@ -607,10 +617,23 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType());
 
+    // Vectorize the TMem load
+    for (auto mma_result : mma_results_) {
+      NVF_ERROR(mma_result->uses().size() == 1);
+      TensorView* tmem_ld_tv = mma_result->uses().front()->as<TensorView>();
+      tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
     // We do not respect the vectorization_factor parameter, but always
     // vectorize the inner-dim with extent 2.
     NVF_ERROR(params_->supported_vec_size.epilogue >= 2);
     // TODO: Support vectorization_factor in MatmulParams
+    if (tmem_vectorize_factor > params_->supported_vec_size.epilogue) {
+      d->split(-1, params_->supported_vec_size.epilogue);
+      for (auto c : cached_tvs) {
+        c->split(-1, params_->supported_vec_size.epilogue);
+      }
+    }
     d->axis(-1)->parallelize(ParallelType::Vectorize);
     if (!cached_tvs.empty()) {
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
