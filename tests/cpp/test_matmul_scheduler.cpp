@@ -3332,6 +3332,9 @@ class HopperPlusMatmulSchedulerTest
       if (splitk_factor > 1) {
         GTEST_SKIP() << "SplitK is not supported for Blackwell yet.";
       }
+      if (use_smem_epilogue) {
+        GTEST_SKIP() << "TMA store is not supported for Blackwell yet.";
+      }
     }
 
     if (a_k_inner) {
