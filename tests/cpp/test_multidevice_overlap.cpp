@@ -937,8 +937,20 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 
 class RingAllgatherOverlapTest : public MultiDeviceTest {
  private:
-  long avg_time_per_iter_;
-  long cur_time_;
+  float kernel_time_ms_ = 0;
+  float avg_time_per_iter_ = 0;
+  cudaEvent_t start_event_ = {};
+  cudaEvent_t finish_event_ = {};
+
+public:
+  RingAllgatherOverlapTest() {
+    C10_CUDA_CHECK(cudaEventCreate(&start_event_));
+    C10_CUDA_CHECK(cudaEventCreate(&finish_event_));
+  }
+  ~RingAllgatherOverlapTest() {
+    C10_CUDA_IGNORE_ERROR(cudaEventDestroy(start_event_));
+    C10_CUDA_IGNORE_ERROR(cudaEventDestroy(finish_event_));
+  }
 
  protected:
   OverlapTestParams params;
@@ -1051,24 +1063,19 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   }
 
   void startCounter() {
-    struct timeval time;
-    if (gettimeofday(&time, 0))
-      return;
-    cur_time_ = 1000000 * time.tv_sec + time.tv_usec;
+    auto stream = at::cuda::getCurrentCUDAStream();
+    C10_CUDA_CHECK(cudaEventRecord(start_event_, stream));
   }
 
   void addCounter() {
-    struct timeval time;
-    if (gettimeofday(&time, 0))
-      return;
+    auto stream = at::cuda::getCurrentCUDAStream();
+    C10_CUDA_CHECK(cudaEventRecord(finish_event_, stream));
+    C10_CUDA_CHECK(cudaEventSynchronize(start_event_));
+    C10_CUDA_CHECK(cudaEventSynchronize(finish_event_));
+    C10_CUDA_CHECK(
+        cudaEventElapsedTime(&kernel_time_ms_, start_event_, finish_event_));
 
-    long cur_time = 1000000 * time.tv_sec + time.tv_usec;
-    double sec = (cur_time - cur_time_) / 1000000.0;
-    if (sec < 0)
-      sec += 86400;
-    cur_time_ = cur_time;
-
-    avg_time_per_iter_ += 1000. * sec;
+    avg_time_per_iter_ += kernel_time_ms_;
   }
 
   void printAvgTime(int64_t iters) {
