@@ -76,9 +76,9 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     auto* a = linear->inA()->as<TensorView>();
     auto* b = linear->inB()->as<TensorView>();
     auto* bias =
-        (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
+        (linear->hasBias() ? linear->bias()->as<TensorView>() : nullptr);
     auto* out = linear->out()->as<TensorView>();
-    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
+    return !isSharded(b) && !(linear->hasBias() && isSharded(bias)) &&
         !isSharded(out) &&
         a->axis(0)->getParallelType() == ParallelType::Serial &&
         getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
