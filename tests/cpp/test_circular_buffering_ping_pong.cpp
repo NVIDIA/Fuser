@@ -30,8 +30,8 @@ using PingPongCircularBuffering =
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   int64_t rows_per_stage = 4;
   int64_t compute_warp_groups = 2;
@@ -44,12 +44,12 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   int stages = 6;
 
   TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   TensorView* tv1 = set(tv0);
   TensorView* tv2 = set(tv1);
   TensorView* tv3 = add(tv2, tv2);
-  fusion.addOutput(tv3);
+  fusion->addOutput(tv3);
 
   tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
   tv1->setMemoryType(MemoryType::Shared);
@@ -93,7 +93,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   KernelExecutor ke;
 
   try {
-    ke.compile(&fusion, {t0});
+    ke.compile(fusion.get(), {t0});
   } catch (const std::exception& e) {
     if (stage_slice_position == -1) {
       const char* error_msg = R"(Slice position must be non-negative integer)";
@@ -122,8 +122,9 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
     throw;
   }
 
+  auto out_ref = t0 + t0;
   auto cg_outputs = ke.run({t0});
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
