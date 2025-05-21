@@ -569,7 +569,7 @@ void HopperPlus::scheduleMmaResults() {
 
     mma_result->setMemoryType(MemoryType::Tensor);
     std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    // [Mi, (DimSep), ...others]
+    // [Mi, (DimSep), ...other]
     auto item = allocation_domain[allocation_domain.size() - 3];
     allocation_domain.erase(allocation_domain.begin() + allocation_domain.size() - 3);
     allocation_domain.insert(allocation_domain.begin(), item);
@@ -589,6 +589,10 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  std::vector<TensorView*> tmem_ld_tvs;
+  for (auto mma_result : mma_results_) {
+    tmem_ld_tvs.push_back(cacheAfter(mma_result));
+  }
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     cached_tvs.push_back(c_cache);
     propagate_to.push_back(c);
@@ -623,9 +627,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
             .propagateParallelType());
 
     // Vectorize the TMem load
-    for (auto mma_result : mma_results_) {
-      NVF_ERROR(mma_result->uses().size() == 1);
-      TensorView* tmem_ld_tv = cacheAfter(mma_result);
+    for (auto tmem_ld_tv : tmem_ld_tvs) {
       tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
 
