@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <linked_hash_map.h>
 #include <ir/allocation_utils.h>
+#include <linked_hash_map.h>
 
 namespace nvfuser {
 

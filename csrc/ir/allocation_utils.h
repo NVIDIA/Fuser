@@ -10,9 +10,8 @@
 #include <string>
 #include <vector>
 
-#include <ir/internal_base_nodes.h>
 #include <ir/interface_nodes.h>
-
+#include <ir/internal_base_nodes.h>
 
 namespace nvfuser {
 // With respect to the logical domain. `allocation_domain` must be a
