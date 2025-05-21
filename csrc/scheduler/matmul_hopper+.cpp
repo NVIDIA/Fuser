@@ -620,7 +620,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
     // Vectorize the TMem load
     for (auto mma_result : mma_results_) {
       NVF_ERROR(mma_result->uses().size() == 1);
-      TensorView* tmem_ld_tv = mma_result->uses().front()->as<TensorView>();
+      TensorView* tmem_ld_tv = cacheAfter(mma_result);
       tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
 
