@@ -513,6 +513,24 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
   }
 }
 
+void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
+  if (isBlackwell(params_->mma_macro)) {
+    mma_result->setMemoryType(MemoryType::Tensor);
+    // [Mi, (DimSep), ...other]
+    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+    auto item = allocation_domain[allocation_domain.size() - 3];
+    allocation_domain.erase(
+        allocation_domain.begin() + allocation_domain.size() - 3);
+    allocation_domain.insert(allocation_domain.begin(), item);
+    mma_result->setAllocationDomain(allocation_domain, true);
+    mma_result->setTMemDimSepPos(1);
+  } else {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        mma_result->getLoopDomain());
+    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+}
+
 void HopperPlus::scheduleMmaResults() {
   GemmTile instruction_tile = getMmaOpShape(params_->mma_macro);
   NVF_CHECK(
@@ -566,26 +584,15 @@ void HopperPlus::scheduleMmaResults() {
     }
 
     transformLikeMmaOutputWithK(mma_result);
+    setMmaResultAllocationDomain(mma_result);
 
-    mma_result->setMemoryType(MemoryType::Tensor);
-    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    // [Mi, (DimSep), ...other]
-    auto item = allocation_domain[allocation_domain.size() - 3];
-    allocation_domain.erase(allocation_domain.begin() + allocation_domain.size() - 3);
-    allocation_domain.insert(allocation_domain.begin(), item);
-    mma_result->setAllocationDomain(allocation_domain, true);
-    mma_result->setTMemDimSepPos(1);
-
-    // auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-    //     mma_result->getLoopDomain());
-    // mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
     mma_result->axis(-1)->parallelize(ParallelType::Mma);
     mma_result->axis(-2)->parallelize(ParallelType::Mma);
     mma_result->axis(-3)->parallelize(ParallelType::Mma);
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
+void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -649,6 +656,56 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
     if (!cached_tvs.empty()) {
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
     }
+  }
+}
+
+void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
+  std::vector<TensorView*> cached_tvs;
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    cached_tvs.push_back(c_cache);
+    propagate_to.push_back(c);
+  }
+  for (Val* dv : fusion_->outputs()) {
+    TensorView* d = dv->as<TensorView>();
+    NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+
+    // Apply the default scheduling that is common to all register
+    // TensorViews after wgmma.
+    blockTileTensors({d});
+    parallelizeBlocks({d});
+    transformLikeMmaOutputWithoutK(d);
+
+    const AbstractTensor s =
+        mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(d->getLoopDomain());
+    d->setLoopDomain(s.as<IterDomain*>());
+
+    // TODO: We need to check bank conflicts in this path.
+    // Propagate schedule changes back to the outputs of the Mma op.
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d,
+        -1,
+        propagate_to,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+
+    // We do not respect the vectorization_factor parameter, but always
+    // vectorize the inner-dim with extent 2.
+    NVF_ERROR(params_->supported_vec_size.epilogue >= 2);
+    // TODO: Support vectorization_factor in MatmulParams
+    d->axis(-1)->parallelize(ParallelType::Vectorize);
+    if (!cached_tvs.empty()) {
+      scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
+    }
+  }
+}
+
+void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
+  if (isBlackwell(params_->mma_macro)) {
+    scheduleEpilogueWithoutSmemEpilogueBlackwell();
+  } else {
+    scheduleEpilogueWithoutSmemEpilogueHopper();
   }
 }
 
