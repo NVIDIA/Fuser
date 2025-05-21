@@ -303,7 +303,7 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -343,11 +343,11 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
   const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
-  for (int64_t idx : arange(slice_position + 1)) {
+  for (int64_t idx : arange(slice_position)) {
     IterDomain* producer_id = producer_loop.at(idx);
     NVF_ERROR(
         idx < consumer->nDims(),
@@ -356,7 +356,7 @@ void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
     NVF_ERROR(
         exact_graph.toGroup(producer_id) == exact_graph.toGroup(consumer_id),
         "All iterDomains of the producer and consumer TensorViews to the left ",
-        "of the stage_slice_position must be in the same Exact ValGroup.");
+        "of the stage_slice_position must be in the same Broadcast ValGroup.");
   }
 }
 
