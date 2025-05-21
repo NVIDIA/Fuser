@@ -64,7 +64,7 @@ def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
 
 
 def compute_total_iobytes(
-    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]],
 ):
     """
     Compute IObytes for baselines from given description:
@@ -155,9 +155,9 @@ class NVFBenchmark:
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
-            if not isinstance(inputs, Iterable):
+            if not isinstance(inputs, Iterable) or isinstance(inputs, torch.Tensor):
                 inputs = [inputs]
-            if not isinstance(outputs, Iterable):
+            if not isinstance(outputs, Iterable) or isinstance(outputs, torch.Tensor):
                 outputs = [outputs]
 
             iobytes = 0
@@ -165,12 +165,9 @@ class NVFBenchmark:
                 if isinstance(inp, torch.Tensor):
                     iobytes += inp.element_size() * inp.numel()
 
-            if isinstance(outputs, torch.Tensor) and outputs.dim() == 0:
-                iobytes += outputs.element_size() 
-            else:    
-                for out in outputs:
-                    if isinstance(out, torch.Tensor):
-                        iobytes += out.element_size() * out.numel()
+            for out in outputs:
+                if isinstance(out, torch.Tensor):
+                    iobytes += out.element_size() * out.numel()
 
         self.benchmark.extra_info["IOBytes"] = iobytes
         bandwidth_bps = (
