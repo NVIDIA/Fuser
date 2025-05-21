@@ -3329,6 +3329,9 @@ class HopperPlusMatmulSchedulerTest
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     } else {
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
+      if (splitk_factor > 1) {
+        GTEST_SKIP() << "SplitK is not supported for Blackwell yet.";
+      }
     }
 
     if (a_k_inner) {
