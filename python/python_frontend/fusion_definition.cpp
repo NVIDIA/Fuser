@@ -67,7 +67,7 @@ FusionDefinition::FusionDefinition(
     std::optional<size_t> id,
     size_t max_length,
     bool use_multidevice_executor,
-    CommunicatorBackend backend_type)
+    MultiDeviceExecutorParams multi_device_executor_params)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -78,7 +78,7 @@ FusionDefinition::FusionDefinition(
       ops(this),
       sched(this),
       use_multidevice_executor_(use_multidevice_executor),
-      backend_type_(backend_type) {}
+      multi_device_executor_params_(std::move(multi_device_executor_params)) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
@@ -451,8 +451,6 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
   if (user_sched == nullptr) {
     if (use_multidevice_executor_) {
       if (scheds->multi_device_executor == nullptr) {
-        MultiDeviceExecutorParams params;
-        params.lower.communicator_backend = backend_type_;
         // Disable StreamParallelType pass temporarily as proper stream lowering
         // gets implemented
         hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(
@@ -460,7 +458,7 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
             std::make_unique<Fusion>(*scheds->preschedFusion()),
             Communicator::getInstance(),
-            std::move(params));
+            std::move(multi_device_executor_params_));
       }
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {

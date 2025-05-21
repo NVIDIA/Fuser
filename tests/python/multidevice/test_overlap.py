@@ -7,13 +7,20 @@ import torch
 import os
 
 import nvfuser
-from nvfuser import DataType, FusionDefinition, CommunicatorBackend
+from nvfuser import (
+    DataType,
+    FusionDefinition,
+    CommunicatorBackend,
+    MultiDeviceExecutorParams,
+)
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
     def __init__(self, m, k, n, s, num_devices, communication_backend):
+        params = MultiDeviceExecutorParams()
+        params.backend_type = communication_backend
         super().__init__(
-            use_multidevice_executor=True, backend_type=communication_backend
+            use_multidevice_executor=True, multi_device_executor_params=params
         )
         self.m = m
         self.k = k
@@ -96,4 +103,6 @@ def test_overlap_allgather_matmul_stream_outermost(
         torch.testing.assert_close(out, out_ref, rtol=1e-1, atol=1e-1)
 
     # benchmark
-    benchmark.pedantic(lambda: fd.execute(ins), rounds=N_ITERATIONS)
+    benchmark.pedantic(
+        lambda: fd.execute(ins), rounds=N_ITERATIONS, warmup_rounds=N_WARMUPS
+    )
