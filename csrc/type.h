@@ -704,7 +704,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
-  DIDx,
+  DIDx = 0,
   DIDy,
   DIDz,
   BIDz,
@@ -720,8 +720,11 @@ enum class ParallelType {
   Mma,
   Group,
   Bulk,
-  Serial
+  Serial,
+  Count, // sentinel, not an actual ParallelType
 };
+
+std::unordered_set<ParallelType> allParallelTypes();
 
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
