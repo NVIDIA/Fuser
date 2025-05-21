@@ -591,7 +591,10 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
-    tmem_ld_tvs.push_back(cacheAfter(mma_result));
+    TensorView* tmem_ld_tv = cacheAfter(mma_result);
+    tmem_ld_tv->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::LdTMem);
+    tmem_ld_tvs.push_back(tmem_ld_tv);
   }
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     cached_tvs.push_back(c_cache);
