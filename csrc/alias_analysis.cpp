@@ -102,6 +102,34 @@ std::optional<Layout> mapInLayoutToOutRoot(
 }
 
 namespace {
+
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+
+// Returns whether `layout` is compliant with `required`. This is
+// uni-directional. For example, `contiguity=[t,t]` is compliant with
+// `contiguity=[f,f]` but not vice versa.
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
@@ -470,32 +498,6 @@ std::string Layout::toString(const int indent_size) const {
                           << toDelimitedString(contiguity, /*delim=*/" ")
                           << "]>";
   return ss.str();
-}
-
-namespace {
-bool contiguityIsCompliant(
-    const std::optional<bool>& actual,
-    const std::optional<bool>& required) {
-  if (actual == true && required == false) {
-    return true;
-  }
-  return actual == required;
-}
-} // namespace
-
-bool isCompliantWith(const Layout& layout, const Layout& required) {
-  if (layout.allocation_domain != required.allocation_domain) {
-    // This can be relaxed by allowing broadcast dimensions to be ordered
-    // differently.
-    return false;
-  }
-
-  for (const auto i : arange(layout.size())) {
-    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
-      return false;
-    }
-  }
-  return true;
 }
 
 } // namespace nvfuser

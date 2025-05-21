@@ -17,11 +17,6 @@
 
 namespace nvfuser {
 
-// Returns whether `layout` is compliant with `required`. This is
-// uni-directional. For example, `contiguity=[t,t]` is compliant with
-// `contiguity=[f,f]` but not vice versa.
-bool isCompliantWith(const Layout& layout, const Layout& required);
-
 // Holds aliases found in a fusion. The expected user flow is
 //
 // ```
