@@ -1397,7 +1397,7 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasAllocation()) {
+  if (!tv->hasRoot() && !tv->hasAllocation()) {
     return reference_id;
   }
 
