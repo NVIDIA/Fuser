@@ -30,7 +30,7 @@ class CircularBufferInfo {
 
   struct AsyncWarpInfo {
     std::vector<const TensorView*> tvs;
-    std::vector<ValGroup> domain;
+    std::vector<ValGroup> stage_slice_domain;
     int64_t stage_slice_position = -1;
   };
 

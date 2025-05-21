@@ -421,6 +421,24 @@ void CircularBufferInfo::updateAsyncWarps(const TensorView* tv) {
   } else {
     NVF_ERROR(aw_info.stage_slice_position == stage_slice_position);
   }
+
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& bcast_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+  const std::vector<IterDomain*>& this_loop = tv->domain()->loop();
+  if (aw_info.tvs.size() == 1) {
+    std::transform(
+        this_loop.begin(),
+        this_loop.begin() + stage_slice_position,
+        std::back_inserter(aw_info.stage_slice_domain),
+        [&bcast_graph](IterDomain* id) { return bcast_graph.toGroup(id); });
+  } else {
+    for (int64_t idx : arange(stage_slice_position)) {
+      IterDomain* id = this_loop.at(idx);
+      ValGroup& group = aw_info.stage_slice_domain.at(idx);
+      NVF_ERROR(group->has(id));
+    }
+  }
 }
 
 void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
