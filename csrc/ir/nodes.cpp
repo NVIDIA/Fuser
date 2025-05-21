@@ -3047,7 +3047,7 @@ void IterDomain::parallelize(ParallelType t) {
         "a start of ",
         start(),
         " and extent ",
-        extent(),
+        extent()->toInlineString(),
         " .");
   }
 
