@@ -104,64 +104,67 @@ def test_plus_one(setup_default_process_group, multidevice_test):
     assert out_dtensor.placements == in_dtensor.placements
 
 
+@dataclass
+class LinearConfig:
+    in_features: int
+    out_features: int
+
+
+def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
+    e_in, e_out = config.in_features, config.out_features
+
+    inp = fd.define_tensor([-1, -1, e_in], contiguity=True)
+    weight = fd.define_tensor([e_out, e_in], contiguity=True)
+    out = fd.ops.linear(inp, weight)
+    fd.add_output(out)
+
+
+def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
+    e_in, e_out = config.in_features, config.out_features
+
+    x = fd.define_tensor([-1, -1, e_in], contiguity=True)
+    w = fd.define_tensor([e_out, e_in], contiguity=True)
+    grad = fd.define_tensor([-1, -1, e_out], contiguity=True)
+
+    grad_x = fd.ops.matmul(grad, w)
+
+    grad_flat_t = fd.ops.permute(fd.ops.reshape(grad, [-1, e_out]), [1, 0])
+    x_flat = fd.ops.reshape(x, [-1, e_in])
+    grad_w = fd.ops.matmul(grad_flat_t, x_flat)
+
+    fd.add_output(grad_x)
+    fd.add_output(grad_w)
+
+
+class LinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        input: DTensor,
+        weight: DTensor,
+    ):
+        op = FusionDefinitionWrapper(
+            partial(define_linear_forward, LinearConfig(weight.size(1), weight.size(0)))
+        )
+        (output,) = op([input, weight])
+        ctx.save_for_backward(input, weight)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: DTensor):
+        input, weight = ctx.saved_tensors
+
+        op = FusionDefinitionWrapper(
+            partial(
+                define_linear_backward, LinearConfig(weight.size(1), weight.size(0))
+            )
+        )
+        grad_x, grad_w = op([input, weight, grad_output])
+        return (grad_x, grad_w)
+
+
 @pytest.mark.mpi
 def test_column_parallel_linear(setup_default_process_group, multidevice_test):
-    @dataclass
-    class LinearConfig:
-        def __init__(self, num_devices: int, hidden: int):
-            self.d = num_devices
-            self.e = hidden
-
-    def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, e = config.d, config.e
-        inp = fd.define_tensor([-1, -1, e], contiguity=True)
-        weight = fd.define_tensor([d * e, e], contiguity=True)
-        out = fd.ops.linear(inp, weight)
-        fd.add_output(out)
-
-    def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, e = config.d, config.e
-        x = fd.define_tensor([-1, -1, e], contiguity=True)
-        w = fd.define_tensor([d * e, e], contiguity=True)
-        grad = fd.define_tensor([-1, -1, d * e], contiguity=True)
-
-        grad_x = fd.ops.matmul(grad, w)
-
-        grad_flat_t = fd.ops.permute(fd.ops.reshape(grad, [-1, d * e]), [1, 0])
-        x_flat = fd.ops.reshape(x, [-1, e])
-        grad_w = fd.ops.matmul(grad_flat_t, x_flat)
-
-        fd.add_output(grad_x)
-        fd.add_output(grad_w)
-
-    class LinearFunction(torch.autograd.Function):
-        @staticmethod
-        def forward(
-            ctx,
-            input: DTensor,
-            weight: DTensor,
-        ):
-            d = weight.device_mesh.size()
-            e = weight.size(1)
-            op = FusionDefinitionWrapper(
-                partial(define_linear_forward, LinearConfig(d, e))
-            )
-            (output,)= op([input, weight])
-            ctx.save_for_backward(input, weight)
-            return output
-
-        @staticmethod
-        def backward(ctx, grad_output: DTensor):
-            input, weight = ctx.saved_tensors
-
-            d = weight.device_mesh.size()
-            e = weight.size(1)
-            op = FusionDefinitionWrapper(
-                partial(define_linear_backward, LinearConfig(d, e))
-            )
-            grad_x, grad_w = op([input, weight, grad_output])
-            return (grad_x, grad_w)
-
     d, b, s, e = dist.get_world_size(), 2, 1024, 768
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
@@ -199,63 +202,6 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
 @pytest.mark.mpi
 def test_row_parallel_linear(setup_default_process_group, multidevice_test):
-    @dataclass
-    class LinearConfig:
-        def __init__(self, num_devices: int, hidden: int):
-            self.d = num_devices
-            self.e = hidden
-
-    # FIXME: reuse definition with column_parallel_linear.
-    def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, e = config.d, config.e
-        inp = fd.define_tensor([-1, -1, d * e], contiguity=True)
-        weight = fd.define_tensor([e, d * e], contiguity=True)
-        out = fd.ops.linear(inp, weight)
-        fd.add_output(out)
-
-    def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, e = config.d, config.e
-        x = fd.define_tensor([-1, -1, d * e], contiguity=True)
-        w = fd.define_tensor([e, d * e], contiguity=True)
-        grad = fd.define_tensor([-1, -1, e], contiguity=True)
-
-        grad_x = fd.ops.matmul(grad, w)
-
-        grad_flat_t = fd.ops.permute(fd.ops.reshape(grad, [-1, e]), [1, 0])
-        x_flat = fd.ops.reshape(x, [-1, d * e])
-        grad_w = fd.ops.matmul(grad_flat_t, x_flat)
-
-        fd.add_output(grad_x)
-        fd.add_output(grad_w)
-
-    class LinearFunction(torch.autograd.Function):
-        @staticmethod
-        def forward(
-            ctx,
-            input: DTensor,
-            weight: DTensor,
-        ):
-            d = weight.device_mesh.size()
-            e = weight.size(0)
-            op = FusionDefinitionWrapper(
-                partial(define_linear_forward, LinearConfig(d, e))
-            )
-            (output,) = op([input, weight])
-            ctx.save_for_backward(input, weight)
-            return output
-
-        @staticmethod
-        def backward(ctx, grad_output: DTensor):
-            input, weight = ctx.saved_tensors
-
-            d = weight.device_mesh.size()
-            e = weight.size(0)
-            op = FusionDefinitionWrapper(
-                partial(define_linear_backward, LinearConfig(d, e))
-            )
-            (grad_x, grad_w) = op([input, weight, grad_output])
-            return (grad_x, grad_w)
-
     d, b, s, e = dist.get_world_size(), 2, 1024, 768
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
