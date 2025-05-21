@@ -124,4 +124,4 @@ def test_cross_entropy_mini_benchmark_bwd(benchmark, executor: str, vocab_size: 
     fwd_fn = with_executor(executor, fwd_call)
     outputs = fwd_fn(inputs)
     grads = SyntheticMiniModel.grads()
-    run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, inputs])
+    run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, *inputs])
