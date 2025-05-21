@@ -140,7 +140,9 @@ void limitCircularBufferingSmemOperands(
     // in rare cases
     num_tiles_per_cta = ceilDiv(tiles_m * tiles_n, num_sms);
   }
-  int64_t stages = k_stages_per_tile * num_tiles_per_cta;
+  int64_t stages = std::min(
+      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage,
+      k_stages_per_tile * num_tiles_per_cta);
 
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
