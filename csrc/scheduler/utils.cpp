@@ -1397,12 +1397,12 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
+  if (!tv->hasAllocation()) {
     return reference_id;
   }
 
   auto replay_exprs = StmtSort::getExprsTo(
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()}, false);
+      {tv->getMaybeAllocationDomain().begin(), tv->getMaybeAllocationDomain().end()}, false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1487,7 +1487,8 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    mapped_logical_ids_[to] = p_it->second;
+    mapped_logical_ids_[to] =
+        projectIdToRFactor(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
