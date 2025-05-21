@@ -99,11 +99,9 @@ def test_cross_entropy_mini_benchmark_fwd(benchmark, executor: str, vocab_size: 
     def fwd_call(inp):
         return SyntheticMiniModel.mini_model(*inp)
 
-    input, target = SyntheticMiniModel.inputs(batch_size, vocab_size)
+    inputs = SyntheticMiniModel.inputs(int(batch_size), int(vocab_size))
 
-    kwargs = {}
-    inputs = [input, target]
-    fwd_fn = with_executor(executor, fwd_call, **kwargs)
+    fwd_fn = with_executor(executor, fwd_call)
     run_benchmark(benchmark, fwd_fn, inputs)
 
 
@@ -121,11 +119,9 @@ def test_cross_entropy_mini_benchmark_bwd(benchmark, executor: str, vocab_size: 
     def fwd_call(inp):
         return SyntheticMiniModel.mini_model(*inp)
 
-    input, target = SyntheticMiniModel.inputs(batch_size, vocab_size)
+    inputs = SyntheticMiniModel.inputs(batch_size, vocab_size)
 
-    kwargs = {}
-    inputs = [input, target]
-    fwd_fn = with_executor(executor, fwd_call, **kwargs)
+    fwd_fn = with_executor(executor, fwd_call)
     outputs = fwd_fn(inputs)
     grads = SyntheticMiniModel.grads()
     run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, inputs])

@@ -162,7 +162,7 @@ cross_entropy_loss_setup = {
 
 
 class SyntheticMiniModel:
-
+    @staticmethod
     def mini_model(logits, labels):
         labels = torch.nn.functional.pad(labels, (0, 1))
         labels = labels[1 : labels.shape[-1]]
@@ -170,6 +170,7 @@ class SyntheticMiniModel:
         logits = logits.squeeze(dim=0)
         return torch.nn.functional.cross_entropy(logits, labels)
 
+    @staticmethod
     def inputs(batch_size, vocab_size):
         input = torch.randn(
             1,
@@ -188,10 +189,12 @@ class SyntheticMiniModel:
         )
         return (input, labels)
 
+    @staticmethod
     def grads():
         grad = torch.tensor(1, device="cuda", dtype=torch.float32, requires_grad=False)
         return grad
 
+    @staticmethod
     def generate_vocab_sizes():
         sizes_from_models = [
             49152,  # Starcoder
@@ -210,6 +213,8 @@ class SyntheticMiniModel:
 
         combined_set = sorted(set(sizes_from_models) | set(powers_of_2))
 
+        # for each vocab size in the set we increment in steps 64 in +/- 5 directions
+        # which gives the total number of vocab sizes to benchmark
         variations = set()
         step = 64
         for num in combined_set:
