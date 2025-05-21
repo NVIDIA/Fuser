@@ -177,6 +177,8 @@ class HopperPlus : public Common {
 
   void scheduleMmaResults();
 
+  void scheduleEpilogueWithoutSmemEpilogue();
+  void scheduleEpilogueWithSmemEpilogue();
   void scheduleEpilogue();
 
   void scheduleSplitKSum();
