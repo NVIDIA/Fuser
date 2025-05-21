@@ -246,9 +246,23 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
-// For warp specialization, a separate warp group is created for mbarrier async
-// operations by padding a thread axis. We cannot use this thread axis in async
-// operations.
+// NvFuser permits launching multiple TMA loads with a thread parallel axis.
+// However, we cannot use the warp specialized axis for this. In the AsyncWarp,
+// the warp specialized axis is the padded size. If you try to use that axis to
+// launch TMA loads, you get incorrect results.
+//
+// For example, take a CTA with (TIDx = 128, TIDy = 2, TIDz = 1) and use
+// TIDy as the warp specialized axis. A user can unintentionally thread
+// parallelize the TMA load with `inlineMost`. See PingPongCircularBuffering.
+// ProducerWarpSpecializedError.
+//
+// if (TIDy >= 2) {
+//   Issue TMA-Load with ParallelType::TIDy.
+//   It expects ParallelType::TIDy to be [0, 1], but it runs with [2].
+// } else {
+//   Run a computation with ParallelType::TIDy.
+//   ParallelType::TDimY is in range [0, 1].
+// }
 void checkWarpSpecializedAxis(const TensorView* tv) {
   if (!std::holds_alternative<WarpSpecialized>(
           tv->circularBufferOptions().type)) {
@@ -284,7 +298,7 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::PERMISSIVE);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -326,11 +340,11 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 }
 
 // All the iterDomains to the left of the slice position in the producer and
-// consumer must belong to same iterDomain and have the same parallelization.
+// consumer must belong to same iterDomain.
 void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::PERMISSIVE);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
   const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
   const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
