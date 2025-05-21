@@ -648,15 +648,6 @@ std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
   return s;
 }
 
-std::unordered_set<ParallelType> allParallelTypes() {
-  static auto s = [&] {
-    std::unordered_set<ParallelType> s = deviceAndStreamParallelTypes();
-    s.insert(ParallelType::Serial);
-    return s;
-  }();
-  return s;
-}
-
 void shardAllLike(
     TensorView* ref,
     const std::vector<TensorView*>& tvs,

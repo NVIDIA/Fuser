@@ -68,10 +68,6 @@ bool isInnerResharding(Expr* expr);
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
 
-// Returns all parallel types that can appear during multi-GPU scheduling, i.e.
-// DIDs, Stream, and Serial.
-std::unordered_set<ParallelType> allParallelTypes();
-
 // Shards all tensors in tvs like reference.
 // Accepts a set of parallel types to shard on.
 // If empty, all DID parallel types are used.
