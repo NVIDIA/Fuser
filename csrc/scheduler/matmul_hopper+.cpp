@@ -568,8 +568,13 @@ void HopperPlus::scheduleMmaResults() {
     transformLikeMmaOutputWithK(mma_result);
 
     mma_result->setMemoryType(MemoryType::Tensor);
-    mma_result->setAllocationDomain(mma_result->getLoopDomain(), true);
-    mma_result->setTMemDimSepPos(-3);
+    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+    // [Mi, (DimSep), ...others]
+    auto item = allocation_domain[allocation_domain.size() - 3];
+    allocation_domain.erase(allocation_domain.begin() + allocation_domain.size() - 3);
+    allocation_domain.insert(allocation_domain.begin(), item);
+    mma_result->setAllocationDomain(allocation_domain, true);
+    mma_result->setTMemDimSepPos(1);
 
     // auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
     //     mma_result->getLoopDomain());
