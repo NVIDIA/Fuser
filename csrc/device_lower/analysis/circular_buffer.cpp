@@ -357,7 +357,7 @@ void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
     NVF_ERROR(
         exact_graph.toGroup(producer_id) == exact_graph.toGroup(consumer_id),
         "All iterDomains of the producer and consumer TensorViews to the left ",
-        "of the stage_slice_position must be in the same Exact ValGroup.");
+        "of the stage_slice_position must be in the same Broadcast ValGroup.");
   }
 }
 

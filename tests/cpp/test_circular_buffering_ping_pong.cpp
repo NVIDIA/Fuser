@@ -280,7 +280,7 @@ TEST_F(PingPongCircularBuffering, ProducerConsumerDifferentError) {
     ke.compile(&fusion, {t0});
   } catch (const std::exception& e) {
     const char* error_msg =
-        R"(All iterDomains of the producer and consumer TensorViews to the left of the stage_slice_position must be in the same Exact ValGroup.)";
+        R"(All iterDomains of the producer and consumer TensorViews to the left of the stage_slice_position must be in the same Broadcast ValGroup.)";
     const char* str_match_pointer = strstr(e.what(), error_msg);
     ASSERT_TRUE(str_match_pointer != nullptr);
     return;
