@@ -394,6 +394,35 @@ void validateStageSlicePosition(const TensorView* tv) {
 
 } // namespace
 
+void CircularBufferInfo::updateAsyncWarps(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+
+  if (async_warps_.empty()) {
+    async_warps_.resize(1);
+  }
+
+  AsyncWarpInfo& aw_info = async_warps_.front();
+  aw_info.tvs.push_back(tv);
+  std::cout << "updateAsyncWarps\t" << tv->toString() << std::endl;
+
+  int64_t stage_slice_position =
+      (warp_specialized.stage_slice_position.has_value())
+      ? warp_specialized.stage_slice_position.value()
+      : getInnerMostCircularBufferPosition(tv) + 1;
+
+  if (aw_info.stage_slice_position == -1) {
+    aw_info.stage_slice_position = stage_slice_position;
+  } else {
+    NVF_ERROR(aw_info.stage_slice_position == stage_slice_position);
+  }
+}
+
 void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   IterDomain* cb_axis = nvfuser::getCircularBufferAxis(tv);
   NVF_ERROR(cb_axis != nullptr);
@@ -410,6 +439,8 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
   initializePingPongTracking(tv, cb_axis);
+
+  updateAsyncWarps(tv);
 
   setCircularBufferInsertionPosition(tv, cb_axis);
 }

@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <val_graph_nodes.h>
 
 namespace nvfuser {
 
@@ -27,10 +28,18 @@ class CircularBufferInfo {
     Val* original_alloc_size = nullptr;
   };
 
+  struct AsyncWarpInfo {
+    std::vector<const TensorView*> tvs;
+    std::vector<ValGroup> domain;
+    int64_t stage_slice_position = -1;
+  };
+
  public:
   void build(Fusion* fusion);
 
   void initializePingPongTracking(const TensorView* tv, IterDomain* cb_axis);
+
+  void updateAsyncWarps(const TensorView* tv);
 
   void setCircularBufferTv(const TensorView* tv);
 
@@ -126,6 +135,9 @@ class CircularBufferInfo {
  private:
   //! Keeps track of information for lowering circular buffered tensors
   std::unordered_map<const TensorView*, TvInfo> map_;
+
+  //! Group CircularBuffer TensorViews into inlinable groups
+  std::vector<AsyncWarpInfo> async_warps_;
 
   //! Keeps track of which concrete loop map is realizing circular buffer
   //!  iterdomains.
