@@ -102,31 +102,6 @@ std::optional<Layout> mapInLayoutToOutRoot(
 }
 
 namespace {
-// I chose to canonicalize layouts to logical so I didn't have to change the
-// main bulk of alias analysis which was written for single GPU.
-std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
-  auto allocation_to_contiguity = ir_utils::canonicalizeAllocationToLogical(tv);
-  if (!allocation_to_contiguity.has_value()) {
-    return std::nullopt;
-  }
-
-  Layout layout;
-  for (auto&& [alloc_id, contiguity] : *allocation_to_contiguity) {
-    layout.allocation_domain.push_back(alloc_id);
-    layout.contiguity.push_back(contiguity);
-  }
-  NVF_ERROR(
-      std::is_permutation(
-          tv->getLogicalDomain().begin(),
-          tv->getLogicalDomain().end(),
-          layout.allocation_domain.begin(),
-          layout.allocation_domain.end()),
-      "This indicates that logical and allocation are not connected via "
-      "transforms. This is most often caused by forgetting to concretize "
-      "a fusion with dynamic reshapes.");
-  return layout;
-}
-
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
@@ -140,7 +115,7 @@ bool okToRelayout(
   if (!old_layout.has_value()) {
     return false;
   }
-  return new_layout.isCompliantWith(*old_layout);
+  return isCompliantWith(new_layout, *old_layout);
 }
 } // namespace
 
@@ -193,8 +168,7 @@ void AliasFinder::handle(const ViewOp* view) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
       const auto [contiguity, split_i] =
           allocation_to_contiguity.erase(split->in());
-      auto [outer_contiguity, inner_contiguity] =
-          ir_utils::splitContiguity(contiguity);
+      auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
       allocation_to_contiguity.insert(
           split_i, split->outer(), outer_contiguity);
       allocation_to_contiguity.insert(
@@ -209,7 +183,7 @@ void AliasFinder::handle(const ViewOp* view) {
       }
       const auto [inner_contiguity, merge_i] =
           allocation_to_contiguity.erase(merge->inner());
-      const auto [mergeable, contiguity] = ir_utils::mergeContiguity(
+      const auto [mergeable, contiguity] = mergeContiguity(
           merge->outer()->hasExpandedExtent(),
           outer_contiguity,
           merge->inner()->hasExpandedExtent(),
@@ -509,15 +483,15 @@ bool contiguityIsCompliant(
 }
 } // namespace
 
-bool Layout::isCompliantWith(const Layout& required) const {
-  if (allocation_domain != required.allocation_domain) {
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain != required.allocation_domain) {
     // This can be relaxed by allowing broadcast dimensions to be ordered
     // differently.
     return false;
   }
 
-  for (const auto i : arange(allocation_domain.size())) {
-    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
       return false;
     }
   }
