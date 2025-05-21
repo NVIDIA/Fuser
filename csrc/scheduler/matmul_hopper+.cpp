@@ -636,11 +636,6 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType());
 
-    // Vectorize the TMem load
-    for (auto tmem_ld_tv : tmem_ld_tvs) {
-      tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-    }
-
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > params_->supported_vec_size.epilogue) {
       d->split(-1, params_->supported_vec_size.epilogue);
@@ -656,6 +651,10 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     if (!cached_tvs.empty()) {
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
     }
+  }
+  // Vectorize the TMem load
+  for (auto tmem_ld_tv : tmem_ld_tvs) {
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
 
