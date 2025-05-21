@@ -125,67 +125,127 @@ TEST_F(NVFuserTest, TransformPropagation_CUDA) {
   std::cout << std::endl;
 }
 
-// Test exploring cacheAfter with vectorization
-TEST_F(NVFuserTest, CacheAfterVectorization_CUDA) {
+// Test exploring cacheAfter (for input) and cacheBefore (for output) with vectorization
+TEST_F(NVFuserTest, CacheAfterBeforeVectorization_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // 1. Define input tensor and initial operations
+  const int vec_factor = 4;
+  const int tid_x_threads = 128;
+
   auto tv0_global = TensorViewBuilder().ndims(2).dtype(DataType::Float).contiguity(true).build();
   fusion.addInput(tv0_global);
 
-  auto tv_temp_output = mul(tv0_global, IrBuilder::create<Val>(2.0));
-  auto tv1_output = add(tv_temp_output, IrBuilder::create<Val>(1.0));
-  fusion.addOutput(tv1_output);
+  auto tv_temp_math = mul(tv0_global, IrBuilder::create<Val>(2.0));
+  auto tv1_output_global = add(tv_temp_math, IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv1_output_global);
 
-  std::cout << "\n==== STEP A: After cacheAfter(), before tv0_local scheduling ====\n";
-  auto tv0_local = tv0_global->cacheAfter();
-  std::cout << "\n--- Math (Step A) ---\n";
-  fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step A) ---\n";
-  fusion.printKernel();
-  std::cout << std::endl;
+  // --- Part 1: Caching Setup ---
+  auto tv0_local = tv0_global->cacheAfter(); // Cache for input
+  // tv_temp_math will now use tv0_local
 
-  std::cout << "\n==== STEP B: tv0_local set to Global Memory ====\n";
-  tv0_local->setMemoryType(MemoryType::Global);
-  std::cout << "\n--- Math (Step B) ---\n";
-  fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step B) ---\n";
-  fusion.printKernel();
-  std::cout << std::endl;
+  tv1_output_global->cacheBefore(); // Cache for output
+  // tv1_output_local is now defined by add(tv_temp_math, 1.0)
+  // tv1_output_global is now defined by Set(tv1_output_local)
 
-  std::cout << "\n==== STEP C: tv0_local merge(0) and split(0, 4) ====\n";
+  // --- Part 2: Base Scheduling (on tv0_local) ---
+  // Schedule tv0_local. This structure and BIDx/TIDx parallelization will be propagated.
   tv0_local->merge(0);
-  tv0_local->split(0, 4);
-  std::cout << "\n--- Math (Step C) ---\n";
+  tv0_local->split(0, vec_factor);      // Innermost axis for vectorization, e.g., axis 2 after next split
+  tv0_local->split(0, tid_x_threads); // Middle axis for TIDx, e.g., axis 1
+                                     // Outermost axis for BIDx, e.g., axis 0
+
+  tv0_local->axis(0)->parallelize(ParallelType::BIDx);
+  tv0_local->axis(1)->parallelize(ParallelType::TIDx);
+  // tv0_local->axis(2) is not yet vectorized.
+
+  // --- Part 3: Single Propagation Pass (from tv0_local) ---
+  // Propagate structure and BIDx/TIDx from tv0_local to all its consumers.
+  // tv_temp_math and tv1_output_local should inherit the 3-axis domain
+  // with a scalar innermost dimension of size vec_factor.
+  // tv1_output_global, being a Set from tv1_output_local, should also get this structure.
+  TransformPropagator propagator(tv0_local);
+  MaxLogicalDomainInfoSpanningTree(tv0_local).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv0_local);
+
+  // --- Part 4: Targeted Vectorization ---
+  // Vectorize the LOAD into tv0_local
+  tv0_local->axis(2)->parallelize(ParallelType::Vectorize);
+
+  // Vectorize the STORE from tv1_output_local to tv1_output_global.
+  // This is done by vectorizing the corresponding axis on tv1_output_global itself.
+  // tv1_output_local (defined by math) keeps its scalar innermost domain for its definition.
+  tv1_output_global->axis(2)->parallelize(ParallelType::Vectorize);
+
+  // --- Part 5: Print final Math IR and CUDA Kernel ---
+  std::cout << "\n==== FINAL KERNEL (CacheAfter+CacheBefore, Vectorized Load/Store) ====\n";
+  std::cout << "\n--- Final Math IR ---\n";
   fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step C) ---\n";
+  std::cout << "\n--- Final CUDA Kernel ---\n";
   fusion.printKernel();
   std::cout << std::endl;
 
-  std::cout << "\n==== STEP D: tv0_local vectorize axis(1) ====\n";
-  tv0_local->axis(1)->parallelize(ParallelType::Vectorize);
-  std::cout << "\n--- Math (Step D) ---\n";
+  // TODO: Add executeAndValidate if needed for this specific exploration phase,
+  // or rely on kernel printout for now. Consider input sizes for validation.
+}
+
+// Case study for documenting Softmax implementation and optimization
+TEST_F(NVFuserTest, SoftmaxImplementationCaseStudy_CUDA) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Define a 2D input tensor (e.g., Batch x Features)
+  // For Softmax, reduction is typically done along the last dimension (Features).
+  auto tv_input = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(tv_input);
+
+  // Reduction axis: last dimension (axis 1 for a 2D tensor)
+  const int reduction_axis = 1;
+  std::vector<int> axes_to_reduce = {reduction_axis};
+  bool keep_dim = true; // Keep dimension for broadcasting compatibility
+
+  // 1. Find max value for numerical stability: max_val = max(input, reduction_axis)
+  auto tv_max_val = max(tv_input, axes_to_reduce, keep_dim);
+
+  // 2. Subtract max_val from input: exp_input_intermediate = input - broadcast(max_val)
+  //    Need to broadcast tv_max_val back to the shape of tv_input
+  //    Broadcast axes for max_val (which is [Batch, 1]) to become [Batch, Features]
+  //    will be along axis 1.
+  std::vector<bool> broadcast_dims_for_max(tv_input->nDims(), false);
+  broadcast_dims_for_max[reduction_axis] = true;
+  auto tv_max_val_broadcasted = broadcast(tv_max_val, broadcast_dims_for_max);
+  auto tv_exp_input_intermediate = sub(tv_input, tv_max_val_broadcasted);
+
+  // 3. Compute exponent: exp_input = exp(exp_input_intermediate)
+  auto tv_exp_input = exp(tv_exp_input_intermediate);
+
+  // 4. Sum exponents: sum_exp = sum(exp_input, reduction_axis)
+  auto tv_sum_exp = sum(tv_exp_input, axes_to_reduce, keep_dim);
+
+  // 5. Divide by sum: output = exp_input / broadcast(sum_exp)
+  //    Need to broadcast tv_sum_exp back to the shape of tv_exp_input
+  std::vector<bool> broadcast_dims_for_sum(tv_input->nDims(), false);
+  broadcast_dims_for_sum[reduction_axis] = true;
+  auto tv_sum_exp_broadcasted = broadcast(tv_sum_exp, broadcast_dims_for_sum);
+  auto tv_output = div(tv_exp_input, tv_sum_exp_broadcasted);
+
+  fusion.addOutput(tv_output);
+
+  // --- Initial (Naive) Implementation Printouts ---
+  std::cout << "\n==== SOFTMAX CASE STUDY: NAIVE IMPLEMENTATION ====\n";
+  std::cout << "\n--- Initial Math IR (Softmax) ---\n";
   fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step D) ---\n";
+  std::cout << "\n--- Initial CUDA Kernel (Softmax) ---\n";
   fusion.printKernel();
   std::cout << std::endl;
 
-  std::cout << "\n==== STEP E: tv0_local parallelize TIDx on axis(0) ====\n";
-  tv0_local->axis(0)->parallelize(ParallelType::TIDx);
-  std::cout << "\n--- Math (Step E) ---\n";
-  fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step E) ---\n";
-  fusion.printKernel();
-  std::cout << std::endl;
-
-  std::cout << "\n==== STEP F: parallelizeAllLike(tv0_local, consumers) ====\n";
-  scheduler_utils::parallelizeAllLike(tv0_local, {tv_temp_output, tv1_output});
-  std::cout << "\n--- Math (Step F) ---\n";
-  fusion.printMath();
-  std::cout << "\n--- CUDA Kernel (Step F) ---\n";
-  fusion.printKernel();
-  std::cout << std::endl;
+  // TODO: Add validation logic for this softmax implementation
+  // at::Tensor at_input = at::randn({BATCH_SIZE, FEATURE_SIZE}, tensor_options);
+  // FusionExecutor fe;
+  // fe.compileFusion(&fusion, {at_input});
+  // auto outputs = fe.runFusion({at_input});
+  // auto at_softmax_output = at::softmax(at_input, reduction_axis);
+  // testValidate(&fusion, outputs, {at_input}, {at_softmax_output}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser 
