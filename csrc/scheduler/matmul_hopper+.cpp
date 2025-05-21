@@ -634,14 +634,15 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
       tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
 
-    // We do not respect the vectorization_factor parameter, but always
-    // vectorize the inner-dim with extent 2.
-    NVF_ERROR(params_->supported_vec_size.epilogue >= 2);
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > params_->supported_vec_size.epilogue) {
       d->split(-1, params_->supported_vec_size.epilogue);
       for (auto c : cached_tvs) {
-        c->split(-1, params_->supported_vec_size.epilogue);
+        bool is_2d_epilogue_input =
+            TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
+        if (is_2d_epilogue_input) {
+          c->split(-1, params_->supported_vec_size.epilogue);
+        }
       }
     }
     d->axis(-1)->parallelize(ParallelType::Vectorize);
