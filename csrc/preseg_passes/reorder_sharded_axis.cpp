@@ -10,6 +10,7 @@
 #include <device_lower/utils.h>
 #include <fusion.h>
 #include <host_ir/lower.h>
+#include <ir/allocation_utils.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -30,21 +31,6 @@ void transform_and_parallelize_like(TensorView* ref, TensorView* tv) {
   shardAllLike(ref, {tv}, {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
 }
 
-int64_t mappedAxisInConsumer(
-    TensorView* producer,
-    TensorView* consumer,
-    IterDomain* p_logical_id) {
-  const auto pairwise_map =
-      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  auto c_it = pairwise_map.find(p_logical_id);
-  NVF_ERROR(
-      c_it != pairwise_map.end(),
-      p_logical_id->toString(),
-      " not mapped to any ID in ",
-      consumer->toString());
-  return posInDomain(consumer->getLogicalDomain(), c_it->second);
-}
-
 void makeCommunicationLayoutCompliant(
     Expr* expr,
     CommunicationInfo communication_info) {
@@ -54,58 +40,88 @@ void makeCommunicationLayoutCompliant(
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
-  // Copy input into required memory layout.
-  // Note: If input is not a fusion input, we should ideally be able to specify
-  // allocation domain of input instead. However, some schedulers (e.g.
-  // reduction) may not support this, so creating a copy here.
-  TensorView* comm_input = set(input);
-  int64_t comm_input_device_idx =
-      mappedAxisInConsumer(input, comm_input, p_sharded_id);
-  comm_input->setAllocationDomain(
-      TensorDomain::orderedAs(
-          comm_input->getLogicalDomain(),
-          std::unordered_map<int64_t, int64_t>{{comm_input_device_idx, 0}}),
-      true);
+  TensorView* input_copy = nullptr;
 
-  // Communication expression.
-  // We do not create a new output tensorview for the communication.
-  // Instead, we replace the input of the communication with the comm_input
-  // in the communication expression. This preserves the sharding annotations
-  // of the original communication output.
-  if (expr->isA<LoadStoreOp>()) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, comm_input);
-  } else {
-    IrBuilder::create<ReductionOp>(
-        expr->as<ReductionOp>()->getReductionOpType(),
-        expr->as<ReductionOp>()->init(),
-        output,
-        comm_input);
+  if (!p_sharded_id->isDeviceDim() &&
+      !isAllocatedOutermost(input, p_sharded_id)) {
+    // Copy input into required memory layout.
+    // Note: If input is not a fusion input, we should ideally be able to
+    // specify allocation domain of input instead. However, some schedulers
+    // (e.g. reduction) may not support this, so creating a copy here.
+
+    input_copy = set(input);
+
+    // Find index of p_sharded_id in input_copy's logical domain.
+    // Reduction axis in input can change the position of p_sharded_id in
+    // input_copy's logical domain.
+    auto p2c = PairwiseLogicalDomainMap(input, input_copy)
+                   .mapBroadcast(true)
+                   .mapSymbolic(true)
+                   .mapProducerToConsumer();
+
+    IterDomain* input_copy_sharded_id = p2c.at(p_sharded_id);
+    int64_t input_copy_sharded_idx = posInDomain(
+        input_copy->getMaybeAllocationDomain(), input_copy_sharded_id);
+    input_copy->setAllocationDomain(
+        TensorDomain::orderedAs(
+            input_copy->getMaybeAllocationDomain(),
+            std::unordered_map<int64_t, int64_t>{{input_copy_sharded_idx, 0}}),
+        true);
+
+    // New communication expression.
+    // We do not create a new output tensorview for the communication.
+    // Instead, we replace the input of the communication with the input_copy
+    // in the communication expression. This preserves the sharding annotations
+    // of the original communication output.
+    if (expr->isA<LoadStoreOp>()) {
+      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, input_copy);
+    } else {
+      IrBuilder::create<ReductionOp>(
+          expr->as<ReductionOp>()->getReductionOpType(),
+          expr->as<ReductionOp>()->init(),
+          output,
+          input_copy);
+    }
+    transform_and_parallelize_like(input, input_copy);
   }
-  int64_t output_device_idx =
-      posInDomain(output->getLogicalDomain(), c_sharded_id);
+
+  std::optional<Layout> output_layout = canonicalizeLayout(output);
+
+  NVF_ERROR(
+      output_layout.has_value(),
+      "Cannot canonicalize layout for ",
+      output->domain()->toString(0, false));
+  int64_t output_sharded_idx =
+      posInDomain((*output_layout).allocation_domain, c_sharded_id);
+
+  // If the output is a fusion output and has allocation domain,
+  // and the c_sharded_id is not allocated outermost,
+  // create a copy of the output to revert the allocation domain.
+  if (output->isFusionOutput() && output->hasAllocation() &&
+      !isAllocatedOutermost(output, c_sharded_id)) {
+    TensorView* output_copy = set(output);
+
+    auto p2c_map = PairwiseLogicalDomainMap(output, output_copy)
+                       .mapBroadcast(true)
+                       .mapSymbolic(true)
+                       .mapProducerToConsumer();
+    std::vector<IterDomain*> output_copy_allocation_domain;
+
+    for (IterDomain* output_id :
+         TensorDomain::noReductions((*output_layout).allocation_domain)) {
+      IterDomain* output_copy_id = p2c_map.at(output_id);
+      output_copy_allocation_domain.push_back(output_copy_id);
+    }
+
+    output_copy->setAllocationDomain(output_copy_allocation_domain, true);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
+    transform_and_parallelize_like(output, output_copy);
+  }
+
   output->setAllocationDomain(
       TensorDomain::orderedAs(
-          output->getLogicalDomain(),
-          std::unordered_map<int64_t, int64_t>{{output_device_idx, 0}}),
+          (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
       true);
-
-  // TODO: Make this conditional on whether the output is a fusion output.
-  // and has allocation domain.
-  TensorView* comm_output = set(output);
-
-  int64_t c_sharded_idx =
-      mappedAxisInConsumer(output, comm_output, c_sharded_id);
-  // TODO: Revert this to output allocation domain instead.
-  comm_output->setAllocationDomain(
-      TensorDomain::orderedAs(
-          comm_output->getLogicalDomain(),
-          std::unordered_map<int64_t, int64_t>{{0, c_sharded_idx}}),
-      true);
-
-  ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, comm_output);
-  
-  transform_and_parallelize_like(input, comm_input);
-  transform_and_parallelize_like(output, comm_output);
 }
 
 } // namespace

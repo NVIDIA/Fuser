@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
+#include <ir/allocation_utils.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
@@ -574,56 +575,54 @@ IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   return logical_ids.at(0);
 }
 
-bool isAllocatedOutermost(
-    const std::vector<IterDomain*>& allocation_domain,
-    IterDomain* logical_id) {
+} // namespace
+
+bool isAllocatedOutermost(TensorView* tv, IterDomain* sharded_id) {
+  NVF_ERROR(
+      std::find(
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end(),
+          sharded_id) != tv->getLogicalDomain().end(),
+      "The sharded ID ",
+      sharded_id->toString(),
+      " is not in the logical domain ",
+      tv->getLogicalDomain());
   // This sharded logical ID may not directly present in allocation domain.
   // This indicates allocation domain has DID transformations.
-  // Find the derived loop IDs in the allocation domain and their index.
-  // Note: This is only in the interim to support tests that manually set
-  // allocation as loop. Eventually, we would require allocation as a
-  // permutation of logical domain here.
-  auto transforms = DependencyCheck::getAllExprsBetween(
-      {logical_id}, {allocation_domain.begin(), allocation_domain.end()});
-  std::vector<IterDomain*> derived_ids = {logical_id};
-  scheduler_utils::applyTransforms(derived_ids, transforms);
-
-  // The logical ID is the outermost dimension in the allocation domain if
-  // the derived ids are present at the front of the allocation domain.
-  // Example:
-  // logical [i0, i1]
-  // loop [DIDx(d), i0, i1/d]
-  // allocation [DIDx(d), i0, i1/d]
-  // isAllocatedOutermost(allocation_domain, i1) == false
-  // isAllocatedOutermost(allocation_domain, i0) == true
-
-  auto no_reductions_allocation = TensorDomain::noReductions(allocation_domain);
-
-  // Check if derived_ids appear at the front.
-  size_t derived_idx = 0;
-  for (IterDomain* alloc_id : no_reductions_allocation) {
-    if (derived_idx >= derived_ids.size()) {
-      break;
-    }
-    if (alloc_id == derived_ids.at(derived_idx)) {
-      derived_idx++;
-      continue;
-    }
-    if (alloc_id->isDeviceDim() || alloc_id->isBroadcast()) {
-      continue;
-    }
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  if (!layout.has_value()) {
     return false;
   }
-  NVF_ERROR(
-      derived_idx == derived_ids.size(),
-      "Some derived ids ",
-      derived_ids,
-      " not found in allocation domain ",
-      no_reductions_allocation);
-  return true;
-}
 
-} // namespace
+  const std::vector<IterDomain*>& allocation_domain =
+      (*layout).allocation_domain;
+
+  NVF_ERROR(
+      std::is_permutation(
+          allocation_domain.begin(),
+          allocation_domain.end(),
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end()),
+      "The allocation domain ",
+      allocation_domain,
+      " is not a permutation of the logical domain ",
+      tv->getLogicalDomain());
+
+  // Check if sharded_id appears at the front.
+  size_t idx = 0;
+  for (IterDomain* id : allocation_domain) {
+    if (id == sharded_id) {
+      return idx == 0;
+    }
+    if (id->isDeviceDim() || id->isBroadcast() || id->isReduction()) {
+      continue;
+    }
+    idx++;
+  }
+  NVF_ERROR(
+      false,
+      "Should never reach here - sharded_id must be found in allocation domain");
+}
 
 int64_t posInDomain(
     const std::vector<IterDomain*>& domain,
@@ -745,15 +744,20 @@ bool isCommLayoutCompliant(Expr* expr) {
   if (!isTvContiguous(producer) || !isTvContiguous(consumer)) {
     return false;
   }
-  std::vector<IterDomain*> domain;
-  // return isAllocatedOutermost(domain, (*communication_info).p_sharded_id);
-  if ((*communication_info).type == CommunicationType::Gather) {
-    domain = producer->getMaybeAllocationDomain();
-    return isAllocatedOutermost(domain, (*communication_info).p_sharded_id);
-  } else {
-    domain = consumer->getMaybeAllocationDomain();
-    return isAllocatedOutermost(domain, (*communication_info).c_sharded_id);
+
+  bool p_outermost = true;
+  bool c_outermost = true;
+  // If p_sharded_id / c_sharded_id is a device dimension (sharding on logical
+  // domain), its position does not affect the allocation domain.
+  if (!((*communication_info).p_sharded_id)->isDeviceDim()) {
+    p_outermost =
+        isAllocatedOutermost(producer, (*communication_info).p_sharded_id);
   }
+  if (!((*communication_info).c_sharded_id)->isDeviceDim()) {
+    c_outermost =
+        isAllocatedOutermost(consumer, (*communication_info).c_sharded_id);
+  }
+  return p_outermost && c_outermost;
 }
 
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {

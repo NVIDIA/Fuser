@@ -61,6 +61,8 @@ struct CommunicationInfo {
   int64_t reduction_axis = -1; // The reduction axis in reduce scatter
 };
 
+bool isAllocatedOutermost(TensorView* tv, IterDomain* id);
+
 // Returns whether the communication layout is compliant.
 // ProcessGroup expects contiguous tensors and
 // gathered/scattered axes to be outermost in allocation.
@@ -69,7 +71,9 @@ struct CommunicationInfo {
 bool isCommLayoutCompliant(Expr* expr);
 
 // Returns the position of an IterDomain in given domain.
-int64_t posInDomain(const std::vector<IterDomain*>& domain, const IterDomain* id);
+int64_t posInDomain(
+    const std::vector<IterDomain*>& domain,
+    const IterDomain* id);
 
 // Returns the communication info for the gather/scatter/reduce scatter
 // communication that may require reordering the allocation domain.
