@@ -144,6 +144,11 @@ void limitCircularBufferingSmemOperands(
       (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage,
       k_stages_per_tile * num_tiles_per_cta);
 
+  // Limit to 8 stages, even though in some cases we could use more. This is
+  // needed because mbarrier initialization has a penalty and we do not expect
+  // performance gains beyond 8 stages.
+  stages = std::min(stages, 8L);
+
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
 }
