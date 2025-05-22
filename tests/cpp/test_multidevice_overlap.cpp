@@ -42,14 +42,10 @@ void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
 
 struct OverlapTestParams {
   // Tensors sizes
-  int64_t M = std::pow(2, 12);
-  int64_t K = std::pow(2, 12);
-  int64_t N = std::pow(2, 12);
-  int64_t S = std::pow(2, 4); // nick
-  // int64_t M = std::pow(2, 6);
-  // int64_t K = std::pow(2, 5);
-  // int64_t N = std::pow(2, 4);
-  // int64_t S = std::pow(2, 3);
+  int64_t M = std::pow(2, 6);
+  int64_t K = std::pow(2, 5);
+  int64_t N = std::pow(2, 4);
+  int64_t S = std::pow(2, 3);
 
   // network backend type
   CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
@@ -942,7 +938,7 @@ class RingAllgatherOverlapTest : public MultiDeviceTest {
   cudaEvent_t start_event_ = {};
   cudaEvent_t finish_event_ = {};
 
-public:
+ public:
   RingAllgatherOverlapTest() {
     C10_CUDA_CHECK(cudaEventCreate(&start_event_));
     C10_CUDA_CHECK(cudaEventCreate(&finish_event_));
