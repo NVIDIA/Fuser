@@ -655,7 +655,7 @@ class NVF_API TensorView : public Val {
   //
   // The TensorView returned is: TV2[I0, R1, I2, I3]
   //
-  // The reduction will now beset as:
+  // The reduction will now be set as:
   //  TV2[I0, R1, I2, I3] = TV0[I0, I1, I2, I3]
   //  TV1[I0, R2, I3] = TV2[I0, R1, I2, I3]
   //

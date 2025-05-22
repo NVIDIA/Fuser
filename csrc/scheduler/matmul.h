@@ -103,6 +103,10 @@ class Common {
       CacheOp cache_op = CacheOp::AllLevels,
       bool propagate_allocation_domain = false);
 
+  //! This calls orig->rFactor() and also updates the broadcast graph to
+  //! reflect the new IterDomain mappings
+  TensorView* rFactor(TensorView* orig, const std::vector<int64_t>& axes);
+
  protected:
   Fusion* fusion_;
   const MatmulParams* params_;
