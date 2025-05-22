@@ -832,4 +832,11 @@ class TVDomainGuard {
   NVF_API ~TVDomainGuard();
 };
 
+// Given a reshape output TV, return two subsets of the root and
+// logical IDs, respectively. The root ID subset only includes that
+// are used as inputs to the reshape IDs ops, whereas the logical ID
+// subset includes those that are produced by the reshape ID ops.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
 } // namespace nvfuser::ir_utils

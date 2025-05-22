@@ -164,6 +164,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.lparams_ = lparams;
     codegen.has_warp_specialized_ =
         kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    codegen.warp_specialized_on_ =
+        kernel->summary().circular_buffer_info.getWarpSpecializedOn();
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -3008,7 +3010,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(lparams_.bdimx());
+    template_args.arg(
+        warp_specialized_on_ == ParallelType::TIDx
+            ? lparams_.bdimx() - ws_padded_threads
+            : lparams_.bdimx());
     indent() << genCall(
                     "warp::iterGroupedStaticWarpAllReduce",
                     template_args,
@@ -3859,6 +3864,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   LaunchParams lparams_;
   //! Whether the kernel has warp specialization
   bool has_warp_specialized_ = false;
+  //! Warp specialized on parallel type
+  ParallelType warp_specialized_on_ = ParallelType::Serial;
 };
 
 } // namespace

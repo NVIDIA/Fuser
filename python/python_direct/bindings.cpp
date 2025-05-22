@@ -12,7 +12,9 @@ namespace nvfuser::python {
 
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
+  bindEnums(nvfuser);
   bindFusionIr(nvfuser);
+  bindRuntime(nvfuser);
 }
 
 } // namespace nvfuser::python

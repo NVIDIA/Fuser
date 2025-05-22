@@ -70,10 +70,16 @@ class CircularBufferInfo {
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
+
+  ParallelType getWarpSpecializedOn() const {
+    return warp_specialized_on_;
+  }
+
   //! Returns true if the fusion has warp specialized circular buffer
   bool hasWarpSpecialized() const {
     return warp_specialized_on_ != ParallelType::Serial;
   };
+
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
