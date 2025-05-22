@@ -860,17 +860,14 @@ TEST_F(DynamicTransformTest, FusionDynamicReshapeReductionShmoo) {
       {{8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}, false}, // merge(1) osplit(1, 3)
 
       // test passing -1 dynamically for dimension size
-      // This is unsupported. See https://github.com/NVIDIA/Fuser/issues/249
-      // Values of -1 must be passed as constants instead of input-dependent
-      // scalars.
-      //{{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false} // merge(1) osplit(1, 3)
+      {{8, 3 * 5, 7, 9}, {8, 3, -1, 9}, false}, // merge(1) osplit(1, 3)
 
       // Empty reshapes should translate to FullOp
       {{8, 0, 7, 9}, {7, 8, 0, 9}, true}, // symbolic_sizes = [ -1, -1, 0, -1 ]
-      // In the case below there's now a separate Val introduced for the output
-      // extent, which is zero. This is represented in
-      // DynamicTransformConcretizationInfo causing cache miss
-      {{8, 0, 7, 9}, {7, 8, -1, 9}, true}, // symbolic_sizes = [ -1, -1, 0, -1 ]
+      // This hits the same conc info as {8, 3 * 5, 7, 9}, {8, 3, 5 * 7, 9}
+      {{8, 0, 7, 9},
+       {7, 8, -1, 9},
+       false}, // symbolic_sizes = [ -1, -1, 0, -1 ]
       {{8, 0, 7, 9}, {7, 8, 0, 0}, true}, // symbolic_sizes = [ -1, -1, 0, 0 ]
       {{8, 0, 7, 9}, {47, 0, 13, 0}, true}, // symbolic_sizes = [ -1, 0, -1, 0 ]
   };
