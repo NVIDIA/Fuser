@@ -646,6 +646,9 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // be vectorized to 512 byte, but gmem load/store can only be vectorized
     // to 16 bytes. So we need to further split the last dimension and use
     // multiple vector loads/stores. for each TMem load/store.
+    // After split and parallelization:
+    // (v = tmem_vectorize_factor, vv = params_->supported_vec_size.epilogue)
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > params_->supported_vec_size.epilogue) {
       d->split(-1, params_->supported_vec_size.epilogue);
