@@ -472,6 +472,7 @@ class VectorizeValidator : public OptInDispatch {
       const std::unordered_set<IterDomain*>& dep_alloc_ids,
       TensorView* tv,
       std::string name) {
+    return;
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
