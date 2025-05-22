@@ -174,10 +174,30 @@ void getHeuristics(
   // ping-pong computations.
   ParallelType ws_pt =
       iop.bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
+  WarpSpecialized ws(ws_pt);
+  // This is a heuristic para, multiple independent computation warp groups
+  // is not supported yet. Only need to enable register sharing when there
+  // are more than 256 threads, otherwise each thread can use 255 registers
+  // which is already the max allowed number.
+  int64_t independent_computation_groups = 1;
+  int64_t computation_threads = iop.bdimx * independent_computation_groups;
+  int64_t total_threads = ws_padded_threads + computation_threads;
+  if (total_threads > 256) {
+    int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
+    // Assume each padded threads keep [tma_branch_registers] registers and all
+    // others are moved to computation threads. The granularity is 8.
+    // [tma_branch_registers] is a tunable parameter,
+    int64_t tma_branch_registers = 32;
+    int64_t compute_branch_registers = reg_per_thread +
+        (reg_per_thread - tma_branch_registers) * ws_padded_threads /
+            computation_threads;
+    compute_branch_registers =
+        scheduler_utils::roundDownToN(compute_branch_registers, 8);
+    ws.num_registers =
+        std::make_pair(tma_branch_registers, compute_branch_registers);
+  }
   CircularBufferOptions circular_buffer_options{
-      .type = WarpSpecialized(ws_pt),
-      .stage = n_stages,
-      .prefetch = n_prefetch};
+      .type = ws, .stage = n_stages, .prefetch = n_prefetch};
   rparams->circular_buffer_options = circular_buffer_options;
 
   // TODO: This is a heuristic, need to be tuned.
