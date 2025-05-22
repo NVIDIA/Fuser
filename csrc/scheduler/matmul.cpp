@@ -325,19 +325,20 @@ TensorView* Common::cacheAfter(
 TensorView* Common::rFactor(
     TensorView* orig,
     const std::vector<int64_t>& axes) {
-  std::vector<IterDomain*> orig_logical = orig->getLogicalDomain(); // maps to rf's root
+  // std::vector<IterDomain*> orig_logical = orig->getLogicalDomain(); // maps to rf's root
   // std::vector<IterDomain*> orig_loop = orig->getLoopDomain(); // maps to rf's logical
 
   TensorView* rf = orig->rFactor(axes);
+  updateIdModel();
 
-  const std::vector<IterDomain*>& rf_root = rf->getRootDomain();
+  // const std::vector<IterDomain*>& rf_root = rf->getRootDomain();
   // const std::vector<IterDomain*>& rf_logical = rf->getLogicalDomain();
   // const std::vector<IterDomain*>& new_orig_logical = rf->getLogicalDomain();
 
-  for (size_t i : arange(orig_logical.size())) {
-    ValGroup vg = graph_->toGroup(orig_logical[i]);
-    graph_->initializeVal(rf_root[i], vg);
-  }
+  // for (size_t i : arange(orig_logical.size())) {
+  //   ValGroup vg = graph_->toGroup(orig_logical[i]);
+  //   graph_->initializeVal(rf_root[i], vg);
+  // }
 
   // for (size_t i : arange(orig_loop.size())) {
   //   ValGroup vg = graph_->toGroup(orig_loop[i]);
