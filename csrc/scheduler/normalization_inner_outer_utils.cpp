@@ -215,7 +215,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // Outerbroadcast tvs can't be circular buffered, instead of TMA copied to
   // smem,then copied from smem to regs, prefer to directly load to regs. Each
   // CTA loads once and re-used in each circular buffer iteration.
-  if (is_warp_specialized) {
+  // TODO: maybe tunable for some cases.
+  const bool is_direct_load_to_regs = true;
+  if (is_warp_specialized && is_direct_load_to_regs) {
     buffer_params.regs_buffer_size = 0;
     for (auto buffer : buffers) {
       if (std::any_of(

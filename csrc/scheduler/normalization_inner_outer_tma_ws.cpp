@@ -47,10 +47,6 @@ void getHeuristics(
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
     int64_t bdimx = -1;
-    // derived metrics for sorting
-    int64_t warps_per_sm = -1;
-    int64_t required_register_per_thread = -1;
-    int64_t available_register_per_thread = -1;
 
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
@@ -68,10 +64,7 @@ void getHeuristics(
          << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
          << ", vectorization_factor_outer: " << vectorization_factor_outer
-         << ", bdimx: " << bdimx << ", warps_per_sm: " << warps_per_sm
-         << ", required_register_per_thread: " << required_register_per_thread
-         << ", available_register_per_thread: "
-         << available_register_per_thread;
+         << ", bdimx: " << bdimx;
       return ss.str();
     }
   };
@@ -79,14 +72,31 @@ void getHeuristics(
   // Estimate register usage per thread based on buffer size.
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
-  auto get_estimated_register_usage = [&](int64_t batch_mul_vect) {
-    int64_t persistent_buffer_size =
-        regs_buffer_size / inner_dim_numel * batch_mul_vect;
-    int64_t estimated_register_count =
-        persistent_buffer_size / scheduler_utils::bytes_per_register +
+  // Tunable parameters: is_smem_regs_cache
+  // Controls whether immediately load from smem to registers after TMA load is
+  // done.
+  const bool is_smem_regs_cache = true;
+  // Prefer to unroll iteration dim by at least 2 to benefit from grouped
+  // reduction and increase tile size.
+  const int64_t preferred_min_iter_unroll = 2L;
+
+  // Assume each thread can use 255 registers with a fixed amount not for
+  // storing persistent buffers, e.g. indexing.
+  auto get_max_persistent_batch_size = [&]() {
+    const int64_t register_for_buffer =
+        scheduler_utils::max_registers_per_thread -
         scheduler_utils::register_overhead;
-    return std::min(
-        estimated_register_count, scheduler_utils::max_registers_per_thread);
+    int64_t total_regs_buffer_size = regs_buffer_size;
+    if (is_smem_regs_cache) {
+      total_regs_buffer_size += smem_buffer_size;
+    }
+    int64_t buffer_bytes_per_batch = total_regs_buffer_size / inner_dim_numel *
+        preferred_min_iter_unroll * vectorize_factor;
+    int64_t batch_size = scheduler_utils::safeDiv(
+        register_for_buffer * scheduler_utils::bytes_per_register,
+        buffer_bytes_per_batch);
+
+    return batch_size;
   };
 
   // The inner reduction part of the kernel also does a partial outer reduction
@@ -126,13 +136,6 @@ void getHeuristics(
     // Reduction dim: serial
     std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
         get_outer_reduction_buffer_vect_factor(iop.inner_vect);
-    // (3) Derived metrics warps_per_sm and register usage for sorting
-    iop.warps_per_sm = ceilDiv(iop.bdimx, dev_prop->warpSize) * iop.gdimy /
-        device_multiprocessor_count;
-    iop.available_register_per_thread =
-        getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
-    iop.required_register_per_thread =
-        get_estimated_register_usage(iop.inner_vect * iop.inner_batch);
     return iop;
   };
 
@@ -142,12 +145,11 @@ void getHeuristics(
   // Set bdimx, will be revised in heuristics tuning.
   // bdimy is reserved for warp specialization
   // bdimz is not used
-  const int64_t max_persistent_batch = 10L;
+  const int64_t max_persistent_batch = get_max_persistent_batch_size();
   const int64_t after_vect = inner_dim_numel / vect_factor;
   int64_t bdimx = std::min(128L, after_vect);
   bdimx = std::max(bdimx, ceilDiv(after_vect, max_persistent_batch));
   bdimx = scheduler_utils::roundUpToN(bdimx, 128L);
-
   auto iop = get_heuristics_given_vect_threads(vect_factor, bdimx);
   rparams->combined_split_grid_inner_dim =
       iop.vectorization_factor_outer * iop.bdimx * iop.gdimy < inner_dim_numel;
@@ -234,7 +236,6 @@ void getHeuristics(
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount = iop.available_register_per_thread;
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
