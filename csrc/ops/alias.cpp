@@ -151,12 +151,17 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
 
-  Val* numel = FusionGuard::getCurFusion()->oneVal();
-  for (const auto j : arange(inp_dom.size())) {
-    numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
-  }
+  // We don't compute numel unless we need to, and then we compute it only once
+  // to encourage hoisting
+  Val* numel = nullptr;
+  const auto neg_one_size = [&numel, &inp_dom, &new_sizes](size_t pos) {
+    if (numel == nullptr) {
+      numel = FusionGuard::getCurFusion()->oneVal();
+      for (const auto j : arange(inp_dom.size())) {
+        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
+      }
+    }
 
-  const auto neg_one_size = [&numel, &new_sizes](size_t pos) {
     Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
     for (const auto j : arange(new_sizes.size())) {
       if (pos == j) {
