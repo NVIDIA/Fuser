@@ -12,28 +12,10 @@
 #include <vector>
 
 #include <fusion.h>
+#include <ir/allocation_utils.h>
 #include <ir/interface_nodes.h>
 
 namespace nvfuser {
-
-// With respect to the logical domain. `allocation_domain` must be a
-// permutation of the corresponding logcial domain, and `contiguity` must be of
-// the same length as `allocation`. See canonicalizeLayout for how we handle DID
-// loop splits.
-struct Layout {
-  std::vector<IterDomain*> allocation_domain;
-  std::vector<std::optional<bool>> contiguity;
-
-  // The size of `allocation_domain` and therefore the size of `contiguity`.
-  int64_t size() const;
-
-  std::string toString(int indent_size = 0) const;
-
-  // Returns whether this layout is compliant with `required`. This is
-  // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa.
-  bool isCompliantWith(const Layout& required) const;
-};
 
 // Holds aliases found in a fusion. The expected user flow is
 //

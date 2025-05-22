@@ -672,7 +672,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
-  if (linear->has_bias()) {
+  if (linear->hasBias()) {
     auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {

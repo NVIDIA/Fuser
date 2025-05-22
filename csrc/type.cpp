@@ -751,26 +751,25 @@ static const char* parallel_type2string(ParallelType t) {
   }
 }
 
+std::unordered_set<ParallelType> allParallelTypes() {
+  static auto all_parallel_types = []() {
+    std::unordered_set<ParallelType> s;
+    for (auto i : arange(static_cast<int>(ParallelType::Count))) {
+      s.insert(static_cast<ParallelType>(i));
+    }
+    return s;
+  }();
+
+  return all_parallel_types;
+}
+
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except) {
-  std::unordered_set<ParallelType> result = {
-      ParallelType::BIDz,
-      ParallelType::BIDy,
-      ParallelType::BIDx,
-      ParallelType::TIDz,
-      ParallelType::TIDy,
-      ParallelType::TIDx,
-      ParallelType::Vectorize,
-      ParallelType::Unroll,
-      ParallelType::Unswitch,
-      ParallelType::Mma,
-      ParallelType::Group,
-      ParallelType::Serial,
-      ParallelType::Bulk};
-  for (auto t : except) {
-    result.erase(t);
+  std::unordered_set<ParallelType> s = allParallelTypes();
+  for (const auto t : except) {
+    s.erase(t);
   }
-  return result;
+  return s;
 }
 
 static const char* memory_type2string(MemoryType t) {

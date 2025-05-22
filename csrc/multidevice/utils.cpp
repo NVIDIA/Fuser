@@ -638,6 +638,16 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    s.insert(ParallelType::Stream);
+    return s;
+  }();
+  return s;
+}
+
 void shardAllLike(
     TensorView* ref,
     const std::vector<TensorView*>& tvs,
@@ -687,7 +697,8 @@ void shardBetween(
 
   std::unordered_set<TensorView*> all_tvs =
       scheduler_utils::getAllTvsFrom(from, boundary);
-  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
+  shardAllLike(
+      ref, {all_tvs.begin(), all_tvs.end()}, deviceAndStreamParallelTypes());
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
