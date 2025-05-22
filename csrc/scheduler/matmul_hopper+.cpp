@@ -516,7 +516,10 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
 void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
   if (isBlackwell(params_->mma_macro)) {
     mma_result->setMemoryType(MemoryType::Tensor);
-    // [Mi, (DimSep), ...other]
+    // So far, we only support M128 Blackwell MMA macros. For these macros,
+    // Rows of the accumulator span all 128 lanes of TMem. That is, the
+    // allocation domain should be [Mi, (DimSep), ...other]
+    // We want to move Mi to the front of the domain.
     std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
     auto item = allocation_domain[allocation_domain.size() - 3];
     allocation_domain.erase(
