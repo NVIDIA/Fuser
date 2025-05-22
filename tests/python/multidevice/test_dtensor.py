@@ -110,6 +110,8 @@ class LinearConfig:
     out_features: int
 
 
+# I omitted biases because DeepSeek V3 uses non-biased linear layers in MLA and
+# MoE.
 def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
     e_in, e_out = config.in_features, config.out_features
 
