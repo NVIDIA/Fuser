@@ -1337,7 +1337,9 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
+  // Note we check for `hasAllocation`, because allocation domain suggests there
+  // are expressions leading to allocation domain, which needs to be traversed.
+  if (!tv->hasRoot() && !tv->hasAllocation()) {
     return reference_id;
   }
 
