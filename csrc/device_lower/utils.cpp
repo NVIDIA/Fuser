@@ -769,8 +769,20 @@ AllocPosInfo getAllocPosInfo(
 
   bool outer_alloc_found = false;
 
+  int64_t stop_position = tv->getComputeAtPosition();
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (is_warp_specialized) {
+    const auto& warp_specialized =
+        std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+    if (warp_specialized.stage_slice_position.has_value()) {
+      stop_position = warp_specialized.stage_slice_position.value();
+    }
+  }
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == stop_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
