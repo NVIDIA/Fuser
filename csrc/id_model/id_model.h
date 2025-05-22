@@ -32,6 +32,10 @@ struct StatefulInliningInfo {
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
       p2c_ca_permissive_maps;
 
+  // sibling mappings through the fusion for inlined loop domains
+  std::unordered_map<IterDomain*, VectorOfUniqueEntries<Val*>>
+      sibling_mbarrier_permissive_maps;
+
   // Broadcast resolution map for root domains, including non-inlined
   // root domains
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>

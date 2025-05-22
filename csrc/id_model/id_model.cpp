@@ -778,6 +778,40 @@ StatefulInliningInfo buildStatefulInliningInfo(
       }
     }
 
+    if (auto mma_op = dynamic_cast<MmaOp*>(expr)) {
+      if (mma_op->isHopper()) {
+        auto producer_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+
+        auto producer_tv = producer_tvs.vector().front();
+
+        int64_t stage_slice_position = 4;
+        VectorOfUniqueEntries<IterDomain*> all_producer_inline_deps(
+            producer_tv->getLoopDomain().begin(),
+            producer_tv->getLoopDomain().begin() + stage_slice_position);
+        info.ordered_sibling_ids.pushBack(all_producer_inline_deps);
+
+        auto all_producer_ids =
+            producer_tvs.vector().front()->domain()->allIDs();
+        for (const auto i : arange(1, producer_tvs.size())) {
+          auto producer_tv_i = producer_tvs.vector().at(i);
+          auto all_producer_i_ids = producer_tv_i->domain()->allIDs();
+
+          auto sibling_map = permissive_graph.buildMapBetween(
+              all_producer_ids, all_producer_i_ids);
+
+          for (const auto& [p_id_1, p_ids] : sibling_map) {
+            // Note that p_ids can have multiple domains as this graph
+            // is a Permissive graph and there may be broadcast merged
+            // domains
+            if (!p_ids.empty() &&
+                all_producer_inline_deps.has(p_id_1->as<IterDomain>())) {
+              info.sibling_maps[p_id_1->as<IterDomain>()].pushBack(p_ids);
+            }
+          }
+        }
+      }
+    }
+
     if (ir_utils::hasUniformSiblings(expr)) {
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
