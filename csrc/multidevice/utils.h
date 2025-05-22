@@ -58,7 +58,6 @@ struct CommunicationInfo {
   // It is the id mapped to the gathered ID in scatter/reduce scatter
   IterDomain* p_sharded_id;
   IterDomain* c_sharded_id;
-  int64_t reduction_axis = -1; // The reduction axis in reduce scatter
 };
 
 bool isAllocatedOutermost(TensorView* tv, IterDomain* id);
