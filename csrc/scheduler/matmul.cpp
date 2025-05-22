@@ -325,40 +325,40 @@ TensorView* Common::cacheAfter(
 TensorView* Common::rFactor(
     TensorView* orig,
     const std::vector<int64_t>& axes) {
-  std::vector<IterDomain*> orig_logical = orig->getLogicalDomain(); // maps to rf's root
-  std::vector<IterDomain*> orig_loop = orig->getLoopDomain(); // maps to rf's logical
+  // std::vector<IterDomain*> orig_logical = orig->getLogicalDomain(); // maps to rf's root
+  // std::vector<IterDomain*> orig_loop = orig->getLoopDomain(); // maps to rf's logical
 
   TensorView* rf = orig->rFactor(axes);
 
-  const std::vector<IterDomain*>& rf_root = rf->getRootDomain();
-  const std::vector<IterDomain*>& rf_logical = rf->getLogicalDomain();
-  const std::vector<IterDomain*>& new_orig_logical = rf->getLogicalDomain();
+  // const std::vector<IterDomain*>& rf_root = rf->getRootDomain();
+  // const std::vector<IterDomain*>& rf_logical = rf->getLogicalDomain();
+  // const std::vector<IterDomain*>& new_orig_logical = rf->getLogicalDomain();
 
-  for (size_t i : arange(orig_logical.size())) {
-    try {
-      ValGroup vg = graph_->toGroup(orig_logical[i]);
-      graph_->initializeVal(rf_root[i], vg);
-    } catch (const std::exception& e) {
-      std::cerr << "Error: " << e.what() << std::endl;
-      std::cerr << "orig_logical[i]: " << orig_logical[i]->toString() << std::endl;
-      std::cerr << "rf_root[i]: " << rf_root[i]->toString() << std::endl;
-      // throw;
-    }
-  }
+  // for (size_t i : arange(orig_logical.size())) {
+  //   try {
+  //     ValGroup vg = graph_->toGroup(orig_logical[i]);
+  //     graph_->initializeVal(rf_root[i], vg);
+  //   } catch (const std::exception& e) {
+  //     std::cerr << "Error: " << e.what() << std::endl;
+  //     std::cerr << "orig_logical[i]: " << orig_logical[i]->toString() << std::endl;
+  //     std::cerr << "rf_root[i]: " << rf_root[i]->toString() << std::endl;
+  //     // throw;
+  //   }
+  // }
 
-  for (size_t i : arange(orig_loop.size())) {
-    try {
-      ValGroup vg = graph_->toGroup(orig_loop[i]);
-      graph_->initializeVal(rf_logical[i], vg);
-      graph_->initializeVal(new_orig_logical[i], vg);
-    } catch (const std::exception& e) {
-      std::cerr << "Error: " << e.what() << std::endl;
-      std::cerr << "orig_loop[i]: " << orig_loop[i]->toString() << std::endl;
-      std::cerr << "rf_logical[i]: " << rf_logical[i]->toString() << std::endl;
-      std::cerr << "new_orig_logical[i]: " << new_orig_logical[i]->toString() << std::endl;
-      throw;
-    }
-  }
+  // for (size_t i : arange(orig_loop.size())) {
+  //   try {
+  //     ValGroup vg = graph_->toGroup(orig_loop[i]);
+  //     graph_->initializeVal(rf_logical[i], vg);
+  //     graph_->initializeVal(new_orig_logical[i], vg);
+  //   } catch (const std::exception& e) {
+  //     std::cerr << "Error: " << e.what() << std::endl;
+  //     std::cerr << "orig_loop[i]: " << orig_loop[i]->toString() << std::endl;
+  //     std::cerr << "rf_logical[i]: " << rf_logical[i]->toString() << std::endl;
+  //     std::cerr << "new_orig_logical[i]: " << new_orig_logical[i]->toString() << std::endl;
+  //     // throw;
+  //   }
+  // }
 
   return rf;
 }
