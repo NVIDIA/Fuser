@@ -175,8 +175,11 @@ class HopperPlus : public Common {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
+  void setMmaResultAllocationDomain(TensorView* mma_result);
   void scheduleMmaResults();
 
+  void scheduleEpilogueWithoutSmemEpilogueHopper();
+  void scheduleEpilogueWithoutSmemEpilogueBlackwell();
   void scheduleEpilogueWithoutSmemEpilogue();
   void scheduleEpilogueWithSmemEpilogue();
   void scheduleEpilogue();
