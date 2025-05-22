@@ -558,7 +558,7 @@ void HopperPlus::scheduleMmaResults() {
   // Schedule mma results and propagate forward
   auto all_merged_roles = blockTileTensors(mma_results_);
   parallelizeBlocks(mma_results_);
-  for (auto& [i, mma_result] : enumerate(mma_results_)) {
+  for (auto&& [i, mma_result] : enumerate(mma_results_)) {
     const std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
     // Test that mma_result logical is MNK
