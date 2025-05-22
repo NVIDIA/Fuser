@@ -728,6 +728,24 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
