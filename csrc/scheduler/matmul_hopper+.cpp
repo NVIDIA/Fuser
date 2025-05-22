@@ -620,6 +620,9 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     parallelizeBlocks({d});
     transformLikeMmaOutputWithoutK(d);
 
+    // TIDx is 128, so we use it for lanes of the accumulator. Also, we
+    // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
     int64_t tmem_vectorize_factor = 1;
     const int64_t n_mma = getN(params_->mma_macro);
@@ -639,6 +642,10 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType());
 
+    // Vectorize the epilogue input load and output store. TMem load can
+    // be vectorized to 512 byte, but gmem load/store can only be vectorized
+    // to 16 bytes. So we need to further split the last dimension and use
+    // multiple vector loads/stores. for each TMem load/store.
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > params_->supported_vec_size.epilogue) {
       d->split(-1, params_->supported_vec_size.epilogue);
