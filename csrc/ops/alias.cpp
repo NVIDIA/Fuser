@@ -170,6 +170,14 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       other_new_numel =
           SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
     }
+    // In case numel is 0, other_new_numel might also be 0 and we would hit a
+    // division by zero. In such cases, using 1 as the denominator will cause
+    // us to properly compute 0 for this extent.
+    other_new_numel = SimplifyingIrBuilder::whereExpr(
+        eq(other_new_numel, FusionGuard::getCurFusion()->zeroVal()),
+        FusionGuard::getCurFusion()->oneVal(),
+        other_new_numel);
+
     Val* new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
     return simplifyExpr(new_size);
   };
