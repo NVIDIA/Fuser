@@ -138,8 +138,25 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
-using PingPongTest = NVFuserTest;
-TEST_F(PingPongTest, TwoTmaLoads) {
+using PingPongMultipleLoadsParams = std::tuple<bool, int64_t>;
+class PingPongMultipleLoadsTest
+    : public NVFuserFixtureParamTest<PingPongMultipleLoadsParams> {
+ public:
+  void SetUp() override {
+    opt_guard_ = std::make_unique<EnableOptionsGuard>();
+    if (std::get<1>(GetParam())) {
+      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    } else {
+      EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
+    }
+    NVFuserTest::SetUp();
+  }
+
+ protected:
+  // This keeps the guard alive until all tests are done.
+  std::unique_ptr<EnableOptionsGuard> opt_guard_;
+};
+TEST_P(PingPongMultipleLoadsTest, TwoTmaLoads) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -199,7 +216,7 @@ TEST_F(PingPongTest, TwoTmaLoads) {
   for (auto tv : {tv4, tv5, tv6, tv7}) {
     inlineSelectedAt({tv}, tv, 3);
   }
-  int64_t stage_slice_position = 3;
+  auto [_, stage_slice_position] = GetParam();
   for (auto tv : {tv2, tv3}) {
     tv->circularBuffer(
         stages,
@@ -212,4 +229,14 @@ TEST_F(PingPongTest, TwoTmaLoads) {
   auto cg_outputs = ke.run({t0, t1});
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PingPongMultipleLoadsTest,
+    ::testing::Combine(testing::Bool(), testing::Values(2, 3)),
+    [](const testing::TestParamInfo<PingPongMultipleLoadsParams>& info) {
+      std::stringstream ss;
+      ss << "IdModel_" << std::get<0>(info.param);
+      ss << "_stage_slice_position_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
