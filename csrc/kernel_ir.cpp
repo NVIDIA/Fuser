@@ -60,11 +60,11 @@ Predicate::Predicate(
     IrBuilderPasskey passkey,
     PredicateType ptype,
     const Expr* tma_1d_load_expr,
-    std::vector<ForLoop*> tma_1d_load_loops_)
+    std::vector<ForLoop*> tma_1d_load_loops)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(ptype),
       expr_(tma_1d_load_expr),
-      tma_1d_load_loops_(tma_1d_load_loops_) {
+      tma_1d_load_loops_(std::move(tma_1d_load_loops)) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
