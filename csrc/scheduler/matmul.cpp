@@ -190,8 +190,8 @@ void Common::updateIdModel() {
         new_id_roles.emplace(new_group, v);
       } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
-        std::cerr << "k: " << k->front()->toString() << std::endl;
-        std::cerr << "v: " << v << std::endl;
+        // std::cerr << "k: " << k->front()->toString() << std::endl;
+        // std::cerr << "v: " << v << std::endl;
         // throw;
       }
     }
