@@ -6149,4 +6149,114 @@ TEST_F(PredicateIndexingTest, NonTrivialSizeOneDomain) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Simple repro of issue #4218
+TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  fusion.addOutput(tv1);
+
+  // [r0(8)]
+  tv1->split(0, 1);
+  // [r1(8), r2(1)]
+  tv1->split(1, 4);
+  // [r1(8), r3(1), r4(4)]
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      auto i = loop_indices.at(0);
+      auto k = loop_indices.at(2);
+
+      if (tv->name() == 1) {
+        // i >= 0 && i < 8 && k < 1
+        return andExpr(
+            andExpr(geExpr(i, zero), ltExpr(i, createInt(8))), ltExpr(k, one));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  fusion.addOutput(tv1);
+
+  // [r0(8)]
+  tv1->split(0, 1);
+  // [r1(8), r2(1)]
+  tv1->split(1, 1);
+  // [r1(8), r3(1), r4(1)]
+  tv1->split(2, 4);
+  // [r1(8), r3(1), r5(1), r6(4)]
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+      auto one = tv->fusion()->oneVal();
+
+      auto i0 = loop_indices.at(0);
+      auto i3 = loop_indices.at(3);
+
+      if (tv->name() == 1) {
+        // i0 >= 0 && i0 < 8 && i3 < 1
+        return andExpr(
+            andExpr(geExpr(i0, zero), ltExpr(i0, createInt(8))),
+            ltExpr(i3, one));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

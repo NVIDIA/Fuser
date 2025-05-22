@@ -18,8 +18,8 @@
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <scheduler/utils.h>
 #include <statement_guard.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -52,6 +52,14 @@ int64_t allocationIndex(TensorView* tv, IterDomain* id) {
 }
 
 } // namespace
+
+bool isTvContiguous(const TensorView* tv) {
+  // Reduction and broadcast axis do not have a contiguity value.
+  return std::all_of(
+      tv->getContiguity().begin(),
+      tv->getContiguity().end(),
+      [](std::optional<bool> c) { return c.value_or(true); });
+}
 
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
     TensorView* producer,
@@ -352,6 +360,8 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
+} // namespace
+
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -367,8 +377,6 @@ std::vector<IterDomain*> getInputsInTargetDomain(
       [](Val* val) { return val->as<IterDomain>(); });
   return inputs_as_iter_domains;
 }
-
-} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
@@ -630,6 +638,16 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    s.insert(ParallelType::Stream);
+    return s;
+  }();
+  return s;
+}
+
 void shardAllLike(
     TensorView* ref,
     const std::vector<TensorView*>& tvs,
@@ -679,7 +697,8 @@ void shardBetween(
 
   std::unordered_set<TensorView*> all_tvs =
       scheduler_utils::getAllTvsFrom(from, boundary);
-  shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
+  shardAllLike(
+      ref, {all_tvs.begin(), all_tvs.end()}, deviceAndStreamParallelTypes());
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {
@@ -773,6 +792,22 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     }
   }
   return ret;
+}
+
+void propagateDIDTransform(
+    const TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    int64_t did_pos,
+    PropagateDirection direction) {
+  TensorDomain* replayed_domain = nullptr;
+  for (TensorView* tv : tvs) {
+    if (direction == PropagateDirection::kForward) {
+      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
+    } else {
+      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
+    }
+    tv->setLoopDomain(replayed_domain->loop());
+  }
 }
 
 } // namespace nvfuser

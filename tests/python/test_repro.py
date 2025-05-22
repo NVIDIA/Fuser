@@ -178,3 +178,180 @@ class TestRepro(NVFuserTest):
             ),
         ]
         outputs = fd.execute(inputs)
+
+    def test_issue4459(self):
+        def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[4, 32],
+                contiguity=[True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0, 1],
+            )
+            T1 = fd.define_tensor(
+                shape=[4, 32, 1, 1, 1],
+                contiguity=[True, True, None, None, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[4, 3, 2, 1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[4, 32, 10, 64, 64],
+                contiguity=[True, True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[4, 3, 2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[320],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T4 = fd.define_tensor(
+                shape=[320],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T5 = fd.define_tensor(
+                shape=[4, 320, 66, 66],
+                contiguity=[True, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T12 = fd.ops.broadcast_in_dim(
+                T0, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            T19 = fd.ops.broadcast_in_dim(
+                T12, shape=[4, 32, 10, 64, 64], broadcast_dims=[0, 1, 2, 3, 4]
+            )
+            T26 = fd.ops.broadcast_in_dim(
+                T1, shape=[4, 32, 10, 64, 64], broadcast_dims=[0, 1, 2, 3, 4]
+            )
+            T27 = fd.ops.sub(T2, T19)
+            T33 = fd.ops.reshape(T3, new_shape=[1, 320, 1, 1])
+            T34 = fd.ops.mul(T27, T26)
+            T40 = fd.ops.reshape(T4, new_shape=[1, 320, 1, 1])
+            T46 = fd.ops.broadcast_in_dim(
+                T33, shape=[4, 320, 64, 64], broadcast_dims=[0, 1, 2, 3]
+            )
+            T52 = fd.ops.reshape(T34, new_shape=[4, 320, 64, 64])
+            T58 = fd.ops.broadcast_in_dim(
+                T40, shape=[4, 320, 64, 64], broadcast_dims=[0, 1, 2, 3]
+            )
+            T59 = fd.ops.mul(T52, T46)
+            T60 = fd.ops.add(T59, T58)
+            T61 = fd.ops.neg(T60)
+            T62 = fd.ops.exp(T61)
+            S63 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T73 = fd.ops.pad(T5, [-1, -1, -1, -1, 0, 0, 0, 0], S63)
+            S74 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T75 = fd.ops.add(S74, T62)
+            T76 = fd.ops.mul(T60, T73)
+            T77 = fd.ops.reciprocal(T75)
+            T78 = fd.ops.neg(T76)
+            T79 = fd.ops.mul(T78, T77)
+            T80 = fd.ops.mul(T79, T77)
+            T81 = fd.ops.mul(T80, T62)
+            T82 = fd.ops.neg(T81)
+            T83 = fd.ops.mul(T77, T73)
+            T84 = fd.ops.add(T83, T82)
+            T85 = fd.ops.mul(T46, T84)
+            T92 = fd.ops.reshape(T85, new_shape=[4, 32, 10, 64, 64])
+            T93 = fd.ops.mul(T27, T92)
+            T94 = fd.ops.sum(T93, dims=[2, 3, 4], keepdim=False, dtype=DataType.Null)
+            T101 = fd.ops.broadcast_in_dim(
+                T94, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            S102 = fd.define_scalar(3.00000, dtype=DataType.Double)
+            T103 = fd.ops.pow(T1, S102)
+            S104 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+            T105 = fd.ops.mul(S104, T101)
+            T106 = fd.ops.mul(T26, T92)
+            T107 = fd.ops.mul(T105, T103)
+            T108 = fd.ops.neg(T106)
+            T109 = fd.ops.sum(T107, dims=[2, 3, 4], keepdim=False, dtype=DataType.Null)
+            T110 = fd.ops.sum(T108, dims=[2, 3, 4], keepdim=False, dtype=DataType.Null)
+            T117 = fd.ops.broadcast_in_dim(
+                T0, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            T124 = fd.ops.broadcast_in_dim(
+                T109, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            T131 = fd.ops.broadcast_in_dim(
+                T110, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            T138 = fd.ops.broadcast_in_dim(
+                T117, shape=[4, 32, 10, 64, 64], broadcast_dims=[0, 1, 2, 3, 4]
+            )
+            T145 = fd.ops.broadcast_in_dim(
+                T124, shape=[4, 32, 10, 64, 64], broadcast_dims=[0, 1, 2, 3, 4]
+            )
+            T146 = fd.ops.sum(T131, dims=[2, 3, 4], keepdim=False, dtype=DataType.Null)
+            T147 = fd.ops.sub(T2, T138)
+            S148 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T149 = fd.ops.mul(S148, T145)
+            T156 = fd.ops.broadcast_in_dim(
+                T146, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
+            )
+            T157 = fd.ops.mul(T149, T147)
+            T164 = fd.ops.broadcast_in_dim(
+                T156, shape=[4, 32, 10, 64, 64], broadcast_dims=[0, 1, 2, 3, 4]
+            )
+            S165 = fd.define_scalar(40960.0, dtype=DataType.Double)
+            S166 = fd.ops.reciprocal(S165)
+            T167 = fd.ops.mul(T157, S166)
+            S168 = fd.define_scalar(2.44141e-05, dtype=DataType.Double)
+            T169 = fd.ops.mul(S168, T164)
+            T170 = fd.ops.add(T169, T167)
+            T171 = fd.ops.add(T106, T170)
+            T177 = fd.ops.reshape(T171, new_shape=[4, 320, 64, 64])
+            T184 = fd.ops.reshape(T177, new_shape=[1, 4, 320, 64, 64])
+            T185 = fd.ops.permute(T184, dims=[0, 3, 4, 1, 2])
+            T192 = fd.ops.reshape(T185, new_shape=[1, 1, 4096, 4, 320])
+            T193 = fd.ops.mul(T52, T84)
+            T194 = fd.ops.sum(T192, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+            T195 = fd.ops.sum(T193, dims=[0, 2, 3], keepdim=False, dtype=DataType.Null)
+            T196 = fd.ops.sum(T84, dims=[0, 2, 3], keepdim=False, dtype=DataType.Null)
+            T200 = fd.ops.reshape(T194, new_shape=[16384, 320])
+            T206 = fd.ops.broadcast_in_dim(
+                T195, shape=[1, 320, 1, 1], broadcast_dims=[1]
+            )
+            T212 = fd.ops.broadcast_in_dim(
+                T196, shape=[1, 320, 1, 1], broadcast_dims=[1]
+            )
+            T213 = fd.ops.permute(T200, dims=[1, 0])
+            T214 = fd.ops.sum(T194, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+            T217 = fd.ops.reshape(T206, new_shape=[320])
+            T220 = fd.ops.reshape(T212, new_shape=[320])
+            fd.add_output(T177)
+            fd.add_output(T200)
+            fd.add_output(T213)
+            fd.add_output(T214)
+            fd.add_output(T217)
+            fd.add_output(T220)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id0(fd)
+
+        inputs = [
+            torch.randn(128, dtype=torch.float32, device="cuda:0").as_strided(
+                (4, 32), (1, 4)
+            ),
+            torch.testing.make_tensor(
+                (4, 32, 1, 1, 1), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (4, 32, 10, 64, 64), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device="cuda:0"),
+            torch.testing.make_tensor((320,), dtype=torch.float32, device="cuda:0"),
+            torch.testing.make_tensor(
+                (4, 320, 66, 66), dtype=torch.float32, device="cuda:0"
+            ),
+        ]
+        fd.execute(inputs)

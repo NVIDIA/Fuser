@@ -2317,18 +2317,7 @@ std::vector<PolymorphicValue> ViewOp::evaluate(
   NVF_ERROR(inputs.size() == 1);
   const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
 
-  const std::vector<IterDomain*>& out_logical = out()->getLogicalDomain();
-  std::vector<int64_t> out_shape;
-  out_shape.reserve(out_logical.size());
-  for (IterDomain* id : out_logical) {
-    if (id->isDeviceDim()) {
-      out_shape.push_back(1);
-    } else {
-      out_shape.push_back(
-          ee.evaluate(id->getMaybeExpandedExtent()).as<int64_t>());
-    }
-  }
-
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
   // TODO: check allocation domain and contiguity.
 
   // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
@@ -4664,7 +4653,7 @@ std::string LinearOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << inB()->toString();
-  if (has_bias()) {
+  if (hasBias()) {
     indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
   }
   indent(ss, indent_size + 1) << ")\n";
@@ -4702,7 +4691,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   squeeze_device_dims(weight, num_device_dims);
 
   at::Tensor out_tensor;
-  if (has_bias()) {
+  if (hasBias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
     squeeze_device_dims(bias, num_device_dims);
     out_tensor = at::linear(in, weight, bias);
@@ -5068,9 +5057,15 @@ bool ForLoop::isUnrollable() const {
 
 bool ForLoop::isUnrolled() const {
   if (isUnrollRequired() && !isUnrollable()) {
-    TORCH_WARN(
-        "Unroll required but not possible. Register allocation disabled. Loop index: ",
-        index()->toString());
+    // Broadcast and vectorized loops are not generated and do not
+    // matter if unrolled or not.
+    if (!iter_domain()->isBroadcast() && !vectorize()) {
+      TORCH_WARN(
+          "Unroll required but not possible. Register allocation disabled. Loop index: ",
+          index()->toString(),
+          ", ",
+          toString());
+    }
     return false;
   }
 

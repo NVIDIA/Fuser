@@ -12,26 +12,10 @@
 #include <vector>
 
 #include <fusion.h>
+#include <ir/allocation_utils.h>
 #include <ir/interface_nodes.h>
 
 namespace nvfuser {
-
-struct Layout {
-  std::vector<IterDomain*> allocation_domain;
-  std::vector<std::optional<bool>> contiguity;
-
-  // The size of `allocation_domain` and therefore the size of `contiguity`.
-  int64_t size() const;
-
-  std::string toString(int indent_size = 0) const;
-
-  // Returns whether this layout is compliant with `required`. This is
-  // uni-directional. For example, `contiguity=[t,t]` is compliant with
-  // `contiguity=[f,f]` but not vice versa. As a special case,
-  // an empty `required.allocation` indicates no requirements, i.e., the method
-  // always returns true.
-  bool isCompliantWith(const Layout& required) const;
-};
 
 // Holds aliases found in a fusion. The expected user flow is
 //
@@ -60,8 +44,9 @@ class AliasAnalysisResult {
   void finalize();
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
-  // returns the `TensorView`'s initial layout.
-  Layout preferredLayout(const TensorView* alias) const;
+  // returns `TensorView`'s canonicalized layout or nullopt if canonicalization
+  // failed (cf. canoncalizeLayout).
+  std::optional<Layout> preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
 

@@ -29,20 +29,6 @@ bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1 && expr->outputs().size() == 1;
 }
 
-std::unordered_set<ParallelType> getParallelTypesForResharding() {
-  // Consider a reshard case:
-  // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
-  // This is decomposed into:
-  // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
-  // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
-  // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
-  // when sharding using input as the reference.
-  std::unordered_set<ParallelType> parallel_types{
-      kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
-  parallel_types.insert(ParallelType::Serial);
-  return parallel_types;
-}
-
 void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
@@ -85,7 +71,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
 
-    shardAllLike(output, new_inputs, getParallelTypesForResharding());
+    shardAllLike(output, new_inputs, allParallelTypes());
   }
 }
 
@@ -124,9 +110,21 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
-      shardAllLike(output, {new_output});
+      shardAllLike(output, {new_output}, deviceAndStreamParallelTypes());
 
-      shardAllLike(input, {output}, getParallelTypesForResharding());
+      // Consider a reshard case:
+      //
+      //   input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
+      //
+      // This is decomposed into:
+      //
+      //   input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
+      //   new_output [i0, DIDx(i1)]
+      //
+      // ParallelType::Serial is required here so the output is sharded as
+      // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
+      // input as the reference.
+      shardAllLike(input, {output}, allParallelTypes());
     }
   }
 }

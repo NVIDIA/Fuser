@@ -47,14 +47,18 @@ class FusionDefinitionWrapper:
 
                     self.sched._set_device_mesh(in_tensor, mesh)
 
-                    # Parallelize.
+                    # Split and parallelize.
                     assert len(in_dtensor.placements) == 1, "Expect a 1D mesh"
+                    # When the mesh is multi-dimensional, iterate through the
+                    # placements in descending order of Placement.dim.
                     placement: Placement = in_dtensor.placements[0]
                     if placement.is_shard():
                         dim = cast(Shard, placement).dim
+                        self.sched.split(in_tensor, dim, mesh.size, False)
                         self.sched.parallelize(
                             in_tensor, dim, nvfuser.ParallelType.mesh_x
                         )
+                        self.sched.set_allocation_as_loop(in_tensor)
 
         return Model()
 
@@ -100,116 +104,136 @@ def test_plus_one(setup_default_process_group, multidevice_test):
     assert out_dtensor.placements == in_dtensor.placements
 
 
+@dataclass
+class LinearConfig:
+    in_features: int
+    out_features: int
+
+
+# I omitted biases because DeepSeek V3 uses non-biased linear layers in MLA and
+# MoE.
+def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
+    e_in, e_out = config.in_features, config.out_features
+
+    inp = fd.define_tensor([-1, -1, e_in], contiguity=True)
+    weight = fd.define_tensor([e_out, e_in], contiguity=True)
+    out = fd.ops.linear(inp, weight)
+    fd.add_output(out)
+
+
+def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
+    e_in, e_out = config.in_features, config.out_features
+
+    x = fd.define_tensor([-1, -1, e_in], contiguity=True)
+    w = fd.define_tensor([e_out, e_in], contiguity=True)
+    grad = fd.define_tensor([-1, -1, e_out], contiguity=True)
+
+    grad_x = fd.ops.matmul(grad, w)
+
+    grad_flat_t = fd.ops.permute(fd.ops.reshape(grad, [-1, e_out]), [1, 0])
+    x_flat = fd.ops.reshape(x, [-1, e_in])
+    grad_w = fd.ops.matmul(grad_flat_t, x_flat)
+
+    fd.add_output(grad_x)
+    fd.add_output(grad_w)
+
+
+class LinearFunction(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx,
+        input: DTensor,
+        weight: DTensor,
+    ):
+        op = FusionDefinitionWrapper(
+            partial(define_linear_forward, LinearConfig(weight.size(1), weight.size(0)))
+        )
+        (output,) = op([input, weight])
+        ctx.save_for_backward(input, weight)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: DTensor):
+        input, weight = ctx.saved_tensors
+
+        op = FusionDefinitionWrapper(
+            partial(
+                define_linear_backward, LinearConfig(weight.size(1), weight.size(0))
+            )
+        )
+        grad_x, grad_w = op([input, weight, grad_output])
+        return (grad_x, grad_w)
+
+
 @pytest.mark.mpi
-def test_linear(setup_default_process_group, multidevice_test):
-    @dataclass
-    class LinearConfig:
-        def __init__(self, num_devices: int, batch: int, sequence: int, hidden: int):
-            self.d = num_devices
-            self.b = batch
-            self.s = sequence
-            self.e = hidden
-
-    def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, b, s, e = config.d, config.b, config.s, config.e
-        inp = fd.define_tensor([b, s, e])
-        weight = fd.define_tensor([d, e, e], contiguity=True)
-        bias = fd.define_tensor([d, e], contiguity=True)
-        out = fd.ops.linear(inp, weight, bias)
-        fd.add_output(out)
-
-    def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
-        d, b, s, e = config.d, config.b, config.s, config.e
-        x = fd.define_tensor([b, s, e])
-        x = fd.ops.reshape(x, [b * s, e])
-        w = fd.define_tensor([d, e, e], contiguity=True)
-        grad = fd.define_tensor([d, b, s, e], contiguity=True)
-        grad = fd.ops.reshape(grad, [d, b * s, e])
-
-        grad_x_partials = fd.ops.matmul(grad, w)
-        grad_x = fd.ops.sum(grad_x_partials, [0])  # all reduce
-        grad_t = fd.ops.permute(grad, [0, 2, 1])
-        grad_w = fd.ops.matmul(grad_t, x)
-        grad_b = fd.ops.sum(grad, [1])
-
-        grad_x = fd.ops.reshape(grad_x, [b, s, e])
-        fd.add_output(grad_x)
-        fd.add_output(grad_w)
-        fd.add_output(grad_b)
-
-    class LinearFunction(torch.autograd.Function):
-        @staticmethod
-        def forward(
-            ctx,
-            input: DTensor,
-            weight: DTensor,
-            bias: DTensor,
-        ):
-            b, s, e = input._local_tensor.shape
-            d = weight.device_mesh.size()
-            op = FusionDefinitionWrapper(
-                partial(define_linear_forward, LinearConfig(d, b, s, e))
-            )
-            outputs = op([input, weight, bias])
-            ctx.save_for_backward(input, weight)
-            return outputs[0]
-
-        @staticmethod
-        def backward(ctx, grad_output: DTensor):
-            d, b, s, e = grad_output.shape
-            op = FusionDefinitionWrapper(
-                partial(define_linear_backward, LinearConfig(d, b, s, e))
-            )
-            input, weight = ctx.saved_tensors
-            outputs = op([input, weight, grad_output])
-            assert len(outputs) == 3
-            return (*outputs,)
-
+def test_column_parallel_linear(setup_default_process_group, multidevice_test):
     d, b, s, e = dist.get_world_size(), 2, 1024, 768
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn(b, s, e, device="cuda", requires_grad=True)
-    weight_tensor = torch.randn(d, e, e, device="cuda", requires_grad=True)
-    bias_tensor = torch.randn(d, e, device="cuda", requires_grad=True)
+    inp_tensor = torch.randn(b, s, e, requires_grad=True)
+    weight_tensor = torch.randn(d * e, e, requires_grad=True)
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Replicate()])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(0)])
-    bias_dtensor = dist.tensor.distribute_tensor(bias_tensor, mesh, [Shard(0)])
-
-    # expected forward
-    unsharded_out_tensor = torch.nn.functional.linear(
-        inp_tensor, weight_tensor.view([d * e, e]), bias_tensor.view([d * e])
-    )
-    expected_out_tensor = unsharded_out_tensor.view([b, s, d, e]).permute(2, 0, 1, 3)[
-        rank : rank + 1
-    ]
-
-    # multidevice forward
-    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor, bias_dtensor)
-
-    # expected backward
-    (expected_grad_x, expected_grad_w, expected_grad_b) = torch.autograd.grad(
-        unsharded_out_tensor,
-        (inp_tensor, weight_tensor, bias_tensor),
-        torch.ones_like(unsharded_out_tensor),
-    )
-
-    # multidevice backward
-    (grad_x, grad_w, grad_b) = torch.autograd.grad(
-        out_dtensor,
-        (inp_dtensor, weight_dtensor, bias_dtensor),
-        torch.ones_like(out_dtensor),
-    )
 
     def assert_close(expected_tensor, dtensor):
         torch.testing.assert_close(
-            expected_tensor, dtensor.to_local(), rtol=1.3e-6, atol=1e-3
+            expected_tensor, dtensor.to_local().cpu(), rtol=1.3e-6, atol=1e-3
         )
 
-    assert_close(expected_out_tensor, out_dtensor)
+    out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
+    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
+    assert_close(out_tensor.split(e, dim=-1)[rank], out_dtensor)
+
+    (expected_grad_x, expected_grad_w) = torch.autograd.grad(
+        out_tensor,
+        (inp_tensor, weight_tensor),
+        torch.ones_like(out_tensor),
+    )
+    (grad_x, grad_w) = torch.autograd.grad(
+        out_dtensor,
+        (inp_dtensor, weight_dtensor),
+        torch.ones_like(out_dtensor),
+    )
     assert_close(expected_grad_x, grad_x)
-    assert_close(expected_grad_w[rank : rank + 1], grad_w)
-    assert_close(expected_grad_b[rank : rank + 1], grad_b)
+    assert_close(expected_grad_w.split(e, dim=0)[rank], grad_w)
+
+
+@pytest.mark.mpi
+def test_row_parallel_linear(setup_default_process_group, multidevice_test):
+    d, b, s, e = dist.get_world_size(), 2, 1024, 768
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
+    inp_tensor = torch.randn(b, s, d * e, requires_grad=True)
+    weight_tensor = torch.randn(e, d * e, requires_grad=True)
+
+    inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
+    weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
+
+    def assert_close(expected_tensor, dtensor):
+        torch.testing.assert_close(
+            expected_tensor, dtensor.to_local().cpu(), rtol=1.3e-6, atol=1e-3
+        )
+
+    out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
+    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
+    assert_close(out_tensor, out_dtensor)
+
+    (expected_grad_x, expected_grad_w) = torch.autograd.grad(
+        out_tensor,
+        (inp_tensor, weight_tensor),
+        torch.ones_like(out_tensor),
+    )
+    (grad_x, grad_w) = torch.autograd.grad(
+        out_dtensor,
+        (inp_dtensor, weight_dtensor),
+        torch.ones_like(out_dtensor),
+    )
+    assert_close(expected_grad_x.split(e, dim=-1)[rank], grad_x)
+    assert_close(expected_grad_w.split(e, dim=-1)[rank], grad_w)
