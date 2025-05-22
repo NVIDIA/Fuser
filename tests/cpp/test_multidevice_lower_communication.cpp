@@ -10,6 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -317,42 +319,6 @@ TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
-// This currently fails due to getShardingChanges reads root/logical only:
-// https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
-// Will try to fix this in a follow-up PR and reenable the test.
-TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto num_devices = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-
-  TensorView* in = makeContigTensor(2);
-  in->setDeviceMesh(mesh);
-  TensorView* out = set(in);
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  in->split(1, num_devices, /*inner_split=*/false);
-  in->axis(1)->parallelize(ParallelType::DIDx);
-  in->setAllocationDomain(in->getLoopDomain(), true);
-
-  out->split(1, num_devices, /*inner_split=*/false);
-  out->setAllocationDomain(out->getLoopDomain(), true);
-
-  at::Tensor unsharded_tensor =
-      at::arange(2 * num_devices * 3, at::kFloat).view({2, num_devices * 3});
-  at::Tensor in_tensor =
-      shardTensor(unsharded_tensor, in).to(communicator_->device());
-
-  FusionExecutorCache fec(std::move(fusion));
-  at::Tensor out_tensor =
-      fec.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  assertIsCompiledToHostIrContainer(fec);
-
-  EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
-}
-
 TEST_P(LowerCollectiveTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -536,71 +502,6 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  // ProcessGroupNCCL requires the gathered axis to be outermost.
-  // We change the allocation of tensorviews to reflect this.
-  // We do not modify the logical shape of the tensorview.
-  // This would still require one copy on each device if the input tensor is in
-  // a different layout.
-  const auto d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  TensorView* tv0 = makeConcreteTensor({5, d * 3});
-  TensorView* tv1 = set(tv0);
-
-  tv0->setDeviceMesh(mesh);
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-
-  tv1->setDeviceMesh(mesh);
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  at::Tensor unsharded_in_tensor = at::randn({5, d*3}, tensor_options);
-  at::Tensor in_tensor =
-      shardTensor(unsharded_in_tensor, 1, mesh);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor));
-}
-
-TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const auto d = communicator_->size();
-  auto full_mesh = DeviceMesh::createForNumDevices(d);
-
-  DeviceMesh mesh_zero({0});
-  TensorView* tv0 = makeConcreteTensor({5, d * 3});
-  TensorView* tv1 = set(tv0);
-
-  tv0->setDeviceMesh(mesh_zero);
-
-  tv1->setDeviceMesh(full_mesh);
-  tv1->outer_split(1, d);
-  tv1->axis(1)->parallelize(ParallelType::DIDx);
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  at::Tensor unsharded_in_tensor =
-      at::randn({5, d * 3}, tensor_options);
-
-  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
-          .as<at::Tensor>();
-  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
-}
-
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerCollectiveTest,
@@ -617,4 +518,164 @@ INSTANTIATE_TEST_SUITE_P(
                                       : "_HirLowerDisabled");
       return ss.str();
     }));
+
+class LowerNoncontigCollectiveTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<
+          std::tuple<CommunicatorBackend, bool, bool>> {
+  // params = [backend, input_allocated_outermost, output_has_allocation]
+  // backend: the backend type to use.
+  // input_allocated_outermost: whether the input tensor has the gather axis
+  // outermost. output_has_allocation: whether the output tensor has an
+  // allocation.
+
+ protected:
+  bool input_allocated_outermost_;
+  bool output_has_allocation_;
+  void SetUp() override;
+};
+
+void LowerNoncontigCollectiveTest::SetUp() {
+  MultiDeviceTest::SetUp();
+  const auto& [backend_type, input_allocated_outermost, output_has_allocation] =
+      GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
+  }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  communicator_->setDefaultBackend(backend_type);
+  input_allocated_outermost_ = input_allocated_outermost;
+  output_has_allocation_ = output_has_allocation;
+}
+
+TEST_P(LowerNoncontigCollectiveTest, Allgather) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // To avoid setting allocation on output, we disable the mark aliases pass.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  // ProcessGroupNCCL requires the gathered axis to be outermost.
+  // We change the allocation of tensorviews to reflect this.
+  // We do not modify the logical shape of the tensorview.
+  // This would still require one copy on each device if the input tensor is in
+  // a different layout.
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  if (input_allocated_outermost_) {
+    // Allocate gather axis outermost in input.
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+  }
+  TensorView* tv1 = set(tv0);
+  if (output_has_allocation_) {
+    // Allocate gather axis outermost in output.
+    tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
+  }
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  if (input_allocated_outermost_) {
+    // Gather axis is outermost in input.
+    in_tensor = in_tensor.t().contiguous().t();
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  at::Tensor expected_output = unsharded_in_tensor;
+  if (!output_has_allocation_) {
+    // Gather axis is outermost in output.
+    expected_output = expected_output.t().contiguous().t();
+  }
+  EXPECT_EQ(out_tensor.strides(), expected_output.strides());
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+}
+
+TEST_P(LowerNoncontigCollectiveTest, Scatter) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // To avoid setting allocation on output, we disable the mark aliases pass.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto d = communicator_->size();
+  auto full_mesh = DeviceMesh::createForNumDevices(d);
+
+  DeviceMesh mesh_zero({0});
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  if (input_allocated_outermost_) {
+    // Allocate scatter axis outermost in input.
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+  }
+  TensorView* tv1 = set(tv0);
+  if (output_has_allocation_) {
+    // Allocate scatter axis outermost in output.
+    tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
+  }
+
+  tv0->setDeviceMesh(mesh_zero);
+
+  tv1->setDeviceMesh(full_mesh);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh);
+
+  if (input_allocated_outermost_) {
+    // Scatter axis is outermost in input.
+    unsharded_in_tensor = unsharded_in_tensor.t().contiguous().t();
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
+          .as<at::Tensor>();
+
+  if (!output_has_allocation_) {
+    // Scatter axis is outermost in output.
+    expected_output = expected_output.t().contiguous().t();
+  }
+  EXPECT_EQ(out_tensor.strides(), expected_output.strides());
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    HostIrLowering,
+    LowerNoncontigCollectiveTest,
+    ::testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(false, true),
+        testing::Values(false, true)),
+    ([](const testing::TestParamInfo<
+         std::tuple<CommunicatorBackend, bool, bool>>& info) -> std::string {
+      const auto& [backend_type, input_allocated_outermost, output_has_allocation] =
+          info.param;
+      std::stringstream ss;
+      ss << backend_type;
+      ss << (input_allocated_outermost ? "_InputAllocatedOutermost"
+                                       : "_InputNotAllocatedOutermost")
+         << (output_has_allocation ? "_OutputHasAllocation"
+                                   : "_OutputNoAllocation");
+      return ss.str();
+    }));
+
 } // namespace nvfuser

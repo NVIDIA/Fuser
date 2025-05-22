@@ -48,7 +48,6 @@ void makeCommunicationLayoutCompliant(
     // Note: If input is not a fusion input, we should ideally be able to
     // specify allocation domain of input instead. However, some schedulers
     // (e.g. reduction) may not support this, so creating a copy here.
-
     input_copy = set(input);
 
     // Find index of p_sharded_id in input_copy's logical domain.
@@ -94,7 +93,7 @@ void makeCommunicationLayoutCompliant(
   int64_t output_sharded_idx =
       posInDomain((*output_layout).allocation_domain, c_sharded_id);
 
-  // If the output is a fusion output and has allocation domain,
+  // If the output is a fusion output, has allocation domain,
   // and the c_sharded_id is not allocated outermost,
   // create a copy of the output to revert the allocation domain.
   if (output->isFusionOutput() && output->hasAllocation() &&
@@ -155,6 +154,12 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
         expr->toString());
 
     makeCommunicationLayoutCompliant(expr, *communication_info);
+
+    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+      debug() << std::endl
+              << "Fusion Transforms after " << name() << ":" << std::endl;
+      fusion->printTransforms();
+    }
   }
 }
 

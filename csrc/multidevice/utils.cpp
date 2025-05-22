@@ -619,8 +619,7 @@ bool isAllocatedOutermost(TensorView* tv, IterDomain* sharded_id) {
     }
     idx++;
   }
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "Should never reach here - sharded_id must be found in allocation domain");
 }
 
@@ -637,8 +636,6 @@ int64_t posInDomain(
   return std::distance(domain.begin(), pos);
 }
 
-// Returns the communication info for the gather/scatter/reduce scatter
-// communication that may require reordering the allocation domain.
 std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
   TensorView* producer = expr->inputs().at(0)->as<TensorView>();
   TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
@@ -647,12 +644,10 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
 
   auto update_communication_info = [&](CommunicationType type,
                                        IterDomain* p_sharded_id,
-                                       IterDomain* c_sharded_id,
-                                       int64_t reduction_axis = -1) {
+                                       IterDomain* c_sharded_id) {
     NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
     has_sharding_change = true;
-    communication_info =
-        CommunicationInfo{type, p_sharded_id, c_sharded_id, reduction_axis};
+    communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
   };
 
   const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
@@ -680,6 +675,7 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
     if (expr->isA<LoadStoreOp>()) {
       if (p_sharded && !c_sharded) {
         if (p_loop_did->isBroadcast()) {
+          // Broadcast device dimension do not affect allocation.
           continue;
         }
         // Gather / Allgather: For simplicity, we do not distinguish between
@@ -690,6 +686,7 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
       }
       if (!p_sharded && c_sharded) {
         if (c_loop_did->isBroadcast()) {
+          // Broadcast device dimension do not affect allocation.
           continue;
         }
         // Scatter
@@ -722,8 +719,7 @@ std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr) {
       update_communication_info(
           CommunicationType::ReduceScatter,
           c2p_map.at(c_logical_id),
-          c_logical_id,
-          posInDomain(producer->getLogicalDomain(), p_logical_id));
+          c_logical_id);
     } else {
       NVF_THROW("Unsupported expression: ", expr->toString());
     }
