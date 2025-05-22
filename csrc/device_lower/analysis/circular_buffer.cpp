@@ -409,7 +409,6 @@ void CircularBufferInfo::updateAsyncWarps(const TensorView* tv) {
 
   AsyncWarpInfo& aw_info = async_warps_.front();
   aw_info.tvs.push_back(tv);
-  std::cout << "updateAsyncWarps\t" << tv->toString() << std::endl;
 
   int64_t stage_slice_position =
       (warp_specialized.stage_slice_position.has_value())
