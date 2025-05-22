@@ -339,11 +339,11 @@ TensorView* Common::rFactor(
     graph_->initializeVal(rf_root[i], vg);
   }
 
-  for (size_t i : arange(orig_loop.size())) {
-    ValGroup vg = graph_->toGroup(orig_loop[i]);
-    graph_->initializeVal(rf_logical[i], vg);
-    graph_->initializeVal(new_orig_logical[i], vg);
-  }
+  // for (size_t i : arange(orig_loop.size())) {
+  //   ValGroup vg = graph_->toGroup(orig_loop[i]);
+  //   graph_->initializeVal(rf_logical[i], vg);
+  //   graph_->initializeVal(new_orig_logical[i], vg);
+  // }
 
   return rf;
 }
