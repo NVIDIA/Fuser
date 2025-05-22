@@ -146,7 +146,7 @@ void limitCircularBufferingSmemOperands(
 
   // Limit to 8 stages, even though in some cases we could use more. This is
   // needed because mbarrier initialization has a penalty and we do not expect
-  // performance gains beyond 8 stages.
+  // performance gains beyond a certain point.
   stages = std::min(stages, 8L);
 
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
@@ -383,6 +383,32 @@ void maximizeHopperOperandStages(
       mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
 }
 
+int64_t computeHopperBIDxTiles(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape) {
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
+  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+  // When we choose the rasterization direction, that becomes the fast
+  // dimension. However, when we swizzle, we pull groups of a fixed size from
+  // the _other_ dimension to create a new inner dimension. We find the swizzle
+  // factor that is largest and has the least quantization when we divide that
+  // other dimension by the swizzle factor.
+  mparams->cta_order = Mtiles <= Ntiles
+      ? MatmulParams::TileRasterizationOrder::ColumnMajor
+      : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  int64_t BIDx_tiles =
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+      ? Mtiles
+      : Ntiles;
+  if (mparams->grid_traversal_factor.first != 1) {
+    BIDx_tiles = BIDx_tiles * mparams->grid_traversal_factor.first;
+  }
+  return BIDx_tiles;
+}
+
 bool fillDefaultHopperHeuristic(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
@@ -452,15 +478,8 @@ bool fillDefaultHopperHeuristic(
   // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
   // for RowMajor. These dims are then multiplied by the grid_traversal_factor
   // when swizzling.
-  int64_t BIDx_tiles =
-      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
-      ? Mtiles
-      : Ntiles;
-  if (grid_traversal_factor != 1) {
-    BIDx_tiles = BIDx_tiles * grid_traversal_factor;
-  }
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
-      BIDx_tiles % 2 == 0) {
+      computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
     mparams->cluster_dims = {2, 1, 1};
   }
 
@@ -1075,6 +1094,19 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     if (mparams->splitk_factor > 1) {
       // Disable persistent for split-K
       mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
+      // Set cluster dims automatically, ignoring the value set by the plugin
+      // It is necessary to do this because we might switch between persistent
+      // and non-persistent after the plugin runs and this changes the launch
+      // grid.
+      // TODO: respect the cluster size given by plugin
+      if (mparams->tiling_strategy !=
+              MatmulParams::TilingStrategy::OneTilePerCTA ||
+          computeHopperBIDxTiles(mparams.get(), problem_shape) % 2 == 0) {
+        mparams->cluster_dims = {2, 1, 1};
+      } else {
+        mparams->cluster_dims = {1, 1, 1};
+      }
     }
 
     // TODO: more sophisticated handling of multiple matmuls when using plugin
