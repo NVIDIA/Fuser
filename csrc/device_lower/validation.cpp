@@ -473,70 +473,70 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       std::string name) {
     return;
-    // Contiguity is based on logical domain.
-    IterDomain* last_alloc_dim = nullptr;
-    size_t last_alloc_dim_pos = 0;
-    for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
-      auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
-        continue;
-      }
-      if ((tv->getMemoryType() == MemoryType::Shared ||
-           tv->getMemoryType() == MemoryType::Local) &&
-          r_id->isBlockDim()) {
-        // Inner-most parallelized dimensions don't count in allocation of
-        // shared and local tensors.
-        continue;
-      }
-      if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
-        continue;
-      }
-      last_alloc_dim = r_id;
-      last_alloc_dim_pos = i - 1;
-      break;
-    }
+    // // Contiguity is based on logical domain.
+    // IterDomain* last_alloc_dim = nullptr;
+    // size_t last_alloc_dim_pos = 0;
+    // for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
+    //   auto r_id = tv->getMaybeAllocationDomain()[i - 1];
+    //   if (r_id->isReduction() || r_id->isBroadcast()) {
+    //     continue;
+    //   }
+    //   if ((tv->getMemoryType() == MemoryType::Shared ||
+    //        tv->getMemoryType() == MemoryType::Local) &&
+    //       r_id->isBlockDim()) {
+    //     // Inner-most parallelized dimensions don't count in allocation of
+    //     // shared and local tensors.
+    //     continue;
+    //   }
+    //   if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
+    //     continue;
+    //   }
+    //   last_alloc_dim = r_id;
+    //   last_alloc_dim_pos = i - 1;
+    //   break;
+    // }
 
-    if (last_alloc_dim == nullptr) {
-      // Should never get here, but that would mean there are no concrete
-      // dims, so we should be fine.
-      return;
-    }
+    // if (last_alloc_dim == nullptr) {
+    //   // Should never get here, but that would mean there are no concrete
+    //   // dims, so we should be fine.
+    //   return;
+    // }
 
-    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-    bool is_ldmatrix_trans =
-        ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
-      // ldmatrix.trans is a hardware transpose instruction that can do
-      // "vectorized" read from discontiguous memory
-      // We don't think allocation domain of consumer is used in allocation. We
-      // skip it in validation here. Note that this assert was hit for
-      // vectorized pad, because we do not propagate allocation domain for
-      // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
-      // NVF_CHECK(
-      //     last_alloc_dim == vec_alloc_id,
-      //     "Vectorized dim for ",
-      //     name,
-      //     " has to be from an inner most position. tv: ",
-      //     tv,
-      //     ", allocation domain: ",
-      //     tv->getMaybeAllocationDomain(),
-      //     ", vectorized id: ",
-      //     vec_alloc_id->toString(),
-      //     ", innermost id: ",
-      //     last_alloc_dim);
+    // auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    // bool is_ldmatrix_trans =
+    //     ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
+    // if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
+    //   // ldmatrix.trans is a hardware transpose instruction that can do
+    //   // "vectorized" read from discontiguous memory
+    //   // We don't think allocation domain of consumer is used in allocation. We
+    //   // skip it in validation here. Note that this assert was hit for
+    //   // vectorized pad, because we do not propagate allocation domain for
+    //   // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
+    //   // NVF_CHECK(
+    //   //     last_alloc_dim == vec_alloc_id,
+    //   //     "Vectorized dim for ",
+    //   //     name,
+    //   //     " has to be from an inner most position. tv: ",
+    //   //     tv,
+    //   //     ", allocation domain: ",
+    //   //     tv->getMaybeAllocationDomain(),
+    //   //     ", vectorized id: ",
+    //   //     vec_alloc_id->toString(),
+    //   //     ", innermost id: ",
+    //   //     last_alloc_dim);
 
-      // auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
-      // NVF_CHECK(
-      //     contiguity.value_or(false),
-      //     "The innermost position has to be contiguous. tv: ",
-      //     tv,
-      //     ", allocation domain: ",
-      //     tv->getMaybeAllocationDomain(),
-      //     ", innermost id: ",
-      //     last_alloc_dim->toString(),
-      //     ", contiguity: ",
-      //     contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
-    }
+    //   // auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+    //   // NVF_CHECK(
+    //   //     contiguity.value_or(false),
+    //   //     "The innermost position has to be contiguous. tv: ",
+    //   //     tv,
+    //   //     ", allocation domain: ",
+    //   //     tv->getMaybeAllocationDomain(),
+    //   //     ", innermost id: ",
+    //   //     last_alloc_dim->toString(),
+    //   //     ", contiguity: ",
+    //   //     contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
+    // }
   }
 
   static IterDomain* getAndValidateVectorizedIdInAllocationDomain(
