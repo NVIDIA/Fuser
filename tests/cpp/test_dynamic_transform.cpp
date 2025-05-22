@@ -88,17 +88,19 @@ TEST_F(DynamicTransformTest, DynamicTransform1) {
     expr_eval.bind(tv0->axis(1)->extent(), 3L);
     expr_eval.bind(reshape_shape0, 3L);
     expr_eval.bind(reshape_shape1, -1L);
+    // We cannot infer the shape of tv1 from the above bound values, since
+    // either axis of tv2 might be broadcast against one from tv1.
+    expr_eval.bind(tv1->axis(0)->extent(), 3L);
+    expr_eval.bind(tv1->axis(1)->extent(), 4L);
 
     // This should throw an exception since any reshape size of -1 must be
     // specified as a definition-time constant, as opposed to an input scalar.
-    EXPECT_THAT(
-        [&]() {
-          auto initial_info = DynamicTransform::getInitialInfo(&fusion);
-          auto info =
-              DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
-        },
-        ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-            "Values of -1 passed to reshape must be constant at definition")));
+    auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+    auto info = DynamicTransformConcretizationInfo(&initial_info, &expr_eval);
+    NVF_CHECK(
+        info.getReshapeTransforms().size() == 1,
+        "Expected to have one reshape transform: ",
+        info.toString());
   }
 
   {
@@ -1160,10 +1162,8 @@ TEST_F(DynamicTransformTest, Issue249InputNegative1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn({2, 3, 4, 5}, options);
 
-  // Dynamic reshape sizes that are not constant at definition must be explicit:
-  // no -1 allowed
-  EXPECT_THROW(
-      executor_cache.runFusionWithInputs({at_x, 2, 4, -1}), std::exception);
+  // Test that running with dynamic -1 works as expected
+  executor_cache.runFusionWithInputs({at_x, 2, 4, -1});
 
   // Passing explicit sizes works fine
   auto outputs = executor_cache.runFusionWithInputs({at_x, 2, 4, 15});
