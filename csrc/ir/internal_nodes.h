@@ -2274,7 +2274,7 @@ class LinearOp : public Expr {
   }
 
   TensorView* bias() const {
-    if (has_bias()) {
+    if (hasBias()) {
       return input(2)->as<TensorView>();
     } else {
       return nullptr;
@@ -2285,7 +2285,7 @@ class LinearOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  bool has_bias() const {
+  bool hasBias() const {
     return inputs().size() == 3;
   }
 };

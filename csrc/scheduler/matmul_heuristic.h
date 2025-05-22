@@ -272,7 +272,7 @@ class MatmulParams : public HeuristicParams {
               // contributions from each portion. Also called split-K.
     WarpTiles // All warp tiles in a K loop for each math warp group are
               // iterated over then the next math warp group's warp tile is
-              // processed. Also called ping-pong or alternating stratgy.
+              // processed. Also called ping-pong or alternating strategy.
   } buffering_loop_level = BufferingLoopLevel::CTATiles;
 
   //! Whether to do regular circular buffering (pipelined) or warp
