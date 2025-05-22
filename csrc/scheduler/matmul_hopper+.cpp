@@ -410,8 +410,6 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 
     reorderBlockTileTraversal(tv, merged_roles);
 
-    all_merged_roles.push_back(merged_roles);
-
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
       for (size_t i : arange(merged_roles.size())) {
@@ -421,7 +419,28 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
       }
     }
 
+    // Merge in batch dims to the BIDy dim for non-persistent
     if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::OneTilePerCTA) {
+      if (num_local_batch_dims_ > 0) {
+        NVF_ERROR(merged_roles.front() == MatmulDimRole::Batch);
+        // Merge batch dim into the dimension that will be parallelized BIDy
+        if (params_->cta_order ==
+            MatmulParams::TileRasterizationOrder::ColumnMajor) {
+          int64_t outer_grid_dim = num_device_dims_ + 2L;
+          // [..., Batch, M, N, ...]
+          tv->merge(num_device_dims_, outer_grid_dim);
+          // [..., Batch*N, M, ...]
+          // Now we need to transpose so that Batch*N is to the right of M
+          tv->reorder({{num_device_dims_, num_device_dims_ + 1}});
+        } else { // row major
+          int64_t outer_grid_dim = num_device_dims_ + 1L;
+          tv->merge(num_device_dims_, outer_grid_dim);
+        }
+        merged_roles.erase(merged_roles.begin());
+      }
+    } else if (
+        params_->tiling_strategy ==
         MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
       // Persistent kernel scheduling
       if (params_->cta_order ==
@@ -431,10 +450,21 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
       }
       tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
 
+      if (num_local_batch_dims_ > 0) {
+        NVF_ERROR(merged_roles.front() == MatmulDimRole::Batch);
+        // Merge batch dims before doing the persistent split
+        tv->merge(num_device_dims_);
+        merged_roles.erase(merged_roles.begin());
+      }
+
       const int64_t num_sms =
           at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-      tv->split(num_device_and_batch_dims_, num_sms);
+      tv->split(num_device_dims_, num_sms);
+    } else {
+      NVF_THROW("Unsupported tiling strategy");
     }
+
+    all_merged_roles.push_back(merged_roles);
   }
   return all_merged_roles;
 }
@@ -487,16 +517,12 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
           // TODO: Should we instead check the roles of these dimensions to take
           // the outermost two M or N axes?
           case MatmulParams::TileRasterizationOrder::ColumnMajor:
-            tv->axis(num_device_and_batch_dims_)
-                ->parallelize(ParallelType::BIDx);
-            tv->axis(num_device_and_batch_dims_ + 1)
-                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_dims_)->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDy);
             break;
           case MatmulParams::TileRasterizationOrder::RowMajor:
-            tv->axis(num_device_and_batch_dims_)
-                ->parallelize(ParallelType::BIDy);
-            tv->axis(num_device_and_batch_dims_ + 1)
-                ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_dims_)->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
             break;
           default:
             NVF_THROW(
@@ -506,8 +532,7 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
         // For persistent kernels, we just parallelize the SM dimension
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDx);
+        tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
         break;
     }
   }
@@ -816,7 +841,7 @@ void HopperPlus::setUpInlining() {
     inlineSelectedAt(
         smem_loads_and_mma_inputs,
         mma_result,
-        num_device_and_batch_dims_ + 6 + num_splitk_dims_);
+        num_device_dims_ + 6 + num_splitk_dims_);
   }
 }
 
