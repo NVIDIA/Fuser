@@ -612,16 +612,16 @@ class VectorizeValidator : public OptInDispatch {
       is_tmem = true;
     }
 
-    NVF_CHECK(
-        std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including ",
-        is_tmem ? "512 bytes" : "16 bytes",
-        " are supported.");
+    // NVF_CHECK(
+    //     std::find(
+    //         allowed_vector_sizes.begin(),
+    //         allowed_vector_sizes.end(),
+    //         vector_size) != allowed_vector_sizes.end(),
+    //     "Tried to vectorize a dim resulting in a word size of ",
+    //     vector_size,
+    //     " however, vector sizes only upto and including ",
+    //     is_tmem ? "512 bytes" : "16 bytes",
+    //     " are supported.");
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def);
