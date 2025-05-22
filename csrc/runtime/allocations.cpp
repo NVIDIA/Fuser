@@ -103,10 +103,14 @@ int64_t computeSharedMemory(
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
-      // if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
-      if (true) {
-        debug() << "first_byte: " << first_byte << " last_byte: " << last_byte  << std::endl;
-        debug() << smem_alloc->toString() << std::endl;
+      // First byte may not equal to last byte of the previous buffer since
+      // shared memory is forced to align at 128 Bytes. See PR-3023.
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+      if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+        debug() << "buffer: " << smem_alloc->buffer()->toString()
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << ", size: " << size_bytes
+                << std::endl;
       }
     }
   }
