@@ -89,9 +89,9 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             input_ranges.append((batch_range, hidden_range))
 
             # Reduce max hidden size for largest batch size (16384) to avoid OOM in RMSNorm.
-            # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 16) for weekly.16576
+            # Sweeps hidden sizes from # (768, 2*18432) or (768, 2*18432 + 16) for weekly.
             input_ranges.append(
-                ([16576], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 16, hidden_range))
+                ([16384], filter(lambda hs: hs <= 2 * D_MODEL_MAX + 16, hidden_range))
             )
 
             for batch_range, hidden_range in input_ranges:

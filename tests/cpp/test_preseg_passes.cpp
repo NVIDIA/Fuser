@@ -15,7 +15,6 @@
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <preseg_passes/reuse_expensive_computation_results.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
@@ -1335,28 +1334,4 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
       ElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
-TEST_F(PresegTest, ReuseExpensiveComputationResults) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr;
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigConcreteTensor({128});
-  fusion.addInput(tv0);
-  auto tv1 = exp(tv0);
-  auto tv2 = exp(tv0);
-  auto tv3 = add(tv1, tv2);
-  fusion.addOutput(tv3);
-
-  OptimizationPass<ReuseExpensiveComputationResultsPass>::runPass(&fusion);
-
-  // There is only one exp operation after the pass
-  int unary_ops = 0;
-  for (auto expr : fusion.exprs()) {
-    if (expr->isA<UnaryOp>() &&
-        expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
-      unary_ops++;
-    }
-  }
-  EXPECT_EQ(unary_ops, 1);
-}
 } // namespace nvfuser::preseg_passes

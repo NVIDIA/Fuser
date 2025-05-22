@@ -154,7 +154,6 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
-  std::cout << "getThreadCountInDim: " << dim_map_.at(pt)->toInlineString() << ", isConstScalar: " << dim_map_.at(pt)->isConstScalar() << std::endl;
   if (dim_map_.at(pt)->isConstScalar()) {
     return dim_map_.at(pt)->value().as<int64_t>();
   }

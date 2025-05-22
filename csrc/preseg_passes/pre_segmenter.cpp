@@ -25,7 +25,6 @@
 #include <preseg_passes/remove_bcast_squeeze.h>
 #include <preseg_passes/remove_empty.h>
 #include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/reuse_expensive_computation_results.h>
 #include <preseg_passes/segment_inplace_update.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
@@ -43,8 +42,6 @@ namespace nvfuser::preseg_passes {
 
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
-  // Reuse expensive computation results
-  OptimizationPass<ReuseExpensiveComputationResultsPass>::runPass(fusion);
   // This pass should be placed before ConsecutiveCastPass as more
   // consecutive cast ops may be exposed by this pass
   OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);

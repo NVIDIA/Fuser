@@ -278,12 +278,6 @@ void UnrollPass::handle(ForLoop* fl) {
 }
 
 bool UnrollPass::canOmitElseClause(ForLoop* fl) {
-
-  // Outer dim is ensured to be divisible by the unroll factor
-  if(isOptionEnabled(EnableOption::WarpSpecializedNormalization)){
-    return true;
-  }
-
   std::vector<ForLoop*> loops({fl});
 
   const auto& pred_map = GpuLower::current()->threadPredMap();
