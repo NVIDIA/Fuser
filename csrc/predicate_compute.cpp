@@ -713,82 +713,88 @@ Val* createMultipleExpressionElectSync(
 
 } // namespace
 
-// 1D TMA predicate is placed in both loading and computation branches.
-// For loading branch: it combines the elect-sync predicate with the inline
-// predicate
-// For computation branch: it predicates MBarrierWaitParity
-Val* PredicateCompute::getOneDimTmaPredicate(
+// predicate value for 1D TMA load and expect arrive bytes, it combines
+// ElectSync and Inline predicate.
+OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& current_loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaLoadExpectArrive");
+  auto expr = pred->expr();
+  NVF_ERROR(expr != nullptr);
+  OneDimTmaPredicateInfo one_dim_tma_pred_info;
+  auto pval_elect_sync = createElectSyncPredicate(pred, true);
+  auto pval_inline = getInlinePredicate(
+      expr,
+      current_loops,
+      /*rotated_loop_=*/std::unordered_set<ForLoop*>{},
+      /*thread_pred=*/nullptr,
+      PredicateType::Inline);
+  // We want to merge [pval_inline] with [pval_elect_sync].
+  // However, the loop indices nested in [ IF ElectSync] are no longer
+  // accessible when predicates are combined. Therefore, we visit all the
+  // for-loops after the one contains elect sync and replace loop index with
+  // zero.
+  std::unordered_map<Val*, Val*> replace_map;
+  for (auto fl : pred->tma1dLoadLoops()) {
+    // save circular buffer loop index, will be replaced when generating
+    // predicate for MBarrierWaitParity in computation branch.
+    if (fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp) {
+      one_dim_tma_pred_info.circular_loop_index_ = fl->index();
+      continue;
+    }
+    // tma1dLoadLoops() returns all the loops above the actual tma load expr.
+    // skip the loops that are already in the current loop nest since their
+    // indices are accessible.
+    if (std::any_of(
+            current_loops.begin(), current_loops.end(), [&](ForLoop* loop) {
+              return loop->iter_domain() == fl->iter_domain();
+            })) {
+      continue;
+    }
+    // Replace indicies of other forloops to 0.
+    // Replace the loop index with zero removes the corresponding predicate
+    // to this loop-domain, we should ensure the split generating this
+    // domain is divisible.
+    replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+    auto id_def = fl->iter_domain()->definition();
+    if (!id_def) {
+      continue;
+    }
+    if (auto split = dynamic_cast<Split*>(id_def)) {
+      GpuLower::current()->validate(
+          split->isDivisible(),
+          "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+          split->toString());
+    }
+  }
+  pval_inline = ir_utils::replaceValRecursively(pval_inline, replace_map);
+  one_dim_tma_pred_info.inline_pred_val_ = pval_inline;
+  one_dim_tma_pred_info.combined_pred_val_ =
+      SimplifyingIrBuilder::logicalAndExpr(pval_elect_sync, pval_inline);
+  return one_dim_tma_pred_info;
+}
+
+// predicates MBarrierWaitParity for 1d tma load
+Val* PredicateCompute::OneDimTmaWaitParity(
     kir::Predicate* pred,
     const std::vector<ForLoop*>& current_loops,
-    Val*& inline_pred_1d_tma,
-    Val*& circular_loop_index) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::getOneDimTmaredicate");
+    const OneDimTmaPredicateInfo& one_dim_tma_pred_info) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaWaitParity");
   auto expr = pred->expr();
   NVF_ERROR(expr != nullptr);
   // Since MBarrierWaitParity has no output tensor, its predicate value
   // cannot be computed directly. Instead, we reuse [inline_pred_1d_tma], but
   // replace the circular buffer load loop index with that of the circular
   // buffer compute loop.
-  if (expr->isA<kir::MBarrierWaitParity>()) {
-    NVF_ERROR(inline_pred_1d_tma != nullptr);
-    NVF_ERROR(circular_loop_index != nullptr);
-    auto fl = current_loops.back();
-    std::unordered_map<Val*, Val*> replace_map;
-    replace_map[circular_loop_index] = fl->index();
-    auto pred_val =
-        ir_utils::replaceValRecursively(inline_pred_1d_tma, replace_map);
-    return pred_val;
-  } else {
-    NVF_ERROR(circular_loop_index == nullptr);
-    NVF_ERROR(inline_pred_1d_tma == nullptr);
-    auto pval_elect_sync = createElectSyncPredicate(pred, true);
-    auto pval_inline = getInlinePredicate(
-        expr,
-        current_loops,
-        /*rotated_loop_=*/std::unordered_set<ForLoop*>{},
-        /*thread_pred=*/nullptr,
-        PredicateType::Inline);
-    // We want to merge [pval_inline] with [pval_elect_sync].
-    // However, the loop indices nested in [ IF ElectSync] are no longer
-    // accessible when predicates are combined. Therefore, we visit all the
-    // for-loops after the one contains elect sync and replace loop index with
-    // zero.
-    std::unordered_map<Val*, Val*> replace_map;
-    for (auto fl : pred->tma1dLoadLoops()) {
-      // save circular buffer loop index, will be replaced when generating
-      // predicate for MBarrierWaitParity in computation branch.
-      if (fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp) {
-        circular_loop_index = fl->index();
-      }
-      // tma1dLoadLoops() returns all the loops above the actual tma load expr.
-      // skip the loops that are already in the current loop nest since their
-      // indices are accessible.
-      if (std::any_of(
-              current_loops.begin(), current_loops.end(), [&](ForLoop* loop) {
-                return loop->iter_domain() == fl->iter_domain();
-              })) {
-        continue;
-      }
-      // Replace indicies of other forloops to 0.
-      // Replace the loop index with zero removes the corresponding predicate
-      // to this loop-domain, we should ensure the split generating this
-      // domain is divisible.
-      replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
-      auto id_def = fl->iter_domain()->definition();
-      if (!id_def) {
-        continue;
-      }
-      if (auto split = dynamic_cast<Split*>(id_def)) {
-        GpuLower::current()->validate(
-            split->isDivisible(),
-            "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
-            split->toString());
-      }
-    }
-    pval_inline = ir_utils::replaceValRecursively(pval_inline, replace_map);
-    inline_pred_1d_tma = pval_inline;
-    return SimplifyingIrBuilder::logicalAndExpr(pval_elect_sync, pval_inline);
-  }
+  NVF_ERROR(expr->isA<kir::MBarrierWaitParity>())
+  auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val_;
+  auto circular_loop_index = one_dim_tma_pred_info.circular_loop_index_;
+  auto fl = current_loops.back();
+  std::unordered_map<Val*, Val*> replace_map;
+  replace_map[circular_loop_index] = fl->index();
+  auto pred_val =
+      ir_utils::replaceValRecursively(inline_pred_1d_tma, replace_map);
+  return pred_val;
 }
 
 Val* PredicateCompute::getElectSyncPredicate(

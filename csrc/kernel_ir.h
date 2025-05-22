@@ -117,7 +117,7 @@ class Predicate final : public Val {
   }
 
   const std::vector<ForLoop*>& tma1dLoadLoops() const {
-    NVF_ERROR(ptype_ == PredicateType::OneDimTma);
+    NVF_ERROR(ptype_ == PredicateType::OneDimTmaLoadExpectArrive);
     return tma_1d_load_loops_;
   }
 
@@ -159,7 +159,7 @@ class Predicate final : public Val {
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
 
-  // For ParallelType::OneDimTma
+  // For PredicateCompute::OneDimTmaLoadExpectArrive
   std::vector<ForLoop*> tma_1d_load_loops_;
 
   // The Bool conditional value

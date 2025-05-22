@@ -326,8 +326,10 @@ const char* predicate_type2string(PredicateType t) {
       return "LoopRotation";
     case PredicateType::ElectSync:
       return "ElectSync";
-    case PredicateType::OneDimTma:
-      return "OneDimTma";
+    case PredicateType::OneDimTmaLoadExpectArrive:
+      return "OneDimTmaLoadExpectArrive";
+    case PredicateType::OneDimTmaWaitParity:
+      return "OneDimTmaWaitParity";
     default:
       NVF_THROW("No string found for predicate type.");
   }

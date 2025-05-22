@@ -3312,10 +3312,10 @@ TEST_P(TMA1dPredicateTest, testUnrollCircularBuffer) {
   // Ensure dim0 is divisible by outer_unroll but not
   // divisible by sm_count after divide by outer_unroll
   const int64_t dim0 = (sm_count + 1) * outer_unroll * circular_stages;
-  const int64_t dim1 = 512;
+  const int64_t dim1 = 128;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);

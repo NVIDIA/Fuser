@@ -69,7 +69,7 @@ Predicate::Predicate(
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
-  NVF_ERROR(ptype == PredicateType::OneDimTma);
+  NVF_ERROR(ptype == PredicateType::OneDimTmaLoadExpectArrive);
   NVF_ERROR(!tma_1d_load_loops_.empty());
 }
 

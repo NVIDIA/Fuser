@@ -34,8 +34,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
  private:
-  Val* inline_pred_1d_tma_ = nullptr;
-  Val* circular_loop_index_ = nullptr;
   ConditionalFromPredicateModifier(const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
@@ -198,9 +196,22 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       case PredicateType::ElectSync: {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
-      case PredicateType::OneDimTma: {
-        return PredicateCompute::getOneDimTmaPredicate(
-            pred, for_loops_, inline_pred_1d_tma_, circular_loop_index_);
+      case PredicateType::OneDimTmaLoadExpectArrive: {
+        one_dim_tma_predicate_info_ =
+            PredicateCompute::OneDimTmaLoadExpectArrive(pred, for_loops_);
+        return one_dim_tma_predicate_info_.combined_pred_val_;
+      }
+      case PredicateType::OneDimTmaWaitParity: {
+        // Ensure OneDimTmaPredicateInfo is set before use and reset it after
+        // use.
+        NVF_ERROR(
+            one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive to be set before "
+            "OneDimTmaWaitParity.");
+        auto pred_val = PredicateCompute::OneDimTmaWaitParity(
+            pred, for_loops_, one_dim_tma_predicate_info_);
+        one_dim_tma_predicate_info_.reset();
+        return pred_val;
       }
       default:
         break;
@@ -210,6 +221,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+  // Stores combined predicate value, inline predicate value and circular buffer
+  // loop index for one dim tma load.
+  OneDimTmaPredicateInfo one_dim_tma_predicate_info_;
 };
 
 } // namespace

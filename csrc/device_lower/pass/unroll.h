@@ -98,11 +98,12 @@ class UnrollPass : kir::ExprMutator {
   kir::IfThenElse* current_elect_sync_ite_ = nullptr;
 
   // For circular buffered 1d TMA load, needs to replace ElectSync predicate
-  // with PredicateType::OneDimTma. This bool avoids duplicated replacement
-  // since multiple loads shared one predicate.
+  // with PredicateType::OneDimTmaLoadExpectArrive. This bool avoids duplicated
+  // replacement since multiple loads shared one predicate.
   bool one_dim_tma_predicate_added_ = false;
 
-  // Need scope to replace ElectSync predicate with PredicateType::OneDimTma
+  // Need scope to replace ElectSync predicate with
+  // PredicateType::OneDimTmaLoadExpectArrive
   Scope* elect_sync_scope_;
 };
 

@@ -67,8 +67,8 @@ void UnrollPass::dispatch(Expr* expr) {
   if (one_dim_tma_predicate_added_ && expr->isA<kir::MBarrierWaitParity>() &&
       for_loops_.back()->circularBufferLoopStage() ==
           CircularBufferLoopStage::ComputeWarp) {
-    auto pred =
-        IrBuilder::create<kir::Predicate>(PredicateType::OneDimTma, expr);
+    auto pred = IrBuilder::create<kir::Predicate>(
+        PredicateType::OneDimTmaWaitParity, expr);
     auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
     inline_ite->thenBody().push_back(expr);
     kir::ExprMutator::registerReplace(expr, inline_ite);
@@ -193,8 +193,8 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     // For 1d tma load, replace the current ElectSync predicate with
-    // PredicateType::OneDimTma. When there are multiple 1D TMA loads,
-    // only need to do the replacement for the first one.
+    // PredicateType::OneDimTmaLoadExpectArrive. When there are multiple 1D TMA
+    // loads, only need to do the replacement for the first one.
     if (ir_utils::isCpAsyncBulk1DLoad(expr) &&
         expr->output(0)->as<TensorView>()->isCircularBuffered()) {
       NVF_ERROR(
@@ -202,7 +202,7 @@ void UnrollPass::dispatch(Expr* expr) {
           "Expect current_elect_sync_ite_ to be not null");
       if (!one_dim_tma_predicate_added_) {
         auto new_pred = IrBuilder::create<kir::Predicate>(
-            PredicateType::OneDimTma, expr, for_loops_);
+            PredicateType::OneDimTmaLoadExpectArrive, expr, for_loops_);
         auto new_ite = current_elect_sync_ite_->withPredicate(new_pred);
         kir::ExprMutator::registerReplace(
             current_elect_sync_ite_, new_ite, elect_sync_scope_);
@@ -238,7 +238,7 @@ void UnrollPass::dispatch(Expr* expr) {
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
       // Keep tract of the current ElectSync predicate, if there are 1D
       // TMA loads within the ite scope, we need to replace it with
-      // PredicateType::OneDimTma
+      // PredicateType::OneDimTmaLoadExpectArrive
       current_elect_sync_ite_ = ite;
       elect_sync_scope_ = scope_.back();
     }
