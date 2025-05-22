@@ -315,7 +315,7 @@ TensorView* Common::cacheAfter(
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
   for (size_t i : arange(orig_logical.size())) {
-    if (graph_->hasVal(orig_logical[i])) {
+    if (graph_->hasGroup(orig_logical[i])) {
       ValGroup vg = graph_->toGroup(orig_logical[i]);
       graph_->initializeVal(cache_logical[i], vg);
     }
