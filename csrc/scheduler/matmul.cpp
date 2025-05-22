@@ -185,8 +185,15 @@ void Common::updateIdModel() {
     // IdModel
     std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
     for (auto& [k, v] : id_roles_) {
-      const ValGroup& new_group = new_graph.toGroup(k->front());
-      new_id_roles.emplace(new_group, v);
+      try {
+        const ValGroup& new_group = new_graph.toGroup(k->front());
+        new_id_roles.emplace(new_group, v);
+      } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "k: " << k->front()->toString() << std::endl;
+        std::cerr << "v: " << v << std::endl;
+        // throw;
+      }
     }
     id_roles_ = new_id_roles;
   }
