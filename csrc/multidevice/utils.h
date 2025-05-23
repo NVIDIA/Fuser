@@ -65,7 +65,7 @@ bool isAllocationCompliant(TensorView* tv, IterDomain* id);
 // gathered/scattered axes to be outermost in allocation.
 // This is only supported for load/store and reduction ops.
 // Composite expressions that are communication + compute are not supported.
-bool isCommunciationLayoutCompliant(Expr* expr);
+bool isCommunicationLayoutCompliant(Expr* expr);
 
 // Returns the position of an IterDomain in given domain.
 int64_t posInDomain(

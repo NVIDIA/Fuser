@@ -734,7 +734,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   return communication_info;
 }
 
-bool isCommunciationLayoutCompliant(Expr* expr) {
+bool isCommunicationLayoutCompliant(Expr* expr) {
   TensorView* producer = expr->inputs().at(0)->as<TensorView>();
   TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
 
