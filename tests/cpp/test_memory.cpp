@@ -3151,10 +3151,10 @@ TEST_F(TMATest, CpAsyncBulk1dNonDivisibleUnroll) {
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
 
-  constexpr int dim0 = 1023, dim1 = 512;
+  constexpr int dim0 = 1023, dim1 = 128;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
@@ -3189,9 +3189,9 @@ TEST_F(TMATest, CpAsyncBulk1dNonDivisibleUnroll) {
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
   try {
-    ke.run({at_tv0});
+    // input is concrete tensor, we can detect the error at compile time
+    ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
   } catch (const std::exception& e) {
     const char* reference =
         R"(Loop domains between circular buffer and 1D TMA load requires divisible split)";
@@ -3208,7 +3208,7 @@ TEST_F(TMATest, CpAsyncBulk1dPipplined) {
   constexpr int dim0 = 1023, dim1 = 512;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
