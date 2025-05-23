@@ -59,6 +59,14 @@ struct PersistentBufferStorageParams {
   // memory.
   int64_t smem_buffer_size = -1;
 
+  // Shared memory buffers that are circular buffered.
+  int64_t circular_buffered_smem_size = -1;
+
+  // Shared memory buffers that are not circular buffered, e.g. outer bcast tv
+  // which doesn't have iter dim to circulate. It is shared for different
+  // circular loops and smem usage is not related to circular buffer stages.
+  int64_t non_circular_buffered_smem_size = -1;
+
   // Total number of bytes occupied by all persistent buffers stored in
   // registers.
   int64_t regs_buffer_size = -1;

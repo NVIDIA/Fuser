@@ -427,6 +427,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
           }
+          if (kernel_summary.has_warp_reduction) {
+            smem_buf_size_ss << " / 32";
+          }
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
             std::stringstream smem_buf_size_with_outer_opt;
@@ -436,9 +439,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 16);\n";
+                   << smem_buf_size << ", 128);\n";
         }
 
         if (has_parallel_welford) {

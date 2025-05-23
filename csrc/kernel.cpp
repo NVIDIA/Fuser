@@ -55,6 +55,11 @@ class KernelIrScanner : private IrVisitor {
     return num_grouped_iterations;
   }
 
+  void checkWarpReduction(const Val* out, const Val* in) {
+    summary_.has_warp_reduction = summary_.has_warp_reduction ||
+        ir_utils::getMaybeWarpReductionDim(out, in).has_value();
+  }
+
   using IrVisitor::dispatch;
   using IrVisitor::handle;
   void dispatch(Expr* expr) final {
@@ -162,6 +167,9 @@ class KernelIrScanner : private IrVisitor {
     int64_t num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
+
+    // check if we have a warp reduction
+    checkWarpReduction(grouped_rop->output(0), grouped_rop->input(0));
   }
 
   void handle(GridWelford* grid_welford) final {
@@ -171,6 +179,10 @@ class KernelIrScanner : private IrVisitor {
     if (grid_welford->welford_op()->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
+  }
+
+  void handle(ReductionOp* rop) final {
+    checkWarpReduction(rop->out(), rop->in());
   }
 
   void handle(GridReduction* grid_reduction) final {

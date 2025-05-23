@@ -216,9 +216,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // smem,then copied from smem to regs, prefer to directly load to regs. Each
   // CTA loads once and re-used in each circular buffer iteration.
   // TODO: maybe tunable for some cases.
-  const bool is_direct_load_to_regs = true;
-  if (is_warp_specialized && is_direct_load_to_regs) {
-    buffer_params.regs_buffer_size = 0;
+  if (is_warp_specialized) {
     for (auto buffer : buffers) {
       if (std::any_of(
               outer_broadcast_tvs.begin(),
@@ -226,14 +224,13 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
               [&buffer](TensorView* tv) {
                 return DependencyCheck::isDependencyOf(buffer, tv);
               })) {
-        buffers.erase(
-            std::remove(buffers.begin(), buffers.end(), buffer), buffers.end());
-        buffer_params.regs_buffer_size +=
+        buffer_params.non_circular_buffered_smem_size +=
             scheduler_utils::getPersistentBufferSizeOfTensor(
                 buffer, runtime_info, persistent_buffer_info);
       }
     }
   }
+
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
   // val : register size and rounded shared memory size
@@ -261,6 +258,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.smem_buffer_size = total_smem_buffer_size;
   buffer_params.regs_buffer_size +=
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
+  buffer_params.circular_buffered_smem_size = buffer_params.smem_buffer_size -
+      buffer_params.non_circular_buffered_smem_size;
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffers;
