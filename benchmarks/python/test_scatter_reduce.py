@@ -50,7 +50,7 @@ def test_scatter_reduce_fwd_baseline_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    hidden_states = torch.randn((seq_length * topk_hidden[0], topk_hidden[1]), device="cuda")
+    hidden_states = torch.randn((seq_length * topk_hidden[0], topk_hidden[1]), device="cuda", requires_grad=True))
     logits = torch.randn(seq_length * topk_hidden[0], device="cuda")
     idxs = logits.argsort()
     topk_weight = torch.randn((seq_length, topk_hidden[0]), device="cuda")
@@ -78,10 +78,11 @@ def test_scatter_reduce_bwd_baseline_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    hidden_states = torch.randn((seq_length * topk_hidden[0], topk_hidden[1]), device="cuda")
+    hidden_states = torch.randn((seq_length * topk_hidden[0], topk_hidden[1]), device="cuda", requires_grad=True)
     logits = torch.randn(seq_length * topk_hidden[0], device="cuda")
     idxs = logits.argsort()
     topk_weight = torch.randn((seq_length, topk_hidden[0]), device="cuda")
+    grads = torch.randn((seq_length, topk_hidden[1]), device="cuda")
 
     # Compile the fwd fn for torchcompile
     fwd_fn = with_executor(executor, scatter_reduce, **kwargs)
