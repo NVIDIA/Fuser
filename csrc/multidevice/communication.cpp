@@ -445,7 +445,7 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
       isTvContiguous(communication->in()), "Input tensor is not contiguous");
   NVF_ERROR(
       isTvContiguous(communication->out()), "Output tensor is not contiguous");
-      
+
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 
@@ -485,7 +485,9 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   // preferable to use _reduce_scatter_base (which does not perform any extra
   // copy) when the tensors are stored contiguously
   return backend->_reduce_scatter_base(
-      flattened_output_tensor, flattened_input_tensor, {.reduceOp = communication->reduceOp()});
+      flattened_output_tensor,
+      flattened_input_tensor,
+      {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(

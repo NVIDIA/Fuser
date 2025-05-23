@@ -40,9 +40,12 @@ void makeCommunicationLayoutCompliant(
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
-  TensorView* input_copy = nullptr;
-
-  if (!isTvContiguous(input) || !isAllocationCompliant(input, p_sharded_id)) {
+  // Copy input if:
+  // 1. Input is not contiguous.
+  // 2. Input is not allocation compliant and is not a reduce/allreduce.
+  if (!isTvContiguous(input) ||
+      (!isAllocationCompliant(input, p_sharded_id) &&
+       communication_info.type != CommunicationType::Reduce)) {
     // Copy input into required memory layout.
     // Note: If input is not a fusion input, we should ideally be able to
     // specify allocation domain of input instead. However, some schedulers
@@ -50,19 +53,16 @@ void makeCommunicationLayoutCompliant(
     // This cannot always be done, for example, when this input is
     // noncontiguous.
 
-    input_copy = set(input);
+    TensorView* input_copy = set(input);
 
     // Find index of p_sharded_id in input_copy's logical domain.
     // Reduction axis in input can change the position of p_sharded_id in
     // input_copy's logical domain.
     // This reordering is not needed for reduce/allreduce.
     std::unordered_map<int64_t, int64_t> reorder_map = {};
-
     if (communication_info.type != CommunicationType::Reduce) {
-      auto p2c = PairwiseLogicalDomainMap(input, input_copy)
-                     .mapBroadcast(true)
-                     .mapSymbolic(true)
-                     .mapProducerToConsumer();
+      auto p2c =
+          PairwiseLogicalDomainMap(input, input_copy).mapProducerToConsumer();
 
       IterDomain* input_copy_sharded_id = p2c.at(p_sharded_id);
       int64_t input_copy_sharded_idx = posInDomain(
@@ -96,7 +96,9 @@ void makeCommunicationLayoutCompliant(
     input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
   }
 
-  if (!isAllocationCompliant(output, c_sharded_id)) {
+  // Copy output to revert the allocation domain if it not already compliant.
+  if (!isAllocationCompliant(output, c_sharded_id) ||
+      communication_info.type == CommunicationType::Reduce) {
     std::optional<Layout> output_layout = canonicalizeLayout(output);
 
     NVF_ERROR(
@@ -111,10 +113,8 @@ void makeCommunicationLayoutCompliant(
     if (output->hasAllocation()) {
       TensorView* output_copy = set(output);
 
-      auto p2c_map = PairwiseLogicalDomainMap(output, output_copy)
-                         .mapBroadcast(true)
-                         .mapSymbolic(true)
-                         .mapProducerToConsumer();
+      auto p2c_map =
+          PairwiseLogicalDomainMap(output, output_copy).mapProducerToConsumer();
       std::vector<IterDomain*> output_copy_allocation_domain;
 
       for (IterDomain* output_id :
@@ -133,6 +133,8 @@ void makeCommunicationLayoutCompliant(
             (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
         true);
   } else {
+    // If the output is already in the required memory layout,
+    // set its allocation explicitly to avoid changes by other passes.
     output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
   }
 }
