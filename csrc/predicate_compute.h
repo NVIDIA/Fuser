@@ -19,23 +19,23 @@ namespace nvfuser {
 struct OneDimTmaPredicateInfo {
   // predicate value for 1D TMA load, it combines ElectSync and Inline
   // predicate
-  Val* combined_pred_val_ = nullptr;
+  Val* combined_pred_val = nullptr;
   // Inline predicate, used in corresponding
-  Val* inline_pred_val_ = nullptr;
+  Val* inline_pred_val = nullptr;
   // index of the circular buffer loop
-  Val* circular_loop_index_ = nullptr;
+  Val* circular_loop_index = nullptr;
 
   // Reset after each use to ensure for each OneDimTmaLoadExpectArrive
   // there is only one corresponding OneDimTmaWaitParity
   void reset() {
-    combined_pred_val_ = nullptr;
-    inline_pred_val_ = nullptr;
-    circular_loop_index_ = nullptr;
+    combined_pred_val = nullptr;
+    inline_pred_val = nullptr;
+    circular_loop_index = nullptr;
   }
 
   // Ensure it is valid before use
   bool isSet() const {
-    return combined_pred_val_ && inline_pred_val_ && circular_loop_index_;
+    return combined_pred_val && inline_pred_val && circular_loop_index;
   }
 };
 class PredicateCompute {
@@ -61,7 +61,7 @@ class PredicateCompute {
       kir::Predicate* pred,
       const std::vector<ForLoop*>& loops);
 
-  //! Get predicate for wait parity. Reuse [inline_pred_val_] since
+  //! Get predicate for wait parity. Reuse [inline_pred_val] since
   //! wait parity doesn't have any output tensor which is required generate
   //! an inline predicate.
   static Val* OneDimTmaWaitParity(

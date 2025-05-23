@@ -739,7 +739,7 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     // save circular buffer loop index, will be replaced when generating
     // predicate for MBarrierWaitParity in computation branch.
     if (fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp) {
-      one_dim_tma_pred_info.circular_loop_index_ = fl->index();
+      one_dim_tma_pred_info.circular_loop_index = fl->index();
       continue;
     }
     // tma1dLoadLoops() returns all the loops above the actual tma load expr.
@@ -768,8 +768,8 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     }
   }
   pval_inline = ir_utils::replaceValRecursively(pval_inline, replace_map);
-  one_dim_tma_pred_info.inline_pred_val_ = pval_inline;
-  one_dim_tma_pred_info.combined_pred_val_ =
+  one_dim_tma_pred_info.inline_pred_val = pval_inline;
+  one_dim_tma_pred_info.combined_pred_val =
       SimplifyingIrBuilder::logicalAndExpr(pval_elect_sync, pval_inline);
   return one_dim_tma_pred_info;
 }
@@ -787,8 +787,8 @@ Val* PredicateCompute::OneDimTmaWaitParity(
   // replace the circular buffer load loop index with that of the circular
   // buffer compute loop.
   NVF_ERROR(expr->isA<kir::MBarrierWaitParity>())
-  auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val_;
-  auto circular_loop_index = one_dim_tma_pred_info.circular_loop_index_;
+  auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val;
+  auto circular_loop_index = one_dim_tma_pred_info.circular_loop_index;
   auto fl = current_loops.back();
   std::unordered_map<Val*, Val*> replace_map;
   replace_map[circular_loop_index] = fl->index();

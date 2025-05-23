@@ -197,9 +197,13 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
       case PredicateType::OneDimTmaLoadExpectArrive: {
+        NVF_ERROR(
+            !one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive is NOT set before "
+            "OneDimTmaLoadExpectArrive.");
         one_dim_tma_predicate_info_ =
             PredicateCompute::OneDimTmaLoadExpectArrive(pred, for_loops_);
-        return one_dim_tma_predicate_info_.combined_pred_val_;
+        return one_dim_tma_predicate_info_.combined_pred_val;
       }
       case PredicateType::OneDimTmaWaitParity: {
         // Ensure OneDimTmaPredicateInfo is set before use and reset it after
