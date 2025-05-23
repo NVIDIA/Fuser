@@ -7,7 +7,7 @@ import torch.distributed as dist
 from dataclasses import dataclass
 from functools import partial
 from fusion_definition_wrapper import FusionDefinitionWrapper
-from nvfuser import DataType, FusionDefinition
+from nvfuser import DataType, FusionDefinition, FusionCache
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
@@ -74,6 +74,7 @@ class LinearFunction(torch.autograd.Function):
         )
         (output,) = op([input, weight])
         ctx.save_for_backward(input, weight)
+        FusionCache.get().reset()
         return output
 
     @staticmethod
@@ -88,6 +89,7 @@ class LinearFunction(torch.autograd.Function):
             )
         )
         grad_x, grad_w = op([input, weight, grad_output])
+        FusionCache.get().reset()
         return (grad_x, grad_w)
 
 
