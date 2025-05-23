@@ -42,29 +42,37 @@ void makeCommunicationLayoutCompliant(
 
   TensorView* input_copy = nullptr;
 
-  if (!p_sharded_id->isDeviceDim() &&
-      !isAllocatedOutermost(input, p_sharded_id)) {
+  if (!isTvContiguous(input) || !isAllocationCompliant(input, p_sharded_id)) {
     // Copy input into required memory layout.
     // Note: If input is not a fusion input, we should ideally be able to
     // specify allocation domain of input instead. However, some schedulers
     // (e.g. reduction) may not support this, so creating a copy here.
+    // This cannot always be done, for example, when this input is
+    // noncontiguous.
+
     input_copy = set(input);
 
     // Find index of p_sharded_id in input_copy's logical domain.
     // Reduction axis in input can change the position of p_sharded_id in
     // input_copy's logical domain.
-    auto p2c = PairwiseLogicalDomainMap(input, input_copy)
-                   .mapBroadcast(true)
-                   .mapSymbolic(true)
-                   .mapProducerToConsumer();
+    // This reordering is not needed for reduce/allreduce.
+    std::unordered_map<int64_t, int64_t> reorder_map = {};
 
-    IterDomain* input_copy_sharded_id = p2c.at(p_sharded_id);
-    int64_t input_copy_sharded_idx = posInDomain(
-        input_copy->getMaybeAllocationDomain(), input_copy_sharded_id);
+    if (communication_info.type != CommunicationType::Reduce) {
+      auto p2c = PairwiseLogicalDomainMap(input, input_copy)
+                     .mapBroadcast(true)
+                     .mapSymbolic(true)
+                     .mapProducerToConsumer();
+
+      IterDomain* input_copy_sharded_id = p2c.at(p_sharded_id);
+      int64_t input_copy_sharded_idx = posInDomain(
+          input_copy->getMaybeAllocationDomain(), input_copy_sharded_id);
+      reorder_map[input_copy_sharded_idx] = 0;
+    }
+
     input_copy->setAllocationDomain(
         TensorDomain::orderedAs(
-            input_copy->getMaybeAllocationDomain(),
-            std::unordered_map<int64_t, int64_t>{{input_copy_sharded_idx, 0}}),
+            input_copy->getMaybeAllocationDomain(), reorder_map),
         true);
 
     // New communication expression.
@@ -82,45 +90,52 @@ void makeCommunicationLayoutCompliant(
           input_copy);
     }
     transform_and_parallelize_like(input, input_copy);
+  } else {
+    // If the input is already in the required memory layout,
+    // set its allocation explicitly to avoid changes by other passes.
+    input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
   }
 
-  std::optional<Layout> output_layout = canonicalizeLayout(output);
+  if (!isAllocationCompliant(output, c_sharded_id)) {
+    std::optional<Layout> output_layout = canonicalizeLayout(output);
 
-  NVF_ERROR(
-      output_layout.has_value(),
-      "Cannot canonicalize layout for ",
-      output->domain()->toString(0, false));
-  int64_t output_sharded_idx =
-      posInDomain((*output_layout).allocation_domain, c_sharded_id);
+    NVF_ERROR(
+        output_layout.has_value(),
+        "Cannot canonicalize layout for ",
+        output->domain()->toString(0, false));
+    int64_t output_sharded_idx =
+        posInDomain((*output_layout).allocation_domain, c_sharded_id);
 
-  // If the output is a fusion output, has allocation domain,
-  // and the c_sharded_id is not allocated outermost,
-  // create a copy of the output to revert the allocation domain.
-  if (output->isFusionOutput() && output->hasAllocation() &&
-      !isAllocatedOutermost(output, c_sharded_id)) {
-    TensorView* output_copy = set(output);
+    // If the output has allocation domain,
+    // create a copy of the output to revert the allocation domain.
+    if (output->hasAllocation()) {
+      debug() << "Output has allocation." << std::endl;
+      TensorView* output_copy = set(output);
 
-    auto p2c_map = PairwiseLogicalDomainMap(output, output_copy)
-                       .mapBroadcast(true)
-                       .mapSymbolic(true)
-                       .mapProducerToConsumer();
-    std::vector<IterDomain*> output_copy_allocation_domain;
+      auto p2c_map = PairwiseLogicalDomainMap(output, output_copy)
+                         .mapBroadcast(true)
+                         .mapSymbolic(true)
+                         .mapProducerToConsumer();
+      std::vector<IterDomain*> output_copy_allocation_domain;
 
-    for (IterDomain* output_id :
-         TensorDomain::noReductions((*output_layout).allocation_domain)) {
-      IterDomain* output_copy_id = p2c_map.at(output_id);
-      output_copy_allocation_domain.push_back(output_copy_id);
+      for (IterDomain* output_id :
+           TensorDomain::noReductions((*output_layout).allocation_domain)) {
+        IterDomain* output_copy_id = p2c_map.at(output_id);
+        output_copy_allocation_domain.push_back(output_copy_id);
+      }
+
+      output_copy->setAllocationDomain(output_copy_allocation_domain, true);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
+      transform_and_parallelize_like(output, output_copy);
     }
 
-    output_copy->setAllocationDomain(output_copy_allocation_domain, true);
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
-    transform_and_parallelize_like(output, output_copy);
+    output->setAllocationDomain(
+        TensorDomain::orderedAs(
+            (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
+        true);
+  } else {
+    output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
   }
-
-  output->setAllocationDomain(
-      TensorDomain::orderedAs(
-          (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
-      true);
 }
 
 } // namespace
@@ -143,23 +158,29 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    if (isCommLayoutCompliant(expr)) {
+    if (isCommunciationLayoutCompliant(expr)) {
+      // Set the allocation domain explicitly to avoid changes by other passes.
+      // No reordering / copying is needed.
+      TensorView* input = expr->inputs().at(0)->as<TensorView>();
+      TensorView* output = expr->outputs().at(0)->as<TensorView>();
+      input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
+      output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
       continue;
     }
 
-    auto communication_info = getGatherOrScatterCommInfo(expr);
+    auto communication_info = getCommunicationInfo(expr);
     NVF_ERROR(
         communication_info.has_value(),
         "Communication info not found for ",
         expr->toString());
 
     makeCommunicationLayoutCompliant(expr, *communication_info);
+  }
 
-    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-      debug() << std::endl
-              << "Fusion Transforms after " << name() << ":" << std::endl;
-      fusion->printTransforms();
-    }
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
   }
 }
 

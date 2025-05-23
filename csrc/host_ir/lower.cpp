@@ -35,7 +35,7 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     return false;
   }
   if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
-    if (!ignore_inner_resharding && !isCommLayoutCompliant(expr)) {
+    if (!ignore_inner_resharding && !isCommunciationLayoutCompliant(expr)) {
       return false;
     }
     auto in = reduction->in()->as<TensorView>();
@@ -57,7 +57,7 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    if (!ignore_inner_resharding && !isCommLayoutCompliant(expr)) {
+    if (!ignore_inner_resharding && !isCommunciationLayoutCompliant(expr)) {
       return false;
     }
     return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
