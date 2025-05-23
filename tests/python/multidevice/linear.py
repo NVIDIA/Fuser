@@ -16,6 +16,7 @@ from torch.distributed.tensor.placement_types import Shard, Replicate
 class LinearConfig:
     in_features: int
     out_features: int
+    has_batch: bool
 
 
 # I omitted biases because DeepSeek V3 uses non-biased linear layers in MLA and
@@ -23,7 +24,8 @@ class LinearConfig:
 def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
     e_in, e_out = config.in_features, config.out_features
 
-    inp = fd.define_tensor([-1, -1, e_in], contiguity=True, dtype=DataType.BFloat16)
+    inp_shape = [-1, -1, e_in] if config.has_batch else [-1, e_in]
+    inp = fd.define_tensor(inp_shape, contiguity=True, dtype=DataType.BFloat16)
     weight = fd.define_tensor([e_out, e_in], contiguity=True, dtype=DataType.BFloat16)
     out = fd.ops.linear(inp, weight)
     fd.add_output(out)
@@ -32,14 +34,23 @@ def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
 def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
     e_in, e_out = config.in_features, config.out_features
 
-    x = fd.define_tensor([-1, -1, e_in], contiguity=True, dtype=DataType.BFloat16)
+    x_shape = [-1, -1, e_in] if config.has_batch else [-1, e_in]
+    x = fd.define_tensor(x_shape, contiguity=True, dtype=DataType.BFloat16)
     w = fd.define_tensor([e_out, e_in], contiguity=True, dtype=DataType.BFloat16)
-    grad = fd.define_tensor([-1, -1, e_out], contiguity=True, dtype=DataType.BFloat16)
+    grad_shape = [-1, -1, e_out] if config.has_batch else [-1, e_out]
+    grad = fd.define_tensor(grad_shape, contiguity=True, dtype=DataType.BFloat16)
 
     grad_x = fd.ops.matmul(grad, w)
 
-    grad_flat_t = fd.ops.permute(fd.ops.reshape(grad, [-1, e_out]), [1, 0])
-    x_flat = fd.ops.reshape(x, [-1, e_in])
+    grad_flat_t = grad
+    if config.has_batch:
+        grad_flat_t = fd.ops.reshape(grad_flat_t, [-1, e_out])
+    grad_flat_t = fd.ops.permute(grad_flat_t, [1, 0])
+
+    x_flat = x
+    if config.has_batch:
+        x_flat = fd.ops.reshape(x, [-1, e_in])
+
     grad_w = fd.ops.matmul(grad_flat_t, x_flat)
 
     fd.add_output(grad_x)
@@ -53,8 +64,13 @@ class LinearFunction(torch.autograd.Function):
         input: DTensor,
         weight: DTensor,
     ):
+        # FIXME: cache
+        assert input.dim() in [2, 3]
         op = FusionDefinitionWrapper(
-            partial(define_linear_forward, LinearConfig(weight.size(1), weight.size(0)))
+            partial(
+                define_linear_forward,
+                LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
+            )
         )
         (output,) = op([input, weight])
         ctx.save_for_backward(input, weight)
@@ -63,10 +79,12 @@ class LinearFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: DTensor):
         input, weight = ctx.saved_tensors
+        assert input.dim() in [2, 3]
 
         op = FusionDefinitionWrapper(
             partial(
-                define_linear_backward, LinearConfig(weight.size(1), weight.size(0))
+                define_linear_backward,
+                LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
             )
         )
         grad_x, grad_w = op([input, weight, grad_output])
