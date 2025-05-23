@@ -173,8 +173,12 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn(b, s, e, dtype=torch.bfloat16, requires_grad=True)
-    weight_tensor = torch.randn(d * e, e, dtype=torch.bfloat16, requires_grad=True)
+    inp_tensor = torch.randint(
+        -4, 4, (b, s, e), dtype=torch.bfloat16, requires_grad=True
+    )
+    weight_tensor = torch.randint(
+        -4, 4, (d * e, e), dtype=torch.bfloat16, requires_grad=True
+    )
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Replicate()])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(0)])
@@ -208,8 +212,12 @@ def test_row_parallel_linear(setup_default_process_group, multidevice_test):
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn(b, s, d * e, dtype=torch.bfloat16, requires_grad=True)
-    weight_tensor = torch.randn(e, d * e, dtype=torch.bfloat16, requires_grad=True)
+    inp_tensor = torch.randint(
+        -4, 4, (b, s, d * e), dtype=torch.bfloat16, requires_grad=True
+    )
+    weight_tensor = torch.randint(
+        -4, 4, (e, d * e), dtype=torch.bfloat16, requires_grad=True
+    )
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
