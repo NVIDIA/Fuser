@@ -1131,7 +1131,8 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   mparams->circular_buffer_options.circular_buffer_smem_write =
       mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
   mparams->circular_buffer_options.circular_buffer_smem_read = false;
-  if (mparams->circular_buffer_options.smem_circular_buffer_stage > 1) {
+  if (isHopper(mparams->mma_macro) &&
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1) {
     mparams->circular_buffering_strategy =
         MatmulParams::CircularBufferingStrategy::WarpSpecialized;
   } else {
