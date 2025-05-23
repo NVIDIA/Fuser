@@ -441,6 +441,11 @@ c10::intrusive_ptr<c10d::Work> postAllreduce(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+      
   doLocalCopy(output_tensor, input_tensor);
   std::vector<at::Tensor> output_tensors({output_tensor});
 

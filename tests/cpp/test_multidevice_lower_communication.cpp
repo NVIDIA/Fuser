@@ -606,6 +606,44 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
       Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
 }
 
+TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+  TensorView* tv1 = sum(tv0, {1});
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  at::Tensor expected_output = unsharded_in_tensor.sum(1);
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
+}
+
 TEST_P(LowerNoncontigCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
