@@ -28,20 +28,20 @@ using PingPongCircularBufferingParams = std::tuple<int>;
 using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  int64_t rows_per_stage = 4;
-  int64_t compute_warp_groups = 2;
-  int64_t circular_loop = 12;
-  int sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  const int dim0 =
+  constexpr int64_t rows_per_stage = 4;
+  constexpr int64_t compute_warp_groups = 2;
+  constexpr int64_t circular_loop = 12;
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const int64_t dim0 =
       rows_per_stage * compute_warp_groups * sm_count * circular_loop;
-  const int dim1 = 128;
-
-  int stages = 6;
+  constexpr int64_t dim1 = 128;
+  constexpr int64_t stages = 6;
 
   TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion->addInput(tv0);
