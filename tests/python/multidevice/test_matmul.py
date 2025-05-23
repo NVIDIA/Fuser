@@ -164,7 +164,7 @@ def test_two_linears(multidevice_test):
         out = fd.ops.linear(fd.inp, fd.weight)
         fd.add_output(out)
 
-    class Linear0(FusionDefinition):
+    class Linear(FusionDefinition):
         def definition(self):
             define_linear_forward(e, d * e, self)
 
@@ -175,20 +175,6 @@ def test_two_linears(multidevice_test):
             self.sched.split(self.weight, 0, d, False)
             self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
             self.sched.set_allocation_as_loop(t)
-
-
-    class Linear1(FusionDefinition):
-        def definition(self):
-            define_linear_forward(e, d * e, self)
-
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-
-            self.sched.split(self.weight, 0, d, False)
-            self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(t)
-
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -199,15 +185,11 @@ def test_two_linears(multidevice_test):
         unsharded_weight_tensor, 0, mesh
     )
 
-    fd = Linear0()
-    fd.execute(
-        [inp_tensor, sharded_weight_tensor]
-    )
-
-    fd = Linear1()
-    fd.execute(
-        [inp_tensor, sharded_weight_tensor]
-    )
+    for _ in range(2):
+        fd = Linear()
+        fd.execute(
+            [inp_tensor, sharded_weight_tensor]
+        )
 
 
 @pytest.mark.mpi
