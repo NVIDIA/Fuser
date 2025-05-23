@@ -76,9 +76,6 @@ def test_transformer_layer(setup_default_process_group):
     # Disable quantization so the test can run on A100 and is made easier for nvFuser.
     delattr(config, "quantization_config")
 
-    rank = dist.get_rank()
-    torch.cuda.set_device(rank)
-
     # This ensures the input tokens are identically replicated on all ranks.
     # Otherwise, some ranks may skip an expert because they have no tokens to
     # send, while other ranks don't. This will cause a deadlock because a NCCL

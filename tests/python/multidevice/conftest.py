@@ -83,6 +83,8 @@ def multidevice_test():
 def setup_default_process_group():
     communicator = nvfuser.Communicator.instance()
 
+    torch.cuda.set_device(communicator.local_rank())
+
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
     dist.init_process_group(
         backend="nccl",
