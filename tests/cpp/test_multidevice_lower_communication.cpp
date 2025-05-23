@@ -541,22 +541,11 @@ class LowerNoncontigCollectiveTest
       optimization_guard_;
 };
 
-void LowerNoncontigCollectiveTest::SetUp() {
-  MultiDeviceTest::SetUp();
-  const auto& [backend_type, input_contiguous, input_did_outermost, output_allocated] =
-      GetParam();
-  if (!communicator_->isBackendAvailable(backend_type)) {
-    GTEST_SKIP() << "Backend not available: " << backend_type;
-  }
-  // getBackendForTeam throws an error if the requested backend type isn't
-  // available. Therefore, we call it after the isBackendAvailable check.
-  communicator_->setDefaultBackend(backend_type);
-  input_contiguous_ = input_contiguous;
-  input_did_outermost_ = input_did_outermost;
-  output_allocated_ = output_allocated;
-}
-
 TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Test requires at least 2 devices.";
+  }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -607,6 +596,9 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
 }
 
 TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Test requires at least 2 devices.";
+  }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -642,6 +634,24 @@ TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
+}
+
+void LowerNoncontigCollectiveTest::SetUp() {
+  MultiDeviceTest::SetUp();
+  const auto& [backend_type, input_contiguous, input_did_outermost, output_allocated] =
+      GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
+  }
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Test requires at least 2 devices.";
+  }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  communicator_->setDefaultBackend(backend_type);
+  input_contiguous_ = input_contiguous;
+  input_did_outermost_ = input_did_outermost;
+  output_allocated_ = output_allocated;
 }
 
 TEST_P(LowerNoncontigCollectiveTest, Allgather) {
