@@ -51,11 +51,9 @@ bool haveDifferentShardings(
     const TensorView* consumer);
 
 struct CommunicationInfo {
-  CommunicationType type; // Gather/Scatter/ReduceScatter
-  // p_sharded_id is the sharded ID in gather/allgather
-  // It is the id mapped to the scattered ID in scatter/reduce scatter
-  // Similarly, c_sharded_id is the scattered ID in gather/allgather
-  // It is the id mapped to the gathered ID in scatter/reduce scatter
+  CommunicationType type; // (All)Gather/Scatter/ReduceScatter/(All)Reduce
+  // Sharded logical IDs in producer/consumer.
+  // For ReduceScatter, this is the scattered axis. Reduced axis is not stored.
   IterDomain* p_sharded_id;
   IterDomain* c_sharded_id;
 };
@@ -74,8 +72,9 @@ int64_t posInDomain(
     const std::vector<IterDomain*>& domain,
     const IterDomain* id);
 
-// Returns the communication info for the gather/scatter/reduce scatter
-// communication that may require reordering the allocation domain.
+// Returns the communication info for the
+// (All)Gather/Scatter/ReduceScatter/(All)Reduce communication that may require
+// copying the input/output and reordering the allocation domain.
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
 // Returns a set that contains DIDs and Stream.
