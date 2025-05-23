@@ -91,8 +91,6 @@ def test_plus_one(setup_default_process_group, multidevice_test):
     op = FusionDefinitionWrapper(define_fusion)
 
     num_devices = dist.get_world_size()
-    rank = dist.get_rank()
-    torch.cuda.set_device(rank)
 
     in_tensor = torch.randn(num_devices, 4)
     mesh = dist.device_mesh.init_device_mesh("cuda", [num_devices])
@@ -168,8 +166,6 @@ class LinearFunction(torch.autograd.Function):
 @pytest.mark.mpi
 def test_column_parallel_linear(setup_default_process_group, multidevice_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
-    rank = dist.get_rank()
-    torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
@@ -188,6 +184,7 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
     out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
     out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
+    rank = dist.get_rank()
     assert_close(out_tensor.split(e, dim=-1)[rank], out_dtensor)
 
     (expected_grad_x, expected_grad_w) = torch.autograd.grad(
@@ -207,8 +204,6 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 @pytest.mark.mpi
 def test_row_parallel_linear(setup_default_process_group, multidevice_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
-    rank = dist.get_rank()
-    torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
@@ -240,5 +235,6 @@ def test_row_parallel_linear(setup_default_process_group, multidevice_test):
         (inp_dtensor, weight_dtensor),
         torch.ones_like(out_dtensor),
     )
+    rank = dist.get_rank()
     assert_close(expected_grad_x.split(e, dim=-1)[rank], grad_x)
     assert_close(expected_grad_w.split(e, dim=-1)[rank], grad_w)
