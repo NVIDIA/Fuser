@@ -77,33 +77,31 @@ void getDriverEntryPoint(
 }
 } // namespace
 
-#define DEFINE_DRIVER_API_WRAPPER(funcName, version)            \
-  namespace {                                                   \
-  template <typename ReturnType, typename... Args>              \
-  struct funcName##Loader {                                     \
-    static ReturnType lazilyLoadAndInvoke(Args... args) {       \
-      static decltype(::funcName)* entry_point;                 \
-      static std::once_flag once;                               \
-      std::call_once(                                           \
-          once,                                                 \
-          getDriverEntryPoint,                                  \
-          #funcName,                                            \
-          version,                                              \
-          reinterpret_cast<void**>(&entry_point));              \
-      return entry_point(args...);                              \
-    }                                                           \
-    /* This ctor is just a CTAD helper, it is only used in a */ \
-    /* non-evaluated environment*/                              \
-    funcName##Loader(ReturnType(Args...)){};                    \
-  };                                                            \
-                                                                \
-  /* Use CTAD rule to deduct return and argument types */       \
-  template <typename ReturnType, typename... Args>              \
-  funcName##Loader(ReturnType(Args...))                         \
-      ->funcName##Loader<ReturnType, Args...>;                  \
-  } /* namespace */                                             \
-                                                                \
-  decltype(::funcName)* funcName =                              \
+#define DEFINE_DRIVER_API_WRAPPER(funcName, version)                     \
+  namespace {                                                            \
+  template <typename ReturnType, typename... Args>                       \
+  struct funcName##Loader {                                              \
+    static ReturnType lazilyLoadAndInvoke(Args... args) {                \
+      static auto* entry_point = [&]() {                                 \
+        decltype(::funcName)* entry_point;                               \
+        getDriverEntryPoint(                                             \
+            #funcName, version, reinterpret_cast<void**>(&entry_point)); \
+        return entry_point;                                              \
+      }();                                                               \
+      return entry_point(args...);                                       \
+    }                                                                    \
+    /* This ctor is just a CTAD helper, it is only used in a */          \
+    /* non-evaluated environment*/                                       \
+    funcName##Loader(ReturnType(Args...)){};                             \
+  };                                                                     \
+                                                                         \
+  /* Use CTAD rule to deduct return and argument types */                \
+  template <typename ReturnType, typename... Args>                       \
+  funcName##Loader(ReturnType(Args...))                                  \
+      ->funcName##Loader<ReturnType, Args...>;                           \
+  } /* namespace */                                                      \
+                                                                         \
+  decltype(::funcName)* funcName =                                       \
       decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke
 
 namespace nvfuser {

@@ -115,8 +115,8 @@ class LinearConfig:
 def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
     e_in, e_out = config.in_features, config.out_features
 
-    inp = fd.define_tensor([-1, -1, e_in], contiguity=True)
-    weight = fd.define_tensor([e_out, e_in], contiguity=True)
+    inp = fd.define_tensor([-1, -1, e_in], contiguity=True, dtype=DataType.BFloat16)
+    weight = fd.define_tensor([e_out, e_in], contiguity=True, dtype=DataType.BFloat16)
     out = fd.ops.linear(inp, weight)
     fd.add_output(out)
 
@@ -124,9 +124,9 @@ def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
 def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
     e_in, e_out = config.in_features, config.out_features
 
-    x = fd.define_tensor([-1, -1, e_in], contiguity=True)
-    w = fd.define_tensor([e_out, e_in], contiguity=True)
-    grad = fd.define_tensor([-1, -1, e_out], contiguity=True)
+    x = fd.define_tensor([-1, -1, e_in], contiguity=True, dtype=DataType.BFloat16)
+    w = fd.define_tensor([e_out, e_in], contiguity=True, dtype=DataType.BFloat16)
+    grad = fd.define_tensor([-1, -1, e_out], contiguity=True, dtype=DataType.BFloat16)
 
     grad_x = fd.ops.matmul(grad, w)
 
@@ -167,22 +167,24 @@ class LinearFunction(torch.autograd.Function):
 
 @pytest.mark.mpi
 def test_column_parallel_linear(setup_default_process_group, multidevice_test):
-    d, b, s, e = dist.get_world_size(), 2, 1024, 768
+    d, b, s, e = dist.get_world_size(), 2, 3, 5
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn(b, s, e, requires_grad=True)
-    weight_tensor = torch.randn(d * e, e, requires_grad=True)
+    inp_tensor = torch.randint(
+        -4, 4, (b, s, e), dtype=torch.bfloat16, requires_grad=True
+    )
+    weight_tensor = torch.randint(
+        -4, 4, (d * e, e), dtype=torch.bfloat16, requires_grad=True
+    )
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Replicate()])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(0)])
 
     def assert_close(expected_tensor, dtensor):
-        torch.testing.assert_close(
-            expected_tensor, dtensor.to_local().cpu(), rtol=1.3e-6, atol=1e-3
-        )
+        torch.testing.assert_close(expected_tensor, dtensor.to_local().cpu())
 
     out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
     out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
@@ -204,22 +206,25 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
 @pytest.mark.mpi
 def test_row_parallel_linear(setup_default_process_group, multidevice_test):
-    d, b, s, e = dist.get_world_size(), 2, 1024, 768
+    d, b, s, e = dist.get_world_size(), 2, 3, 5
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn(b, s, d * e, requires_grad=True)
-    weight_tensor = torch.randn(e, d * e, requires_grad=True)
+    inp_tensor = torch.randint(
+        -4, 4, (b, s, d * e), dtype=torch.bfloat16, requires_grad=True
+    )
+    weight_tensor = torch.randint(
+        -4, 4, (e, d * e), dtype=torch.bfloat16, requires_grad=True
+    )
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
 
+    # https://github.com/pytorch/pytorch/blob/c1055f41a67ef9e76626fa14eea38073f4a09b62/torch/testing/_comparison.py#L1423
     def assert_close(expected_tensor, dtensor):
-        torch.testing.assert_close(
-            expected_tensor, dtensor.to_local().cpu(), rtol=1.3e-6, atol=1e-3
-        )
+        torch.testing.assert_close(expected_tensor, dtensor.to_local().cpu())
 
     out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
     out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
