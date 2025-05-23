@@ -43,9 +43,13 @@ void makeCommunicationLayoutCompliant(
   // Copy input if:
   // 1. Input is not contiguous.
   // 2. Input is not allocation compliant and is not a reduce/allreduce.
-  if (!isTvContiguous(input) ||
-      (!isAllocationCompliant(input, p_sharded_id) &&
-       communication_info.type != CommunicationType::Reduce)) {
+  if (isTvContiguous(input) &&
+      (communication_info.type == CommunicationType::Reduce ||
+       isAllocationCompliant(input, p_sharded_id))) {
+    // If the input is already in the required memory layout,
+    // set its allocation explicitly to avoid changes by other passes.
+    input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
+  } else {
     // Copy input into required memory layout.
     // Note: If input is not a fusion input, we should ideally be able to
     // specify allocation domain of input instead. However, some schedulers
@@ -90,15 +94,15 @@ void makeCommunicationLayoutCompliant(
           input_copy);
     }
     transform_and_parallelize_like(input, input_copy);
-  } else {
-    // If the input is already in the required memory layout,
-    // set its allocation explicitly to avoid changes by other passes.
-    input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
   }
 
-  // Copy output to revert the allocation domain if it not already compliant.
-  if (!isAllocationCompliant(output, c_sharded_id) ||
-      communication_info.type == CommunicationType::Reduce) {
+  // For reduce/allreduce, c_sharded_id is reduction axis and considered
+  // compliant.
+  if (isAllocationCompliant(output, c_sharded_id)) {
+    // If the output is already in the required memory layout,
+    // set its allocation explicitly to avoid changes by other passes.
+    output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
+  } else {
     std::optional<Layout> output_layout = canonicalizeLayout(output);
 
     NVF_ERROR(
@@ -132,10 +136,6 @@ void makeCommunicationLayoutCompliant(
         TensorDomain::orderedAs(
             (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
         true);
-  } else {
-    // If the output is already in the required memory layout,
-    // set its allocation explicitly to avoid changes by other passes.
-    output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
   }
 }
 
@@ -159,7 +159,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    if (isCommunciationLayoutCompliant(expr)) {
+    if (isCommunicationLayoutCompliant(expr)) {
       // Set the allocation domain explicitly to avoid changes by other passes.
       // No reordering / copying is needed.
       TensorView* input = expr->inputs().at(0)->as<TensorView>();
