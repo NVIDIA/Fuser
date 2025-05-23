@@ -89,11 +89,11 @@ def embedding(inputs: list):
 
 
 def scatter_reduce(inputs: list):
-    bmm_out: torch.Tensor # [seq*top_k, hidden]
-    idxs : torch.Tensor # [seq*top_k]
-    topk_weight : torch.Tensor # [seq , top_k]]
+    bmm_out: torch.Tensor  # [seq*top_k, hidden]
+    idxs: torch.Tensor  # [seq*top_k]
+    topk_weight: torch.Tensor  # [seq , top_k]]
     bmm_out, idxs, topk_weight = inputs
-    out = bmm_out.index_put([idxs], bmm_out) # [seq*top_k, hidden]
-    out = out.reshape(*topk_weight.shape, -1) # [seq, top_k, hidden]
-    out = out * topk_weight.unsqueeze(-1) # [seq, top_k, hidden]
-    return out.sum(dim = 1) # [seq, hidden]
+    out = bmm_out.index_put([idxs], bmm_out)  # [seq*top_k, hidden]
+    out = out.reshape(*topk_weight.shape, -1)  # [seq, top_k, hidden]
+    out = out * topk_weight.unsqueeze(-1)  # [seq, top_k, hidden]
+    return out.sum(dim=1)  # [seq, hidden]
