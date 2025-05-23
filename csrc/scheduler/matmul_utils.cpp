@@ -372,10 +372,19 @@ void maximizeHopperOperandStages(
   // more accurate estimate in case of horizontal fusion
   int64_t operand_smem_per_stage =
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+  // warp specialized kernels require two mbarriers per stage
+  if (mparams->circular_buffering_strategy ==
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized) {
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-size-alignment
+    constexpr int64_t mbarrier_bytes = 8;
+    operand_smem_per_stage += 2 * mbarrier_bytes;
+  }
+
   // We leave a bit of space for semaphores.
   int64_t max_operand_smem =
-      (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin -
-      (1L << 7);
+      (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+  // TODO: subtract additional space such as mbarriers used to synchronize the
+  // epilogue in ping-pong
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
