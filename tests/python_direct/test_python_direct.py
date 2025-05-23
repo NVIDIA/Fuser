@@ -6,7 +6,7 @@
 from nvfuser_direct import FusionDefinition
 
 
-def test_fusion_definition():
+def test_fusion_definition_print():
     with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
             shape=[2, 4, 8],
