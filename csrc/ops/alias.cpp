@@ -167,8 +167,10 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       if (pos == j) {
         continue;
       }
+      Val* new_size =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_sizes.at(j));
       other_new_numel =
-          SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
+          SimplifyingIrBuilder::mulExpr(other_new_numel, new_size);
     }
     // In case numel is 0, other_new_numel might also be 0 and we would hit a
     // division by zero. In such cases, using 1 as the denominator will cause
@@ -179,6 +181,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
         other_new_numel);
 
     Val* new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
+    NVF_ERROR(new_size->dtype() == DataType::Index);
     return simplifyExpr(new_size);
   };
 
