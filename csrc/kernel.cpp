@@ -56,7 +56,8 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void checkWarpReduction(const Val* out, const Val* in) {
-    summary_.has_warp_reduction = summary_.has_warp_reduction ||
+    summary_.all_block_reductions_are_warp_reduction =
+        summary_.all_block_reductions_are_warp_reduction &&
         ir_utils::getMaybeWarpReductionDim(out, in).has_value();
   }
 

@@ -465,7 +465,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     if (kernel_summary.circular_buffer_info.hasWarpSpecialized()) {
       n_compute_threads_or_warps -= ws_padded_threads;
     }
-    if (kernel_summary.has_warp_reduction) {
+    if (kernel_summary.all_block_reductions_are_warp_reduction) {
       n_compute_threads_or_warps /= 32;
     }
 

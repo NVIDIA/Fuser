@@ -427,7 +427,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
           }
-          if (kernel_summary.has_warp_reduction) {
+          if (kernel_summary.all_block_reductions_are_warp_reduction) {
             smem_buf_size_ss << " / 32";
           }
           std::string smem_buf_size = smem_buf_size_ss.str();
