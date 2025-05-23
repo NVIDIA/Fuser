@@ -556,6 +556,56 @@ void LowerNoncontigCollectiveTest::SetUp() {
   output_allocated_ = output_allocated;
 }
 
+TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3, d * 7});
+  TensorView* tv1 = sum(tv0, {1});
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(-1, d);
+  tv1->axis(-2)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3, d * 7}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+
+  at::Tensor expected_output =
+      shardTensor(unsharded_in_tensor.sum(1), -1, mesh);
+  // Scattered axis will be outermost after
+  expected_output = expected_output.t().contiguous().t();
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_EQ(out_tensor.strides(), expected_output.strides());
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
+
+  // The initial local reduce will be fused with the input copy.
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
+}
+
 TEST_P(LowerNoncontigCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -631,12 +681,12 @@ TEST_P(LowerNoncontigCollectiveTest, Scatter) {
   DeviceMesh mesh_zero({0});
   TensorView* tv0 = makeConcreteTensor({5, d * 3});
   if (input_did_outermost_) {
-    // Allocate scatter axis outermost in input.
-    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, input_contiguous_);
+  } else {
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), input_contiguous_);
   }
   TensorView* tv1 = set(tv0);
   if (output_allocated_) {
-    // Allocate scatter axis outermost in output.
     tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
   }
 
@@ -678,74 +728,6 @@ TEST_P(LowerNoncontigCollectiveTest, Scatter) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       Contains(HeuristicIs(SchedulerType::PointWise)).Times(num_copies));
-}
-
-TEST_P(LowerNoncontigCollectiveTest, ReduceScatter) {
-  if (output_allocated_) {
-    GTEST_SKIP()
-        << "InsertReshardingsPass does not retain the allocation domain. Skipping test.";
-  }
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  TensorView* tv0 = makeConcreteTensor({5, d * 3, d * 7});
-  if (input_did_outermost_) {
-    tv0->setAllocationDomain(
-        {tv0->axis(2), tv0->axis(0), tv0->axis(1)}, input_contiguous_);
-  } else {
-    tv0->setAllocationDomain(tv0->getLogicalDomain(), input_contiguous_);
-  }
-
-  TensorView* tv1 = sum(tv0, {1});
-  if (output_allocated_) {
-    tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
-  }
-
-  tv0->setDeviceMesh(mesh);
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-
-  tv1->setDeviceMesh(mesh);
-  tv1->outer_split(1, d);
-  tv1->axis(1)->parallelize(ParallelType::DIDx);
-
-  tv1->outer_split(-1, d);
-  tv1->axis(-2)->parallelize(ParallelType::DIDx);
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
-
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3, d * 7}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
-  if (input_did_outermost_) {
-    // ReduceScatter axis is outermost in input.
-    in_tensor = in_tensor.permute({2, 0, 1}).contiguous().permute({1, 2, 0});
-  }
-
-  at::Tensor expected_output =
-      shardTensor(unsharded_in_tensor.sum(1), -1, mesh);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  if (!output_allocated_) {
-    expected_output = expected_output.t().contiguous().t();
-  }
-
-  EXPECT_EQ(out_tensor.strides(), expected_output.strides());
-  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
-
-  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
-  // The initial local reduce will be fused with the input copy.
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
 }
 
 INSTANTIATE_TEST_SUITE_P(
