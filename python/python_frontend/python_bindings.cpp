@@ -3196,8 +3196,77 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
   vector_class.def(
       "__getitem__",
-      [&at_def](Vector arg, int64_t index) -> Scalar {
-        return at_def(arg, index);
+      [&at_def](Vector arg, py::object index) -> py::object {
+        if (py::isinstance<py::int_>(index)) {
+          return py::cast(at_def(arg, index.cast<int64_t>()));
+        } else if (py::isinstance<py::slice>(index)) {
+          py::slice slice = index.cast<py::slice>();
+          py::ssize_t start, stop, step, slice_length;
+          if (!slice.compute(arg.size, &start, &stop, &step, &slice_length)) {
+            throw py::error_already_set();
+          }
+          
+          auto fd = arg.fusion_definition;
+          NVF_CHECK(fd->ops.validUse(), "Attempting to add to a completed definition!");
+          Vector output = fd->defineVector(slice_length);
+
+          std::vector<State> input_states;
+          input_states.reserve(slice_length);
+          for (py::ssize_t i = 0; i < slice_length; i++) {
+            int64_t idx = start + i * step;
+            Scalar elem = at_def(arg, idx);
+            input_states.push_back(fd->recordingState(elem()));
+          }
+
+          fd->defineRecord(new VectorRecord(
+              input_states,
+              {fd->recordingState(output())},
+              DataType::Int,
+              false));
+
+          return py::cast(output);
+        }
+        throw py::type_error("Vector indices must be integers or slices");
+      },
+      py::return_value_policy::reference);
+  vector_class.def(
+      "__add__",
+      [&at_def](Vector arg1, py::object arg2) -> Vector {
+        auto fd = arg1.fusion_definition;
+        NVF_CHECK(fd->ops.validUse(), "Attempting to add to a completed definition!");
+
+        Vector arg2_vec{0, 0, fd};
+        if (py::isinstance<py::list>(arg2)) {
+          py::list list2 = arg2.cast<py::list>();
+          arg2_vec = SequenceAsVector(list2, *fd);
+        } else if (py::isinstance<Vector>(arg2)) {
+          arg2_vec = arg2.cast<Vector>();
+        } else {
+          throw py::type_error("Can only append a Vector or list to a Vector");
+        }
+
+        std::vector<State> input_states;
+        size_t appended_size = arg1.size + arg2_vec.size;
+        input_states.reserve(appended_size);
+
+        for (size_t i = 0; i < arg1.size; ++i) {
+          Scalar elem1 = at_def(arg1, i);
+          input_states.push_back(fd->recordingState(elem1()));
+        }
+
+        for (size_t i = 0; i < arg2_vec.size; ++i) {
+          Scalar elem2 = at_def(arg2_vec, i);
+          input_states.push_back(fd->recordingState(elem2()));
+        }
+
+        Vector output = fd->defineVector(appended_size);
+        fd->defineRecord(new VectorRecord(
+            input_states,
+            {fd->recordingState(output())},
+            DataType::Int,
+            false));
+            
+        return output;
       },
       py::return_value_policy::reference);
   nvf_ops.def(
