@@ -109,7 +109,6 @@ void makeCommunicationLayoutCompliant(
     // If the output has allocation domain,
     // create a copy of the output to revert the allocation domain.
     if (output->hasAllocation()) {
-      debug() << "Output has allocation." << std::endl;
       TensorView* output_copy = set(output);
 
       auto p2c_map = PairwiseLogicalDomainMap(output, output_copy)
