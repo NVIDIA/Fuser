@@ -153,6 +153,64 @@ def test_row_parallel_linear(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_two_linears(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    e = 5
+
+    def define_linear_forward(e_in: int, e_out: int, fd: FusionDefinition) -> None:
+        fd.inp = fd.define_tensor([-1, -1, e_in], contiguity=True, dtype=DataType.BFloat16)
+        fd.weight = fd.define_tensor([e_out, e_in], contiguity=True, dtype=DataType.BFloat16)
+        out = fd.ops.linear(fd.inp, fd.weight)
+        fd.add_output(out)
+
+    class Linear0(FusionDefinition):
+        def definition(self):
+            define_linear_forward(e, d * e, self)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+
+            self.sched.split(self.weight, 0, d, False)
+            self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(t)
+
+
+    class Linear1(FusionDefinition):
+        def definition(self):
+            define_linear_forward(e, d * e, self)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+
+            self.sched.split(self.weight, 0, d, False)
+            self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(t)
+
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    b, s = 2, 3
+    inp_tensor = torch.randn(b, s, e, dtype=torch.bfloat16, device="cuda")
+    unsharded_weight_tensor = torch.randn(d * e, e, dtype=torch.bfloat16)
+    sharded_weight_tensor = multidevice_test.shard_tensor(
+        unsharded_weight_tensor, 0, mesh
+    )
+
+    fd = Linear0()
+    fd.execute(
+        [inp_tensor, sharded_weight_tensor]
+    )
+
+    fd = Linear1()
+    fd.execute(
+        [inp_tensor, sharded_weight_tensor]
+    )
+
+
+@pytest.mark.mpi
 def test_linear_reduce_scatter(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
