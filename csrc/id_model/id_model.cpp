@@ -1160,6 +1160,7 @@ void IdModel::allocateLoopIndexVariables() {
       "getLoopIndexVariable requires Loop graph");
 
   // Follow the same logic as ComputeAtMap::allocateIndexVariables
+  Val* computation_warp_group_index = nullptr;
   for (const ValGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
     auto loop_promotion_map_it = loop_promotion_map_.find(loop_group);
@@ -1204,6 +1205,20 @@ void IdModel::allocateLoopIndexVariables() {
       }
       circular_buffered_loop_index_variable_map_[loop_group] =
           std::move(indices);
+      continue;
+    }
+
+    if (GpuLower::current()
+            ->circularBufferInfo()
+            .isIndependentComputeWarpGroupsIterDomain(
+                loop_group->front()->as<IterDomain>())) {
+      if (computation_warp_group_index) {
+        loop_index = computation_warp_group_index;
+      } else {
+        computation_warp_group_index = IrBuilder::create<Val>(DataType::Index);
+        loop_index = computation_warp_group_index;
+      }
+      loop_index_variable_map_[loop_group] = loop_index;
       continue;
     }
 
