@@ -322,7 +322,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       c->toString(),
       " to communication is not supported");
   NVF_ERROR(
-      isCommLayoutCompliant(c),
+      isCommunciationLayoutCompliant(c),
       "Resharding on an inner axis is not lowerable ",
       c->toString());
   bool is_reduction = c->isA<ReductionOp>();

@@ -18,6 +18,7 @@
 
 namespace nvfuser {
 
+using testing::Contains;
 using testing::Each;
 using testing::Pointer;
 
@@ -522,22 +523,27 @@ INSTANTIATE_TEST_SUITE_P(
 class LowerNoncontigCollectiveTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<
-          std::tuple<CommunicatorBackend, bool, bool>> {
-  // params = [backend, input_allocated_outermost, output_has_allocation]
+          std::tuple<CommunicatorBackend, bool, bool, bool>> {
+  // params = [backend, input_contiguous, input_did_outermost, output_allocated]
   // backend: the backend type to use.
-  // input_allocated_outermost: whether the input tensor has the gather axis
-  // outermost. output_has_allocation: whether the output tensor has an
-  // allocation.
-
+  // input_contiguous_: If input tensorview is contiguous.
+  // input_did_outermost_: If the input tensorview's sharded axis is outermost.
+  // output_allocated_: If the output tensorview has an allocation.
  protected:
-  bool input_allocated_outermost_;
-  bool output_has_allocation_;
+  LowerNoncontigCollectiveTest() : optimization_guard_(false) {}
+  bool input_contiguous_;
+  bool input_did_outermost_;
+  bool output_allocated_;
   void SetUp() override;
+
+ private:
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard_;
 };
 
 void LowerNoncontigCollectiveTest::SetUp() {
   MultiDeviceTest::SetUp();
-  const auto& [backend_type, input_allocated_outermost, output_has_allocation] =
+  const auto& [backend_type, input_contiguous, input_did_outermost, output_allocated] =
       GetParam();
   if (!communicator_->isBackendAvailable(backend_type)) {
     GTEST_SKIP() << "Backend not available: " << backend_type;
@@ -545,17 +551,14 @@ void LowerNoncontigCollectiveTest::SetUp() {
   // getBackendForTeam throws an error if the requested backend type isn't
   // available. Therefore, we call it after the isBackendAvailable check.
   communicator_->setDefaultBackend(backend_type);
-  input_allocated_outermost_ = input_allocated_outermost;
-  output_has_allocation_ = output_has_allocation;
+  input_contiguous_ = input_contiguous;
+  input_did_outermost_ = input_did_outermost;
+  output_allocated_ = output_allocated;
 }
 
 TEST_P(LowerNoncontigCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-
-  // To avoid setting allocation on output, we disable the mark aliases pass.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      optimization_guard(false);
 
   // ProcessGroupNCCL requires the gathered axis to be outermost.
   // We change the allocation of tensorviews to reflect this.
@@ -566,13 +569,15 @@ TEST_P(LowerNoncontigCollectiveTest, Allgather) {
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   TensorView* tv0 = makeConcreteTensor({5, d * 3});
-  if (input_allocated_outermost_) {
-    // Allocate gather axis outermost in input.
-    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
+
+  if (input_did_outermost_) {
+    tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, input_contiguous_);
+  } else {
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), input_contiguous_);
   }
+
   TensorView* tv1 = set(tv0);
-  if (output_has_allocation_) {
-    // Allocate gather axis outermost in output.
+  if (output_allocated_) {
     tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
   }
 
@@ -587,7 +592,7 @@ TEST_P(LowerNoncontigCollectiveTest, Allgather) {
 
   at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
-  if (input_allocated_outermost_) {
+  if (input_did_outermost_) {
     // Gather axis is outermost in input.
     in_tensor = in_tensor.t().contiguous().t();
   }
@@ -597,33 +602,40 @@ TEST_P(LowerNoncontigCollectiveTest, Allgather) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   at::Tensor expected_output = unsharded_in_tensor;
-  if (!output_has_allocation_) {
+  if (!output_allocated_) {
     // Gather axis is outermost in output.
     expected_output = expected_output.t().contiguous().t();
   }
   EXPECT_EQ(out_tensor.strides(), expected_output.strides());
   EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+
+  int64_t num_copies =
+      (!input_contiguous_ || !input_did_outermost_) + (output_allocated_);
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::PointWise)).Times(num_copies));
 }
 
 TEST_P(LowerNoncontigCollectiveTest, Scatter) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // To avoid setting allocation on output, we disable the mark aliases pass.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
-      optimization_guard(false);
-
   const auto d = communicator_->size();
   auto full_mesh = DeviceMesh::createForNumDevices(d);
 
   DeviceMesh mesh_zero({0});
   TensorView* tv0 = makeConcreteTensor({5, d * 3});
-  if (input_allocated_outermost_) {
+  if (input_did_outermost_) {
     // Allocate scatter axis outermost in input.
     tv0->setAllocationDomain({tv0->axis(1), tv0->axis(0)}, true);
   }
   TensorView* tv1 = set(tv0);
-  if (output_has_allocation_) {
+  if (output_allocated_) {
     // Allocate scatter axis outermost in output.
     tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
   }
@@ -640,7 +652,7 @@ TEST_P(LowerNoncontigCollectiveTest, Scatter) {
   at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
   at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh);
 
-  if (input_allocated_outermost_) {
+  if (input_did_outermost_) {
     // Scatter axis is outermost in input.
     unsharded_in_tensor = unsharded_in_tensor.t().contiguous().t();
   }
@@ -650,12 +662,90 @@ TEST_P(LowerNoncontigCollectiveTest, Scatter) {
       executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
           .as<at::Tensor>();
 
-  if (!output_has_allocation_) {
+  if (!output_allocated_) {
     // Scatter axis is outermost in output.
     expected_output = expected_output.t().contiguous().t();
   }
   EXPECT_EQ(out_tensor.strides(), expected_output.strides());
   EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  int64_t num_copies =
+      (!input_contiguous_ || !input_did_outermost_) + (output_allocated_);
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::PointWise)).Times(num_copies));
+}
+
+TEST_P(LowerNoncontigCollectiveTest, ReduceScatter) {
+  if (output_allocated_) {
+    GTEST_SKIP()
+        << "InsertReshardingsPass does not retain the allocation domain. Skipping test.";
+  }
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3, d * 7});
+  if (input_did_outermost_) {
+    tv0->setAllocationDomain(
+        {tv0->axis(2), tv0->axis(0), tv0->axis(1)}, input_contiguous_);
+  } else {
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), input_contiguous_);
+  }
+
+  TensorView* tv1 = sum(tv0, {1});
+  if (output_allocated_) {
+    tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
+  }
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(-1, d);
+  tv1->axis(-2)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3, d * 7}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  if (input_did_outermost_) {
+    // ReduceScatter axis is outermost in input.
+    in_tensor = in_tensor.permute({2, 0, 1}).contiguous().permute({1, 2, 0});
+  }
+
+  at::Tensor expected_output =
+      shardTensor(unsharded_in_tensor.sum(1), -1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  if (!output_allocated_) {
+    expected_output = expected_output.t().contiguous().t();
+  }
+
+  EXPECT_EQ(out_tensor.strides(), expected_output.strides());
+  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Communication)).Times(1));
+  // The initial local reduce will be fused with the input copy.
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Reduction)).Times(1));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -664,17 +754,19 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         testing::Values(false, true),
+        testing::Values(false, true),
         testing::Values(false, true)),
     ([](const testing::TestParamInfo<
-         std::tuple<CommunicatorBackend, bool, bool>>& info) -> std::string {
-      const auto& [backend_type, input_allocated_outermost, output_has_allocation] =
+         std::tuple<CommunicatorBackend, bool, bool, bool>>& info)
+         -> std::string {
+      const auto& [backend_type, input_contiguous, input_did_outermost, output_allocated] =
           info.param;
       std::stringstream ss;
       ss << backend_type;
-      ss << (input_allocated_outermost ? "_InputAllocatedOutermost"
-                                       : "_InputNotAllocatedOutermost")
-         << (output_has_allocation ? "_OutputHasAllocation"
-                                   : "_OutputNoAllocation");
+      ss << (input_contiguous ? "_InputContiguous" : "_InputNotContiguous")
+         << (input_did_outermost ? "_InputDidOuterMost"
+                                 : "_InputDidNotOuterMost")
+         << (output_allocated ? "_OutputAllocated" : "_OutputNotAllocated");
       return ss.str();
     }));
 

@@ -60,14 +60,14 @@ struct CommunicationInfo {
   IterDomain* c_sharded_id;
 };
 
-bool isAllocatedOutermost(TensorView* tv, IterDomain* id);
+bool isAllocationCompliant(TensorView* tv, IterDomain* id);
 
 // Returns whether the communication layout is compliant.
 // ProcessGroup expects contiguous tensors and
 // gathered/scattered axes to be outermost in allocation.
 // This is only supported for load/store and reduction ops.
 // Composite expressions that are communication + compute are not supported.
-bool isCommLayoutCompliant(Expr* expr);
+bool isCommunciationLayoutCompliant(Expr* expr);
 
 // Returns the position of an IterDomain in given domain.
 int64_t posInDomain(
@@ -76,7 +76,7 @@ int64_t posInDomain(
 
 // Returns the communication info for the gather/scatter/reduce scatter
 // communication that may require reordering the allocation domain.
-std::optional<CommunicationInfo> getGatherOrScatterCommInfo(Expr* expr);
+std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
