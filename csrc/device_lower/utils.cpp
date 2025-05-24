@@ -2086,6 +2086,13 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
 } // namespace lower_utils
 
 } // namespace nvfuser
