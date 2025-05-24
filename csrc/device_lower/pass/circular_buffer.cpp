@@ -1294,7 +1294,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     // Get Pipeline InsertionInfo
     InsertionInfo pipeline_info;
     for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
-      if (isWarpSpecialized(cb_loop)) {
+      if (lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
 
@@ -1458,7 +1458,7 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
       cb_info.hasIndependentComputeWarpGroups();
   kir::IfThenElse* ite = nullptr;
   if (independent_compute_warp_groups) {
-    NVF_ERROR(isWarpSpecialized(circular_buffer_loop));
+    NVF_ERROR(lower_utils::isWarpSpecializedLoop(circular_buffer_loop));
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(warp_specialize_on),
