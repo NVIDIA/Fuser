@@ -1243,7 +1243,6 @@ class IsCircularBufferLoadLoop : public kir::IrVisitor {
   bool result_ = false;
 };
 
-
 // Traverse lowered loop-nests and find all circular buffer loops and
 // associated load expressions.
 class CircularBufferLoopNestInspector : private kir::IrVisitor {
