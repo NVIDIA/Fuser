@@ -5,14 +5,15 @@
 import torch
 import torch.distributed as dist
 from dataclasses import dataclass
-from functools import partial
+from enum import auto, Enum
+from functools import partial, lru_cache
 from fusion_definition_wrapper import FusionDefinitionWrapper
-from nvfuser import DataType, FusionDefinition, FusionCache
+from nvfuser import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
 
-@dataclass
+@dataclass(frozen=True)
 class LinearConfig:
     in_features: int
     out_features: int
@@ -57,6 +58,24 @@ def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
     fd.add_output(grad_w)
 
 
+class ComputeType(Enum):
+    FORWARD = auto()
+    BACKWARD = auto()
+
+
+@lru_cache
+def get_fusion_definition_wrapper(
+    compute_type: ComputeType, linear_config: LinearConfig
+) -> FusionDefinitionWrapper:
+    match compute_type:
+        case ComputeType.FORWARD:
+            fn = define_linear_forward
+        case ComputeType.BACKWARD:
+            fn = define_linear_backward
+
+    return FusionDefinitionWrapper(partial(fn, linear_config))
+
+
 class LinearFunction(torch.autograd.Function):
     @staticmethod
     def forward(
@@ -64,17 +83,13 @@ class LinearFunction(torch.autograd.Function):
         input: DTensor,
         weight: DTensor,
     ):
-        # FIXME: cache
         assert input.dim() in [2, 3]
-        op = FusionDefinitionWrapper(
-            partial(
-                define_linear_forward,
-                LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
-            )
+        op = get_fusion_definition_wrapper(
+            ComputeType.FORWARD,
+            LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
         )
         (output,) = op([input, weight])
         ctx.save_for_backward(input, weight)
-        FusionCache.get().reset()
         return output
 
     @staticmethod
@@ -82,14 +97,11 @@ class LinearFunction(torch.autograd.Function):
         input, weight = ctx.saved_tensors
         assert input.dim() in [2, 3]
 
-        op = FusionDefinitionWrapper(
-            partial(
-                define_linear_backward,
-                LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
-            )
+        op = get_fusion_definition_wrapper(
+            ComputeType.BACKWARD,
+            LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
         )
         grad_x, grad_w = op([input, weight, grad_output])
-        FusionCache.get().reset()
         return (grad_x, grad_w)
 
 
