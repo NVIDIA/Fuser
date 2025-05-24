@@ -153,12 +153,16 @@ class KernelIrScanner : private IrVisitor {
     auto out_dom = welford_op->outAvg()->as<TensorIndex>()->view()->domain();
     summary_.has_block_welford =
         summary_.has_block_welford || out_dom->hasBlockReduction();
+    summary_.all_block_reductions_are_warp_reduction = false;
   }
 
   // TODO: need to split into IterGroupedReductionOp and ExprGroupedReductionOp?
   // May extend to support both iteration and expr grouped block reductions.
   // Grouped grid reductions are handled by GroupedGridReduction.
   void handle(GroupedReductionOp* grouped_rop) final {
+    // check if we have a warp reduction
+    checkWarpReduction(grouped_rop->output(0), grouped_rop->input(0));
+
     // skip expr grouped reduction
     if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
       return;
@@ -168,15 +172,13 @@ class KernelIrScanner : private IrVisitor {
     int64_t num_grouped_iterations = getNumOfGroupedIterations(grouped_rop);
     summary_.num_grouped_iterations =
         std::max(summary_.num_grouped_iterations, num_grouped_iterations);
-
-    // check if we have a warp reduction
-    checkWarpReduction(grouped_rop->output(0), grouped_rop->input(0));
   }
 
   void handle(GridWelford* grid_welford) final {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->welford_op()->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -192,6 +194,7 @@ class KernelIrScanner : private IrVisitor {
     // workspace.
     summary_.has_grid_reductions =
         grid_reduction->serialReductionTensor() == nullptr;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -199,6 +202,7 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(GroupedGridReduction* grid_reduction) final {
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
@@ -214,6 +218,7 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
