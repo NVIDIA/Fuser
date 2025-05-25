@@ -572,6 +572,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
