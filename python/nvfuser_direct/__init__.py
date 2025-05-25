@@ -10,6 +10,7 @@ assert (
 
 import os
 import torch
+import traceback
 
 # This is needed when libnvfuser_direct.so is patched and doesn't have the pytorch library location available.
 pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
@@ -48,6 +49,7 @@ class FusionDefinition:
     def __enter__(self):
         """
         Enter the context manager.
+
         Returns
         -------
         FusionDefinition
@@ -61,6 +63,7 @@ class FusionDefinition:
         Exit the context manager and handle any exceptions.
         This method is called when exiting the 'with' block, whether normally or due to an exception.
         The arguments provide information about any exception that occurred:
+
         Parameters
         ----------
         excecption_type : type or None
@@ -84,12 +87,14 @@ class FusionDefinition:
     def define_tensor(self, *args, **kwargs):
         """
         Define a new tensor input for the fusion.
+
         Parameters
         ----------
         *args
             Positional arguments passed to _C_DIRECT.define_tensor
         **kwargs
             Keyword arguments passed to _C_DIRECT.define_tensor
+
         Returns
         -------
         Tensor
@@ -102,6 +107,7 @@ class FusionDefinition:
     def add_output(self, *args, **kwargs):
         """
         Add an output to the fusion.
+
         Parameters
         ----------
         *args
@@ -110,3 +116,28 @@ class FusionDefinition:
             Keyword arguments passed to fusion.add_output
         """
         self.fusion.add_output(*args, **kwargs)
+
+    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+        """
+        Execute the fusion with the given inputs.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            Input tensors to the fusion
+        device : torch.device, optional
+            Device to execute the fusion on
+        auto_schedule : bool, default=True
+            Whether to use automatic scheduling
+
+        Returns
+        -------
+        list of torch.Tensor
+            Output tensors from the fusion
+        """
+        if auto_schedule:
+            if not hasattr(self, "fec"):
+                self.fec = _C_DIRECT.FusionExecutorCache(self.fusion)
+            return self.fec.execute(inputs)
+        else:
+            raise RuntimeError("Manual scheduling is not supported yet.")
