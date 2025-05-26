@@ -1073,15 +1073,10 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
 
-  if (ws_enabled) {
-    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
-    return;
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, dtype);
-  auto tv1 = makeContigTensor(2, dtype);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
@@ -1114,17 +1109,12 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
 
-  if (ws_enabled) {
-    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
-    return;
-  }
-
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto grad_out = makeContigTensor(2, dtype);
-  auto input = makeContigTensor(2, dtype);
+  auto grad_out = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto input = makeContigConcreteTensor({dim0, dim1}, dtype);
   auto rstd = contig ? makeContigConcreteTensor({dim0, 1})
                      : makeConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
@@ -1176,20 +1166,15 @@ TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
 
-  if (ws_enabled) {
-    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
-    return;
-  }
-
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto grad_out = makeContigTensor(2, dtype);
-  auto input = makeContigTensor(2, dtype);
+  auto grad_out = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto input = makeContigConcreteTensor({dim0, dim1}, dtype);
   auto rms = contig ? makeContigConcreteTensor({dim0, 1})
                     : makeConcreteTensor({dim0, 1});
-  auto weight = makeContigTensor(1, dtype);
+  auto weight = makeContigConcreteTensor({dim1}, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
   fusion->addInput(rms);
@@ -1239,22 +1224,17 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
   FusionGuard fg(fusion.get());
   auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
 
-  if (ws_enabled) {
-    GTEST_SKIP() << "Bdimx is dynamic, Warp Specialization is disabled.";
-    return;
-  }
-
   std::vector<int64_t> norm_shape{dim1};
   std::vector<int64_t> input_shape{dim0, dim1};
   std::vector<int64_t> outer_shape{dim0, 1};
-  auto grad_out = makeContigTensor(input_shape.size(), dtype);
-  auto input = makeContigTensor(input_shape.size(), dtype);
+  auto grad_out = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto input = makeContigConcreteTensor({dim0, dim1}, dtype);
   auto mean = contig ? makeContigConcreteTensor(outer_shape)
                      : makeConcreteTensor(outer_shape);
   auto rstd = contig ? makeContigConcreteTensor(outer_shape)
                      : makeConcreteTensor(outer_shape);
-  auto weight = makeContigTensor(norm_shape.size(), dtype);
-  auto bias = makeContigTensor(norm_shape.size(), dtype);
+  auto weight = makeContigConcreteTensor(norm_shape, dtype);
+  auto bias = makeContigConcreteTensor(norm_shape, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
   fusion->addInput(mean);
@@ -1306,10 +1286,7 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 }
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
-  // Use 8 * SMs as the outer dimension to ensure divisible split by unroll
-  // factor (1 or 2) and SM count.
-  int64_t dim0 =
-      8 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  int64_t dim0 = 2048;
   for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
       for (bool warp_specialized : {true, false}) {

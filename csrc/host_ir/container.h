@@ -59,24 +59,12 @@ class HostIrContainer final : public Fusion {
 
   Stream* getDefaultStream();
 
-  void markAlias(TensorView* original, const TensorView* new_alias) {
-    while (alias_.count(original)) {
-      original = alias_[original]->as<TensorView>();
-    }
-    alias_[new_alias] = original;
-  }
-
-  const auto& alias() const {
-    return alias_;
-  }
-
  private:
   std::vector<Expr*> top_level_exprs_;
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
-  std::unordered_map<const Val*, Val*> alias_;
 };
 
 } // namespace hir

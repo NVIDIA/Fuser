@@ -306,10 +306,10 @@ std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(
     auto* linear = expr->as<LinearOp>();
     tva = linear->inA()->as<TensorView>();
     tvb = linear->inB()->as<TensorView>();
-    tv_bias = (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
+    tv_bias = (linear->hasBias() ? linear->bias()->as<TensorView>() : nullptr);
     tv_out = linear->out()->as<TensorView>();
     NVF_ERROR(
-        !(linear->has_bias() && isSharded(tv_bias)),
+        !(linear->hasBias() && isSharded(tv_bias)),
         "The bias ",
         tv_bias,
         " is expected to not be sharded");
