@@ -645,7 +645,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
-  auto update_communication_info = [&](CommunicationType type,
+  auto create_communication_info = [&](CommunicationType type,
                                        IterDomain* p_sharded_id,
                                        IterDomain* c_sharded_id) {
     NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
@@ -682,14 +682,14 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
         // Gather / Allgather: For simplicity, we do not distinguish between
         // them.
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        update_communication_info(
+        create_communication_info(
             CommunicationType::Gather, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
       if (!p_sharded && c_sharded) {
         // Scatter
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        update_communication_info(
+        create_communication_info(
             CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
         continue;
       }
@@ -700,9 +700,10 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       }
 
       if (!c_sharded) {
-        // Reduce/Allreduce
+        // Reduce / Allreduce: For simplicity, we do not distinguish between
+        // them.
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
-        update_communication_info(
+        create_communication_info(
             CommunicationType::Reduce, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
@@ -719,7 +720,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       if (!c_it->second->isReduction()) {
         continue;
       }
-      update_communication_info(
+      create_communication_info(
           CommunicationType::ReduceScatter,
           c2p_map.at(c_logical_id),
           c_logical_id);
@@ -744,13 +745,14 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   }
 
   if (communication_info->type == CommunicationType::Reduce) {
-    // Reduced axis does not have to be outermost in allocation domain.
+    // Reduction axis in reduce/allreduce does not have to be outermost in
+    // allocation domain.
     return true;
   }
 
   // Check if the gather/scatter axis is outermost in memory layout.
-  if (!isAllocationCompliant(producer, (*communication_info).p_sharded_id) ||
-      !isAllocationCompliant(consumer, (*communication_info).c_sharded_id)) {
+  if (!isAllocationCompliant(producer, communication_info->p_sharded_id) ||
+      !isAllocationCompliant(consumer, communication_info->c_sharded_id)) {
     return false;
   }
 
