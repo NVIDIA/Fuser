@@ -104,10 +104,22 @@ bool isStMatrixOp(const Expr* expr);
 bool isCpAsyncOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
-//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+//!  a cp.async.bulk or cp.async.bulk.tensor
 bool isCpAsyncBulkLoad(const Expr* expr);
 bool isCpAsyncBulkStore(const Expr* expr);
 bool isCpAsyncBulk(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk.tensor intrinsic.
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr);
+bool isCpAsyncBulkTensorTileStore(const Expr* expr);
+bool isCpAsyncBulkTensorTile(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk intrinsic.
+bool isCpAsyncBulk1DLoad(const Expr* expr);
+bool isCpAsyncBulk1DStore(const Expr* expr);
+bool isCpAsyncBulk1D(const Expr* expr);
 
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);

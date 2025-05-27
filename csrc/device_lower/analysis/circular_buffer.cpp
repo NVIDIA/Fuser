@@ -180,6 +180,16 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       ". Consumer memory type: ",
       c_mem_type);
 
+  // Due to limitation in predicate, 1D TMA load can only be safely used with
+  // WarpSpecialized
+  if (tv->circularBufferOptions().isEnable() &&
+      !std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    NVF_ERROR(
+        tv->definition() && !ir_utils::isCpAsyncBulk1D(tv->definition()),
+        "1D TMA load can only be used with WarpSpecialized circular buffer: ",
+        tv->definition()->toString());
+  }
   // Ensure that the warp-specialized circular buffer loop is the outer-most
   // for-loop if register sharing is enabled.
   if (std::holds_alternative<WarpSpecialized>(

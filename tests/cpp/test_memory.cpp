@@ -3054,6 +3054,7 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
 
+  constexpr int dim0 = 16384, dim1 = 16384;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
@@ -3092,7 +3093,6 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   tv1a->axis(-1)->parallelize(ParallelType::Bulk);
   inlineMost();
 
-  constexpr int dim0 = 16384, dim1 = 16384;
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
@@ -3105,4 +3105,268 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
+TEST_F(TMATest, CpAsyncBulk1dNonDivisibleSplit) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  constexpr int dim0 = 2, dim1 = 1023;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv1->merge(0);
+  tv1->split(0, 512);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  /// TIDx for computation, Bulk for load
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  try {
+    ke.run({at_tv0});
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(If split output domain is loaded with 1D TMA, the split must be divisible)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    EXPECT_TRUE(str_match_pointer != nullptr);
+  }
+}
+
+TEST_F(TMATest, CpAsyncBulk1dNonDivisibleUnroll) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  constexpr int dim0 = 1023, dim1 = 128;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv1->split(0, 2);
+  tv1->split(0, 137);
+  tv1->reorder({{0, 1}});
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // circular buffer loop
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  // synchronized loop, expect arrive bytes is on top of this loop
+  tv1->axis(2)->parallelize(ParallelType::Serial);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(3)->parallelize(ParallelType::TIDx);
+  tv0a->axis(3)->parallelize(ParallelType::Bulk);
+
+  // inline
+  inlineSelectedAt({tv0a}, tv0a, 2);
+  inlineMost(std::unordered_set<TensorView*>{tv1});
+
+  tv0a->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  try {
+    // input is concrete tensor, we can detect the error at compile time
+    ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(Loop domains between circular buffer and 1D TMA load requires divisible split)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    EXPECT_TRUE(str_match_pointer != nullptr) << e.what();
+  }
+}
+
+TEST_F(TMATest, CpAsyncBulk1dPipplined) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  constexpr int dim0 = 1023, dim1 = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv1->split(0, 2);
+  tv1->split(0, 137);
+  tv1->reorder({{0, 1}});
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // circular buffer loop
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  // synchronized loop, expect arrive bytes is on top of this loop
+  tv1->axis(2)->parallelize(ParallelType::Serial);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(3)->parallelize(ParallelType::TIDx);
+  tv0a->axis(3)->parallelize(ParallelType::Bulk);
+
+  // inline
+  inlineSelectedAt({tv0a}, tv0a, 2);
+  inlineMost(std::unordered_set<TensorView*>{tv1});
+
+  tv0a->circularBuffer(2, 1, Pipelined());
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  try {
+    ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(1D TMA load can only be used with WarpSpecialized circular buffer:)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    EXPECT_TRUE(str_match_pointer != nullptr) << e.what();
+  }
+}
+
+TEST_F(TMATest, CpAsyncBulk1dNonCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  constexpr int dim0 = 1023, dim1 = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv1->split(0, 2);
+  tv1->split(0, 137);
+  tv1->reorder({{0, 1}});
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->axis(2)->parallelize(ParallelType::Unroll);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(3)->parallelize(ParallelType::TIDx);
+  tv0a->axis(3)->parallelize(ParallelType::Bulk);
+
+  // inline
+  inlineSelectedAt({tv0a}, tv0a, 2);
+  inlineMost(std::unordered_set<TensorView*>{tv1});
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+
+using TMA1dPredicateTestParams = std::tuple<bool, bool>;
+using TMA1dPredicateTest = NVFuserFixtureParamTest<TMA1dPredicateTestParams>;
+TEST_P(TMA1dPredicateTest, testUnrollCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  auto [has_unroll, has_circular_buffer] = GetParam();
+  int64_t circular_stages = 2;
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const int64_t outer_unroll = has_unroll ? 2 : 1;
+  // Ensure dim0 is divisible by outer_unroll but not
+  // divisible by sm_count after divide by outer_unroll
+  const int64_t dim0 = (sm_count + 1) * outer_unroll * circular_stages;
+  const int64_t dim1 = 128;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  if (has_unroll) {
+    tv1->split(0, outer_unroll);
+  }
+  tv1->split(0, sm_count);
+  tv1->reorder({{0, 1}});
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+
+  // inline
+  inlineSelectedAt({tv0a}, tv0a, 2);
+  inlineMost(std::unordered_set<TensorView*>{tv1});
+
+  if (has_circular_buffer) {
+    tv0a->circularBuffer(
+        circular_stages, 1, WarpSpecialized(ParallelType::TIDy));
+  }
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    TMATest,
+    TMA1dPredicateTest,
+    ::testing::Combine(
+        testing::Values(true, false),
+        testing::Values(true, false)),
+    [](const testing::TestParamInfo<TMA1dPredicateTestParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "has_unroll_" << std::get<0>(info.param);
+      ss << "_has_circular_buffer_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
