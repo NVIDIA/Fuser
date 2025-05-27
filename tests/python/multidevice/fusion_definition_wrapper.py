@@ -7,13 +7,22 @@ import torch.distributed as dist
 from collections.abc import Iterable
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
-from typing import Callable, cast
+from typing import Callable, cast, Optional
 
 
 class FusionDefinitionWrapper:
     def __init__(self, define_fusion: Callable[[nvfuser.FusionDefinition], None]):
         """Wraps a function that defines a fusion without `multidevice_schedule`."""
+        # The complete FusionDefinition (w/ multidevice_scheduler) will have to
+        # be created at "call" time according to the input DTensors.
         self._define_fusion = define_fusion
+
+        # In theory, a FusionDefinitionWrapper can own multiple
+        # `FusionDefinition`s, because different shardings lead to different
+        # `multidevice_schedule`s. In pratice, this would trigger #4507 so I
+        # chose to let each FusionDefinitionWrapper own only one
+        # FusionDefinition.
+        self._fusion_definition: Optional[nvfuser.FusionDefinition] = None
 
     def _create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
@@ -57,8 +66,19 @@ class FusionDefinitionWrapper:
 
         return Model()
 
+    def _get_or_create_fusion_definition(
+        self, in_dtensors: Iterable[DTensor]
+    ) -> nvfuser.FusionDefinition:
+        if self._fusion_definition is None:
+            self._fusion_definition = self._create_fusion_definition(in_dtensors)
+
+        # When self._fusion_definition already exists, we can and should check
+        # whether its multidevice_schedule is consistant with how `in_dtensors`
+        # are sharded.
+        return self._fusion_definition
+
     def __call__(self, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
-        fusion_def = self._create_fusion_definition(in_dtensors)
+        fusion_def = self._get_or_create_fusion_definition(in_dtensors)
 
         in_tensors = [in_dtensor.to_local() for in_dtensor in in_dtensors]
         out_tensors, out_shardings = fusion_def.execute(in_tensors)
