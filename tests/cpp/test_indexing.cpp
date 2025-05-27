@@ -6291,7 +6291,7 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-AbstractTensor scheduleLdStMatrix(TensorView* tv) {
+AbstractTensor scheduleLdStMatrixBase(TensorView* tv) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
   // The CTA tile is (128, 256).
@@ -6312,6 +6312,52 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   abstract_tensor.split(-2, 16);
   abstract_tensor.split(-1, 16);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+
+  return abstract_tensor;
+}
+
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    const AbstractTensor& base_tensor) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  // Initial Abstract Tensor
+  AbstractTensor abstract_tensor(base_tensor);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+
+  // Split inner-dimension by 8
+  abstract_tensor.split(-1, 8);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), niio(2),
+  // niii(8))
+
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), mo(4), mi(16), niio(2),
+  // niii(8))
+
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), mo * mi * niio(128), niii(8))
+
+  return abstract_tensor;
+}
+
+AbstractTensor scheduleLdStMatrixRegisters(const AbstractTensor& base_tensor) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  // Initial Abstract Tensor
+  AbstractTensor abstract_tensor(base_tensor);
   // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
 
   // Split (16, 16) matrix into four (8, 8) sub-matrices
@@ -6362,6 +6408,7 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
 
   // Hard-coded shared memory index expects a single serial IterDomain
   abstract_tensor.merge(-4, -3);
+
   return abstract_tensor;
 }
 
@@ -6465,7 +6512,9 @@ TEST_F(IndexingTest, LdStMatrix) {
   // assertion in indexing pass.
 
   // Move data from tv0_reg to tv1_smem using StMatrix
-  AbstractTensor tv1_smem_abstract_tensor = scheduleLdStMatrix(tv1_smem);
+  AbstractTensor tv1_smem_base_tensor = scheduleLdStMatrixBase(tv1_smem);
+  AbstractTensor tv1_smem_abstract_tensor =
+      scheduleLdStMatrixRegisters(tv1_smem_base_tensor);
   // Create tma store allocation domain with swizzle
   if (output_swizzle != MmaInputSmemSwizzle::None) {
     mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
@@ -6485,7 +6534,9 @@ TEST_F(IndexingTest, LdStMatrix) {
   // ===========================================================================
 
   // Move data from tv0_reg to tv1_smem using LdMatrix
-  AbstractTensor tv0_reg_abstract_tensor = scheduleLdStMatrix(tv0_reg);
+  AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg);
+  AbstractTensor tv0_reg_abstract_tensor =
+      scheduleLdStMatrixRegisters(tv0_reg_base_tensor);
   tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
