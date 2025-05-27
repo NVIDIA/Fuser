@@ -1382,8 +1382,8 @@ IterDomain* projectIdToRoot(
 }
 
 // Take the inner most root id from innerMostAllocDim and project it to the
-// allocation domain if the provided domain is on the allocation domain. If
-// vectorize, will not project if not following the inner most path.
+// allocation domain if the provided reference_id is on the allocation domain.
+// If vectorize, will not project if not following the inner most path.
 IterDomain* projectIdToAllocation(
     TensorView* tv,
     IterDomain* reference_id,

@@ -1373,12 +1373,14 @@ TEST_F(PointwiseTest, InnerDimAllocationTransformationOnProducer) {
     FusionGuard fg(fusion.get());
     TensorView* in = makeContigTensor(2);
     in->split(1, 4, inner_split); // outer split
-    in->setAllocationDomain(in->getLoopDomain(), true);
+    in->setAllocationDomain(in->getLoopDomain(), /*new_contiguity=*/true);
     TensorView* out = cos(in);
     fusion->addInput(in);
     fusion->addOutput(out);
     EXPECT_EQ(
-        scheduler_utils::getInputsOutputsWithInnerDim(out, true, false).size(),
+        scheduler_utils::getInputsOutputsWithInnerDim(
+            out, /*inner_only=*/true, /*vectorize_pass=*/false)
+            .size(),
         2);
   }
 }
@@ -1390,13 +1392,15 @@ TEST_F(PointwiseTest, InnerDimAllocationTransformationOnConsumer) {
     TensorView* in = makeContigTensor(2);
     TensorView* out = cos(in);
     out->split(1, 4, inner_split);
-    out->setAllocationDomain(out->getLoopDomain(), true);
+    out->setAllocationDomain(out->getLoopDomain(), /*new_contiguity=*/true);
     fusion->addInput(in);
     fusion->addOutput(out);
 
     // input and output have mapping inner dim.
     EXPECT_EQ(
-        scheduler_utils::getInputsOutputsWithInnerDim(out, true, false).size(),
+        scheduler_utils::getInputsOutputsWithInnerDim(
+            out, /*inner_only=*/true, /*vectorize_pass=*/false)
+            .size(),
         2);
   }
 }
@@ -1410,16 +1414,17 @@ TEST_F(
       FusionGuard fg(fusion.get());
       TensorView* in = makeContigTensor(2);
       in->split(1, 4, in_inner_split);
-      in->setAllocationDomain(in->getLoopDomain(), true);
+      in->setAllocationDomain(in->getLoopDomain(), /*new_contiguity=*/true);
       TensorView* out = cos(in);
       out->split(1, 4, out_inner_split);
-      out->setAllocationDomain(out->getLoopDomain(), true);
+      out->setAllocationDomain(out->getLoopDomain(), /*new_contiguity=*/true);
       fusion->addInput(in);
       fusion->addOutput(out);
 
       // input and output have mapping inner dim.
       EXPECT_EQ(
-          scheduler_utils::getInputsOutputsWithInnerDim(out, true, false)
+          scheduler_utils::getInputsOutputsWithInnerDim(
+              out, /*inner_only=*/true, /*vectorize_pass=*/false)
               .size(),
           2);
     }
