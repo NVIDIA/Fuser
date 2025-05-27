@@ -950,6 +950,13 @@ void HopperPlus::scheduleSplitKSumHopper() {
   }
 }
 
+// Schecule TMem load tv and splitk_sum tv as follows:
+//   v = vectorization factor for TMem load
+//   vv = vectorization factor for splitk_sum, hardcoded to 4
+// TMem load tv:
+// [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
+// Splitk_sum tv:
+// [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
 void HopperPlus::scheduleSplitKSumBlackwell() {
   if (params_->splitk_factor == 1) {
     return;
