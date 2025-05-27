@@ -446,6 +446,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
       }
       std::unordered_set<MatmulDimRole> outer_roles;
       while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+        // Find first repeated role position
         MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
         if (outer_roles.count(role)) {
           break;
@@ -477,6 +478,17 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 
       merged_roles =
           mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+    }
+
+    if (params_->splitk_factor > 1) {
+      // Outer K dimension in tv is in same position found in merged_roles
+      for (size_t i : arange(merged_roles.size())) {
+        if (merged_roles[i] == MatmulDimRole::K) {
+          tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+          // Only split the outer K dim
+          break;
+        }
+      }
     }
 
     // Merge in batch dims to the BIDy dim for non-persistent
