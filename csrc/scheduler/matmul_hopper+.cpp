@@ -936,11 +936,9 @@ void HopperPlus::scheduleSplitKSumHopper() {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
     transformLikeMmaOutputWithoutK(splitk_sum);
-    if (isHopper(params_->mma_macro)) {
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          splitk_sum->getLoopDomain());
-      splitk_sum->setLoopDomain(s.as<IterDomain*>());
-    }
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        splitk_sum->getLoopDomain());
+    splitk_sum->setLoopDomain(s.as<IterDomain*>());
     splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
