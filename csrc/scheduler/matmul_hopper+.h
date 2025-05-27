@@ -175,6 +175,8 @@ class HopperPlus : public Common {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
+  int64_t getLdTMemVectorizeFactor() const;
+
   void setMmaResultAllocationDomain(TensorView* mma_result);
   void scheduleMmaResults();
 

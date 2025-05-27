@@ -128,7 +128,8 @@ MatmulDimRole HopperPlus::findMatmulDimRole(IterDomain* id) {
 void HopperPlus::validate() const {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const int cc = device_prop->major * 10 + device_prop->minor;
-  NVF_ERROR(cc >= 90, "This matmul scheduler is restricted to Hopper & Blackwell.");
+  NVF_ERROR(
+      cc >= 90, "This matmul scheduler is restricted to Hopper & Blackwell.");
 
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
@@ -633,6 +634,15 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
   return tmem_ld_tvs;
 }
 
+int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+  const int64_t n_mma = getN(params_->mma_macro);
+  int64_t tmem_vectorize_factor = 1;
+  while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
+    tmem_vectorize_factor *= 2;
+  }
+  return tmem_vectorize_factor;
+}
+
 void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   const bool has_splitk = params_->splitk_factor != 1;
   std::vector<TensorView*> cached_tvs;
@@ -660,12 +670,8 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
-    int64_t tmem_vectorize_factor = 1;
-    const int64_t n_mma = getN(params_->mma_macro);
-    while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
-      tmem_vectorize_factor *= 2;
-    }
-    if (tmem_vectorize_factor < n_mma) {
+    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+    if (tmem_vectorize_factor < getN(params_->mma_macro)) {
       d->split(-1, tmem_vectorize_factor);
     }
 
@@ -949,21 +955,25 @@ void HopperPlus::scheduleSplitKSumBlackwell() {
     return;
   }
   std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
+
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
     transformLikeMmaOutputWithoutK(splitk_sum);
     splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
-    // splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+    splitk_sum->split(-1, getLdTMemVectorizeFactor());
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         splitk_sum,
         -1,
         mma_results_,
         scheduler_utils::BoundedDirectionalTransformPropagator::Options()
             .propagateParallelType());
+    splitk_sum->split(-1, 4);
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
-    tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
 
