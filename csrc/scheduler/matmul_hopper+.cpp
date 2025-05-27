@@ -462,15 +462,6 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
         merged_roles.erase(merged_roles.begin() + (size_t)i);
       }
-
-      if (params_->splitk_factor > 1) {
-        // Outer K dimension in tv is in same position found in merged_roles
-        for (size_t i : arange(merged_roles.size())) {
-          if (merged_roles[i] == MatmulDimRole::K) {
-            tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
-          }
-        }
-      }
     } else {
       // no cga split
 
