@@ -22,20 +22,22 @@ struct OneDimTmaPredicateInfo {
   Val* combined_pred_val = nullptr;
   // Inline predicate, used in corresponding
   Val* inline_pred_val = nullptr;
-  // index of the circular buffer loop
-  Val* circular_loop_index = nullptr;
+  // index of all the loops from circular buffer loop to the loop contains the
+  // OneDimTmaLoadExpectArrive predicate
+  std::vector<Val*> loop_indices_circular_to_predicate;
 
   // Reset after each use to ensure for each OneDimTmaLoadExpectArrive
   // there is only one corresponding OneDimTmaWaitParity
   void reset() {
     combined_pred_val = nullptr;
     inline_pred_val = nullptr;
-    circular_loop_index = nullptr;
+    loop_indices_circular_to_predicate.clear();
   }
 
   // Ensure it is valid before use
   bool isSet() const {
-    return combined_pred_val && inline_pred_val && circular_loop_index;
+    return combined_pred_val && inline_pred_val &&
+        !loop_indices_circular_to_predicate.empty();
   }
 };
 class PredicateCompute {

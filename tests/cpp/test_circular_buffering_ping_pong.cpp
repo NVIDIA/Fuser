@@ -28,7 +28,7 @@ using PingPongCircularBufferingParams = std::tuple<int>;
 using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -39,7 +39,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   const int64_t dim0 =
-      rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+      rows_per_stage * compute_warp_groups * (sm_count + 1) * circular_loop;
   constexpr int64_t dim1 = 128;
   constexpr int64_t stages = 6;
 
@@ -105,6 +105,12 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
           R"(Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position)";
       const char* str_match_pointer = strstr(e.what(), error_msg);
       ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    } else if (stage_slice_position == 4) {
+      const char* error_msg =
+          R"(stage_slice_position can't to the right of warp specialized position)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr) << e.what();
       return;
     } else if (stage_slice_position == 5) {
       const char* error_msg =
