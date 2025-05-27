@@ -306,6 +306,8 @@ TensorView* Common::cacheAfter(
         graph_->initializeVal(cache_alloc[i], vg);
       } catch (const std::exception& e) {
         std::cout << "Error initializing val: " << e.what() << std::endl;
+        std::cout << "orig_alloc: " << orig_alloc[i]->toString() << std::endl;
+        std::cout << "cache_alloc: " << cache_alloc[i]->toString() << std::endl;
       }
     }
   }
@@ -324,6 +326,9 @@ TensorView* Common::cacheAfter(
       graph_->initializeVal(cache_logical[i], vg);
     } catch (const std::exception& e) {
       std::cout << "Error initializing val: " << e.what() << std::endl;
+      std::cout << "orig_logical: " << orig_logical[i]->toString() << std::endl;
+      std::cout << "cache_logical: " << cache_logical[i]->toString()
+                << std::endl;
     }
   }
 
