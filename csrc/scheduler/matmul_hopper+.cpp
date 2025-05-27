@@ -620,6 +620,9 @@ void HopperPlus::scheduleMmaResults() {
 }
 
 std::vector<TensorView*> HopperPlus::createTMemLoad() {
+  if (!isBlackwell(params_->mma_macro)) {
+    return {};
+  }
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -925,11 +928,10 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSum() {
+void HopperPlus::scheduleSplitKSumHopper() {
   if (params_->splitk_factor == 1) {
     return;
   }
-  std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
@@ -939,6 +941,20 @@ void HopperPlus::scheduleSplitKSum() {
           splitk_sum->getLoopDomain());
       splitk_sum->setLoopDomain(s.as<IterDomain*>());
     }
+    splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+}
+
+void HopperPlus::scheduleSplitKSumBlackwell() {
+  if (params_->splitk_factor == 1) {
+    return;
+  }
+  std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
+  for (TensorView* splitk_sum : splitk_sums_) {
+    // Always use serial grid reduction for split-K sum
+    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
+    transformLikeMmaOutputWithoutK(splitk_sum);
     splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     // splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
@@ -950,6 +966,14 @@ void HopperPlus::scheduleSplitKSum() {
   }
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
+  }
+}
+
+void HopperPlus::scheduleSplitKSum() {
+  if (isHopper(params_->mma_macro)) {
+    scheduleSplitKSumHopper();
+  } else {
+    scheduleSplitKSumBlackwell();
   }
 }
 

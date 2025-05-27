@@ -184,6 +184,8 @@ class HopperPlus : public Common {
   void scheduleEpilogueWithSmemEpilogue();
   void scheduleEpilogue();
 
+  void scheduleSplitKSumHopper();
+  void scheduleSplitKSumBlackwell();
   void scheduleSplitKSum();
 
   std::vector<TensorView*> createTMemLoad();
