@@ -48,6 +48,8 @@ enum class ValType {
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
+// OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
+// load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
 enum class PredicateType {
   Manual,
   Inline,
@@ -56,7 +58,9 @@ enum class PredicateType {
   Misaligned,
   ReductionWrite,
   LoopRotation,
-  ElectSync
+  ElectSync,
+  OneDimTmaLoadExpectArrive,
+  OneDimTmaWaitParity,
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.
