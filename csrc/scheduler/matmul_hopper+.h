@@ -186,6 +186,8 @@ class HopperPlus : public Common {
 
   void scheduleSplitKSum();
 
+  std::vector<TensorView*> createTMemLoad();
+
   void setUpInlining();
 
   void setUpCircularBuffering();
