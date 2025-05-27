@@ -301,13 +301,9 @@ TensorView* Common::cacheAfter(
     const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
     NVF_ERROR(orig_alloc.size() == cache_alloc.size());
     for (size_t i : arange(orig_alloc.size())) {
-      try {
+      if (graph_->hasGroup(orig_alloc[i])) {
         ValGroup vg = graph_->toGroup(orig_alloc[i]);
         graph_->initializeVal(cache_alloc[i], vg);
-      } catch (const std::exception& e) {
-        std::cout << "Error initializing val: " << e.what() << std::endl;
-        std::cout << "orig_alloc: " << orig_alloc[i]->toString() << std::endl;
-        std::cout << "cache_alloc: " << cache_alloc[i]->toString() << std::endl;
       }
     }
   }
@@ -321,14 +317,9 @@ TensorView* Common::cacheAfter(
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
   for (size_t i : arange(orig_logical.size())) {
-    try {
+    if (graph_->hasGroup(orig_logical[i])) {
       ValGroup vg = graph_->toGroup(orig_logical[i]);
       graph_->initializeVal(cache_logical[i], vg);
-    } catch (const std::exception& e) {
-      std::cout << "Error initializing val: " << e.what() << std::endl;
-      std::cout << "orig_logical: " << orig_logical[i]->toString() << std::endl;
-      std::cout << "cache_logical: " << cache_logical[i]->toString()
-                << std::endl;
     }
   }
 
