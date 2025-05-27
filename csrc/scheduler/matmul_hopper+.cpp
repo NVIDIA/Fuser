@@ -414,58 +414,69 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 
     // TODO: It might be more natural to just have a "CGA tile" as part of
     // params_->tile_sizes and infer cluster_dims from that
-    int64_t cm = params_->cluster_dims.x;
-    int64_t cn = params_->cluster_dims.y;
-    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      std::swap(cm, cn);
-    }
-    GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * cm,
-        params_->tile_sizes.cta_tile.n * cn,
-        params_->tile_sizes.cta_tile.k};
-
-    merged_roles = mma_utils::makeTile(tv, cga_tile, merged_roles);
-
-    reorderBlockTileTraversal(tv, merged_roles);
-
-    merged_roles =
-        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
-
-    // TODO: This merge is only used for non-persistent schedules
-    // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
-    // This is important since we need single dims to bind to.
-    // For example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
-    // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
-    int64_t outer_mnk_pos = 0; // 0 in the example above
-    int64_t almost_outer_mnk_pos = 0; // 2 in the example above
-    while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
-      outer_mnk_pos++;
-    }
-    std::unordered_set<MatmulDimRole> outer_roles;
-    while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
-      MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
-      if (outer_roles.count(role)) {
-        break;
+    bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
+    if (has_cga) {
+      int64_t cm = params_->cluster_dims.x;
+      int64_t cn = params_->cluster_dims.y;
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::RowMajor) {
+        std::swap(cm, cn);
       }
-      almost_outer_mnk_pos++;
-      outer_roles.insert(role);
-    }
-    NVF_ERROR(
-        almost_outer_mnk_pos < (int64_t)merged_roles.size(),
-        "Because of tiling, we expect repeated roles");
-    for (int64_t i :
-         std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-      tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
-      merged_roles.erase(merged_roles.begin() + (size_t)i);
-    }
+      GemmTile cga_tile{
+          params_->tile_sizes.cta_tile.m * cm,
+          params_->tile_sizes.cta_tile.n * cn,
+          params_->tile_sizes.cta_tile.k};
 
-    if (params_->splitk_factor > 1) {
-      // Outer K dimension in tv is in same position found in merged_roles
-      for (size_t i : arange(merged_roles.size())) {
-        if (merged_roles[i] == MatmulDimRole::K) {
-          tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+      merged_roles = mma_utils::makeTile(tv, cga_tile, merged_roles);
+
+      reorderBlockTileTraversal(tv, merged_roles);
+
+      merged_roles =
+          mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+
+      // TODO: This merge is only used for non-persistent schedules
+      // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
+      // This is important since we need single dims to bind to.
+      // For example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
+      // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+      int64_t outer_mnk_pos = 0; // 0 in the example above
+      int64_t almost_outer_mnk_pos = 0; // 2 in the example above
+      while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+        outer_mnk_pos++;
+      }
+      std::unordered_set<MatmulDimRole> outer_roles;
+      while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+        MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+        if (outer_roles.count(role)) {
+          break;
+        }
+        almost_outer_mnk_pos++;
+        outer_roles.insert(role);
+      }
+      NVF_ERROR(
+          almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+          "Because of tiling, we expect repeated roles");
+      for (int64_t i :
+           std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+        tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+        merged_roles.erase(merged_roles.begin() + (size_t)i);
+      }
+
+      if (params_->splitk_factor > 1) {
+        // Outer K dimension in tv is in same position found in merged_roles
+        for (size_t i : arange(merged_roles.size())) {
+          if (merged_roles[i] == MatmulDimRole::K) {
+            tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+          }
         }
       }
+    } else {
+      // no cga split
+
+      reorderBlockTileTraversal(tv, merged_roles);
+
+      merged_roles =
+          mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
     }
 
     // Merge in batch dims to the BIDy dim for non-persistent
