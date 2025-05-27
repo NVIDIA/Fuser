@@ -9062,6 +9062,16 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
   }
 }
 
+// Always use sharedMemPerBlockOptin to check memory usage in nvFuser,
+// it already considers reservedSharedMemPerBlock
+TEST_F(NVFuserTest, DeviceSharedMemoryLimit) {
+  auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  int device_limit = (int)properties->sharedMemPerBlockOptin;
+  int device_total = (int)properties->sharedMemPerMultiprocessor;
+  int device_reserved = (int)properties->reservedSharedMemPerBlock;
+  EXPECT_EQ(device_limit, device_total - device_reserved);
+}
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

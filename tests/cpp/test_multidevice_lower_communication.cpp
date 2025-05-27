@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
@@ -18,9 +17,7 @@
 namespace nvfuser {
 
 using testing::Each;
-using testing::IsTrue;
 using testing::Pointer;
-using testing::Property;
 
 namespace {
 void assertIsCompiledToHostIrContainer(
@@ -30,19 +27,11 @@ void assertIsCompiledToHostIrContainer(
     EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
     auto hicExprs =
         runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
-    EXPECT_THAT(
-        hicExprs,
-        Contains(Property(&Expr::isA<Communication>, IsTrue()))
-            .Times(testing::Gt(0)))
+    EXPECT_THAT(hicExprs, Contains(IsA<Communication>()))
         << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
-    EXPECT_THAT(
-        runtime->executors(),
-        Each(Pointer(Property(
-            "is a HostIrExecutor",
-            &ExecutorAbstract::isA<HostIrExecutor>,
-            IsTrue()))))
+    EXPECT_THAT(runtime->executors(), Each(Pointer(IsA<HostIrExecutor>())))
         << "failed to compile to a HostIrContainer with Communications";
   }
 }
@@ -592,6 +581,52 @@ TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
       {out_tensor},
       {in_tensor},
       {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto d = communicator_->size();
+  auto full_mesh = DeviceMesh::createForNumDevices(d);
+
+  DeviceMesh mesh_zero({0});
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  TensorView* tv1 = set(tv0);
+
+  tv0->setDeviceMesh(mesh_zero);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::Serial);
+  tv0->reorder({2, 0, 1});
+
+  tv1->setDeviceMesh(full_mesh);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->reorder({2, 0, 1});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  for (auto tv : {tv0, tv1}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor unsharded_in_tensor =
+      at::randn({d * 3, 5}, tensor_options).transpose(0, 1);
+
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0]
+          .as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {unsharded_in_tensor},
+      {expected_output},
       __LINE__,
       __FILE__);
 }

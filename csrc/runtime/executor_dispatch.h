@@ -39,12 +39,10 @@ class ExecutorDispatch {
 
   static KernelArgumentHolder run(
       ExecutorAbstract* executor,
-      KernelArgumentHolder& args,
+      const KernelArgumentHolder& args,
       KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       const CompileParams& compile_params = CompileParams());
-
- private:
 };
 
 } // namespace nvfuser

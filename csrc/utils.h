@@ -15,6 +15,7 @@
 
 #include <debug.h>
 #include <mma_type.h>
+#include <options.h>
 #include <tma.h>
 #include <type.h>
 
@@ -53,6 +54,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+//! Warp specialization padded threads count
+constexpr int64_t ws_padded_threads = 128;
 
 class KernelArgumentHolder;
 

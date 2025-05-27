@@ -477,15 +477,18 @@ class CloneTmaCircularBufferLoopAndInsertSync
     lhs = SimplifyingIrBuilder::addExpr(lhs, inner_loop->index());
 
     // Check that outer_loop matches known invariants for persistent kernel.
-    Expr* def = outer_loop->stop()->definition();
-    NVF_ERROR(def != nullptr);
-    BinaryOp* bop = def->as<BinaryOp>();
+    IterDomain* outer_id =
+        lower_utils::getConcreteLoopID(outer_loop->iterDomain());
+    Split* persistent_split = dynamic_cast<Split*>(outer_id->definition());
     NVF_ERROR(
-        bop != nullptr && bop->getBinaryOpType() == BinaryOpType::CeilDiv);
-    NVF_ERROR(bop->lhs() != nullptr);
+        persistent_split != nullptr,
+        "Expected ",
+        outer_id->toString(),
+        " to be a persistent split");
+    Val* presplit_extent = persistent_split->in()->extent();
 
     // predicate := (lhs >= outer_fl->stop()->definition()->lhs())
-    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, bop->lhs());
+    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, presplit_extent);
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);
     kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
@@ -528,7 +531,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // Create outer for-loop short-circuit to minimize wave quantization.
     // Apply to cloned top-level for-loop and persistent kernels.
-    if (for_loop_stack_.size() == 1 && insertion_position_ != 1) {
+    if (for_loop_stack_.size() == 1 && insertion_position_ != 1 &&
+        !for_loop_stack_.front()->isTrivial()) {
       kir::IfThenElse* ite =
           createPersistentShortCircuit(for_loop_stack_.front(), cloned_loop);
       if (ite != nullptr) {
@@ -1004,14 +1008,23 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
     Val* expected_bytes = tma_info.tileSizeBytes();
 
+    size_t start_idx = consumer_tv->getComputeAtPosition();
+    bool is_warp_specialized = std::holds_alternative<WarpSpecialized>(
+        consumer_tv->circularBufferOptions().type);
+    if (is_warp_specialized) {
+      const auto& warp_specialized =
+          std::get<WarpSpecialized>(consumer_tv->circularBufferOptions().type);
+      if (warp_specialized.stage_slice_position.has_value()) {
+        start_idx = warp_specialized.stage_slice_position.value();
+      }
+    }
+
     // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
     // load operations launched for each circular buffer stage. We take the
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    for (size_t idx = consumer_tv->getComputeAtPosition();
-         idx < loop_domain.size();
-         ++idx) {
+    for (size_t idx = start_idx; idx < loop_domain.size(); ++idx) {
       IterDomain* id = loop_domain.at(idx);
       if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
@@ -1449,6 +1462,25 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
     mbarriers.pushBack(it->second);
   }
   auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
+
+  // If compute warp groups are independent, then only the first compute warp
+  // group needs to set the arrive of the prefetch loop
+  const auto& cb_info = GpuLower::current()->circularBufferInfo();
+  bool independent_compute_warp_groups =
+      cb_info.hasIndependentComputeWarpGroups();
+  kir::IfThenElse* ite = nullptr;
+  if (independent_compute_warp_groups) {
+    NVF_ERROR(isWarpSpecialized(circular_buffer_loop));
+    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
+    Val* predicate_val = SimplifyingIrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(warp_specialize_on),
+        GpuLower::current()->kernel()->zeroVal());
+    kir::Predicate* predicate =
+        IrBuilder::create<kir::Predicate>(predicate_val);
+    ite = IrBuilder::create<kir::IfThenElse>(predicate);
+    prefetch_loop->body().push_back(ite);
+  }
+
   for (auto mbarrier : mbarriers) {
     auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
         mbarrier,
@@ -1456,7 +1488,11 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
             prefetch_loop->indexOrStartIfTrivial(), opt.stage));
     auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
         /*state=*/nullptr, mbarrier_to_arrive);
-    prefetch_loop->body().push_back(prefetch);
+    if (ite != nullptr) {
+      ite->thenBody().push_back(prefetch);
+    } else {
+      prefetch_loop->body().push_back(prefetch);
+    }
   }
   return prefetch_loop;
 }

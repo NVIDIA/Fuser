@@ -12,6 +12,7 @@
 #include <cuda_utils.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
@@ -1167,12 +1168,6 @@ NVF_API CompiledKernel::CompiledKernel(
       device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
-
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
@@ -1204,6 +1199,8 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
+NVF_API CompiledKernel::~CompiledKernel() = default;
+
 void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
@@ -1215,7 +1212,7 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
   // dynamic input size of a tensor the cache doesn't work correctly. This
   // should be enabled in the cache, but since it's not, for now we will disable
   // it under these circumstances.
-  disable_parameter_cache_ = requiresDisabledParamCache(kernel());
+  launch_param_cache_disabled_ = requiresDisabledParamCache(kernel());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrGraph)) {
     std::stringstream file_name;
@@ -1372,6 +1369,11 @@ void CompiledKernel::createKernelId() {
     ss << "_g" << group_id_;
   }
   kernel_id_ = ss.str();
+}
+
+kir::Kernel* CompiledKernel::kernel() const {
+  NVF_ERROR(lowered_);
+  return lowered_->kernel();
 }
 
 void RtcKernel::compile(
