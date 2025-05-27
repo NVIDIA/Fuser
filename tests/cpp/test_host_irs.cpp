@@ -129,7 +129,7 @@ TEST_P(HostIrTest, SingleFusion) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -226,7 +226,7 @@ TEST_P(HostIrTest, TwoFusions) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -349,7 +349,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -439,7 +439,7 @@ TEST_P(HostIrTest, ForLoops) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), /*communicator=*/nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
@@ -495,7 +495,7 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -708,7 +708,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   // [Step 8)] Evaluate the Host program
   HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
