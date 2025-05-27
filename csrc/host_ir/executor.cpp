@@ -751,11 +751,22 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 }
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto index =
-      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto indexed_id =
+      hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
+  auto index = indexed_id->isBroadcast()
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
   auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
                    .as<at::Tensor>();
-  int64_t axis = hir_alias_select->axis();
+
+  // Count reduction axes up to the target axis
+  int64_t reduction_count = std::count_if(
+      hir_alias_select->in()->getLogicalDomain().begin(),
+      hir_alias_select->in()->getLogicalDomain().begin() +
+          hir_alias_select->axis(),
+      [](const IterDomain* id) { return id->isReduction(); });
+  // Adjust the ATen axis by subtracting the number of reduction axes
+  int64_t axis = hir_alias_select->axis() - reduction_count;
   expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
