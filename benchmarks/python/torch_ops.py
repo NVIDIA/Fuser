@@ -88,6 +88,9 @@ def embedding(inputs: list):
     return F.embedding(indices, embedding_table)
 
 
+# deepseek v3 moe scatter
+# commit e815299
+# https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L599-L607
 def scatter_reduce(inputs: list):
     bmm_out: torch.Tensor  # [seq*top_k, hidden]
     idxs: torch.Tensor  # [seq*top_k]
