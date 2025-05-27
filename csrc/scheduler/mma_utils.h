@@ -80,7 +80,7 @@ using AbstractMatmulTensor = TaggedAbstractTensor<MatmulDimRole>;
 //! AbstractMatmulTensor instead of a concrete TensorView.
 void makeTile(
     AbstractMatmulTensor& canonicalized_abstract_tensor,
-    const std::vector<int64_t>& tile_sizes);
+    const GemmTile& tile_sizes);
 
 //! Order the inner tile dimensions as the original order in
 //! (maybe allocation) domain. Also putting broadcast domains on the left.
