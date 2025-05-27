@@ -637,10 +637,10 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
 int64_t HopperPlus::getLdTMemVectorizeFactor() const {
   const int64_t n_mma = getN(params_->mma_macro);
   int64_t tmem_vectorize_factor = 1;
-  while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor < 128) {
+  while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
     tmem_vectorize_factor *= 2;
   }
-  return tmem_vectorize_factor;
+  return tmem_vectorize_factor / 2;
 }
 
 void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
