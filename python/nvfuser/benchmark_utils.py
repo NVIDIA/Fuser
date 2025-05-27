@@ -26,6 +26,7 @@ class TorchProfileTimer(Timer):
     def __init__(self):
         super().__init__()
         self.prof = profile(activities=[ProfilerActivity.CUDA])
+        self.is_running = False
 
     def _get_kernel_time(
         self, prof_averages: torch.autograd.profiler_util.EventList
@@ -48,7 +49,11 @@ class TorchProfileTimer(Timer):
                 if hasattr(event, "self_device_time_total")
                 else event.self_cuda_time_total
             )
-        assert has_cuda_event, "No CUDA events found"
+        try:
+            assert has_cuda_event, f"No CUDA events found: {prof_averages.table()}"
+        except AssertionError:
+            self.cleanup()
+            raise
         return elapsed_cuda_time / 1e6
 
     def __call__(self):
@@ -60,16 +65,19 @@ class TorchProfileTimer(Timer):
         Returns:
             self.current_time: Global monotonic clock variable
         """
-        try:
-            self.prof.stop()
-        except AssertionError:
+        if not self.is_running:
+            self.is_running = True
             self.prof.start()
             return self.current_time
+
+        self.prof.stop()
+        self.is_running = False
 
         prof_averages = self.prof.key_averages()
         elapsed_cuda_time = self._get_kernel_time(prof_averages)
         self._increment_global_time(elapsed_cuda_time)
-        # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
+        # Clear the internal profiler object to avoid accumulating function
+        # events and then restart the profiler.
         # See PR: https://github.com/pytorch/pytorch/pull/125510
         self.prof.profiler = None
 
@@ -79,10 +87,9 @@ class TorchProfileTimer(Timer):
         """
         Stops a running torchprofiler instance if found.
         """
-        try:
+        if self.is_running:
             self.prof.stop()
-        except AssertionError:
-            pass
+            self.is_running = False
 
 
 class FusionProfileTimer(Timer):
@@ -91,15 +98,18 @@ class FusionProfileTimer(Timer):
         self.fd = None
         # Specifies if the timer in host measurement is called at the start/finish of execution.
         # Timings are measured at the end of execution.
-        self.execution_start = True
+        self.is_running = False
 
     def set_fd(self, fd):
         self.fd = fd
 
     def __call__(self):
-        if not self.execution_start:
-            profile = self.fd.profile()
-            elapsed_host_time = profile.host_time_ms / 1e3
-            self._increment_global_time(elapsed_host_time)
-        self.execution_start = not self.execution_start
+        if not self.is_running:
+            self.is_running = True
+            return self.current_time
+
+        self.is_running = False
+        profile = self.fd.profile()
+        elapsed_host_time = profile.host_time_ms / 1e3
+        self._increment_global_time(elapsed_host_time)
         return self.current_time

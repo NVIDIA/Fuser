@@ -154,31 +154,40 @@ if torch.cuda.is_available():
     DEVICE_PROPERTIES = get_device_properties()
 
 
-def retry_on_oom_or_skip_test(func):
-    """Decorator: upon torch.OutOfMemoryError clear the cache and retry test"""
-
-    @functools.wraps(func)
-    def retried_func(*args, **kwargs):
-        try:
-            output = func(*args, **kwargs)
-        except torch.OutOfMemoryError:
-            pass
-        else:
-            return output
-
-        # We have hit an OOM error, so clear the cache and retry
+def clear_cuda_cache() -> None:
+    """
+    Utility function to clear CUDA cache before running a test.
+    """
+    if (
+        torch.cuda.memory_allocated()
+        or torch.cuda.memory_reserved() > 0.8 * DEVICE_PROPERTIES["gpu_gmem_bytes"]
+    ):
         gc.collect()
         torch.cuda.empty_cache()
 
+
+def retry_on_oom_or_skip_test(func):
+    """Decorator: upon torch.OutOfMemoryError skip the test.
+    Another alternative is to clear the cache and retry the test.
+    This would require reseting benchmark fixture parameters:
+    benchmark._mode and benchmark.has_error since using benchmark
+    fixture twice is not allowed.
+    """
+
+    @functools.wraps(func)
+    def skip_oom_func(*args, **kwargs):
         try:
+            clear_cuda_cache()
             output = func(*args, **kwargs)
         except torch.OutOfMemoryError as e:
-            # If we hit an OOM this time, then skip the test
+            # If we hit an OOM, then skip the test
             import pytest
 
-            pytest.skip(f"Test failed due to OutOfMemoryError: {e}")
-            return
+            pytest.skip(
+                f"Test skipped due to OutOfMemoryError: {e}. "
+                f"Current CUDA memory: {100 * torch.cuda.memory_reserved() / DEVICE_PROPERTIES['gpu_gmem_bytes']}%"
+            )
+        else:
+            return output
 
-        return output
-
-    return retried_func
+    return skip_oom_func
