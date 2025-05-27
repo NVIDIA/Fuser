@@ -126,10 +126,9 @@ MatmulDimRole HopperPlus::findMatmulDimRole(IterDomain* id) {
 }
 
 void HopperPlus::validate() const {
-  // const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  // const int cc = device_prop->major * 10 + device_prop->minor;
-  // NVF_ERROR(cc >= 90, "This matmul scheduler is restricted to Hopper &
-  // Blackwell.");
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int cc = device_prop->major * 10 + device_prop->minor;
+  NVF_ERROR(cc >= 90, "This matmul scheduler is restricted to Hopper & Blackwell.");
 
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
@@ -165,50 +164,44 @@ void HopperPlus::validate() const {
 void HopperPlus::run() {
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
-  std::cout << "Running Hopper+ Matmul Scheduler" << std::endl;
   findPatterns();
-  std::cout << "After findPatterns" << std::endl;
   translatePatterns();
-  std::cout << "After translatePatterns" << std::endl;
   // We use the tensor roles to cache operands and epilogue inputs differently
   findRoles();
-  std::cout << "After findRoles" << std::endl;
+
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs.
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
   cacheInputsAndOutputs(/*skip_intermediates=*/true);
-  std::cout << "After cacheInputsAndOutputs" << std::endl;
+
   // We need to find roles again after caching, since we will need to rebuild
   // the IdModel.
   // TODO: update the val graph on the fly in cacheInputsAndOutputs using
   // cacheAfter and missing cacheFork and cacheBefore utilities instead of doing
   // a full rebuild here
   findRoles();
-  std::cout << "After findRoles" << std::endl;
+
   inspectPrologues();
-  std::cout << "After inspectPrologues" << std::endl;
+
   setCGADims();
-  std::cout << "After setCGADims" << std::endl;
+
   scheduleOperands();
-  std::cout << "After scheduleOperands" << std::endl;
+
   // schedule mma instruction output (mma_result)
   scheduleMmaResults();
-  std::cout << "After scheduleMmaResults" << std::endl;
+
   // schedule epilogue
   scheduleEpilogue();
-  std::cout << "After scheduleEpilogue" << std::endl;
+
   // schedule splitk_sum
   scheduleSplitKSum();
-  std::cout << "After scheduleSplitKSum" << std::endl;
+
   setUpInlining();
-  std::cout << "After setUpInlining" << std::endl;
+
   // set up circular buffering. This must come after everything up to
   // mma_result is scheduled, since everything in the main loop will need to
   // be rotated
   setUpCircularBuffering();
-  std::cout << "After setUpCircularBuffering" << std::endl;
-
-  fusion_->print();
 }
 
 void HopperPlus::reorderBlockTileTraversal(
@@ -628,12 +621,8 @@ void HopperPlus::scheduleMmaResults() {
 
 std::vector<TensorView*> HopperPlus::createTMemLoad() {
   std::vector<TensorView*> tmem_ld_tvs;
-  // When there is a split-K, the TMem load happens before split-K sum,
-  // when there is no split-K, the TMem load happens in the epilogue.
   for (auto mma_result : mma_results_) {
-    std::cout << "Before cacheAfter" << std::endl;
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
-    std::cout << "After cacheAfter" << std::endl;
     tmem_ld_tv->definition()->as<LoadStoreOp>()->setOpType(
         LoadStoreOpType::LdTMem);
     tmem_ld_tvs.push_back(tmem_ld_tv);
@@ -646,13 +635,14 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  // When there is a split-K, the TMem load happens before split-K sum,
+  // when there is no split-K, the TMem load happens in the epilogue.
   std::vector<TensorView*> tmem_ld_tvs =
       !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     cached_tvs.push_back(c_cache);
     propagate_to.push_back(c);
   }
-  std::cout << "After cached_epilogue_inputs_" << std::endl;
   for (Val* dv : fusion_->outputs()) {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
@@ -708,7 +698,6 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
     }
   }
-  std::cout << "After fusion_->outputs()" << std::endl;
   // Vectorize the TMem load, if any.
   for (auto tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
