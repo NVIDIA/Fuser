@@ -571,8 +571,12 @@ IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   NVF_ERROR(
       logical_ids.size() == 1,
       "Expected exactly one logical ID producing the device dimension ",
-      loop_id->toString());
+      loop_id);
   return logical_ids.at(0);
+}
+
+bool isLocalSizeOne(IterDomain* id) {
+  return id->isParallelized() || id->isBroadcast() || id->isReduction();
 }
 
 } // namespace
@@ -588,9 +592,9 @@ bool isAllocationCompliant(TensorView* tv, IterDomain* sharded_id) {
       " is not in the logical domain ",
       tv->getLogicalDomain());
 
-  if (sharded_id->isDeviceDim() || sharded_id->isBroadcast() ||
-      sharded_id->isReduction()) {
-    // Device dimension, broadcast, and reduction do not affect allocation.
+  if (isLocalSizeOne(sharded_id)) {
+    // Parallelized dimension, broadcast, and reduction do not affect
+    // allocation.
     return true;
   }
 
@@ -601,8 +605,7 @@ bool isAllocationCompliant(TensorView* tv, IterDomain* sharded_id) {
     return false;
   }
 
-  const std::vector<IterDomain*>& allocation_domain =
-      (*layout).allocation_domain;
+  const std::vector<IterDomain*>& allocation_domain = layout->allocation_domain;
 
   NVF_ERROR(
       std::is_permutation(
@@ -610,21 +613,19 @@ bool isAllocationCompliant(TensorView* tv, IterDomain* sharded_id) {
           allocation_domain.end(),
           tv->getLogicalDomain().begin(),
           tv->getLogicalDomain().end()),
-      "The allocation domain ",
+      "The allocation domain returned by canonicalizeLayout",
       allocation_domain,
-      " is not a permutation of the logical domain ",
+      " should be a permutation of the logical domain ",
       tv->getLogicalDomain());
 
   // Check if sharded_id appears at the front.
-  size_t idx = 0;
   for (IterDomain* id : allocation_domain) {
     if (id == sharded_id) {
-      return idx == 0;
+      return true;
     }
-    if (id->isDeviceDim() || id->isBroadcast() || id->isReduction()) {
-      continue;
+    if (!isLocalSizeOne(id)) {
+      return false;
     }
-    idx++;
   }
   NVF_THROW(
       "Should never reach here - sharded_id must be found in allocation domain");
@@ -747,7 +748,7 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
     return false;
   }
 
-  if ((*communication_info).type == CommunicationType::Reduce) {
+  if (communication_info->type == CommunicationType::Reduce) {
     // Reduced axis does not have to be outermost in allocation domain.
     return true;
   }
