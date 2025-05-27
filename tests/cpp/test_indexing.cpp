@@ -27,6 +27,7 @@
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
+#include <string.h>
 #include <algorithm>
 #include <utility>
 
@@ -215,6 +216,37 @@ class IndexValidator : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) override {
+    if (expr->isA<kir::Asm>()) {
+      kir::Asm* asm_expr = expr->as<kir::Asm>();
+      const char* ldmatrix = R"(ldmatrix)";
+      bool ldmatrix_match =
+          strstr(asm_expr->utility().c_str(), ldmatrix) != nullptr;
+
+      if (!ldmatrix_match) {
+        kir::IrVisitor::dispatch(expr);
+        return;
+      }
+
+      get_ref_.setForLoops(for_loops_);
+
+      auto out_ti = expr->output(0)->as<kir::TensorIndex>();
+      for (auto inp : expr->inputs()) {
+        if (inp->isA<kir::TensorIndex>()) {
+          validate(inp->as<kir::TensorIndex>(), out_ti);
+        }
+      }
+      for (auto out : expr->outputs()) {
+        if (out->isA<kir::TensorIndex>()) {
+          validate(out->as<kir::TensorIndex>());
+        }
+      }
+
+      get_ref_.clearForLoops();
+      get_ref_.clearCircularBufferInfo();
+
+      return;
+    }
+
     if (!ir_utils::isTvOp(expr)) {
       kir::IrVisitor::dispatch(expr);
       return;
@@ -6257,6 +6289,270 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
   auto outputs = ke.run({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+AbstractTensor scheduleLdStMatrix(TensorView* tv) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  AbstractTensor abstract_tensor(tv->getLoopDomain());
+  // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
+
+  // Split by TMA shared memory box
+  abstract_tensor.split(-1, 64);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
+
+  // Split by (16, 16) matrix for LdStMatrix.x4
+  abstract_tensor.split(-2, 16);
+  abstract_tensor.split(-1, 16);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+
+  // Split (16, 16) matrix into four (8, 8) sub-matrices
+  abstract_tensor.split(-2, 8);
+  abstract_tensor.split(-1, 8);
+
+  // Each register handles two adjacent elements.
+  abstract_tensor.split(-1, 2);
+
+  // The four (8, 8) sub-matrices are traversed in this order to follow the
+  // register layout for wgmma accumulator matrix.
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *   0   *   2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *   1   *   3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4),
+  // niio(2), mio(2), niiii(2))
+
+  // For an (16, 16) matrix, each register will hold 8 values. The LdStMatrix
+  // instruction will load or store these values with a single instruction. We
+  // remove this serial for-loop from the kernel by merging the last three
+  // iterDomains together and then applying ParallelType::Vectorize.
+  abstract_tensor.merge(-2, -1);
+  abstract_tensor.merge(-2, -1);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4), (niio
+  // * mio * niiii)(8))
+
+  // Reorder iterDomains so the serial IterDomain for (CTA_N / TMA_N) and
+  // (TMA_N and LDST_N) are adjacent.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}});
+
+  // Four LdStMatrix.x4 instructions are issued simultaneously to process
+  // (64, 16) tile. Merge mio, miii, and niiio iterDomains together.
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), (mo * mii * niiio)(128), (niio
+  // * mio * niiii)(8))
+
+  // Hard-coded shared memory index expects a single serial IterDomain
+  abstract_tensor.merge(-4, -3);
+  return abstract_tensor;
+}
+
+TEST_F(IndexingTest, LdStMatrix) {
+  const auto dtype = DataType::BFloat16;
+
+  // Fusion Definition
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // ===========================================================================
+
+  // Constants
+  constexpr int64_t cta_m = 128;
+  constexpr int64_t cta_n = 256;
+  constexpr int64_t warp_m = 64;
+  constexpr int64_t warp_n = 256;
+  constexpr int64_t ldst_matrix_tile_m = 16;
+  constexpr int64_t ldst_matrix_tile_n = 16;
+  fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
+  fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+  fusion.manage("ldst_matrix_m_smem", warp_m);
+  fusion.manage("ldst_matrix_n_smem", warp_n);
+
+  // ===========================================================================
+  // Create cache intermediate TensorViews
+  // The definition for tv0_smem is tma load, which moves data from shared to
+  // global memory.
+  TensorView* tv0_smem = tv0->cacheAfter();
+  tv0_smem->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // TODO Add ldmatrix support
+  // The definition for tv0_reg is ldmatrix, which moves data from shared memory
+  // to registers.
+  TensorView* tv0_reg = tv0_smem->cacheAfter();
+  tv0_reg->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrix);
+
+  // The definition for tv1_smem is stmatrix, which moves data from registers to
+  // shared memory.
+  TensorView* tv1_smem = tv1->cacheBefore();
+  tv1_smem->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::StMatrix);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // The definition for tv1 is tma store, which moves data from shared to global
+  // memory.
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  // ===========================================================================
+  // General scheduling
+  // Tile reference by cta_tile and warp_tile
+  // (M, N)
+  tv1->split(0, cta_m);
+  tv1->split(-1, cta_n);
+  tv1->reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(128), cta_n(256))
+
+  tv1->split(-2, warp_m);
+  tv1->split(-1, warp_n);
+  tv1->reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), warp_m(64), warp_n(256))
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::BIDy);
+  tv1->axis(2)->parallelize(ParallelType::TIDy);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  // ===========================================================================
+  // Schedule shared memory tensors using TMA Load and Store
+
+  // Schedule output from TMA Load
+  MmaInputSmemSwizzle input_swizzle =
+      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, input_swizzle);
+
+  // Schedule global memory output from TMA Store
+  MmaInputSmemSwizzle output_swizzle =
+      mma_utils::tmaSwizzleSharedMemory(tv1_smem);
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+
+  // ===========================================================================
+  // Schedule register tensors using LdMatrix and StMatrix
+
+  // NOTE: When using a custom allocation domain, all iterDomains to the left
+  // of the computeAt position must exist in the loop domain. The utility
+  // function for applying swizzle to TMA LoadStoreOp creates the appropriate
+  // TMA Box. Creating the same TMA Box in the loop domain via AbstractTensor
+  // allows for inlining iterDomains that are not identical, causing an
+  // assertion in indexing pass.
+
+  // Move data from tv0_reg to tv1_smem using StMatrix
+  AbstractTensor tv1_smem_abstract_tensor = scheduleLdStMatrix(tv1_smem);
+  // Create tma store allocation domain with swizzle
+  if (output_swizzle != MmaInputSmemSwizzle::None) {
+    mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
+  }
+  tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
+  // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128), (niio * mio * niiii)(8))
+
+  // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
+  // Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per
+  // thread per operation.
+  tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
+  tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+  // (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128)(TDX), (niio * mio * niiii)(8)(V))
+
+  // ===========================================================================
+
+  // Move data from tv0_reg to tv1_smem using LdMatrix
+  AbstractTensor tv0_reg_abstract_tensor = scheduleLdStMatrix(tv0_reg);
+  tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
+  // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128), (niio * mio * niiii)(8))
+
+  // Set allocation domain according to loop domain
+  tv0_reg->setAllocationDomain(
+      tv0_reg->getLoopDomain(), /*new_contiguity=*/true);
+
+  // Use ParallelType::TIDx to launch four LdMatrix.x4 in parallel.
+  // Use ParallelType::Vectorize because LdMatrix.x4 stores eight elements per
+  // thread per operation.
+  tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
+  tv0_reg->axis(-1)->parallelize(ParallelType::Vectorize);
+  // (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128)(TDX), (niio * mio * niiii)(8)(V))
+
+  // ===========================================================================
+
+  inlineMost();
+
+  // ===========================================================================
+
+  constexpr int dim0 = 8192, dim1 = 8192;
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {at_tv0});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  auto cg_outputs = ke.run({at_tv0});
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+    std::string getLinearIndexString(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      Expr* def = tv->definition();
+      if (def == nullptr) {
+        return std::string();
+      }
+
+      bool is_output_ldmatrix = ir_utils::isLdMatrixOp(def);
+      bool is_input_ldmatrix =
+          std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* e) {
+            return ir_utils::isLdMatrixOp(e);
+          });
+      if (!(is_output_ldmatrix || is_input_ldmatrix)) {
+        return std::string();
+      }
+
+      if (is_output_ldmatrix) {
+        return std::string("0");
+      }
+
+      // Skip consumer case
+      if (maybe_consumer == nullptr) {
+        return std::string();
+      }
+
+      return std::string(
+          "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, false);
 }
 
 } // namespace nvfuser
