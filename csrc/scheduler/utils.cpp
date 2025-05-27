@@ -1337,12 +1337,6 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  // Note we check for `hasAllocation`, because allocation domain suggests there
-  // are expressions leading to allocation domain, which needs to be traversed.
-  if (!tv->hasRoot() && !tv->hasAllocation()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
@@ -1397,12 +1391,6 @@ IterDomain* projectIdToAllocation(
     bool vectorize_pass) {
   if (reference_id == nullptr) {
     return nullptr;
-  }
-
-  // note we check for `hasRoot`, because root domain suggests there are
-  // expressions leading to logical domain, which needs to be traversed.
-  if (!tv->hasRoot() && !tv->hasAllocation()) {
-    return reference_id;
   }
 
   auto replay_exprs = StmtSort::getExprsTo(
