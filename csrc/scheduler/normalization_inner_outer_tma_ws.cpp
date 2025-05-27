@@ -142,7 +142,7 @@ void getHeuristics(
   // Set bdimx, will be revised in heuristics tuning.
   // bdimy is reserved for warp specialization
   // bdimz is not used
-  const int64_t max_persistent_batch = 10L;
+  const int64_t max_persistent_batch = 7L;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   int64_t bdimx = std::min(128L, after_vect);
   bdimx = std::max(bdimx, ceilDiv(after_vect, max_persistent_batch));
@@ -161,9 +161,30 @@ void getHeuristics(
 
   // TODO: This is a heuristic, need to be tuned.
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
-  // n_stages is also limited by smem
-  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerBlockOptin /
-      (smem_overhead + smem_buffer_size);
+  // n_stages is also limited by smem.
+  // Each circular buffer stage requires two smem barriers, one for RAW
+  // (computation), the other for WAR (TMA loading). SMEM is aligned at
+  // 128 Bytes, so we add 128 bytes for barriers, which allows a maximum
+  // of 128 / (sizeof(uint64) * 2) = 16 stages.
+  const int64_t max_stages = 16;
+  const int64_t aligned_mbarrier_size = 128;
+  const int64_t available_smem = (int64_t)dev_prop->sharedMemPerBlockOptin -
+      smem_overhead - aligned_mbarrier_size;
+  const int64_t max_n_copies =
+      std::min(available_smem / smem_buffer_size, max_stages);
+  NVF_ERROR(
+      max_n_copies > 0,
+      "Not enough shared memory for circular buffer, smem_buffer_size: ",
+      smem_buffer_size,
+      ", available_smem: ",
+      available_smem);
+  std::cout << "sharedMemPerBlockOptin: " << dev_prop->sharedMemPerBlockOptin
+            << std::endl;
+  std::cout << "smem_overhead: " << smem_overhead << std::endl;
+  std::cout << "available_smem: " << available_smem << std::endl;
+  std::cout << "smem_buffer_size: " << smem_buffer_size << std::endl;
+  std::cout << "max_n_copies: " << max_n_copies << std::endl;
+
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
@@ -664,8 +685,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       // factor. Here, we only need to further confirm all the iteration
       // domains are contiguous.
       auto can_vectorize = [](TensorView* redu_tv, TensorView* bcast_tv) {
-        const auto& alloc_dom_1 = redu_tv->getMaybeAllocationDomain();
-        const auto& alloc_dom_2 = bcast_tv->getMaybeAllocationDomain();
+        const auto& alloc_dom_1 = redu_tv->getMaybeRootDomain();
+        const auto& alloc_dom_2 = bcast_tv->getMaybeRootDomain();
         if (alloc_dom_1.size() != alloc_dom_2.size()) {
           return false;
         }
@@ -681,13 +702,29 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         return true;
       };
       for (auto cached_tv : cached_inputs) {
-        if (cached_tv->hasBroadcast() &&
-            is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
-          if (can_vectorize(inner_reference_tv, cached_tv)) {
-            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
-          } else {
-            cached_tv->axis(2)->parallelize(ParallelType::Unroll);
-          }
+        std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
+        if (!cached_tv->hasBroadcast()) {
+          continue;
+        }
+        if (!is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
+          continue;
+        }
+
+        if (can_vectorize(inner_reference_tv, cached_tv)) {
+          cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+        } else {
+          cached_tv->axis(2)->parallelize(ParallelType::Unroll);
+        }
+      }
+      for (auto tv : fusion->allTvs()) {
+        if (tv->isFusionInput() || tv->isFusionOutput()) {
+          continue;
+        }
+        if (!tv->hasBroadcast()) {
+          continue;
+        }
+        if (!is_redu_mapped_to_bcast(inner_reference_tv, tv)) {
+          continue;
         }
         // Unroll the consumers to prevent inlineMost from inlining them
         // to the right of the vectorized axis, which can cause expression
@@ -698,9 +735,16 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // reduction, we will leave this for heuristic tuning since unroll all
         // consumers may lead to better performance if register usage is not a
         // concern.
-        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-          consumer->axis(2)->parallelize(ParallelType::Unroll);
-        }
+        // if(tv->definition()->isA<UnaryOp>() &&
+        //    tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+        //        UnaryOpType::Reciprocal) {
+        //   tv->axis(2)->parallelize(ParallelType::Unroll);
+        // }
+          tv->axis(2)->parallelize(ParallelType::Unroll);
+          // if (tv->axis(2)->getParallelType() != ParallelType::Vectorize) {
+        //   tv->axis(2)->parallelize(ParallelType::Unroll);
+        // }
+        // tv_inline_pos_map.emplace(tv, tma_inline_pos);
       }
     }
 
@@ -732,6 +776,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   } else {
     inlineMost();
   }
+  fusion->printMath();
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser

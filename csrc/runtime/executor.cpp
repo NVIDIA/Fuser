@@ -458,17 +458,23 @@ LaunchParams KernelExecutor::computeLaunchParams(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
         "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
 
+    auto ws_pt = kernel_summary.circular_buffer_info.getWarpSpecializedOn();
+    int64_t bdimx = ws_pt == ParallelType::TIDx ? launch_params.bdimx() - 128 : launch_params.bdimx();
+    int64_t bdimy = ws_pt == ParallelType::TIDy ? launch_params.bdimy() - 1 : launch_params.bdimy();
+    int64_t bdimz = ws_pt == ParallelType::TIDz ? launch_params.bdimz() - 1 : launch_params.bdimz();
+
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * launch_params.bdimx() *
-        launch_params.bdimy() * launch_params.bdimz();
+        grouped_iter_factor * welford_factor * bdimx * bdimy * bdimz;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
     }
+    std::cout << "reduction_broadcast_workspace: "
+              << reduction_broadcast_workspace << std::endl;
   }
 
   const auto dynamic_smem_size = computeSharedMemory(
