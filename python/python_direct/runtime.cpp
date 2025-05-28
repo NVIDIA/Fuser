@@ -183,6 +183,7 @@ Parameters
 inputs : iterable
     An iterable of input tensors or values.
     All tensor inputs must be on the same device.
+    Cpu scalar tensor can interoperate with gpu tensors.
 device : int, optional
     The device index to execute the fusion on.
     It must be a non-negative integer less than 256.

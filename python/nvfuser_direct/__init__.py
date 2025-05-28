@@ -132,7 +132,7 @@ class FusionDefinition:
         Parameters
         ----------
         inputs : list of torch.Tensor
-            Input tensors to the fusion
+            Input tensors and scalars to the fusion
         device : torch.device, optional
             Device to execute the fusion on
         auto_schedule : bool, default=True
