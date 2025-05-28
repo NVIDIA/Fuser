@@ -3884,6 +3884,12 @@ void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
   resetDomains();
 }
 
+void TensorDomain::setAlternateLoopDomain(
+    std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  alternate_loop_domain_ = std::move(new_loop_domain);
+}
+
 void TensorDomain::setAllocationDomain(
     std::vector<IterDomain*> new_allocation_domain,
     std::vector<std::optional<bool>> new_contiguity) {
