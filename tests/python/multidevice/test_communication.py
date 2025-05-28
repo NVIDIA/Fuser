@@ -107,7 +107,7 @@ def test_reduce_scatter(multidevice_test):
 
 @pytest.mark.mpi
 @pytest.mark.skip(
-    reason="Temporarily disable the test before reduce scatter gets fixed"
+    reason="Temporarily disable the test before ReorderShardedAxisPass gets fixed"
 )
 def test_reduce_scatter_noncontiguous(multidevice_test):
     d = multidevice_test.size

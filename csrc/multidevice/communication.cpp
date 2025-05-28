@@ -455,9 +455,17 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   NVF_ERROR(
-      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
   NVF_ERROR(
-      isTvContiguous(communication->out()), "Output tensor is not contiguous");
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
 
   auto flattened_input_tensor =
       input_tensor.as_strided({input_tensor.numel()}, {1});
