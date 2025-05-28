@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from typing import Callable
+from numbers import Number
 import warnings
 
 import torch
@@ -56,6 +57,51 @@ def disable_automatic_serialization():
     import atexit
 
     atexit.unregister(_C.serialize)
+
+
+# NOTE(crcrpar): The main motivation of this dataclass is to avoid unexpected negative values being supplied to indexing such as embedding.
+# See NVIDIA/Fuser#4529.
+class InputReproducer:
+    low: Number
+    high: Number
+    device: torch.device
+    dtype: torch.dtype
+    size: tuple[int, ...]
+    strides: tuple[int, ...]
+    is_contiguous: bool
+
+    def __init__(self, tensor: torch.Tensor) -> None:
+        if type(tensor) is not torch.Tensor:
+            msg = f"Repro script only supports {torch.Tensor} but {type(tensor)}"
+            raise RuntimeError(msg)
+        self.low, self.high = InputReproducer.get_min_and_max(tensor)
+        self.dtype = tensor.dtype
+        self.device = tensor.device
+        self.size = tuple(tensor.size())
+        self.strides = tuple(tensor.stride())
+        self.is_contiguous = tensor.is_contiguous()
+
+    @torch.inference_mode()
+    @staticmethod
+    def get_min_and_max(tensor: torch.Tensor) -> tuple[Number | None, Number | None]:
+        if tensor.dtype is torch.bool:
+            return 0, 2
+
+        t = tensor
+        if t.dtype.is_floating_point and t.dtype.itemsize == 1:
+            t = t.float()
+
+        min_max = torch.aminmax(t)
+        return min_max[0].cpu().item(), min_max[1].cpu().item()
+
+    def to_make_tensor_str(self) -> str:
+        if self.is_contiguous:
+            return f"torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high},)"
+        if self.dtype.is_floating_point:
+            return f"torch.randn({self.size}, dtype={self.dtype}, device={self.device}).as_strided({self.size}, {self.strides})"
+        else:
+            return f"torch.randint({self.low}, {self.high}, {self.size}, dtype={self.dtype}, device={self.device},).as_strided({self.size}, {self.strides})"
+
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -314,10 +360,7 @@ class FusionDefinition(_C._FusionDefinition):
                     self._finalize_schedule(inputs)
 
         if save_repro_inputs:
-            from torch._subclasses.fake_tensor import FakeTensorMode
-
-            fake_mode = FakeTensorMode()
-            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+            self.last_input_reproducers = [InputReproducer(tensor) for tensor in inputs]
 
         if hasattr(self, "segments") and len(self.segments) > 0:
             return self._execute_segments(inputs, device=device, profile=profile)
@@ -503,12 +546,12 @@ class FusionDefinition(_C._FusionDefinition):
 
     def last_repro_script(self) -> str:
         assert (
-            self.fake_inputs is not None
+            self.last_input_reproducers is not None
         ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
-        script = self.repro_script_for(self.fake_inputs)
+        script = self.repro_script_for(self.last_input_reproducers)
         return script
 
-    def repro_script_for(self, inputs: list | None = None) -> str:
+    def repro_script_for(self, inputs: list[torch.Tensor] | list[InputReproducer] | None = None) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
             msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
@@ -547,6 +590,8 @@ class FusionDefinition(_C._FusionDefinition):
                                 f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
                                 f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                             )
+                elif isinstance(i, InputReproducer):
+                    msg += f"    {i.to_make_tensor_str()},\n"
                 else:
                     input_as_string = str(i)
                     # `nan` and `inf` are stringified as is, which are not
