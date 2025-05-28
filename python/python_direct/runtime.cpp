@@ -43,7 +43,7 @@ fusion : Fusion
   // template functions in the Fusion class. Templates do not exist in the
   // python language. To bind these functions, you must instantiate a full
   // (explicit) template specialization.
-  py::class_<Fusion, std::unique_ptr<Fusion, py::nodelete>>(nvfuser, "Fusion")
+  py::class_<Fusion>(nvfuser, "Fusion")
       .def(py::init<>(), R"(
 Create a new Fusion.
 
@@ -127,9 +127,12 @@ str
 void bindFusionExecutorCache(py::module& nvfuser) {
   py::class_<FusionExecutorCache>(nvfuser, "FusionExecutorCache")
       .def(
-          py::init([](Fusion* fusion, int64_t fusion_id, bool auto_schedule) {
+          py::init([](const Fusion* fusion,
+                      int64_t fusion_id,
+                      bool auto_schedule) {
+            // Make a copy of the fusion for FusionExecutorCache to own.
             return new FusionExecutorCache(
-                std::unique_ptr<Fusion>(fusion), fusion_id, auto_schedule);
+                std::make_unique<Fusion>(*fusion), fusion_id, auto_schedule);
           }),
           py::arg("fusion"),
           py::arg("fusion_id") = 0,
