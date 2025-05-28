@@ -12,8 +12,8 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
@@ -157,7 +157,7 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<
-      preseg_passes::MakeReshardingContiguousPass>::runPass(&fusion);
+      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -264,7 +264,8 @@ TEST_F(ShardingTest, ResidualAdd) {
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // getShardedLogicalAxis uses maybeAllocationDomain to get the sharded axis.
   // Setting allocation domain here manually, which is otherwise done by
-  // MakeReshardingContiguousPass, to isolate the test to a single preseg pass.
+  // FinalizeMultideviceDomainsPass, to isolate the test to a single preseg
+  // pass.
   for (auto tv : fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
