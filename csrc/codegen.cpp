@@ -3015,7 +3015,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
     template_args.arg(
         warp_specialized_on_ == ParallelType::TIDx
-            ? lparams_.bdimx() - ws_padded_threads
+            ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
             : lparams_.bdimx());
     indent() << genCall(
                     "warp::iterGroupedStaticWarpAllReduce",

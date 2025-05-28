@@ -463,7 +463,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     // For warp reduction, each warp has a smem slot per reduction
     int64_t n_compute_threads_or_warps = launch_params.nThreads();
     if (kernel_summary.circular_buffer_info.hasWarpSpecialized()) {
-      n_compute_threads_or_warps -= ws_padded_threads;
+      n_compute_threads_or_warps -= kWarpSpecializationPaddedThreads;
     }
     if (kernel_summary.all_block_reductions_are_warp_reduction) {
       n_compute_threads_or_warps /= 32;

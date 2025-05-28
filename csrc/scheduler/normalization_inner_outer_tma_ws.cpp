@@ -22,7 +22,7 @@ void getHeuristics(
     const int64_t circular_buffered_smem_size,
     const int64_t non_circular_buffered_smem_size,
     const size_t tmp_gmem_dtype_size,
-    const size_t vectorize_factor,
+    const size_t max_allowed_vect_factor,
     const int64_t hp_threads_per_block_min,
     const int64_t hp_threads_per_block_max,
     const bool project_to_input,
@@ -38,7 +38,7 @@ void getHeuristics(
   // Outer dim: iter_unroll, independent computation groups, SM count
   // Circular buffer: n_stages
   // Use the maximum vectorization factor
-  const int64_t vect_factor = (int64_t)vectorize_factor;
+  const int64_t vect_factor = (int64_t)max_allowed_vect_factor;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t gdimy = sm_count;
 
@@ -70,8 +70,6 @@ void getHeuristics(
   // Check register usage,  it is calculated as:
   // (1) Used to further cache circular buffered tv, optional [true]
   // (2) Used to further cache non-circular buffered tv, optional [true]
-  //     Set in [getPersistentBufferStorageParams], if true, will be vectorized
-  //     loaded to regs to bypass TMA to smem, then smem to regs.
   // (3) Used to cache partial outer reduction results
   // (4) overhead for indexing, etc.
   const bool is_circular_buffer_regs_cached = true;
@@ -108,7 +106,7 @@ void getHeuristics(
     return reg_count <= scheduler_utils::max_registers_per_thread;
   };
   // bdimx: number of threads for inner dim.
-  int64_t bdimx = 128;
+  int64_t bdimx = std::max(128, hp_threads_per_block_min);
   // bdimy: number of independent warp groups for outer dim.
   int64_t bdimy = 1;
   // iter_unroll: unroll for outer dim, these rows are grouped together in TMA
@@ -135,9 +133,10 @@ void getHeuristics(
       is_updated = true;
       iter_unroll *= 2;
     }
-    // increase bdimx but don't exceed 256 and only when
+    // increase bdimx but don't exceed hp_threads_per_block_max and only when
     // registers are not enough, e.g. each thread has too many elements.
-    if (bdimx <= 128 && !is_enough_regs(iter_unroll, bdimx) &&
+    if (bdimx * 2 <= hp_threads_per_block_max &&
+        !is_enough_regs(iter_unroll, bdimx) &&
         is_enough_smem(iter_unroll, n_stages, bdimx * 2, bdimy)) {
       is_updated = true;
       bdimx *= 2;
@@ -187,7 +186,8 @@ void getHeuristics(
   ParallelType ws_pt = bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
   WarpSpecialized ws(ws_pt);
   int64_t computation_threads = bdimx * bdimy;
-  int64_t total_threads = ws_padded_threads + computation_threads;
+  int64_t total_threads =
+      kWarpSpecializationPaddedThreads + computation_threads;
   if (total_threads > 256) {
     int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
     // Assume each padded threads keep [tma_branch_registers] registers and all
@@ -195,8 +195,8 @@ void getHeuristics(
     // [tma_branch_registers] is a tunable parameter,
     int64_t tma_branch_registers = 32;
     int64_t compute_branch_registers = reg_per_thread +
-        (reg_per_thread - tma_branch_registers) * ws_padded_threads /
-            computation_threads;
+        (reg_per_thread - tma_branch_registers) *
+            kWarpSpecializationPaddedThreads / computation_threads;
     compute_branch_registers =
         scheduler_utils::roundDownToN(compute_branch_registers, 8);
     ws.num_registers =
@@ -221,8 +221,9 @@ void getHeuristics(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
       LaunchParams::UNINITIALIZED_VAL,
-      n_stages > 1 && ws_pt == ParallelType::TIDx ? bdimx + ws_padded_threads
-                                                  : bdimx,
+      n_stages > 1 && ws_pt == ParallelType::TIDx
+          ? bdimx + kWarpSpecializationPaddedThreads
+          : bdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -237,7 +238,7 @@ void getHeuristics(
             << "\n"
             << "non_circular_buffered_smem_size: "
             << non_circular_buffered_smem_size << "\n"
-            << "vectorize_factor_input: " << vectorize_factor << "\n"
+            << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"
             << "vectorization_factor_tmp_gmem_write: " << tmp_gmem_write_vect
             << "\n"
             << "vectorization_factor_outer: " << vectorization_factor_outer
