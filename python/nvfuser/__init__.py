@@ -64,7 +64,7 @@ def disable_automatic_serialization():
 class InputReproducer:
     low: Number
     high: Number
-    device: torch.device
+    device: str
     dtype: torch.dtype
     size: tuple[int, ...]
     strides: tuple[int, ...]
@@ -76,7 +76,7 @@ class InputReproducer:
             raise RuntimeError(msg)
         self.low, self.high = InputReproducer.get_min_and_max(tensor)
         self.dtype = tensor.dtype
-        self.device = tensor.device
+        self.device = f'"{str(tensor.device)}"'
         self.size = tuple(tensor.size())
         self.strides = tuple(tensor.stride())
         self.is_contiguous = tensor.is_contiguous()
