@@ -569,28 +569,8 @@ class FusionDefinition(_C._FusionDefinition):
             msg += "\ninputs = [\n"
             for i in inputs:
                 if isinstance(i, torch.Tensor):
-                    if i.is_contiguous():
-                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
-                    else:
-                        # max linear index determines number of elements to generate
-                        sz = 1
-                        for szi, stri in zip(i.size(), i.stride()):
-                            if szi == 0:
-                                sz = 0
-                                break
-                            sz += (szi - 1) * stri
-                        if i.dtype.is_floating_point:
-                            msg += (
-                                f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
-                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                            )
-                        else:
-                            upper_bound = 2 if i.dtype == torch.bool else 10
-                            msg += (
-                                f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
-                            )
-                elif isinstance(i, InputReproducer):
+                    i = InputReproducer(i)
+                if isinstance(i, InputReproducer):
                     msg += f"    {i.to_make_tensor_str()},\n"
                 else:
                     input_as_string = str(i)
