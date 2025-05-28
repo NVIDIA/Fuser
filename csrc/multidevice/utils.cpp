@@ -672,18 +672,19 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       continue;
     }
 
-    bool p_sharded =
-        p_loop_did != nullptr && producer->getDeviceMesh().size() > 1;
-    bool c_sharded =
-        c_loop_did != nullptr && consumer->getDeviceMesh().size() > 1;
+    const DeviceMesh& producer_mesh = producer->getDeviceMesh();
+    const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
+    const bool p_sharded = p_loop_did != nullptr && producer_mesh.size() > 1;
+    const bool c_sharded = c_loop_did != nullptr && consumer_mesh.size() > 1;
+    const bool same_mesh = producer_mesh == consumer_mesh;
 
     if (expr->isA<LoadStoreOp>()) {
       if (p_sharded && !c_sharded) {
-        // Gather / Allgather: For simplicity, we do not distinguish between
-        // them.
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        CommunicationType type = same_mesh ? CommunicationType::Allgather
+                                           : CommunicationType::Gather;
         create_communication_info(
-            CommunicationType::Gather, p_logical_id, p2c_map.at(p_logical_id));
+            type, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
       if (!p_sharded && c_sharded) {
@@ -700,11 +701,11 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       }
 
       if (!c_sharded) {
-        // Reduce / Allreduce: For simplicity, we do not distinguish between
-        // them.
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        CommunicationType type = same_mesh ? CommunicationType::Allreduce
+                                           : CommunicationType::Reduce;
         create_communication_info(
-            CommunicationType::Reduce, p_logical_id, p2c_map.at(p_logical_id));
+            type, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
 
@@ -744,7 +745,8 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
     return false;
   }
 
-  if (communication_info->type == CommunicationType::Reduce) {
+  if (communication_info->type == CommunicationType::Reduce ||
+      communication_info->type == CommunicationType::Allreduce) {
     // Reduction axis in reduce/allreduce does not have to be outermost in
     // allocation domain.
     return true;

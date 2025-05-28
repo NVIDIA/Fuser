@@ -51,10 +51,7 @@ bool haveDifferentShardings(
     const TensorView* consumer);
 
 struct CommunicationInfo {
-  // Gather/Scatter/ReduceScatter/Reduce
-  // For simplicity, we do not distinguish between reduce/allreduce, and
-  // gather/allgather. They are represented as CommunicationType::Reduce and
-  // CommunicationType::Gather respectively.
+  // Allgather/Gather/Scatter/ReduceScatter/Allreduce/Reduce
   CommunicationType type;
   // Sharded logical IDs in producer/consumer.
   // For ReduceScatter, this is the scattered axis. Reduced axis is not stored.

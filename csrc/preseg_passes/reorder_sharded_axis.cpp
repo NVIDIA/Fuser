@@ -31,6 +31,11 @@ void transform_and_parallelize_like(TensorView* ref, TensorView* tv) {
   shardAllLike(ref, {tv}, {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
 }
 
+bool isReduceOrAllreduce(CommunicationInfo communication_info) {
+  return communication_info.type == CommunicationType::Reduce ||
+         communication_info.type == CommunicationType::Allreduce;
+}
+
 void makeCommunicationLayoutCompliant(
     Expr* expr,
     CommunicationInfo communication_info) {
@@ -44,7 +49,7 @@ void makeCommunicationLayoutCompliant(
   // 1. Input is not contiguous.
   // 2. Input is not allocation compliant and is not a reduce/allreduce.
   if (isTvContiguous(input) &&
-      (communication_info.type == CommunicationType::Reduce ||
+      (isReduceOrAllreduce(communication_info) ||
        isAllocationCompliant(input, p_sharded_id))) {
     // If the input is already in the required memory layout,
     // set its allocation explicitly to avoid changes by other passes.
@@ -64,7 +69,7 @@ void makeCommunicationLayoutCompliant(
     // input_copy's logical domain.
     // This reordering is not needed for reduce/allreduce.
     std::unordered_map<int64_t, int64_t> reorder_map = {};
-    if (communication_info.type != CommunicationType::Reduce) {
+    if (!isReduceOrAllreduce(communication_info)) {
       auto p2c =
           PairwiseLogicalDomainMap(input, input_copy).mapProducerToConsumer();
 
