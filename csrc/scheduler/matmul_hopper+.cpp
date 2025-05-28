@@ -950,7 +950,7 @@ void HopperPlus::scheduleSplitKSumHopper() {
   }
 }
 
-constexpr hardcoded_blackwell_splitk_vectorization_factor = 4;
+constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
 
 // Schedule TMem load tv and splitk_sum tv as follows:
 //   v = vectorization factor for TMem load
