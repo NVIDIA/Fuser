@@ -6528,6 +6528,11 @@ TEST_F(IndexingTest, LdStMatrix) {
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
 
+  // tv1_smem is the consumer for stmatrix. tv0_reg is the consumer.
+  std::vector<IterDomain*> tv1_smem_stmatrix =
+      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
+  tv1_smem->setAlternateLoopDomain(tv1_smem_stmatrix);
+
   // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
   // Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per
   // thread per operation.
@@ -6538,13 +6543,18 @@ TEST_F(IndexingTest, LdStMatrix) {
 
   // ===========================================================================
 
-  // Move data from tv0_reg to tv1_smem using StMatrix
+  // Move data from tv0_smem to tv0_reg using LdMatrix
   AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg);
   AbstractTensor tv0_reg_abstract_tensor =
       scheduleLdStMatrixRegisters(tv0_reg_base_tensor);
   tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
+
+  std::vector<IterDomain*> tv0_reg_stmatrix =
+      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
+  tv0_reg->setAlternateLoopDomain(tv0_reg_stmatrix);
+  // tv0_reg is the consumer for ldmatrix and tv0_smem is the producer.
 
   // Set allocation domain according to loop domain
   tv0_reg->setAllocationDomain(
@@ -6563,20 +6573,6 @@ TEST_F(IndexingTest, LdStMatrix) {
   inlineMost();
 
   // ===========================================================================
-
-  std::vector<IterDomain*> tv1_smem_stmatrix =
-      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
-  std::vector<IterDomain*> tv0_reg_ldmatrix =
-      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
-
-  std::unordered_map<TensorView*, std::vector<IterDomain*>> ldmatrix_smem;
-  ldmatrix_smem[tv0_reg] = tv0_reg_ldmatrix;
-
-  std::unordered_map<TensorView*, std::vector<IterDomain*>> stmatrix_smem;
-  stmatrix_smem[tv1_smem] = tv1_smem_stmatrix;
-
-  fusion.manage("ldmatrix_smem", ldmatrix_smem);
-  fusion.manage("stmatrix_smem", stmatrix_smem);
 
   constexpr int dim0 = 8192, dim1 = 8192;
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
