@@ -127,22 +127,33 @@ bool isSharded(const TensorView* tv) {
 
 namespace {
 
-// Collect device-parallel IterDomains in `domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+// Collect parallelized IterDomains in `domain` and return them as a
+// ParallelType-to-IterDomain map. Excludes `Serial` parallel type and device
+// parallelization (DID) on reduction iterdomains.
+std::unordered_map<ParallelType, IterDomain*> mapParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
+  const std::unordered_set<ParallelType>& parallel_types =
+      allParallelTypesExcept({ParallelType::Serial});
+
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
-  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  parallel_type_to_id.reserve(parallel_types.size());
+
   for (IterDomain* id : domain) {
-    const ParallelType parallel_type = id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
+    if (!id->isParallelized()) {
       continue;
     }
+    const ParallelType parallel_type = id->getParallelType();
+    NVF_ERROR(
+        parallel_types.count(parallel_type) > 0,
+        "Unexpected parallel type on IterDomain: ",
+        id,
+        " in ",
+        toDelimitedString(domain));
 
     // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
     // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
     // resharding.
-    if (id->isReduction()) {
+    if (id->isReduction() && id->isDeviceDim()) {
       continue;
     }
 
@@ -178,7 +189,7 @@ int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
+      mapParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
   if (alloc_id == nullptr) {
     return -1;
@@ -501,9 +512,9 @@ bool haveDifferentShardings(
   // Create indices for producer logical IDs and consumer root IDs. As an
   // optimization, we create indices only for those that DIDs depend on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
+      mapParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
+      mapParallelTypeToId(consumer->getLoopDomain());
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
