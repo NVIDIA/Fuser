@@ -235,10 +235,13 @@ Fusion
           "get_cuda_kernel",
           [](FusionExecutorCache& self,
              const py::iterable& iter,
+             bool intrinsic_code,
              std::optional<int64_t> device) {
-            return self.getCodeFor(from_pyiterable(iter, device), false);
+            return self.getCodeFor(
+                from_pyiterable(iter, device), intrinsic_code);
           },
           py::arg("inputs"),
+          py::arg("intrinsic_code") = false,
           py::arg("device") = 0,
           R"(
 Get the CUDA kernel code for the given input configuration.
