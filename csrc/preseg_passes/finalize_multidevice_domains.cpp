@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -137,7 +137,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
 
 } // namespace
 
-void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
+void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
   bool has_mesh = validateMeshes(fusion);
   if (!has_mesh) {
     return;
