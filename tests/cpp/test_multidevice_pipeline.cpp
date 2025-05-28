@@ -60,10 +60,6 @@ class PipelineTest : public MultiDeviceTest {
   KernelArgumentHolder outputs;
   KernelArgumentHolder ref_unsharded_outputs;
   hir::HostIrEvaluatorParams host_ir_executor_params;
-
- private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
-      optimization_guard_;
 };
 
 void PipelineTest::validate(bool validate_with_prescribed_values) {
@@ -161,7 +157,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   validate(validate_with_prescribed_values);
 }
 
-PipelineTest::PipelineTest() : optimization_guard_(false) {
+PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
 }
 
