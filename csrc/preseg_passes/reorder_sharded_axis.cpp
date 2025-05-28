@@ -24,7 +24,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-void transform_and_parallelize_like(TensorView* ref, TensorView* tv) {
+void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
   auto old2new = reorderDIDToFront(ref);
   propagateDIDTransform(
       ref, {tv}, /*did_pos=*/old2new.size(), PropagateDirection::kForward);
@@ -39,8 +39,8 @@ bool isReduceOrAllreduce(CommunicationInfo communication_info) {
 void makeCommunicationLayoutCompliant(
     Expr* expr,
     CommunicationInfo communication_info) {
-  TensorView* input = expr->inputs().at(0)->as<TensorView>();
-  TensorView* output = expr->outputs().at(0)->as<TensorView>();
+  auto* input = expr->inputs().at(0)->as<TensorView>();
+  auto* output = expr->outputs().at(0)->as<TensorView>();
 
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
@@ -50,7 +50,7 @@ void makeCommunicationLayoutCompliant(
   // 2. Input is not allocation compliant and is not a reduce/allreduce.
   if (isTvContiguous(input) &&
       (isReduceOrAllreduce(communication_info) ||
-       isAllocationCompliant(input, p_sharded_id))) {
+       isAllocationOrderCompliant(input, p_sharded_id))) {
     // If the input is already in the required memory layout,
     // set its allocation explicitly to avoid changes by other passes.
     input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
@@ -68,7 +68,7 @@ void makeCommunicationLayoutCompliant(
     // Reduction axis in input can change the position of p_sharded_id in
     // input_copy's logical domain.
     // This reordering is not needed for reduce/allreduce.
-    std::unordered_map<int64_t, int64_t> reorder_map = {};
+    std::unordered_map<int64_t, int64_t> reorder_map;
     if (!isReduceOrAllreduce(communication_info)) {
       auto p2c =
           PairwiseLogicalDomainMap(input, input_copy).mapProducerToConsumer();
@@ -98,12 +98,12 @@ void makeCommunicationLayoutCompliant(
           output,
           input_copy);
     }
-    transform_and_parallelize_like(input, input_copy);
+    transformAndParallelizeLike(input, input_copy);
   }
 
   // For reduce/allreduce, c_sharded_id is reduction axis and considered
   // compliant.
-  if (isAllocationCompliant(output, c_sharded_id)) {
+  if (isAllocationOrderCompliant(output, c_sharded_id)) {
     // If the output is already in the required memory layout,
     // set its allocation explicitly to avoid changes by other passes.
     output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
@@ -134,7 +134,7 @@ void makeCommunicationLayoutCompliant(
 
       output_copy->setAllocationDomain(output_copy_allocation_domain, true);
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
-      transform_and_parallelize_like(output, output_copy);
+      transformAndParallelizeLike(output, output_copy);
     }
 
     output->setAllocationDomain(
@@ -167,8 +167,8 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     if (isCommunicationLayoutCompliant(expr)) {
       // Set the allocation domain explicitly to avoid changes by other passes.
       // No reordering / copying is needed.
-      TensorView* input = expr->inputs().at(0)->as<TensorView>();
-      TensorView* output = expr->outputs().at(0)->as<TensorView>();
+      auto* input = expr->inputs().at(0)->as<TensorView>();
+      auto* output = expr->outputs().at(0)->as<TensorView>();
       input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
       output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
       continue;

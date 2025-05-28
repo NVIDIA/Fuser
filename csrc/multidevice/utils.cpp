@@ -581,7 +581,7 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
-bool isAllocationCompliant(TensorView* tv, IterDomain* sharded_id) {
+bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
   NVF_ERROR(
       std::find(
           tv->getLogicalDomain().begin(),
@@ -758,8 +758,8 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   }
 
   // Check if the gather/scatter axis is outermost in memory layout.
-  if (!isAllocationCompliant(producer, communication_info->p_sharded_id) ||
-      !isAllocationCompliant(consumer, communication_info->c_sharded_id)) {
+  if (!isAllocationOrderCompliant(producer, communication_info->p_sharded_id) ||
+      !isAllocationOrderCompliant(consumer, communication_info->c_sharded_id)) {
     return false;
   }
 
