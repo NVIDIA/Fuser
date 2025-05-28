@@ -287,6 +287,18 @@ TensorView* Common::cacheBefore(TensorView* orig, LoadStoreOpType op_type) {
   return c;
 }
 
+void Common::addAndMapDomain(
+    const std::vector<IterDomain*>& domain1,
+    const std::vector<IterDomain*>& domain2) {
+  NVF_ERROR(domain1.size() == domain2.size());
+  for (size_t i : arange(domain1.size())) {
+    if (graph_->hasGroup(domain1[i])) {
+      ValGroup vg = graph_->toGroup(domain1[i]);
+      graph_->initializeVal(domain2[i], vg);
+    }
+  }
+}
+
 TensorView* Common::cacheAfter(
     TensorView* orig,
     LoadStoreOpType op_type,
@@ -298,32 +310,17 @@ TensorView* Common::cacheAfter(
       orig->cacheAfter(op_type, cache_op, propagate_allocation_domain);
 
   if (propagate_allocation_domain) {
-    const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
-    NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : arange(orig_alloc.size())) {
-      // Due to rFactor in split-k, some ID could be missing in the IdGraph.
-      if (graph_->hasGroup(orig_alloc[i])) {
-        ValGroup vg = graph_->toGroup(orig_alloc[i]);
-        graph_->initializeVal(cache_alloc[i], vg);
-      }
-    }
+    addAndMapDomain(
+        orig->getMaybeAllocationDomain(), c->getMaybeAllocationDomain());
   }
 
-  const std::vector<IterDomain*> orig_logical =
-      TensorDomain::noReductions(orig->getLogicalDomain());
-  const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
   // in split-K we do rFactor which gives us a full = sum(partial)
   // where partial has root domain that matches the logical domain of the
   // original tensor. The logical domain contains Iteration transforms of the
   // Reduction axis in the original mma output.
-  NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : arange(orig_logical.size())) {
-    // Due to rFactor in split-k, some ID could be missing in the IdGraph.
-    if (graph_->hasGroup(orig_logical[i])) {
-      ValGroup vg = graph_->toGroup(orig_logical[i]);
-      graph_->initializeVal(cache_logical[i], vg);
-    }
-  }
+  addAndMapDomain(
+      TensorDomain::noReductions(orig->getLogicalDomain()),
+      c->getLogicalDomain());
 
   return c;
 }
