@@ -83,6 +83,9 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
 
   std::vector<IterDomain*> new_allocation_domain;
   std::vector<std::optional<bool>> new_contiguity;
+  new_allocation_domain.reserve(allocation_to_contiguity.size());
+  new_contiguity.reserve(allocation_to_contiguity.size());
+
   for (auto&& [id, contiguity] : allocation_to_contiguity) {
     new_allocation_domain.push_back(id);
     new_contiguity.push_back(contiguity);
