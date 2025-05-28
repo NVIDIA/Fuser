@@ -568,6 +568,7 @@ class FusionDefinition(_C._FusionDefinition):
         if inputs is not None:
             msg += "\ninputs = [\n"
             for i in inputs:
+                # TODO(crcrpar): Think about how to support tensor wrapper subclasses such as DTensor
                 if isinstance(i, torch.Tensor):
                     i = InputReproducer(i)
                 if isinstance(i, InputReproducer):
