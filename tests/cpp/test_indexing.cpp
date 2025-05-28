@@ -6344,6 +6344,10 @@ AbstractTensor scheduleLdStMatrixSharedMemory(
   abstract_tensor.merge(-3, -2);
   // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), mo * mi * niio(128), niii(8))
 
+  // Merge no and nio to create a single serial IterDomain
+  abstract_tensor.merge(-4, -3);
+  // (GM, GN, cta_m(2), cta_n(1), no * nio(16), mo * mi * niio(128), niii(8))
+
   return abstract_tensor;
 }
 
@@ -6406,8 +6410,10 @@ AbstractTensor scheduleLdStMatrixRegisters(const AbstractTensor& base_tensor) {
   // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), (mo * mii * niiio)(128), (niio
   // * mio * niiii)(8))
 
-  // Hard-coded shared memory index expects a single serial IterDomain
+  // Merge no and nio to create a single serial IterDomain
   abstract_tensor.merge(-4, -3);
+  // (GM, GN, cta_m(2), cta_n(1), no * nio(16), (mo * mii * niiio)(128), (niio
+  // * mio * niiii)(8))
 
   return abstract_tensor;
 }
@@ -6447,7 +6453,6 @@ TEST_F(IndexingTest, LdStMatrix) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0_smem->setMemoryType(MemoryType::Shared);
 
-  // TODO Add ldmatrix support
   // The definition for tv0_reg is ldmatrix, which moves data from shared memory
   // to registers.
   TensorView* tv0_reg = tv0_smem->cacheAfter();
@@ -6533,7 +6538,7 @@ TEST_F(IndexingTest, LdStMatrix) {
 
   // ===========================================================================
 
-  // Move data from tv0_reg to tv1_smem using LdMatrix
+  // Move data from tv0_reg to tv1_smem using StMatrix
   AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg);
   AbstractTensor tv0_reg_abstract_tensor =
       scheduleLdStMatrixRegisters(tv0_reg_base_tensor);
@@ -6558,6 +6563,20 @@ TEST_F(IndexingTest, LdStMatrix) {
   inlineMost();
 
   // ===========================================================================
+
+  std::vector<IterDomain*> tv1_smem_stmatrix =
+      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
+  std::vector<IterDomain*> tv0_reg_ldmatrix =
+      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
+
+  std::unordered_map<TensorView*, std::vector<IterDomain*>> ldmatrix_smem;
+  ldmatrix_smem[tv0_reg] = tv0_reg_ldmatrix;
+
+  std::unordered_map<TensorView*, std::vector<IterDomain*>> stmatrix_smem;
+  stmatrix_smem[tv1_smem] = tv1_smem_stmatrix;
+
+  fusion.manage("ldmatrix_smem", ldmatrix_smem);
+  fusion.manage("stmatrix_smem", stmatrix_smem);
 
   constexpr int dim0 = 8192, dim1 = 8192;
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
