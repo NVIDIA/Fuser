@@ -10,7 +10,8 @@ from functools import partial, lru_cache
 from fusion_definition_wrapper import FusionDefinitionWrapper
 from nvfuser import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
-from torch.distributed.tensor.placement_types import Shard, Replicate
+from torch.distributed.tensor.placement_types import Placement
+from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -105,66 +106,37 @@ class LinearFunction(torch.autograd.Function):
         return (grad_x, grad_w)
 
 
-class ColumnParallelLinear(torch.nn.Linear):
-    def __init__(self, in_features: int, out_features: int, num_devices: int):
+class TensorParallelLinear(torch.nn.Linear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        in_placements: Iterable[Placement] = [],
+    ):
         super().__init__(in_features, out_features, bias=False)
-        self.num_devices = num_devices
+        self.in_placements = in_placements
+
+    def __repr__(self):
+        base_repr = super().__repr__()
+        return f"{base_repr[:-1]}, in_placements={self.in_placements}, weight_placements={self.weight.data.placements})"
 
     @classmethod
-    def distribute(cls, linear: torch.nn.Linear, num_devices: int):
-        distributed_linear = cls(linear.in_features, linear.out_features, num_devices)
-        mesh = dist.device_mesh.init_device_mesh("cuda", [num_devices])
-        distributed_linear.weight = torch.nn.Parameter(
-            dist.tensor.distribute_tensor(linear.weight, mesh, [Shard(0)])
+    def distribute(
+        cls,
+        linear: torch.nn.Linear,
+        mesh: dist.device_mesh.DeviceMesh,
+        in_placements: Iterable[Placement] = [],
+        weight_placements: Iterable[Placement] = [],
+    ):
+        tp_linear = cls(linear.in_features, linear.out_features, in_placements)
+        tp_linear.weight = torch.nn.Parameter(
+            dist.tensor.distribute_tensor(linear.weight, mesh, weight_placements)
         )
-        return distributed_linear
+        return tp_linear
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        mesh = dist.device_mesh.init_device_mesh("cuda", [self.num_devices])
-        input_dtensor = DTensor.from_local(input, mesh, [Replicate()])
-        output_dtensor = LinearFunction.apply(input_dtensor, self.weight)
-        return output_dtensor.to_local()
-
-
-class RowParallelLinear(torch.nn.Linear):
-    def __init__(self, in_features: int, out_features: int, num_devices: int):
-        super().__init__(in_features, out_features, bias=False)
-        self.num_devices = num_devices
-
-    @classmethod
-    def distribute(cls, linear: torch.nn.Linear, num_devices: int):
-        distributed_linear = cls(linear.in_features, linear.out_features, num_devices)
-        mesh = dist.device_mesh.init_device_mesh("cuda", [num_devices])
-        distributed_linear.weight = torch.nn.Parameter(
-            dist.tensor.distribute_tensor(linear.weight, mesh, [Shard(-1)])
+        in_dtensor = DTensor.from_local(
+            input, self.weight.device_mesh, self.in_placements
         )
-        return distributed_linear
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        mesh = dist.device_mesh.init_device_mesh("cuda", [self.num_devices])
-        input_dtensor = DTensor.from_local(input, mesh, [Shard(-1)])
-        output_dtensor = LinearFunction.apply(input_dtensor, self.weight)
-        return output_dtensor.to_local()
-
-
-# class DistributedLinear(torch.nn.Linear):
-#     def __init__(self, in_features: int, out_features: int, num_devices: int):
-#         super().__init__(in_features, out_features, bias=False)
-#         self.num_devices = num_devices
-
-#     def __repr__(self):
-#         base_repr = super().__repr__()
-#         return f"{base_repr[:-1]}, weight_sharding={self.weight.data.placements})"
-
-#     @classmethod
-#     def distribute(cls, linear: torch.nn.Linear, num_devices: int, shard_dim: int):
-#         distributed_linear = cls(linear.in_features, linear.out_features, num_devices)
-#         mesh = dist.device_mesh.init_device_mesh("cuda", [num_devices])
-#         distributed_linear.weight = torch.nn.Parameter(
-#             dist.tensor.distribute_tensor(linear.weight, mesh, [Shard(shard_dim)])
-#         )
-#         return distributed_linear
-
-#     def forward(self, input: torch.Tensor) -> torch.Tensor:
-#         input_dtensor = DTensor.from_local(input, self.weight.device_mesh)
-#         return LinearFunction.apply(input, self.weight)
+        out_dtensor = LinearFunction.apply(in_dtensor, self.weight)
+        return out_dtensor.to_local()

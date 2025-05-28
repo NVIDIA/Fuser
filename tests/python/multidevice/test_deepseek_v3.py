@@ -9,7 +9,7 @@ import torch.distributed as dist
 from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
-from linear import ColumnParallelLinear, RowParallelLinear
+from linear import TensorParallelLinear
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -17,6 +17,7 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
     ColwiseParallel,
 )
+from torch.distributed.tensor.placement_types import Shard
 from typing import Optional
 
 
@@ -76,32 +77,35 @@ class Executor(Enum):
 
 def parallelize_linear_with_nvfuser(
     linear: torch.nn.Linear,
-    num_devices: int,
+    mesh: dist.device_mesh.DeviceMesh,
     parallel_style: ParallelStyle,
 ) -> torch.nn.Linear:
     assert isinstance(linear, torch.nn.Linear), f"Unsupported layer: {linear}"
 
     assert len(parallel_style.input_layouts) == 1, "Expect 1D mesh"
     input_layout = parallel_style.input_layouts[0]
+
     assert len(parallel_style.output_layouts) == 1, "Expect 1D mesh"
     output_layout = parallel_style.output_layouts[0]
 
     if isinstance(parallel_style, RowwiseParallel):
         assert input_layout.is_shard(-1), "We only implemented TP."
         assert output_layout.is_replicate(), "We only implemented TP."
-        return RowParallelLinear.distribute(linear, num_devices)
+        return TensorParallelLinear.distribute(
+            linear, mesh, [input_layout], [Shard(-1)]
+        )
 
     if isinstance(parallel_style, ColwiseParallel):
         assert input_layout.is_replicate(), "We only implemented TP."
         assert output_layout.is_shard(-1), "We only implemented TP."
-        return ColumnParallelLinear.distribute(linear, num_devices)
+        return TensorParallelLinear.distribute(linear, mesh, [input_layout], [Shard(0)])
 
     assert False, f"Unsupported parallel style: {parallel_style}"
 
 
 def parallelize_module_with_nvfuser(
     module: torch.nn.Module,
-    num_devices: int,
+    mesh: dist.device_mesh.DeviceMesh,
     parallel_plan: dict[str, ParallelStyle],
     fqn: str,  # stands for fully qualified name
     parent_module: Optional[torch.nn.Module] = None,
@@ -113,13 +117,13 @@ def parallelize_module_with_nvfuser(
             child_fqn = child_module_name
 
         parallelize_module_with_nvfuser(
-            child_module, num_devices, parallel_plan, child_fqn, module
+            child_module, mesh, parallel_plan, child_fqn, module
         )
 
     if (parallel_style := parallel_plan.get(fqn)) is None:
         return
 
-    new_module = parallelize_linear_with_nvfuser(module, num_devices, parallel_style)
+    new_module = parallelize_linear_with_nvfuser(module, mesh, parallel_style)
     assert parent_module is not None
     module_name = fqn.split(".")[-1]
     setattr(parent_module, module_name, new_module)
@@ -204,14 +208,13 @@ def test_transformer_layer(setup_default_process_group, executor: Executor):
                 ]
                 assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
             case Executor.NVFUSER:
-                # FIXME: pass in mesh instead?
-                parallelize_module_with_nvfuser(transformer_layer, d, parallel_plan, "")
+                parallelize_module_with_nvfuser(
+                    transformer_layer, mesh, parallel_plan, ""
+                )
 
         batch_size = 1
         seq_len = 2048
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
-        # if executor == Executor.NVFUSER:
-        #     inp = DTensor.from_local(inp, mesh, [Replicate()])
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
