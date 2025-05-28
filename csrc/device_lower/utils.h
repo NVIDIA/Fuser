@@ -366,6 +366,9 @@ struct IterDomainDependencySorter {
 // Check if all the inputs of the given MmaOp is guarded by mbarrier
 bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
+// Check if the given ForLoop is a warp specialized loop by checking
+// the circular buffer type of the loop domain.
+bool isWarpSpecializedLoop(ForLoop* loop);
 } // namespace lower_utils
 
 } // namespace nvfuser
