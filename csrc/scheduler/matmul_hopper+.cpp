@@ -950,7 +950,7 @@ void HopperPlus::scheduleSplitKSumHopper() {
   }
 }
 
-// Schecule TMem load tv and splitk_sum tv as follows:
+// Schedule TMem load tv and splitk_sum tv as follows:
 //   v = vectorization factor for TMem load
 //   vv = vectorization factor for splitk_sum, hardcoded to 4
 // TMem load tv:
