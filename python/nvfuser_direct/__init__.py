@@ -43,8 +43,15 @@ class FusionDefinition:
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
         self.ops = _C_DIRECT.ops
-        self.fusion = _C_DIRECT.Fusion()
-        self.fusion_guard = None
+        self._fusion = None
+        self._fusion_guard = None
+
+    @property
+    def fusion(self):
+        if not hasattr(self, "fec"):
+            return self._fusion
+        else:
+            return self.fec.fusion
 
     def __enter__(self):
         """
@@ -55,7 +62,8 @@ class FusionDefinition:
         FusionDefinition
             The FusionDefinition instance
         """
-        self.fusion_guard = _C_DIRECT.FusionGuard(self.fusion)
+        self._fusion = _C_DIRECT.Fusion()
+        self._fusion_guard = _C_DIRECT.FusionGuard(self._fusion)
         return self
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
@@ -76,7 +84,7 @@ class FusionDefinition:
             The traceback object containing the call stack.
             None if no exception occurred.
         """
-        self.fusion_guard = None
+        del self._fusion_guard
         if exception_type is not None:
             print(f"Exception occurred: {exception_type.__name__}: {exception_value}")
             if exception_traceback is not None:
@@ -101,7 +109,7 @@ class FusionDefinition:
             The defined tensor
         """
         tv = _C_DIRECT.define_tensor(*args, **kwargs)
-        self.fusion.add_input(tv)
+        self._fusion.add_input(tv)
         return tv
 
     def add_output(self, *args, **kwargs):
@@ -115,7 +123,7 @@ class FusionDefinition:
         **kwargs
             Keyword arguments passed to fusion.add_output
         """
-        self.fusion.add_output(*args, **kwargs)
+        self._fusion.add_output(*args, **kwargs)
 
     def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
         """
@@ -137,7 +145,10 @@ class FusionDefinition:
         """
         if auto_schedule:
             if not hasattr(self, "fec"):
-                self.fec = _C_DIRECT.FusionExecutorCache(self.fusion)
+                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del self._fusion
             return self.fec.execute(inputs)
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
