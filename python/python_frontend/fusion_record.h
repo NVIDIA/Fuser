@@ -1798,6 +1798,59 @@ struct SelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+struct ScatterOpRecord : RecordFunctor {
+  ScatterOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.scatter",
+            serde::RecordType::ScatterOp),
+        dim_(dim) {}
+  ~ScatterOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScatterOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+
+    Val* output = scatter(arg1, dim_, arg3, arg4);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const ScatterOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
 struct GatherOpRecord : RecordFunctor {
   GatherOpRecord(
       std::vector<State> _args,
