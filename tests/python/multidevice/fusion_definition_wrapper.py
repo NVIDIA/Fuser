@@ -7,7 +7,15 @@ import torch.distributed as dist
 from collections.abc import Iterable
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
-from typing import Callable, cast, Optional
+from typing import Callable, cast, TypeAlias
+
+
+DTensorsKey: TypeAlias = tuple[tuple[str, str], ...]
+
+
+def make_key_from_dtensors(dtensors: Iterable[DTensor]) -> DTensorsKey:
+    key = tuple((repr(dt.device_mesh), repr(dt.placements)) for dt in dtensors)
+    return key
 
 
 class FusionDefinitionWrapper:
@@ -19,10 +27,8 @@ class FusionDefinitionWrapper:
 
         # In theory, a FusionDefinitionWrapper can own multiple
         # `FusionDefinition`s, because different shardings lead to different
-        # `multidevice_schedule`s. In practice, this would trigger #4507 so I
-        # chose to let each FusionDefinitionWrapper own only one
-        # FusionDefinition.
-        self._fusion_definition: Optional[nvfuser.FusionDefinition] = None
+        # `multidevice_schedule`s. In practice, this would trigger #4507.
+        self._fusion_definition_cache: dict[DTensorsKey, nvfuser.FusionDefinition] = {}
 
     def _create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
@@ -69,13 +75,10 @@ class FusionDefinitionWrapper:
     def _get_or_create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
     ) -> nvfuser.FusionDefinition:
-        if self._fusion_definition is None:
-            self._fusion_definition = self._create_fusion_definition(in_dtensors)
-
-        # When self._fusion_definition already exists, we can and should check
-        # whether its multidevice_schedule is consistent with how `in_dtensors`
-        # are sharded.
-        return self._fusion_definition
+        key = make_key_from_dtensors(in_dtensors)
+        return self._fusion_definition_cache.setdefault(
+            key, (lambda: self._create_fusion_definition(in_dtensors))()
+        )
 
     def __call__(self, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
         fusion_def = self._get_or_create_fusion_definition(in_dtensors)
