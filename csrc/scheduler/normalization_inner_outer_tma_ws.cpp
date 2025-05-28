@@ -106,7 +106,7 @@ void getHeuristics(
     return reg_count <= scheduler_utils::max_registers_per_thread;
   };
   // bdimx: number of threads for inner dim.
-  int64_t bdimx = std::max(128, hp_threads_per_block_min);
+  int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
   // bdimy: number of independent warp groups for outer dim.
   int64_t bdimy = 1;
   // iter_unroll: unroll for outer dim, these rows are grouped together in TMA
