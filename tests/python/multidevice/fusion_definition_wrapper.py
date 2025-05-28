@@ -19,7 +19,7 @@ class FusionDefinitionWrapper:
 
         # In theory, a FusionDefinitionWrapper can own multiple
         # `FusionDefinition`s, because different shardings lead to different
-        # `multidevice_schedule`s. In pratice, this would trigger #4507 so I
+        # `multidevice_schedule`s. In practice, this would trigger #4507 so I
         # chose to let each FusionDefinitionWrapper own only one
         # FusionDefinition.
         self._fusion_definition: Optional[nvfuser.FusionDefinition] = None
@@ -73,7 +73,7 @@ class FusionDefinitionWrapper:
             self._fusion_definition = self._create_fusion_definition(in_dtensors)
 
         # When self._fusion_definition already exists, we can and should check
-        # whether its multidevice_schedule is consistant with how `in_dtensors`
+        # whether its multidevice_schedule is consistent with how `in_dtensors`
         # are sharded.
         return self._fusion_definition
 
