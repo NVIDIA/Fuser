@@ -301,6 +301,7 @@ TensorView* Common::cacheAfter(
     const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
     NVF_ERROR(orig_alloc.size() == cache_alloc.size());
     for (size_t i : arange(orig_alloc.size())) {
+      // Due to rFactor in split-k, some ID could be missing in the IdGraph.
       if (graph_->hasGroup(orig_alloc[i])) {
         ValGroup vg = graph_->toGroup(orig_alloc[i]);
         graph_->initializeVal(cache_alloc[i], vg);
@@ -317,6 +318,7 @@ TensorView* Common::cacheAfter(
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
   for (size_t i : arange(orig_logical.size())) {
+    // Due to rFactor in split-k, some ID could be missing in the IdGraph.
     if (graph_->hasGroup(orig_logical[i])) {
       ValGroup vg = graph_->toGroup(orig_logical[i]);
       graph_->initializeVal(cache_logical[i], vg);
