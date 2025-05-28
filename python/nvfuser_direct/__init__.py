@@ -51,7 +51,7 @@ class FusionDefinition:
         if not hasattr(self, "fec"):
             return self._fusion
         else:
-            return self.fec.fusion
+            return self.fec.fusion()
 
     def __enter__(self):
         """

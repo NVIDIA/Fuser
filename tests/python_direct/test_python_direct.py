@@ -72,6 +72,20 @@ def test_fusion_execution_cache():
     results = fd.execute(inputs)
     assert torch.allclose(results[0], inputs[0] + inputs[1])
 
+    # Test fusion math representation after compilation
+    prescheduled_fusion_definition = """Inputs:
+  T0_g_float[iS0{2}, iS1{4}, iS2{8}]
+  T1_g_float[iS3{2}, iS4{4}, iS5{8}]
+Outputs:
+  T2_g_float[iS6{2}, iS7{4}, iS8{8}]
+
+%kernel_math {
+T2_g_float[iS6{2}, iS7{4}, iS8{8}]
+   = T0_g_float[iS0{2}, iS1{4}, iS2{8}]
+   + T1_g_float[iS3{2}, iS4{4}, iS5{8}];
+} // %kernel_math \n\n"""
+    assert fd.fusion.print_math() == prescheduled_fusion_definition
+
     # Test compilation status
     assert fd.fec.is_compiled(inputs)
 
