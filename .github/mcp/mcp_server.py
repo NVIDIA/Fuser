@@ -19,13 +19,12 @@ def build_nvfuser() -> str:
             A message indicating whether the build was successful or failed.
             If the build failed, the full build log is included in the message.
     """
-
+    args = parse_args()
+    project_root = pathlib.Path(__file__).parent.parent.parent
     # if script `/usr/local/bin/_bn` exists, use it
-    command = []
     if pathlib.Path("/usr/local/bin/_bn").exists():
         command = ["/usr/local/bin/_bn"]
     else:
-        args = parse_args()
         command = [
             pathlib.Path(args.python_path),
             "-m",
@@ -39,27 +38,27 @@ def build_nvfuser() -> str:
 
     p = subprocess.run(
         command,
-        cwd=pathlib.Path(__file__).parent.parent.parent,  # go to nvfuser root
+        cwd=project_root,  # go to nvfuser root
         check=False,
         capture_output=True,
         text=True,
     )
     if p.returncode == 0:
         return "Nvfuser build was successful"
-
-    return "Nvfuser build was failed, here are the full build log\n\n\n" + p.stderr
+    else:
+        return "Nvfuser build was failed, here are the full build log\n\n\n" + p.stderr
 
 
 def parse_args():
+    """ Input parser"""
     parser = argparse.ArgumentParser(description="MCP server")
     parser.add_argument(
-        "--python-path",
+       "--python-path",
         type=str,
         default=None,
     )
 
     args = parser.parse_args()
-    print(args)
 
     return args
 
