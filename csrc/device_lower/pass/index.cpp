@@ -2179,11 +2179,6 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         }
         */
 
-        NVF_ERROR(ldst->fusion()->hasManaged("ldmatrix_smem"));
-        std::vector<IterDomain*> smem_domain =
-            ldst->fusion()->getManaged<std::vector<nvfuser::IterDomain*>>(
-                "ldmatrix_smem");
-
         Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
             in_tv, ldst, for_loops_);
         in = IrBuilder::create<kir::TensorIndex>(in_tv, index);
