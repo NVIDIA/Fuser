@@ -50,6 +50,7 @@ enum class DebugDumpOption {
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
   LaunchParam, //!< Dump the Launch parameters of kernel
+  DynamicSharedMemory, //!< Dump the dynamic shared memory allocation
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
