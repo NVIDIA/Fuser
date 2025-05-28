@@ -18,6 +18,8 @@ from typing import Iterable
 class LinearConfig:
     in_features: int
     out_features: int
+    # Whether the input/output tensors have a leading batch dimension. This is
+    # typically true for MLA and false for MoE.
     has_batch: bool
 
 
@@ -64,6 +66,8 @@ class ComputeType(Enum):
     BACKWARD = auto()
 
 
+# Cache so we create only one FusionDefinitionWrapper per math definition. This
+# is more efficient and is necessary to avoid #4507.
 @lru_cache
 def get_fusion_definition_wrapper(
     compute_type: ComputeType, linear_config: LinearConfig
