@@ -24,6 +24,21 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// Returns the position of an IterDomain in given domain.
+int64_t posInDomain(
+    const std::vector<IterDomain*>& domain,
+    const IterDomain* id) {
+  auto pos = std::find(domain.begin(), domain.end(), id);
+  NVF_ERROR(
+      pos != domain.end(),
+      "Expected id ",
+      id->toString(),
+      " in domain ",
+      domain);
+  return std::distance(domain.begin(), pos);
+}
+
+// Propagates the DID transformations of ref to tv and parallelizes tv like ref.
 void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
   auto old2new = reorderDIDToFront(ref);
   propagateDIDTransform(
