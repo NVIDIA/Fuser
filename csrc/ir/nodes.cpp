@@ -3348,6 +3348,7 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
   // derived from domain_.
   return root_domain_ == other.root_domain_ &&
       loop_domain_ == other.loop_domain_ &&
+      alternate_loop_domain_ == other.alternate_loop_domain_ &&
       logical_domain_ == other.logical_domain_ &&
       allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
@@ -3407,6 +3408,17 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     }
   }
 
+  if (alternateLoop().has_value() != other_td->alternateLoop().has_value()) {
+    return false;
+  }
+
+  for (const auto i : arange(loop().size())) {
+    if (!(alternateLoop().value()[i]->sameAs(
+            other_td->alternateLoop().value()[i]))) {
+      return false;
+    }
+  }
+
   return true;
 }
 
@@ -3443,6 +3455,11 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
       indent(ss, indent_size + 1)
           << "allocation=[" << toDelimitedString(allocation()) << "]"
           << std::endl;
+    }
+    if (alternateLoop().has_value()) {
+      indent(ss, indent_size + 1)
+          << "alternate_loop=[" << toDelimitedString(alternateLoop().value())
+          << "]" << std::endl;
     }
   }
   return ss.str();
