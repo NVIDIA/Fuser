@@ -1009,7 +1009,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
-      dc->split(-1, hardcoded_smem_vectorize_factor);
+      d_smem->split(-1, hardcoded_smem_vectorize_factor);
       for (auto c : register_tvs) {
         bool is_2d_epilogue_input =
             TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
