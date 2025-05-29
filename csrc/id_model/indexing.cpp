@@ -76,6 +76,31 @@ void TensorIndexer::buildLoopIndexMap() {
 
       loop_index_map_[loop_group] = loop_index;
     }
+
+    if (!tv_output->getAlternateLoopDomain().has_value()) {
+      continue;
+    }
+    const std::vector<IterDomain*>& alternate_loop_domain =
+        tv_output->getAlternateLoopDomain().value();
+    const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
+    NVF_ERROR(alternate_loop_domain.size() == loop_domain.size());
+    for (auto&& [alt_loop_id, loop_id] :
+         zip(alternate_loop_domain, loop_domain)) {
+      const ValGroup& alt_loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(alt_loop_id);
+      if (loop_index_map_.find(alt_loop_group) != loop_index_map_.end()) {
+        // Index already assigned
+        continue;
+      }
+
+      const ValGroup& loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      auto loop_index_iter = loop_index_map_.find(loop_group);
+      NVF_ERROR(loop_index_iter != loop_index_map_.end());
+
+      // map alternate loop id to the original loop id index
+      loop_index_map_[alt_loop_group] = loop_index_iter->second;
+    }
   }
 }
 
@@ -254,7 +279,8 @@ IndexingInfo TensorIndexer::computeIndex(
     const std::vector<ForLoop*>& for_loops,
     bool use_alternate_loop_domain) const {
   const auto loop_ids = getLoopIds(expr, id_model_, use_alternate_loop_domain);
-  const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
+  const ExprPath<ExprGroup> traversal_path =
+      getIndexingPath(expr, index_ids, use_alternate_loop_domain);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_ids, for_loops);
 
@@ -786,7 +812,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
 ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_ids) const {
+    const std::vector<IterDomain*>& index_ids,
+    bool use_alternate_loop_domain) const {
   // Exclude broadcast IDs as their indices should always be zero
   // and they may not be reachable from the loop domain
   std::vector<IterDomain*> non_broadcast_index_ids;
@@ -799,7 +826,7 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
   return IndexingTraversal::getExprsBetween(
       expr,
       traversalGraph(),
-      getLoopIds(expr, id_model_),
+      getLoopIds(expr, id_model_, use_alternate_loop_domain),
       non_broadcast_index_ids);
 }
 
