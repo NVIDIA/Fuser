@@ -986,6 +986,8 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
+    std::cout << "dc after cacheBefore: " << dc->toString() << std::endl;
+
     std::vector<TensorView*> tvs_to_schedule{d, d_smem};
     bool dc_is_mma_result =
         std::find(mma_results_.begin(), mma_results_.end(), dc) !=
@@ -1010,8 +1012,11 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // Apply the common transforms to dc, d_smem, d
     // After these transforms we schedule the inner two non-reduction loops
     // (instruction tile) of dc and propagate is back till the outputs of mma.
+    std::cout << "dc before blockTileTensors: " << dc->toString() << std::endl;
     blockTileTensors(tvs_to_schedule);
+    std::cout << "dc after blockTileTensors: " << dc->toString() << std::endl;
     parallelizeBlocks(tvs_to_schedule);
+    std::cout << "dc after parallelizeBlocks: " << dc->toString() << std::endl;
     int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     for (auto tv : tvs_to_schedule) {
       std::cout << "tv: " << tv->toString() << std::endl;
