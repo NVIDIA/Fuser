@@ -10,7 +10,6 @@
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
-#include <ir/allocation_utils.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
