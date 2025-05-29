@@ -1047,6 +1047,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // Schedule global memory output; Output from TMA Store
     // TODO: parallelize bulk
   }
+  fusion_->print();
 }
 
 void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
