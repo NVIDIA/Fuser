@@ -50,37 +50,13 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
 
-struct CommunicationInfo {
-  // Allgather/Gather/Scatter/ReduceScatter/Allreduce/Reduce
-  CommunicationType type;
-  // Sharded logical IDs in producer/consumer.
-  // For ReduceScatter, this is the scattered axis. Reduced axis is not stored.
-  IterDomain* p_sharded_id;
-  IterDomain* c_sharded_id;
-};
-
-// Checks whether the allocation order of id in tv is compliant
-// with NCCL/UCC requirements. Specifically, it checks that a gather/scatter
-// axis is outermost in the allocation unless its local size is 1.
-bool isAllocationOrderCompliant(TensorView* tv, IterDomain* id);
-
-// Returns whether the communication layout is compliant.
-// ProcessGroup expects contiguous tensors and
-// gathered/scattered axes to be outermost in allocation.
-// This is only supported for load/store and reduction ops.
-// Composite expressions that are communication + compute are not supported.
-bool isCommunicationLayoutCompliant(Expr* expr);
-
-// Returns the communication info for the
-// (All)Gather/Scatter/ReduceScatter/(All)Reduce communication that may require
-// copying the input/output and reordering the allocation domain.
-// We assume that the expr has been decomposed and represented a single
-// communication. If multiple communications are present, this function will
-// raise an error.
-std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
-
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
+
+// Collect device-parallel IterDomains in `domain` and return them as a
+// ParallelType-to-IterDomain map.
+std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+    const std::vector<IterDomain*>& domain);
 
 // Shards all tensors in tvs like reference.
 // Accepts a set of parallel types to shard on.
