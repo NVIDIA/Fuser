@@ -1,7 +1,7 @@
 {
       "nvfuser-dev-mcp": {
         "type":"stdio",
-        "command": "python", 
+        "command": "python",
         "args": [
             ".github/mcp/mcp_server.py",
             "--python-path",
@@ -10,4 +10,3 @@
         "env": {}
       }
     }
-  

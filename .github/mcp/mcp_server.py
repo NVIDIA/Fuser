@@ -50,10 +50,10 @@ def build_nvfuser() -> str:
 
 
 def parse_args():
-    """ Input parser"""
+    """Input parser"""
     parser = argparse.ArgumentParser(description="MCP server")
     parser.add_argument(
-       "--python-path",
+        "--python-path",
         type=str,
         default=None,
     )
