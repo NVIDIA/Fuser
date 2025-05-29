@@ -1021,6 +1021,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     for (auto tv : tvs_to_schedule) {
       std::cout << "tv: " << tv->toString() << std::endl;
       tv->printTransforms();
+      std::cout << "dc before transformLikeMmaOutputWithoutK: " << dc->toString() << std::endl;
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
