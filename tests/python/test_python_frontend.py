@@ -4532,15 +4532,19 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id0(fd)
 
 inputs = [
-    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
-    torch.testing.make_tensor((4, 4), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0,),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0,),
 ]
 fd.execute(inputs)
 """
 
+        @torch.inference_mode()
+        def generate_sample_with_deterministic_low_and_high(shape):
+            t = torch.rand(shape, device="cuda:0")
+            return torch.where(t < 0.5, 0.0, 1.0)
+
         inputs = [
-            torch.randn(4, 4, device="cuda:0"),
-            torch.randn(4, 4, device="cuda:0"),
+            generate_sample_with_deterministic_low_and_high((4, 4)) for _ in range(2)
         ]
 
         def fusion_func(fd: FusionDefinition):
