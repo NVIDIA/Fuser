@@ -117,19 +117,37 @@ inline std::optional<MmaMacro> getMmaOp(
 void limitCircularBufferingSmemOperands(
     MatmulParams* mparams,
     const ProblemShape& problem_shape) {
-  // Short-Circuit: Skip if matmul params do not use circular buffering
-  if (!mparams->circular_buffer_options.circular_buffer_smem_write) {
-    return;
-  }
-
   // The axes of the mma tensorviews are permuted to [B, M, N, K],
   // so K / cta_tile_k is the circular buffer axis for both operands.
   int64_t numerator =
       ceilDiv(problem_shape[(size_t)MatmulDimRole::K], mparams->splitk_factor);
-  int64_t k_stages = ceilDiv(numerator, mparams->tile_sizes.cta_tile.k);
+  int64_t k_stages_per_tile =
+      ceilDiv(numerator, mparams->tile_sizes.cta_tile.k);
+  int64_t num_tiles_per_cta = 1;
+  if (mparams->tiling_strategy ==
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+    // Each SM will compute multiple tiles and the circular buffer can wrap
+    // around
+    const int64_t tiles_m = ceilDiv(
+        problem_shape[(size_t)MatmulDimRole::M],
+        mparams->tile_sizes.cta_tile.m);
+    const int64_t tiles_n = ceilDiv(
+        problem_shape[(size_t)MatmulDimRole::N],
+        mparams->tile_sizes.cta_tile.n);
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    // NOTE: we don't account for swizzle here which might increase this number
+    // in rare cases
+    num_tiles_per_cta = ceilDiv(tiles_m * tiles_n, num_sms);
+  }
   int64_t stages = std::min(
-      k_stages,
-      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage);
+      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage,
+      k_stages_per_tile * num_tiles_per_cta);
+
+  // Limit to 8 stages, even though in some cases we could use more. This is
+  // needed because mbarrier initialization has a penalty and we do not expect
+  // performance gains beyond a certain point.
+  stages = std::min(stages, 8L);
 
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
@@ -344,31 +362,29 @@ void fillOptimalHopperTileSizes(
       (uint16_t)16};
 }
 
-bool fillDefaultHopperHeuristic(
+void maximizeHopperOperandStages(
     MatmulParams* mparams,
-    const ProblemShape& problem_shape,
     const mma_utils::TensorRolesMap& tensor_roles,
     const size_t num_problems) {
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
-  // Use non-persistent kernel
-  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
-
-  fillOptimalHopperTileSizes(mparams, problem_shape);
-
   const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
-
-  // Use warp specialization on hopper by default
-  mparams->circular_buffering_strategy =
-      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
 
   // TODO: We should take the main loop structure into account here to get a
   // more accurate estimate in case of horizontal fusion
   int64_t operand_smem_per_stage =
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+  // warp specialized kernels require two mbarriers per stage
+  if (mparams->circular_buffering_strategy ==
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized) {
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-size-alignment
+    constexpr int64_t mbarrier_bytes = 8;
+    operand_smem_per_stage += 2 * mbarrier_bytes;
+  }
+
   // We leave a bit of space for semaphores.
   int64_t max_operand_smem =
-      (int64_t)device_prop->sharedMemPerBlockOptin - (1L << 7);
+      (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+  // TODO: subtract additional space such as mbarriers used to synchronize the
+  // epilogue in ping-pong
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
@@ -383,6 +399,50 @@ bool fillDefaultHopperHeuristic(
 
   mparams->circular_buffer_options.circular_buffer_smem_write =
       mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
+}
+
+int64_t computeHopperBIDxTiles(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape) {
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
+  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+  // When we choose the rasterization direction, that becomes the fast
+  // dimension. However, when we swizzle, we pull groups of a fixed size from
+  // the _other_ dimension to create a new inner dimension. We find the swizzle
+  // factor that is largest and has the least quantization when we divide that
+  // other dimension by the swizzle factor.
+  mparams->cta_order = Mtiles <= Ntiles
+      ? MatmulParams::TileRasterizationOrder::ColumnMajor
+      : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  int64_t BIDx_tiles =
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+      ? Mtiles
+      : Ntiles;
+  if (mparams->grid_traversal_factor.first != 1) {
+    BIDx_tiles = BIDx_tiles * mparams->grid_traversal_factor.first;
+  }
+  return BIDx_tiles;
+}
+
+bool fillDefaultHopperHeuristic(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
+  // Use non-persistent kernel
+  mparams->tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+
+  fillOptimalHopperTileSizes(mparams, problem_shape);
+
+  maximizeHopperOperandStages(mparams, tensor_roles, num_problems);
+
+  // Use warp specialization on hopper by default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
 
   // Always use TMA on Hopper
   mparams->async_gmem_load_operands = true;
@@ -393,6 +453,7 @@ bool fillDefaultHopperHeuristic(
   // We count the number of tiles in each dimension to determine the
   // rasterization order. The fast rasterization axis is the shortest axis, to
   // encourage L2 hits by looping over the same rows or cols more frequently.
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
   int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
   int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
 
@@ -425,6 +486,7 @@ bool fillDefaultHopperHeuristic(
     grid_traversal_factor--;
   }
   // TODO: Use only 1D grid traversal factor for now
+  grid_traversal_factor = 1;
   mparams->grid_traversal_factor = {grid_traversal_factor, 1};
 
   // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
@@ -434,15 +496,8 @@ bool fillDefaultHopperHeuristic(
   // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
   // for RowMajor. These dims are then multiplied by the grid_traversal_factor
   // when swizzling.
-  int64_t BIDx_tiles =
-      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
-      ? Mtiles
-      : Ntiles;
-  if (grid_traversal_factor != 1) {
-    BIDx_tiles = BIDx_tiles * grid_traversal_factor;
-  }
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
-      BIDx_tiles % 2 == 0) {
+      computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
     mparams->cluster_dims = {2, 1, 1};
   }
 
@@ -1027,6 +1082,16 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
       id_model.idGraph(IdMappingMode::BROADCAST),
       runtime_info);
 
+  // Populate heuristic details
+  auto status = initCoreHeuristics(
+      mparams.get(),
+      problem_shape,
+      tensor_roles,
+      // TODO: this assumes all patterns will lie in the same main loop, which
+      // might be false
+      /*num_problems=*/patterns.size());
+  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
         mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
@@ -1043,6 +1108,25 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         problem_shape[(size_t)MatmulDimRole::Batch],
         inner_dims,
         tensor_roles);
+
+    if (mparams->splitk_factor > 1) {
+      // Disable persistent for split-K
+      mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
+      // Set cluster dims automatically, ignoring the value set by the plugin
+      // It is necessary to do this because we might switch between persistent
+      // and non-persistent after the plugin runs and this changes the launch
+      // grid.
+      // TODO: respect the cluster size given by plugin
+      if (mparams->tiling_strategy !=
+              MatmulParams::TilingStrategy::OneTilePerCTA ||
+          computeHopperBIDxTiles(mparams.get(), problem_shape) % 2 == 0) {
+        mparams->cluster_dims = {2, 1, 1};
+      } else {
+        mparams->cluster_dims = {1, 1, 1};
+      }
+    }
+
     // TODO: more sophisticated handling of multiple matmuls when using plugin
     mparams->tile_sizes.cta_tile.m /= (int64_t)patterns.size();
   } else {
@@ -1050,20 +1134,29 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
-    // Populate heuristic details
-    auto status = initCoreHeuristics(
-        mparams.get(),
-        problem_shape,
-        tensor_roles,
-        // TODO: this assumes all patterns will lie in the same main loop, which
-        // might be false
-        /*num_problems=*/patterns.size());
-    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  }
+
+  if (isHopper(mparams->mma_macro)) {
+    // Always maximize stages on hopper, for both default heuristic and plugin
+    maximizeHopperOperandStages(
+        mparams.get(), tensor_roles, /*num_problems=*/(size_t)patterns.size());
   }
 
   // Ensure that entire pipeline is filled for shared memory operands given
   // problem and heuristics.
   limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+
+  mparams->circular_buffer_options.circular_buffer_smem_write =
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
+  mparams->circular_buffer_options.circular_buffer_smem_read = false;
+  if (isHopper(mparams->mma_macro) &&
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1) {
+    mparams->circular_buffering_strategy =
+        MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  } else {
+    mparams->circular_buffering_strategy =
+        MatmulParams::CircularBufferingStrategy::Pipelined;
+  }
 
   // Disable magic zero for matmul kernels
   mparams->cparams.enable_magic_zero = false;
