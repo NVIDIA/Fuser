@@ -297,6 +297,12 @@ void checkStaticExtentGroups(const ValGraph& graph) {
         continue;
       }
 
+      if (id->extent()->evaluate().as<int64_t>() == 1) {
+        // if we have a split broadcast that is mapped to the split input in
+        // the AlmostExact map, do not raise an error
+        continue;
+      }
+
       auto extent_int = id->extent()->evaluate().as<int64_t>();
       if (known_static_extent.has_value()) {
         if (known_static_extent.value() != extent_int) {
