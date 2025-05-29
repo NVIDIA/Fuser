@@ -466,10 +466,9 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     } else {
       // no cga split
 
-      reorderBlockTileTraversal(tv, merged_roles);
-
       merged_roles =
           mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+      reorderBlockTileTraversal(tv, merged_roles);
     }
 
     if (params_->splitk_factor > 1) {
