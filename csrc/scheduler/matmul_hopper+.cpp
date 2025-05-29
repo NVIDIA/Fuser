@@ -969,6 +969,12 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     }
   }
 
+  std::cout << "register_tvs: " << register_tvs.size() << std::endl;
+  for (auto tv : register_tvs) {
+    std::cout << "register_tv: " << tv->toString() << std::endl;
+    tv->printTransforms();
+  }
+
   // Manually schedule register cache and output TensorView
   for (Val* dv : fusion_->outputs()) {
     TensorView* d = dv->as<TensorView>();
@@ -976,7 +982,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
 
     // The chain of operations storing data to global memory:
-    //   registers -> smem -> (tma_store) -> gmem
+    //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
     std::vector<TensorView*> tvs_to_schedule{d, d_smem};
