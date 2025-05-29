@@ -113,13 +113,21 @@ inline IterDomain* getLoopPromotion(
 // producer-based indexing.
 inline std::vector<IterDomain*> getLoopIds(
     const Expr* expr,
-    const IdModel& id_model) {
+    const IdModel& id_model,
+    bool use_alternate_loop_domain = false) {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
   NVF_ERROR(!expr->outputs().empty());
   auto output_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(output_tv != nullptr);
-  auto loop_ids = output_tv->getLoopDomain();
+
+  NVF_ERROR(
+      !use_alternate_loop_domain ||
+      output_tv->getAlternateLoopDomain().has_value());
+
+  auto loop_ids = (use_alternate_loop_domain)
+      ? output_tv->getAlternateLoopDomain().value()
+      : output_tv->getLoopDomain();
 
   for (auto& loop_id : loop_ids) {
     loop_id = getLoopPromotion(loop_id, id_model);
