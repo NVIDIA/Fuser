@@ -1018,7 +1018,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
         }
       }
     }
-    std::cout << "dc before backward: " << dc->toString() << std::endl;
+    std::cout << "d_smem before backward: " << d_smem->toString() << std::endl;
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         d_smem,
         -1,
