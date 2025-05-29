@@ -128,7 +128,8 @@ MatmulDimRole HopperPlus::findMatmulDimRole(IterDomain* id) {
 void HopperPlus::validate() const {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
   const int cc = device_prop->major * 10 + device_prop->minor;
-  NVF_ERROR(cc >= 90, "This matmul scheduler is restricted to Hopper.");
+  NVF_ERROR(
+      cc >= 90, "This matmul scheduler is restricted to Hopper & Blackwell.");
 
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
@@ -682,10 +683,10 @@ void HopperPlus::scheduleMmaResults() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
-  std::vector<TensorView*> cached_tvs;
-  std::vector<TensorView*> propagate_to =
-      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+std::vector<TensorView*> HopperPlus::createTMemLoad() {
+  if (!isBlackwell(params_->mma_macro)) {
+    return {};
+  }
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -693,6 +694,27 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
         LoadStoreOpType::LdTMem);
     tmem_ld_tvs.push_back(tmem_ld_tv);
   }
+  return tmem_ld_tvs;
+}
+
+int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+  const int64_t n_mma = getN(params_->mma_macro);
+  int64_t tmem_vectorize_factor = 1;
+  while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
+    tmem_vectorize_factor *= 2;
+  }
+  return tmem_vectorize_factor / 2;
+}
+
+void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
+  const bool has_splitk = params_->splitk_factor != 1;
+  std::vector<TensorView*> cached_tvs;
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  // When there is a split-K, the TMem load happens before split-K sum,
+  // when there is no split-K, the TMem load happens in the epilogue.
+  std::vector<TensorView*> tmem_ld_tvs =
+      !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     cached_tvs.push_back(c_cache);
     propagate_to.push_back(c);
@@ -711,12 +733,8 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
-    int64_t tmem_vectorize_factor = 1;
-    const int64_t n_mma = getN(params_->mma_macro);
-    while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
-      tmem_vectorize_factor *= 2;
-    }
-    if (tmem_vectorize_factor < n_mma) {
+    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+    if (tmem_vectorize_factor < getN(params_->mma_macro)) {
       d->split(-1, tmem_vectorize_factor);
     }
 
@@ -752,7 +770,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
       scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
     }
   }
-  // Vectorize the TMem load
+  // Vectorize the TMem load, if any.
   for (auto tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
@@ -979,7 +997,7 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSum() {
+void HopperPlus::scheduleSplitKSumHopper() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -992,6 +1010,50 @@ void HopperPlus::scheduleSplitKSum() {
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
     splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+}
+
+constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+
+// Schedule TMem load tv and splitk_sum tv as follows:
+//   v = vectorization factor for TMem load
+//   vv = vectorization factor for splitk_sum, hardcoded to 4
+// TMem load tv:
+// [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
+// Splitk_sum tv:
+// [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
+void HopperPlus::scheduleSplitKSumBlackwell() {
+  if (params_->splitk_factor == 1) {
+    return;
+  }
+  std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
+
+  for (TensorView* splitk_sum : splitk_sums_) {
+    // Always use serial grid reduction for split-K sum
+    splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
+    transformLikeMmaOutputWithoutK(splitk_sum);
+    splitk_sum->axis(2)->parallelize(ParallelType::BIDz);
+    splitk_sum->split(-1, getLdTMemVectorizeFactor());
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        splitk_sum,
+        -1,
+        mma_results_,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+    splitk_sum->split(-1, hardcoded_blackwell_splitk_vectorization_factor);
+    splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+  for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
+    tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+}
+
+void HopperPlus::scheduleSplitKSum() {
+  if (isHopper(params_->mma_macro)) {
+    scheduleSplitKSumHopper();
+  } else {
+    scheduleSplitKSumBlackwell();
   }
 }
 

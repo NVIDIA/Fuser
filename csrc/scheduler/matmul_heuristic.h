@@ -428,6 +428,7 @@ class MatmulParams : public HeuristicParams {
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
+       << "Use ldmatrix/stmatrix in epilogue: " << use_ldst_matrix << "\n"
        << "Split-K factor: " << splitk_factor << "\n"
        << "====================================\n";
     return ss.str();

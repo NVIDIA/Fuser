@@ -458,16 +458,39 @@ LaunchParams KernelExecutor::computeLaunchParams(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
         "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
 
+    // For block reduction, each thread has a smem slot per reduction
+    // When warp specialization is used, remove padded threads
+    // For warp reduction, each warp has a smem slot per reduction
+    int64_t n_compute_threads_or_warps = launch_params.nThreads();
+    if (kernel_summary.circular_buffer_info.hasWarpSpecialized()) {
+      n_compute_threads_or_warps -= kWarpSpecializationPaddedThreads;
+    }
+    if (kernel_summary.all_block_reductions_are_warp_reduction) {
+      n_compute_threads_or_warps /= 32;
+    }
+
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * launch_params.bdimx() *
-        launch_params.bdimy() * launch_params.bdimz();
+        grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+    }
+
+    // StackBasedSharedMemAllocator start from address 0 without considering the
+    // shared memory reserved for reduction and broadcast workspace which is
+    // only known at runtime. To avoid mis-alignment for TMA tensors, here we
+    // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
+    // codegen.
+    reduction_broadcast_workspace =
+        roundUpToMultiple(reduction_broadcast_workspace, 128);
+
+    if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+      debug() << "reduction_broadcast_workspace shared memory bytes: "
+              << reduction_broadcast_workspace << std::endl;
     }
   }
 

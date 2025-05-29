@@ -48,7 +48,6 @@ class Communication : public Expr {
   using Expr::Expr;
   // Only specify `root` for types that have root.
   // Only specify `red_op` for reduction types.
-  // Only specify `scattered_axis` for ReduceScatter.
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,
@@ -59,7 +58,6 @@ class Communication : public Expr {
                  // sharding.
       DeviceIdxType root = -1,
       RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   Communication(const Communication& other) = delete;
@@ -104,12 +102,8 @@ class Communication : public Expr {
     return attribute<RedOpType>(3);
   }
 
-  int64_t scatteredAxis() const {
-    return attribute<int64_t>(4);
-  }
-
   CommunicatorBackend backend() const {
-    return attribute<CommunicatorBackend>(5);
+    return attribute<CommunicatorBackend>(4);
   }
 
   // PyTorch's process group expects the root to be specified

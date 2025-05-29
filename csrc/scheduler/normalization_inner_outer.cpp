@@ -88,7 +88,9 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
                 /*threads_per_block_min=*/
                 InnerOuterPersistentKernelScheduler::threads_per_block_min,
                 /*threads_per_block_max=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_max);
+                InnerOuterPersistentKernelScheduler::threads_per_block_max,
+                /*is_warp_specialized=*/
+                isOptionEnabled(EnableOption::WarpSpecializedNormalization));
           });
   scheduler_utils::SchedulerHyperParameters& hp =
       scheduler_hyperparameters_entry.get();
@@ -104,7 +106,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       reduction_tvs,
       hp.vectorize_factor,
       hp.threads_per_block_min,
-      hp.threads_per_block_max);
+      hp.threads_per_block_max,
+      hp.is_warp_specialized);
 
   auto rparams = std::make_unique<ReductionParams>(
       InnerOuterPersistentKernelScheduler::schedulerType());
@@ -117,14 +120,14 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // warp-specialized version or the multi-wave version. The enable option is a
   // temporary configuration to facilitate testing during development without
   // disrupting existing behavior.
-  if (isOptionEnabled(EnableOption::WarpSpecializedNormalization)) {
+  if (hp.is_warp_specialized) {
     inner_outer_tma_warp_specialized::getHeuristics(
         rparams.get(),
         properties.total_iteration_numel,
         properties.total_reduction_numel,
         buffer_params.regs_buffer_size,
-        buffer_params.smem_buffer_size,
-        buffer_params.smem_overhead,
+        buffer_params.circular_buffered_smem_size,
+        buffer_params.non_circular_buffered_smem_size,
         max_outer_reduction_dtype_size,
         hp.vectorize_factor,
         hp.threads_per_block_min,
@@ -350,7 +353,9 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
                 /*threads_per_block_min=*/
                 InnerOuterPersistentKernelScheduler::threads_per_block_min,
                 /*threads_per_block_max=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_max);
+                InnerOuterPersistentKernelScheduler::threads_per_block_max,
+                /*is_warp_specialized=*/
+                isOptionEnabled(EnableOption::WarpSpecializedNormalization));
           });
   scheduler_utils::SchedulerHyperParameters& hp =
       scheduler_hyperparameters_entry.get();
@@ -364,7 +369,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           reduction_tvs,
           hp.vectorize_factor,
           hp.threads_per_block_min,
-          hp.threads_per_block_max);
+          hp.threads_per_block_max,
+          hp.is_warp_specialized);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
