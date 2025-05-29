@@ -1026,9 +1026,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
       // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
-      dc->axis(-2)->parallelize(ParallelType::TIDx);
+      tv->axis(-2)->parallelize(ParallelType::TIDx);
       if (tmem_vectorize_factor < getN(params_->mma_macro)) {
-        dc->split(-1, tmem_vectorize_factor);
+        tv->split(-1, tmem_vectorize_factor);
       }
     }
 
