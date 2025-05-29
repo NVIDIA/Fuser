@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -79,7 +79,8 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
           transform_exprs.begin(),
           transform_exprs.end(),
           [](Expr* expr) { return expr->isA<Split>(); }),
-      "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
+      "Expected all transform exprs to be a split between logical and "
+      "loop domain during sharding propagation.");
 
   for (auto* expr : transform_exprs) {
     Split* split = dynamic_cast<Split*>(expr);
@@ -106,7 +107,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
       ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
   NVF_ERROR(
       permutation.has_value(),
-      "Failed to find a valid permutation for reordering",
+      "Failed to find a valid permutation for reordering ",
       tv->getLoopDomain(),
       " as ",
       alloc_dom);
@@ -134,16 +135,9 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
   tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
 }
 
-bool isTvContiguous(TensorView* tv) {
-  return std::all_of(
-      tv->getContiguity().begin(),
-      tv->getContiguity().end(),
-      [](const std::optional<bool>& c) { return c.value_or(true); });
-}
-
 } // namespace
 
-void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
+void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
   bool has_mesh = validateMeshes(fusion);
   if (!has_mesh) {
     return;

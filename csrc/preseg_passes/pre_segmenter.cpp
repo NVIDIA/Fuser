@@ -15,8 +15,8 @@
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/exact_mapped_extent_substitution.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/move_pad.h>
 #include <preseg_passes/move_repeat_forward.h>
@@ -84,7 +84,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
-  OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion);
+  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);

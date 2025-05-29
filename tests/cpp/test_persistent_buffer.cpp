@@ -1269,7 +1269,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   fusion->addOutput(tv7);
 
   // If device doesn't have enough shared memory, skip this test
-  int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
+  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspace(
       fusion.get(), scheduler_utils::getReductionTvs(fusion.get()));
   const size_t required_smem_size =
       smem_overhead + total_elements * dataTypeSize(input_dtype);
@@ -1408,7 +1408,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // split.
   bool is_segmented = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+  if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
     is_segmented = true;
   } else {
     int64_t available_buffer_size = normalization_scheduler_utils::
@@ -1493,7 +1493,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   bool has_enough_regs_smem = true;
   if (logic_buffer_size > scheduler_utils::register_file_size) {
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+    if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
       has_enough_regs_smem = false;
     } else {
       int64_t available_buffer_size = normalization_scheduler_utils::

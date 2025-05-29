@@ -37,8 +37,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(my_device_index) &&
-            hic->alias().count(tv) == 0) {
+        if (tv->getDeviceMesh().has(my_device_index)) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
           new_top_level_exprs.push_back(allocate);

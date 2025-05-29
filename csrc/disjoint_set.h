@@ -110,6 +110,11 @@ class VectorOfUniqueEntries {
     return intersection;
   }
 
+  bool hasIntersect(const VectorOfUniqueEntries<T, Hash>& other) const {
+    return std::ranges::any_of(
+        vector(), [&](const auto& entry) { return other.has(entry); });
+  }
+
   // Returns a new VectorOfUniqueEntries with entries that are in this but not
   // in other.
   VectorOfUniqueEntries<T, Hash> computeSubtract(
