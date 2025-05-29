@@ -2181,7 +2181,9 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
         Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
             in_tv, ldst, for_loops_);
-        in = IrBuilder::create<kir::TensorIndex>(in_tv, index);
+        Val* smem_index =
+            IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), index);
+        in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
 
         auto num_regs = (m_tile) / 8 * (n_tile) / 8;
         auto as_type = ArrayType{
