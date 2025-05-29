@@ -71,11 +71,6 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* id);
 // Composite expressions that are communication + compute are not supported.
 bool isCommunicationLayoutCompliant(Expr* expr);
 
-// Returns the position of an IterDomain in given domain.
-int64_t posInDomain(
-    const std::vector<IterDomain*>& domain,
-    const IterDomain* id);
-
 // Returns the communication info for the
 // (All)Gather/Scatter/ReduceScatter/(All)Reduce communication that may require
 // copying the input/output and reordering the allocation domain.

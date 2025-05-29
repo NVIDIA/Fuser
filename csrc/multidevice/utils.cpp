@@ -626,19 +626,6 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
       "Should never reach here - sharded_id must be found in allocation domain");
 }
 
-int64_t posInDomain(
-    const std::vector<IterDomain*>& domain,
-    const IterDomain* id) {
-  auto pos = std::find(domain.begin(), domain.end(), id);
-  NVF_ERROR(
-      pos != domain.end(),
-      "Expected id ",
-      id->toString(),
-      " in domain ",
-      domain);
-  return std::distance(domain.begin(), pos);
-}
-
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   TensorView* producer = expr->inputs().at(0)->as<TensorView>();
   TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
