@@ -1028,7 +1028,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Schedule global memory output; Output from TMA Store
-    // TODO: parallelize bulk
+    for (int64_t i = -5; i <= -1; i++) {
+      d->axis(i)->parallelize(ParallelType::Bulk);
+    }
   }
   fusion_->print();
 }
