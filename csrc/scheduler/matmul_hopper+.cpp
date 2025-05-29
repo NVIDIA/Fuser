@@ -1004,6 +1004,13 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       }
     }
 
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d_smem,
+        -1,
+        propagate_to,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+
     // Vectorize the epilogue input load and output store. TMem load can
     // be vectorized to 512 byte, but gmem load/store can only be vectorized
     // to 16 bytes. So we need to further split the last dimension and use
@@ -1022,12 +1029,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
         }
       }
     }
-    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-        d_smem,
-        -1,
-        propagate_to,
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType());
+
     d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Schedule global memory output; Output from TMA Store
