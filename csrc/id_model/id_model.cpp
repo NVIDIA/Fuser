@@ -760,12 +760,17 @@ StatefulInliningInfo buildStatefulInliningInfo(
               producer_tv->getLoopDomain().begin() +
                   producer_tv->getComputePosition(consumer_tv));
         }
-        // TODO skip fully_derived for alternate producer loop domain
+        // NOTE use fully_derived for alternate producer loop domain
         if (alternate_producer_domain.has_value()) {
-          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-              alternate_producer_domain.value().begin(),
-              alternate_producer_domain.value().begin() +
-                  producer_tv->getComputePosition(consumer_tv));
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {alternate_producer_domain.value().begin(),
+               alternate_producer_domain.value().begin() +
+                   producer_tv->getComputePosition(consumer_tv)});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          VectorOfUniqueEntries<IterDomain*> alternate_producer_ca_deps(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+          all_producer_ca_deps.pushBack(alternate_producer_ca_deps);
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
