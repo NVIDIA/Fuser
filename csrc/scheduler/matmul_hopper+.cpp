@@ -980,6 +980,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    std::cout << "dc: " << dc->toString() << std::endl;
 
     // The chain of operations storing data to global memory:
     //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
