@@ -976,20 +976,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
-    std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-    bool dc_is_mma_result =
-        std::find(mma_results_.begin(), mma_results_.end(), dc) !=
-        mma_results_.end();
-    bool dc_is_splitk_sum = params_->splitk_factor > 1 &&
-        std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) !=
-            splitk_sums_.end();
-
-    if (!dc_is_mma_result && !dc_is_splitk_sum) {
-      // Skip scheduling dc if it is an mma_result. This can happen if we are
-      // not casting back to half-precision in the output
-      tvs_to_schedule.push_back(dc);
-    }
-
     // Set MemoryType
     dc->setMemoryType(MemoryType::Local);
     d_smem->setMemoryType(MemoryType::Shared);
@@ -1000,10 +986,10 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // Apply the common transforms to dc, d_smem, d
     // After these transforms we schedule the inner two non-reduction loops
     // (instruction tile) of dc and propagate is back till the outputs of mma.
-    blockTileTensors(tvs_to_schedule);
-    parallelizeBlocks(tvs_to_schedule);
+    blockTileTensors({d, d_smem});
+    parallelizeBlocks({d, d_smem});
     int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
-    for (auto tv : tvs_to_schedule) {
+    for (auto tv : {d, d_smem}) {
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
@@ -1014,9 +1000,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       }
     }
 
-    // Should not propagate if the dc is a mma output as the mma output has
-    // already been scheduled.
-    if (!dc_is_mma_result && !dc_is_splitk_sum) {
     // Vectorize the epilogue input load and output store. TMem load can
     // be vectorized to 512 byte, but gmem load/store can only be vectorized
     // to 16 bytes. So we need to further split the last dimension and use
@@ -1025,25 +1008,24 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // (v = tmem_vectorize_factor, vv = smem_vectorize_factor)
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
     // TODO: Support vectorization_factor in MatmulParams
-      if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
-        dc->split(-1, hardcoded_smem_vectorize_factor);
-        for (auto c : register_tvs) {
-          bool is_2d_epilogue_input =
-              TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
-          if (is_2d_epilogue_input) {
-            c->split(-1, hardcoded_smem_vectorize_factor);
-          }
+    if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
+      dc->split(-1, hardcoded_smem_vectorize_factor);
+      for (auto c : register_tvs) {
+        bool is_2d_epilogue_input =
+            TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
+        if (is_2d_epilogue_input) {
+          c->split(-1, hardcoded_smem_vectorize_factor);
         }
       }
-      std::cout << "dc before backward: " << dc->toString() << std::endl;
-      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
-          dc,
-          -1,
-          propagate_to,
-          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-              .propagateParallelType());
-      dc->axis(-1)->parallelize(ParallelType::Vectorize);
     }
+    std::cout << "dc before backward: " << dc->toString() << std::endl;
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d_smem,
+        -1,
+        propagate_to,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+    d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Schedule global memory output; Output from TMA Store
     // TODO: parallelize bulk
