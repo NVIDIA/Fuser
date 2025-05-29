@@ -96,7 +96,7 @@ TensorView* addPostGatherSqueeze(
 }
 
 // def is the Expr the defines the lookupTv for take_along_axis.
-TensorView* addPostGatherOp(
+TensorView* addPostGatherUnary(
     Fusion* fusion,
     GatherOp* old_gather,
     GatherOp* new_gather,
@@ -108,6 +108,8 @@ TensorView* addPostGatherOp(
   // Replace the input with the output of the new gather.
   cloned_def = ir_utils::replaceValInExprInputs(
       cloned_def, cloned_def->input(0), new_gather->output(0));
+
+  NVF_CHECK(cloned_def->isA<UnaryOp>(), "Expected cloned def to be a UnaryOp");
 
   // Since it's a unary pointwise op, the output should be like the input
   // but type may vary as in the case of cast.
@@ -134,7 +136,7 @@ auto addOrCloneNewNodeAfterGather(
   // Create a new squeeze op or clone the unary pointwise op.
   auto output_of_post_gather_op = def->isA<SqueezeOp>()
       ? addPostGatherSqueeze(old_gather, new_gather, def)
-      : addPostGatherOp(fusion, old_gather, new_gather, def);
+      : addPostGatherUnary(fusion, old_gather, new_gather, def);
 
   // Update the uses of the old gather.
   for (auto expr : old_gather->output(0)->uses()) {
