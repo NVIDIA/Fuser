@@ -277,24 +277,19 @@ void TransformReplay::selfReplay(
 
   if (self->hasAllocation()) {
     // Replay producer dimensions.
-    const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
+    const std::vector<IterDomain*>& self_allocation = self->allocation();
     const std::vector<std::optional<bool>>& self_contiguity =
         self->contiguity();
-    const std::vector<IterDomain*>& self_allocation_no_reduction =
-        TensorDomain::noReductions(self_allocation);
+    NVF_ERROR_EQ(self_allocation.size(), self_contiguity.size());
 
-    // we replay only non-reduction IDs. The reason is that, we might have
-    // non-mapping reduction IDs between self and new_self. This is used in
-    // `RemoveBcastSqueeze`.
-    ReplaySelf replay(self_allocation_no_reduction, axis_map);
     std::vector<IterDomain*> new_alloc_domain;
     std::vector<std::optional<bool>> new_contiguity;
     new_alloc_domain.reserve(self_allocation.size());
-    new_contiguity.reserve(self_allocation.size());
+    new_contiguity.reserve(self_contiguity.size());
 
     // Push back the reduction IDs that are not mapped
     if (ignore_reductions) {
-      for (auto id : new_self->logical()) {
+      for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_alloc_domain.push_back(id);
           // NOLINTNEXTLINE(modernize-use-emplace)
@@ -304,40 +299,41 @@ void TransformReplay::selfReplay(
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    for (size_t i : arange(self_allocation.size())) {
-      IterDomain* id = self_allocation[i];
-      // FIXME: this is wrong when ignore_reductions=false.
-      if (id->isReduction()) {
+    ReplaySelf replay(self_allocation, axis_map);
+    for (auto&& [alloc_id, contiguity] :
+         zip(self_allocation, self_contiguity)) {
+      if (ignore_reductions && alloc_id->isReduction()) {
         continue;
       }
-      auto it = replay.getReplay().find(id);
+      auto it = replay.getReplay().find(alloc_id);
       NVF_ERROR(
-          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          alloc_id);
       // The possibility of a mismatch is when one of the IDs are symbolic. We
       // need to ensure that new_contiguity is consistent with new_alloc_domain,
       // otherwise the later setAllocationDomain would fail checks.
-      if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
+      if (it->second->isBroadcast() == contiguity.has_value()) {
         // whether we resolve to true or false shouldn't matter since it's going
         // to be concretized as a broadcast dimension
         new_contiguity.push_back(
             it->second->isBroadcast() ? std::nullopt
                                       : std::make_optional(true));
       } else {
-        new_contiguity.push_back(self_contiguity[i]);
+        new_contiguity.push_back(contiguity);
       }
-      it->second->parallelize(id->getParallelType());
+      it->second->parallelize(alloc_id->getParallelType());
       new_alloc_domain.push_back(it->second);
     }
 
     new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
   }
 
-  std::vector<IterDomain*> self_loop = self->loop();
+  const std::vector<IterDomain*>& self_loop = self->loop();
   if (self_loop != self->logical()) {
     std::vector<IterDomain*> new_loop;
     if (ignore_reductions) {
-      self_loop = TensorDomain::noReductions(self_loop);
-      for (auto id : new_self->logical()) {
+      for (auto* id : new_self->logical()) {
         if (id->isReduction()) {
           new_loop.push_back(id);
         }
@@ -345,11 +341,17 @@ void TransformReplay::selfReplay(
     }
 
     ReplaySelf replay(self_loop, axis_map);
-    for (IterDomain* id : self_loop) {
-      auto it = replay.getReplay().find(id);
+    for (IterDomain* loop_id : self_loop) {
+      if (ignore_reductions && loop_id->isReduction()) {
+        continue;
+      }
+
+      auto it = replay.getReplay().find(loop_id);
       NVF_ERROR(
-          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
-      it->second->parallelize(id->getParallelType());
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          loop_id);
+      it->second->parallelize(loop_id->getParallelType());
       new_loop.push_back(it->second);
     }
 
