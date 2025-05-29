@@ -763,7 +763,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
+void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
@@ -923,6 +923,118 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
 
     // Schedule global memory output; Output from TMA Store
     mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
+  }
+}
+
+void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+  std::vector<TensorView*> tma_load_epilogue_inputs;
+
+  // Propagate to (not including) the splitk output if there is a splitk
+  // else this is just mma_results_
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    bool load_with_tma = params_->use_ldst_matrix;
+    bool is_2d_epilogue_input =
+        TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
+    if (load_with_tma && is_2d_epilogue_input &&
+        params_->async_gmem_load_operands) {
+      // Schedule TMA load into shared memory for epilogue input
+      c_cache->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      c_cache->setMemoryType(MemoryType::Shared);
+
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
+      blockTileTensors({c_cache});
+      parallelizeBlocks({c_cache});
+      transformLikeMmaOutputWithoutK(c_cache);
+
+      // TODO: parallelize c_cache as bulk
+      std::cout << "c_cache: " << c_cache->toString() << std::endl;
+      c_cache->printTransforms();
+
+      TensorView* reg_tv = cacheAfter(c_cache);
+
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+      transformLikeMmaOutputWithoutK(reg_tv);
+
+      // Do not propagate any other changes to LdMatrix.
+      propagate_to.push_back(reg_tv);
+    } else {
+      // Propagate changes to the cache_after tensor if not using TMA load.
+      propagate_to.push_back(c);
+    }
+  }
+
+  // Manually schedule register cache and output TensorView
+  for (Val* dv : fusion_->outputs()) {
+    TensorView* d = dv->as<TensorView>();
+    NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+    TensorView* dc = d->definition()->input(0)->as<TensorView>();
+
+    // The chain of operations storing data to global memory:
+    //   registers -> smem -> (tma_store) -> gmem
+    TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
+
+    std::vector<TensorView*> tvs_to_schedule{d, d_smem};
+    bool dc_is_mma_result =
+        std::find(mma_results_.begin(), mma_results_.end(), dc) !=
+        mma_results_.end();
+    bool dc_is_splitk_sum = params_->splitk_factor > 1 &&
+        std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) !=
+            splitk_sums_.end();
+
+    if (!dc_is_mma_result && !dc_is_splitk_sum) {
+      // Skip scheduling dc if it is an mma_result. This can happen if we are
+      // not casting back to half-precision in the output
+      tvs_to_schedule.push_back(dc);
+    }
+
+    // Set MemoryType
+    dc->setMemoryType(MemoryType::Local);
+    d_smem->setMemoryType(MemoryType::Shared);
+
+    d->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+
+    // Apply the common transforms to dc, d_smem, d
+    // After these transforms we schedule the inner two non-reduction loops
+    // (instruction tile) of dc and propagate is back till the outputs of mma.
+    blockTileTensors(tvs_to_schedule);
+    parallelizeBlocks(tvs_to_schedule);
+    for (auto tv : tvs_to_schedule) {
+      transformLikeMmaOutputWithoutK(tv);
+    }
+
+    // Should not propagate if the dc is a mma output as the mma output has
+    // already been scheduled.
+    if (!dc_is_mma_result && !dc_is_splitk_sum) {
+      scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+          dc,
+          -1,
+          propagate_to,
+          scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+              .propagateParallelType());
+    }
+
+    d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+
+    // Schedule global memory output; Output from TMA Store
+    // TODO: parallelize bulk
+    std::cout << "d: " << d->toString() << std::endl;
+    d->printTransforms();
+  }
+}
+
+void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
+  if (isHopper(params_->mma_macro)) {
+    scheduleEpilogueWithSmemEpilogueHopper();
+  } else {
+    scheduleEpilogueWithSmemEpilogueBlackwell();
   }
 }
 
