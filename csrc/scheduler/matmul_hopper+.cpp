@@ -1007,6 +1007,8 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     parallelizeBlocks(tvs_to_schedule);
     int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     for (auto tv : tvs_to_schedule) {
+      std::cout << "tv: " << tv->toString() << std::endl;
+      tv->printTransforms();
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
