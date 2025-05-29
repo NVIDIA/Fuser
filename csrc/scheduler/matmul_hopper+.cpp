@@ -1046,8 +1046,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
 
     // Schedule global memory output; Output from TMA Store
     // TODO: parallelize bulk
-    std::cout << "d: " << d->toString() << std::endl;
-    d->printTransforms();
   }
 }
 
