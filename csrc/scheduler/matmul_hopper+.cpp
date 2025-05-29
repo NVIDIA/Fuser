@@ -1039,7 +1039,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   }
 
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
-    tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
