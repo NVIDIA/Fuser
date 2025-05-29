@@ -7,18 +7,15 @@
 // clang-format on
 #include <preseg_passes/reorder_sharded_axis.h>
 
-#include <device_lower/utils.h>
 #include <fusion.h>
-#include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/allocation_utils.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
-#include <ops/arith.h>
 #include <scheduler/utils.h>
-#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -48,7 +45,7 @@ void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
 
 bool isReduceOrAllreduce(CommunicationInfo communication_info) {
   return communication_info.type == CommunicationType::Reduce ||
-         communication_info.type == CommunicationType::Allreduce;
+      communication_info.type == CommunicationType::Allreduce;
 }
 
 void makeCommunicationLayoutCompliant(

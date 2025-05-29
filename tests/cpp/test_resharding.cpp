@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
