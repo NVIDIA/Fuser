@@ -926,7 +926,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
 constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 
 void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
-  std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
+  const bool has_splitk = params_->splitk_factor != 1;
+  std::vector<TensorView*> tmem_ld_tvs =
+      !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
