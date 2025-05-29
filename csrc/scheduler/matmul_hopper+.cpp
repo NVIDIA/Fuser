@@ -949,9 +949,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       transformLikeMmaOutputWithoutK(c_cache);
 
       // TODO: parallelize c_cache as bulk
-      std::cout << "c_cache: " << c_cache->toString() << std::endl;
-      c_cache->printTransforms();
-
       TensorView* reg_tv = cacheAfter(c_cache);
       register_tvs.push_back(reg_tv);
 
@@ -969,24 +966,15 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     }
   }
 
-  std::cout << "register_tvs: " << register_tvs.size() << std::endl;
-  for (auto tv : register_tvs) {
-    std::cout << "register_tv: " << tv->toString() << std::endl;
-    tv->printTransforms();
-  }
-
   // Manually schedule register cache and output TensorView
   for (Val* dv : fusion_->outputs()) {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
-    std::cout << "dc: " << dc->toString() << std::endl;
 
     // The chain of operations storing data to global memory:
     //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
-
-    std::cout << "dc after cacheBefore: " << dc->toString() << std::endl;
 
     std::vector<TensorView*> tvs_to_schedule{d, d_smem};
     bool dc_is_mma_result =
@@ -1012,16 +1000,10 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // Apply the common transforms to dc, d_smem, d
     // After these transforms we schedule the inner two non-reduction loops
     // (instruction tile) of dc and propagate is back till the outputs of mma.
-    std::cout << "dc before blockTileTensors: " << dc->toString() << std::endl;
     blockTileTensors(tvs_to_schedule);
-    std::cout << "dc after blockTileTensors: " << dc->toString() << std::endl;
     parallelizeBlocks(tvs_to_schedule);
-    std::cout << "dc after parallelizeBlocks: " << dc->toString() << std::endl;
     int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     for (auto tv : tvs_to_schedule) {
-      std::cout << "tv: " << tv->toString() << std::endl;
-      tv->printTransforms();
-      std::cout << "dc before transformLikeMmaOutputWithoutK: " << dc->toString() << std::endl;
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
