@@ -771,9 +771,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
   fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
 
-  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
-  std::vector<TensorView*> tma_load_epilogue_inputs;
-
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
   std::vector<TensorView*> propagate_to =
@@ -926,11 +923,12 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
-  std::vector<TensorView*> tma_load_epilogue_inputs;
+constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 
+void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
+  std::vector<TensorView*> register_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
@@ -955,6 +953,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       c_cache->printTransforms();
 
       TensorView* reg_tv = cacheAfter(c_cache);
+      register_tvs.push_back(reg_tv);
 
       // Apply the default scheduling that is common to all register
       // TensorViews after wgmma.
@@ -1008,20 +1007,45 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     parallelizeBlocks(tvs_to_schedule);
     for (auto tv : tvs_to_schedule) {
       transformLikeMmaOutputWithoutK(tv);
+      // TIDx is 128, so we use it for lanes of the accumulator. Also, we
+      // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
+      // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
+      dc->axis(-2)->parallelize(ParallelType::TIDx);
+      int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+      if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+        dc->split(-1, tmem_vectorize_factor);
+      }
     }
 
     // Should not propagate if the dc is a mma output as the mma output has
     // already been scheduled.
     if (!dc_is_mma_result && !dc_is_splitk_sum) {
+    // Vectorize the epilogue input load and output store. TMem load can
+    // be vectorized to 512 byte, but gmem load/store can only be vectorized
+    // to 16 bytes. So we need to further split the last dimension and use
+    // multiple vector loads/stores. for each TMem load/store.
+    // After split and parallelization:
+    // (v = tmem_vectorize_factor, vv = smem_vectorize_factor)
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
+    // TODO: Support vectorization_factor in MatmulParams
+      if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
+        dc->split(-1, hardcoded_smem_vectorize_factor);
+        for (auto c : register_tvs) {
+          bool is_2d_epilogue_input =
+              TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
+          if (is_2d_epilogue_input) {
+            c->split(-1, hardcoded_smem_vectorize_factor);
+          }
+        }
+      }
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           dc,
           -1,
           propagate_to,
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType());
+      dc->axis(-1)->parallelize(ParallelType::Vectorize);
     }
-
-    d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Schedule global memory output; Output from TMA Store
     // TODO: parallelize bulk
