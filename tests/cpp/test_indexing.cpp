@@ -6531,6 +6531,10 @@ TEST_F(IndexingTest, LdStMatrix) {
   // tv1_smem is the consumer for stmatrix. tv0_reg is the consumer.
   std::vector<IterDomain*> tv1_smem_stmatrix =
       scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
+  tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 2)
+      ->parallelize(ParallelType::TIDx);
+  tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 1)
+      ->parallelize(ParallelType::Vectorize);
   tv1_smem->setAlternateLoopDomain(tv1_smem_stmatrix);
 
   // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
@@ -6551,9 +6555,13 @@ TEST_F(IndexingTest, LdStMatrix) {
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
 
-  std::vector<IterDomain*> tv0_reg_stmatrix =
+  std::vector<IterDomain*> tv0_reg_ldmatrix =
       scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
-  tv0_reg->setAlternateLoopDomain(tv0_reg_stmatrix);
+  tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 2)
+      ->parallelize(ParallelType::TIDx);
+  tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 1)
+      ->parallelize(ParallelType::Vectorize);
+  tv0_reg->setAlternateLoopDomain(tv0_reg_ldmatrix);
   // tv0_reg is the consumer for ldmatrix and tv0_smem is the producer.
 
   // Set allocation domain according to loop domain
