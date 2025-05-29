@@ -1005,13 +1005,13 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // (instruction tile) of dc and propagate is back till the outputs of mma.
     blockTileTensors(tvs_to_schedule);
     parallelizeBlocks(tvs_to_schedule);
+    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     for (auto tv : tvs_to_schedule) {
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
       // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
       // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
       dc->axis(-2)->parallelize(ParallelType::TIDx);
-      int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
       if (tmem_vectorize_factor < getN(params_->mma_macro)) {
         dc->split(-1, tmem_vectorize_factor);
       }
