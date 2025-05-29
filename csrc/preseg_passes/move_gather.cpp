@@ -183,7 +183,7 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 // This function implements the following steps:
 // take_along_axis has two inputs, lookupTv and indexTv
 // We look at the def of lookupTv, say D.
-// If D is a fusion input we stop.
+// If lookupTv is a fusion input, we stop.
 // If D is a squeeze operation or if D is unary pointwise op such as cast of neg
 // then we can move the take_along_axis before D. If D is any other type of Op
 // we stop.
@@ -202,7 +202,7 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 // The ouptut of the unsqueeze is then an input to the new
 // Gather/take_along_axis.
 
-// We do the above in a loop till the input to the Gather op is a suitable for
+// We do the above in a loop while the input to the Gather op is a suitable for
 // reordering.
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
   do {
