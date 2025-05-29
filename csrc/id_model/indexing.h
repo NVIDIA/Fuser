@@ -175,7 +175,8 @@ class TensorIndexer {
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<ForLoop*>& for_loops,
+      bool use_alternate_loop_domain = false) const;
 
   // Propagate the loop indices of a given list of loop domains to the
   // traversal graph (i.e., the AlmostExact graph). Uses the loop
