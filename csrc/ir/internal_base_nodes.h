@@ -586,7 +586,7 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
-  const std::vector<IterDomain*>& alternateLoop() const {
+  const std::optional<std::vector<IterDomain*>>& alternateLoop() const {
     return alternate_loop_domain_;
   }
 
@@ -740,7 +740,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
-  std::vector<IterDomain*> alternate_loop_domain_;
+  std::optional<std::vector<IterDomain*>> alternate_loop_domain_;
   // Initial loop domain. Loop domain is updated with transformations
   // such as split, but the initial loop domain can only change with
   // setLoopDomain

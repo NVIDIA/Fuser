@@ -474,7 +474,8 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
-  const std::vector<IterDomain*>& getAlternateLoopDomain() const {
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
     return domain()->alternateLoop();
   };
 
