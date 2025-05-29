@@ -926,6 +926,8 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
 constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 
 void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+  std::vector<TensorView*> tmem_ld_tvs = createTMemLoad();
+
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
   std::vector<TensorView*> register_tvs;
@@ -1030,6 +1032,11 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     for (int64_t i = -5; i <= -1; i++) {
       d->axis(i)->parallelize(ParallelType::Bulk);
     }
+  }
+
+  for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
+    tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
 
