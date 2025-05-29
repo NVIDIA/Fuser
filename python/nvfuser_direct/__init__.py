@@ -10,6 +10,7 @@ assert (
 
 import os
 import torch
+import traceback
 
 # This is needed when libnvfuser_direct.so is patched and doesn't have the pytorch library location available.
 pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
@@ -42,18 +43,27 @@ class FusionDefinition:
         # Monkey patching nvfuser_direct.ops submodule to mimic python_frontend
         # FusionDefinition.ops API. This is to maintain backwards compatibilty.
         self.ops = _C_DIRECT.ops
-        self.fusion = _C_DIRECT.Fusion()
-        self.fusion_guard = None
+        self._fusion = None
+        self._fusion_guard = None
+
+    @property
+    def fusion(self):
+        if not hasattr(self, "fec"):
+            return self._fusion
+        else:
+            return self.fec.fusion()
 
     def __enter__(self):
         """
         Enter the context manager.
+
         Returns
         -------
         FusionDefinition
             The FusionDefinition instance
         """
-        self.fusion_guard = _C_DIRECT.FusionGuard(self.fusion)
+        self._fusion = _C_DIRECT.Fusion()
+        self._fusion_guard = _C_DIRECT.FusionGuard(self._fusion)
         return self
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
@@ -61,6 +71,7 @@ class FusionDefinition:
         Exit the context manager and handle any exceptions.
         This method is called when exiting the 'with' block, whether normally or due to an exception.
         The arguments provide information about any exception that occurred:
+
         Parameters
         ----------
         excecption_type : type or None
@@ -73,7 +84,7 @@ class FusionDefinition:
             The traceback object containing the call stack.
             None if no exception occurred.
         """
-        self.fusion_guard = None
+        del self._fusion_guard
         if exception_type is not None:
             print(f"Exception occurred: {exception_type.__name__}: {exception_value}")
             if exception_traceback is not None:
@@ -84,24 +95,27 @@ class FusionDefinition:
     def define_tensor(self, *args, **kwargs):
         """
         Define a new tensor input for the fusion.
+
         Parameters
         ----------
         *args
             Positional arguments passed to _C_DIRECT.define_tensor
         **kwargs
             Keyword arguments passed to _C_DIRECT.define_tensor
+
         Returns
         -------
         Tensor
             The defined tensor
         """
         tv = _C_DIRECT.define_tensor(*args, **kwargs)
-        self.fusion.add_input(tv)
+        self._fusion.add_input(tv)
         return tv
 
     def add_output(self, *args, **kwargs):
         """
         Add an output to the fusion.
+
         Parameters
         ----------
         *args
@@ -109,4 +123,32 @@ class FusionDefinition:
         **kwargs
             Keyword arguments passed to fusion.add_output
         """
-        self.fusion.add_output(*args, **kwargs)
+        self._fusion.add_output(*args, **kwargs)
+
+    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+        """
+        Execute the fusion with the given inputs.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            Input tensors and scalars to the fusion
+        device : torch.device, optional
+            Device to execute the fusion on
+        auto_schedule : bool, default=True
+            Whether to use automatic scheduling
+
+        Returns
+        -------
+        list of torch.Tensor
+            Output tensors from the fusion
+        """
+        if auto_schedule:
+            if not hasattr(self, "fec"):
+                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del self._fusion
+            return self.fec.execute(inputs)
+        else:
+            raise RuntimeError("Manual scheduling is not supported yet.")

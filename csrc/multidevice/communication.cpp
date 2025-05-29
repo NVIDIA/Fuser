@@ -146,7 +146,6 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis,
     CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
@@ -162,7 +161,6 @@ Communication::Communication(
   addDataAttribute(team);
   addDataAttribute(root);
   addDataAttribute(red_op);
-  addDataAttribute(scattered_axis);
   addDataAttribute(backend);
 
   validate();
@@ -176,8 +174,6 @@ void Communication::validate() {
       " is not expected by CommunicationType ",
       type());
   NVF_ERROR(isReduction(type()) == (reduceOp() != RedOpType::UNUSED))
-  NVF_ERROR(
-      (type() == CommunicationType::ReduceScatter) == (scatteredAxis() >= 0));
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Communication)
@@ -458,41 +454,33 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  const auto scattered_axis = communication->scatteredAxis();
   NVF_ERROR(
-      scattered_axis >= 0,
-      "scattered_axis is expected to be non-negative: ",
-      scattered_axis);
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
 
-  std::vector<at::Tensor> input_tensors = at::tensor_split(
-      input_tensor, communication->team_size(), scattered_axis);
-  // We could have checked the output shape as well if reduction_axis is
-  // available. It's not always available via
-  // `communication->out()->getReductionAxis()` for manually constructed host
-  // IRs like
-  // https://github.com/NVIDIA/Fuser/blob/89c47f695b296eb4ffd27984bd4c953fc3f3264b/tests/cpp/test_multidevice_overlap.cpp#L347.
-  assertBuffersHaveSameSize(input_tensors, {});
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  assertBuffersHaveSameSize(splits, {flattened_output_tensor});
 
   // reduce_scatter primitive in c10d induces extra buffering time to copy the
   // user's input tensors to an internal source buffer. It is therefore always
   // preferable to use _reduce_scatter_base (which does not perform any extra
-  // copy) when the tensors are stored contiguously (i.e., when
-  // scattered_axis==0). Note however than only nccl supports
-  // _reduce_scatter_base, not ucc.
-#if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 0 &&
-      backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
-    return backend->_reduce_scatter_base(
-        output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
-  }
-#endif
-
-  std::vector<std::vector<at::Tensor>> input_tensors_vec({input_tensors});
-  std::vector<at::Tensor> output_tensor_vec({output_tensor});
-  return backend->reduce_scatter(
-      output_tensor_vec,
-      input_tensors_vec,
-      {.reduceOp = communication->reduceOp()});
+  // copy) when the tensors are stored contiguously
+  return backend->_reduce_scatter_base(
+      output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});
 }
 
 c10::intrusive_ptr<c10d::Work> postSendRecv(
