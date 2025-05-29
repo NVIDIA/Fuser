@@ -103,7 +103,6 @@ class InputReproducer:
             return f"torch.randint({self.low}, {self.high}, {self.size}, dtype={self.dtype}, device={self.device},).as_strided({self.size}, {self.strides})"
 
 
-
 class FusionDefinition(_C._FusionDefinition):
     def __init__(
         self,
@@ -551,7 +550,10 @@ class FusionDefinition(_C._FusionDefinition):
         script = self.repro_script_for(self.last_input_reproducers)
         return script
 
-    def repro_script_for(self, inputs: list[torch.Tensor] | list[InputReproducer] | None = None) -> str:
+    def repro_script_for(
+        self,
+        inputs: list[torch.Tensor] | list[InputReproducer] | None = None,
+    ) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
             msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
