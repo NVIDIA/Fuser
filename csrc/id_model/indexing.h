@@ -142,7 +142,8 @@ class TensorIndexer {
   // for a given expr
   ExprPath<ExprGroup> getIndexingPath(
       const Expr* expr,
-      const std::vector<IterDomain*>& index_ids) const;
+      const std::vector<IterDomain*>& index_ids,
+      bool use_alternate_loop_domain = false) const;
 
   ExprPath<ExprGroup> getPredicateIndexingPath(TensorView* tv, const Expr* expr)
       const;
