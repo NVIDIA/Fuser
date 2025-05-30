@@ -954,6 +954,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       parallelizeBlocks({c_cache});
       transformLikeMmaOutputWithoutK(c_cache);
 
+      c_cache->setAllocationDomain(c_cache->getLoopDomain(), true);
       for (int64_t i = -5; i <= -1; i++) {
         c_cache->axis(i)->parallelize(ParallelType::Bulk);
       }
