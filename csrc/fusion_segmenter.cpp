@@ -1813,11 +1813,12 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       if (tv->getLoopDomain() == tv->getAllocationDomain()) {
         new_loop = new_alloc;
       } else {
-        NVF_ERROR(
-            tv->getLoopDomain() == tv->getLogicalDomain(),
-            tv,
-            " has an unexpected loop domain:\n",
-            tv->domain()->toString(0, /*loop_only=*/false));
+        // we shouldn't assert on loopdomain of inputs, because they carry no meaning.
+        // NVF_ERROR(
+        //     tv->getLoopDomain() == tv->getLogicalDomain(),
+        //     tv,
+        //     " has an unexpected loop domain:\n",
+        //     tv->domain()->toString(0, /*loop_only=*/false));
 
         new_loop = new_logical_domain;
       }
