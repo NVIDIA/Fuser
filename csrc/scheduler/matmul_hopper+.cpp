@@ -575,7 +575,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      tv->split(num_device_dims_, numCGAs());
+      tv->split(num_device_dims_, params_->num_clusters);
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -583,18 +583,6 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     all_merged_roles.push_back(merged_roles);
   }
   return all_merged_roles;
-}
-
-int64_t HopperPlus::numCGAs() const {
-  if (params_->num_clusters == -1L) {
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-    return num_sms /
-        (params_->cluster_dims.x * params_->cluster_dims.y *
-         params_->cluster_dims.z);
-  } else {
-    return params_->num_clusters;
-  }
 }
 
 void HopperPlus::inspectPrologues() const {

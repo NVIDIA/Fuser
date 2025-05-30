@@ -512,9 +512,7 @@ bool fillDefaultHopperHeuristic(
     const int64_t cgas_needed = ceilDiv(Xtiles, mparams->cluster_dims.x) *
         ceilDiv(Ytiles, mparams->cluster_dims.y);
     const int64_t auto_cgas = num_sms / largest_cga;
-    if (cgas_needed < auto_cgas) {
-      mparams->num_clusters = cgas_needed;
-    }
+    mparams->num_clusters = cgas_needed < auto_cgas ? cgas_needed : auto_cgas;
   }
 
   // This is the size of the non-fast dimension before swizzling
