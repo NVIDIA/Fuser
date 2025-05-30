@@ -1,8 +1,8 @@
 # Nvfuser Dev MCP Server
 
-## How to use (vscode)
+## How to use (VSCode version 1.99)
 
-Keep the `mcp_server.py` file in place.
+Keep the `mcp_server.py` file in place. Make sure `Fuser` is in your current workspace.
 
 Merge content of `mcp_template.json` into `.vscode/mcp.json`.
 It should look something like this:
@@ -35,6 +35,7 @@ Then, VS Code may prompt you with this start button in `.vscode/mcp.json`, like 
 
 ![mcp-start](mcp-start.png)
 
+Make sure to have `mcp` in your Python environment, otherwise `pip install mcp`.
 Click the start button. VS Code will ask you for a python executable path.
 If you use a python virtual environment, run `which python` in your terminal and paste the full path.
 Otherwise, simply input `python`. Ensure the MCP server runs.
@@ -59,6 +60,13 @@ Make sure you build nvfuser every time you edit the source file.
 
 We'll be adding more tools to run the entire test suite or individual tests, so stay tuned!
 
-## How to use (cursor)
+## How to use (Cursor)
 
-Similar instructions as above, you may need to add the "mcp" configs to a different file `.cursor/mcp.json`.
+To add a new MCP server in cursor, go to the command palette (`cmd + shift + P`) and search for "Open MCP Settings". In the MCP settings click on "Add new global MCP server":
+![mcp-settings-cursor](mcp-settings-cursor.png)
+
+You can then copy the content of [cursor_mcp_template.json](cursor_mcp_template.json). Update `"command": "python"` with the full `python` you want to use for running the server, and the same for `python` in the `args`.
+Cursor will check the status of the server, if everything's fine you'll see something similar:
+![mcp-settings-cursor2](mcp-settings-cursor2.png)
+
+You're now ready to use the agent. Just open the Cursor chat tab (again `cmd + shift + P` and look for `Cursor: New Chat Tab`). Cursor will automatically recognize the new server. You can ask `build nvfuser and fix any build error`. Cursor will run the script. If the build fails, it will summarize the errors. if you re-ask again `build nvfuser and fix any build error`, Cursor will start fixing the errors and trying to build `nvfuser`.
