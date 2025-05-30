@@ -1,12 +1,14 @@
 {
+    "mcpServers": {
       "nvfuser-dev-mcp": {
         "type":"stdio",
-        "command": "python",
+        "command": "/Users/sbosisio/miniconda/envs/nvfuser/bin/python",
         "args": [
-            ".github/mcp/mcp_server.py",
+            "/Users/sbosisio/Documents/fuser/.github/mcp/mcp_server.py",
             "--python-path",
-            "python"
+            "/Users/sbosisio/miniconda/envs/nvfuser/bin/python"
         ],
         "env": {}
       }
     }
+  }
