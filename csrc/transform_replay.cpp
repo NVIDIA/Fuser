@@ -39,11 +39,13 @@ class ReplaySelf : public ReplayTransformations {
 
     // Grab our mapping of that ID to the one we're replaying
     auto it = id_map_.find(id_in);
-
-    // Make sure it exists in the map
-    NVF_ERROR(
-        it != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
+    if (it == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      // Make sure it exists in the map
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     // Grab the ID we're going to replay on
     auto mapped = it->second;
 
@@ -85,11 +87,12 @@ class ReplaySelf : public ReplayTransformations {
 
     auto it_outer = id_map_.find(id_outer);
     auto it_inner = id_map_.find(id_inner);
-
-    NVF_ERROR(
-        it_outer != id_map_.end() && it_inner != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
-
+    if (it_outer == id_map_.end() || it_inner == id_map_.end()) {
+      if (!error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     auto id_outer_mapped = it_outer->second;
     auto id_inner_mapped = it_inner->second;
 
@@ -126,10 +129,12 @@ class ReplaySelf : public ReplayTransformations {
     auto id_in = resize->in();
 
     auto it = id_map_.find(id_in);
-    NVF_ERROR(
-        it != id_map_.end(),
-        "Transform traversal failed, dependencies not met.");
-
+    if (it == id_map_.end()) {
+      if (error_on_failure_) {
+        return;
+      }
+      NVF_THROW("Transform traversal failed, dependencies not met.");
+    }
     auto mapped = it->second;
 
     NVF_ERROR(
