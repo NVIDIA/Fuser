@@ -586,11 +586,15 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 }
 
 int64_t HopperPlus::numCGAs() const {
-  const int64_t num_sms =
-      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  return num_sms /
-      (params_->cluster_dims.x * params_->cluster_dims.y *
-       params_->cluster_dims.z);
+  if (params_->num_clusters == -1L) {
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    return num_sms /
+        (params_->cluster_dims.x * params_->cluster_dims.y *
+         params_->cluster_dims.z);
+  } else {
+    return params_->num_clusters;
+  }
 }
 
 void HopperPlus::inspectPrologues() const {

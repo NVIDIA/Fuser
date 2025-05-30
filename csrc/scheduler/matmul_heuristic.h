@@ -370,6 +370,11 @@ class MatmulParams : public HeuristicParams {
     }
   } cluster_dims;
 
+  //! This is used for persistent kernels only i.e. when tiling_strategy is not
+  //! OneTilePerCTA. This allows us to control the number of CTAs launched in
+  //! order to guarantee only a single wave is launched.
+  int64_t num_clusters = -1L;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -425,6 +430,7 @@ class MatmulParams : public HeuristicParams {
     }
     ss << "\n";
     ss << cluster_dims.toString() << "\n"
+       << "Number of CTAs: " << num_clusters << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
@@ -472,6 +478,7 @@ class MatmulParams : public HeuristicParams {
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
         other->cluster_dims == cluster_dims &&
+        other->num_clusters == num_clusters &&
         other->splitk_factor == splitk_factor;
   }
 

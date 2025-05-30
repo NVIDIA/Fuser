@@ -466,6 +466,57 @@ bool fillDefaultHopperHeuristic(
       ? MatmulParams::TileRasterizationOrder::ColumnMajor
       : MatmulParams::TileRasterizationOrder::RowMajor;
 
+  // TODO: swizzle is computed at the level of CGA so we first set CGA size
+  // then set swizzle factor.
+  // For CGA size we pick the largest CGA up to size 4 such that the problem
+  // size is divisible by CGA
+  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
+      computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
+    // TODO: check that these are not reversed
+    int64_t Xtiles =
+        mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+        ? Mtiles
+        : Ntiles;
+    int64_t Ytiles =
+        mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+        ? Ntiles
+        : Mtiles;
+
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+    // TODO: When this does not divide num_sms evenly, we should penalize using
+    // large CGAs because they will leave some SMs idle.
+    int64_t largest_cga = -1L;
+    MatmulParams::ClusterDims largest_cga_cfg{1, 1, 1};
+    // Allow CGAs larger than 2 only for small problems
+    const int64_t max_cga_size =
+        Xtiles * Ytiles > ((double)num_sms * .75) ? 2L : 4L;
+    for (int64_t cx : arange(1L, 9L)) {
+      for (int64_t cy : arange(1L, 9L)) {
+        int64_t cga_size = cx * cy;
+        if (Xtiles % cx != 0 || Ytiles % cy != 0 || cga_size > max_cga_size) {
+          continue;
+        }
+        if (largest_cga == -1L || cga_size > largest_cga) {
+          largest_cga = cga_size;
+          largest_cga_cfg = {cx, cy, 1};
+        }
+      }
+    }
+
+    mparams->cluster_dims = largest_cga_cfg;
+
+    // Limit num clusters to the size needed to cover the problem, in case
+    // fewer are needed than the maximum that can be computed in a single wave.
+    const int64_t cgas_needed = ceilDiv(Xtiles, mparams->cluster_dims.x) *
+        ceilDiv(Ytiles, mparams->cluster_dims.y);
+    const int64_t auto_cgas = num_sms / largest_cga;
+    if (cgas_needed < auto_cgas) {
+      mparams->num_clusters = cgas_needed;
+    }
+  }
+
   // This is the size of the non-fast dimension before swizzling
   int64_t swizzled_tiles =
       mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor
@@ -488,18 +539,6 @@ bool fillDefaultHopperHeuristic(
   // TODO: Use only 1D grid traversal factor for now
   grid_traversal_factor = 1;
   mparams->grid_traversal_factor = {grid_traversal_factor, 1};
-
-  // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
-  // We always prefer {2, 1, 1}, but this is not always possible. It is only
-  // possible if the BIDx dimension will have even size. This is the case for
-  // any persistent kernel since the number of SMs is even.
-  // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
-  // for RowMajor. These dims are then multiplied by the grid_traversal_factor
-  // when swizzling.
-  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
-      computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
-    mparams->cluster_dims = {2, 1, 1};
-  }
 
   return true;
 }
