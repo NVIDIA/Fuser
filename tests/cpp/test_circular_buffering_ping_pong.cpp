@@ -124,6 +124,13 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
 
   auto out_ref = t0 + t0;
   auto cg_outputs = ke.run({t0});
+  // check shared memory size
+  int64_t smem_buffer_size = dim1 * sizeof(float) * rows_per_stage * stages;
+  int64_t smem_barrier_size = 128;
+  EXPECT_EQ(ke.lastLaunchParams().smem(), smem_buffer_size + smem_barrier_size)
+      << "Shared memory size err, expected "
+      << smem_buffer_size + smem_barrier_size << ", got "
+      << ke.lastLaunchParams().smem();
   testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
