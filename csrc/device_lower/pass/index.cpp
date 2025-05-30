@@ -2213,12 +2213,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           "We support stmatrix only when tiling information is passed via fusion managed cache");
       auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
       auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
-      auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
-      auto n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+      //auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+      //auto n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
       TensorView* out_tv = ldst->out()->as<TensorView>();
+      /*
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
@@ -2234,6 +2235,15 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
       }
+      */
+
+      Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
+          out_tv, ldst, for_loops_);
+      Val* offset =
+          SimplifyingIrBuilder::mulExpr(index, dataTypeSize(out_tv->dtype()));
+      Val* smem_index =
+          IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
+      out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
 
       auto num_regs = (m_tile) / 8 * (n_tile) / 8;
       auto as_type = ArrayType{
