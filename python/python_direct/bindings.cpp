@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma once
 
-#include <torch/csrc/jit/python/pybind.h>
-#include <torch/csrc/utils/pybind.h>
+#include <bindings.h>
 
 namespace nvfuser::python {
 
-void initNvFuserPythonBindings(PyObject* module);
-
-// Add bindings for Fusion IR
-void bindFusionIr(py::module& nvfuser);
+void initNvFuserPythonBindings(PyObject* module) {
+  auto nvfuser = py::handle(module).cast<py::module>();
+  bindEnums(nvfuser);
+  bindFusionIr(nvfuser);
+  bindRuntime(nvfuser);
+  bindOperations(nvfuser);
+}
 
 } // namespace nvfuser::python

@@ -54,17 +54,24 @@ void lowerToScatter(
     TensorView* output_tv,
     const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
-  // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
       receiver_mesh.rank() == 1,
       "Gather only supported on a 1D mesh. Given ",
       receiver_mesh);
-  auto root = input_tv->getDeviceMesh().at(0);
+
+  // Find a common device between input and receiver meshes to be the root
+  auto it = std::ranges::find_if(
+      input_tv->getDeviceMesh().vector(),
+      [&receiver_mesh](DeviceIdxType device) {
+        return receiver_mesh.has(device);
+      });
+  NVF_ERROR(
+      it != input_tv->getDeviceMesh().vector().end(),
+      "No common device found between input and receiver meshes");
+  DeviceIdxType root = *it;
+
   Team team = receiver_mesh.vector();
-  if (!receiver_mesh.has(root)) {
-    team.push_back(root);
-  }
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Scatter,
       output_tv,
@@ -72,7 +79,6 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -105,7 +111,6 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -126,7 +131,6 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -151,7 +155,6 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -193,7 +196,6 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          /*scatter_axis=*/-1,
           params.communicator_backend));
     }
   } else {
@@ -242,7 +244,6 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -263,7 +264,6 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -276,15 +276,6 @@ void lowerToReduceScatter(
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
-  auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
-  // The output tensor is sharded on scattered_axis and needs to be mapped
-  // back onto the input. The input has an reduced axis, so the scattered axis
-  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
-  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
-  if (reduction_axis <= scattered_axis) {
-    scattered_axis++;
-  }
 
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
@@ -293,176 +284,7 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      scattered_axis,
       params.communicator_backend));
-}
-
-std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(
-    Expr* expr,
-    const HostIrLowerParams& params) {
-  NVF_ERROR(
-      (expr->isOneOf<MatmulOp, LinearOp>()),
-      "Expect a MatmulOp or a LinearOp, but got",
-      expr);
-  TensorView* tva = nullptr;
-  TensorView* tvb = nullptr;
-  TensorView* tv_bias = nullptr;
-  TensorView* tv_out = nullptr;
-  if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
-    tva = matmul->inA();
-    tvb = matmul->inB();
-    tv_out = matmul->out();
-  } else {
-    auto* linear = expr->as<LinearOp>();
-    tva = linear->inA()->as<TensorView>();
-    tvb = linear->inB()->as<TensorView>();
-    tv_bias = (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
-    tv_out = linear->out()->as<TensorView>();
-    NVF_ERROR(
-        !(linear->has_bias() && isSharded(tv_bias)),
-        "The bias ",
-        tv_bias,
-        " is expected to not be sharded");
-  }
-
-  NVF_ERROR(
-      !isSharded(tvb), "The B operand ", tvb, " is expected to not be sharded");
-  NVF_ERROR(
-      !isSharded(tv_out),
-      "The output ",
-      tv_out,
-      " is expected to not be sharded");
-  NVF_ERROR(
-      tv_out->axis(0)->getParallelType() == ParallelType::Stream,
-      "The output ",
-      tv_out,
-      " is expected to be stream-parallelized on axis 0");
-  const int64_t sharded_axis_index =
-      getShardedLogicalAxis(tva, ParallelType::DIDx);
-  IterDomain* stream_axis = tva->axis(0);
-  NVF_ERROR(
-      stream_axis->getParallelType() == ParallelType::Serial &&
-          sharded_axis_index == 1,
-      "The operand A ",
-      tva,
-      " is expected to be sharded on the dimension 1");
-
-  auto hic = FusionGuard::getCurFusion()->as<hir::HostIrContainer>();
-
-  auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
-  hir::Stream* original_stream = get_current_stream->stream();
-
-  TensorView* tva_allgathered =
-      ops::newValLike(tva, tva->dtype())->as<TensorView>();
-  tva_allgathered->axis(sharded_axis_index)->parallelize(ParallelType::Serial);
-  tva_allgathered->setMemoryType(MemoryType::Global);
-  auto* allocate_tva_allgathered =
-      IrBuilder::create<kir::Allocate>(tva_allgathered, MemoryType::Global);
-
-  tv_out->setMemoryType(MemoryType::Global);
-  auto* allocate_tv_out =
-      IrBuilder::create<kir::Allocate>(tv_out, MemoryType::Global);
-
-  auto* j =
-      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
-  auto* start = hic->zeroVal();
-  auto* stop = stream_axis->extent();
-  auto* step = hic->oneVal();
-  auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
-      stream_axis,
-      /*index=*/j,
-      start,
-      stop,
-      step,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-
-  auto* number_of_streams =
-      IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
-  auto* stream_index = mod(j, number_of_streams);
-  auto* stream = IrBuilder::create<hir::Stream>(stream_index);
-  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
-  auto* initial_sync_stream =
-      IrBuilder::create<hir::Synchronize>(original_stream);
-
-  // the initial sync of the streams with the user's stream is done in a
-  // separate for-loop for performance reasons with comms/compute overlap
-  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
-  for (Expr* expr : loop_body_initial_sync) {
-    for_loop_initial_sync->body().push_back(expr);
-  }
-
-  auto* for_loop = IrBuilder::create<ForLoop>(
-      stream_axis,
-      /*index=*/j,
-      start,
-      stop,
-      step,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-
-  TensorView* tva_j = select(tva, 0, j);
-  TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
-  TensorView* tv_out_j = select(tv_out, 0, j);
-
-  NVF_ERROR(
-      tva->hasDeviceMesh(),
-      "The matmul's input ",
-      tva,
-      "is expected to have a DeviceMesh");
-  for (auto tv : {tva_j, tva_allgathered_j, tv_out_j}) {
-    tv->setDeviceMesh(tva->getDeviceMesh());
-  }
-
-  auto* communication = IrBuilder::create<Communication>(
-      CommunicationType::Allgather,
-      /*out=*/tva_allgathered_j,
-      /*in=*/tva_j,
-      /*team=*/tva->getDeviceMesh().vector(),
-      /*root=*/-1,
-      /*red_op=*/RedOpType::UNUSED,
-      /*scattered_axis=*/-1,
-      params.communicator_backend);
-  auto* wait = IrBuilder::create<hir::Wait>(communication);
-
-  Expr* compute = nullptr;
-  if (expr->isA<MatmulOp>()) {
-    compute = IrBuilder::create<MatmulOp>(tv_out_j, tva_allgathered_j, tvb);
-  } else {
-    compute =
-        IrBuilder::create<LinearOp>(tv_out_j, tva_allgathered_j, tvb, tv_bias);
-  }
-
-  auto* set_back_original_stream =
-      IrBuilder::create<hir::SetCurrentStream>(original_stream);
-  auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
-
-  std::vector<Expr*> loop_body = {
-      set_stream,
-      tva_j->definition(),
-      tva_allgathered_j->definition(),
-      communication,
-      wait,
-      tv_out_j->definition(),
-      compute,
-      set_back_original_stream,
-      sync_stream};
-  for (Expr* expr : loop_body) {
-    for_loop->body().push_back(expr);
-  }
-
-  return {
-      get_current_stream,
-      allocate_tva_allgathered,
-      allocate_tv_out,
-      for_loop_initial_sync,
-      for_loop};
 }
 
 } // namespace
@@ -472,10 +294,6 @@ std::vector<Expr*> convertSingleOpToCommunication(
     DeviceIdxType my_device_idx,
     const HostIrLowerParams& params) {
   FusionGuard fg(c->fusion());
-
-  if (c->isOneOf<MatmulOp, LinearOp>()) {
-    return lowerToCollectiveBasedPipelinedGemmComm(c, params);
-  }
 
   std::vector<Expr*> comms;
   NVF_ERROR(

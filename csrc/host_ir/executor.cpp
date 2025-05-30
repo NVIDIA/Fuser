@@ -6,6 +6,12 @@
  */
 // clang-format on
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <dynamic_transform.h>
@@ -89,7 +95,7 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return (bool)host_ir_container_;
+  return host_ir_container_ != nullptr;
 }
 
 namespace {
@@ -155,7 +161,7 @@ KernelArgumentHolder HostIrExecutor::run(
             communication->out()));
 
     NVF_ERROR(
-        out_idx < (int64_t)host_ir_container_->outputs().size(),
+        out_idx < std::ssize(host_ir_container_->outputs()),
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
@@ -214,12 +220,34 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
-  NVF_ERROR(
-      std::all_of(
-          container_->inputs().begin(),
-          container_->inputs().end(),
-          [this](Val* input) { return !container_->alias().count(input); }),
-      "Inputs cannot be aliased");
+}
+
+KernelArgumentHolder HostIrEvaluator::runWithInputs(
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  NVF_ERROR(args.getCacheId().has_value());
+  expr_evaluator_.bind("cacheId", static_cast<int64_t>(*args.getCacheId()));
+
+  NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
+  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
+    expr_evaluator_.bind(in_val, arg);
+  }
+
+  for (Expr* e : container_->topLevelExprs()) {
+    const std::string event_name =
+        std::string("HostIrEvaluator::dispatch ") + e->getOpString();
+    FUSER_PERF_SCOPE(event_name.c_str());
+    dispatch(e);
+  }
+
+  KernelArgumentHolder outs;
+  outs.reserve(container_->outputs().size());
+  for (Val* out_val : container_->outputs()) {
+    outs.push(getKnownTensorOrUndefined(out_val));
+  }
+  return outs;
 }
 
 KernelArgumentHolder HostIrEvaluator::runWithInput(
@@ -228,7 +256,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
   // process input values, converting IValue to PolymorphicValue
   for (const auto& [val, pvalue] : val_to_PValue) {
-    bind(val, pvalue);
+    expr_evaluator_.bind(val, pvalue);
   }
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
@@ -328,6 +356,11 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
+  PolymorphicValue cache_id =
+      expr_evaluator_.evaluate(launch_kernel->cacheId());
+  if (!cache_id.is<std::monostate>()) {
+    args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
+  }
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
@@ -335,7 +368,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   // All output buffers are known already, pass them to the executor
   KernelArgumentHolder outputs;
   for (Val* output : launch_kernel->outputs()) {
-    if (isKnown(output)) {
+    if (expr_evaluator_.isKnown(output)) {
       outputs.push(getKnownConcreteValue(output));
     }
   }
@@ -348,12 +381,12 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   args.setDeviceIndex();
 
   // run the compiled kernel
-  container_->getKernelExecutor(launch_kernel->getIndex())
+  container_->getKernelExecutor(launch_kernel->groupId())
       ->run(
           args,
           outputs,
-          launch_kernel->launch_params(),
-          launch_kernel->compile_params());
+          launch_kernel->launchParams(),
+          launch_kernel->compileParams());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
@@ -367,13 +400,15 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   bool use_preallocated_outputs = std::all_of(
       post_ir->outputs().begin(),
       post_ir->outputs().end(),
-      [this](Val* output) { return this->isKnown(output); });
+      [this](Val* output) { return this->expr_evaluator_.isKnown(output); });
   NVF_ERROR(
       use_preallocated_outputs ||
           std::all_of(
               post_ir->outputs().begin(),
               post_ir->outputs().end(),
-              [this](Val* output) { return !this->isKnown(output); }),
+              [this](Val* output) {
+                return !this->expr_evaluator_.isKnown(output);
+              }),
       "outputs must be all or none preallocated in expr ",
       post_ir);
   if (use_preallocated_outputs) {
@@ -442,7 +477,8 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   if (!use_preallocated_outputs) {
     // Store the outputs in the context
     for (auto output_idx : arange(outputs.size())) {
-      bind(post_ir->outputs().at(output_idx), outputs[output_idx]);
+      expr_evaluator_.bind(
+          post_ir->outputs().at(output_idx), outputs[output_idx]);
     }
   }
 }
@@ -566,11 +602,11 @@ void HostIrEvaluator::handle(ForLoop* for_loop) {
 
   for (auto i = start; i < stop; i += step) {
     // invalidate i and its consumers before binding
-    invalidate(for_loop->index());
+    expr_evaluator_.invalidate(for_loop->index());
     for (auto consumer : allConsumerValsOf(for_loop->index())) {
-      invalidate(consumer);
+      expr_evaluator_.invalidate(consumer);
     }
-    bind(for_loop->index(), i);
+    expr_evaluator_.bind(for_loop->index(), i);
     for (Expr* expr : for_loop->body().exprs()) {
       dispatch(expr);
     }
@@ -608,7 +644,7 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (isKnown(out)) {
+  if (expr_evaluator_.isKnown(out)) {
     auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
     auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
     auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
@@ -624,7 +660,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   TensorView* bias = linear->bias()->as<TensorView>();
   TensorView* out = linear->out()->as<TensorView>();
 
-  if (!isKnown(out)) {
+  if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
     return;
   }
@@ -633,7 +669,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
-  if (linear->has_bias()) {
+  if (linear->hasBias()) {
     auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
@@ -665,7 +701,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     t = in_tensor;
   }
 
-  if (isKnown(out_tv)) {
+  if (expr_evaluator_.isKnown(out_tv)) {
     auto out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
     out_tensor.copy_(t);
@@ -677,7 +713,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     // ```
     // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
     // if (strides == t.strides()) {
-    //   bind(out_tv, t);
+    //   expr_evaluator_.bind(out_tv, t);
     // } else {
     //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
     //   out_tensor.copy_(t);
@@ -687,7 +723,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     // clang-format on
     //
     // For now, I choose to keep code simple for the limited use cases.
-    bind(out_tv, t);
+    expr_evaluator_.bind(out_tv, t);
   }
 }
 
@@ -697,7 +733,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (isKnown(tv)) {
+  if (expr_evaluator_.isKnown(tv)) {
     return;
   }
   GlobalBufferInfo info =
@@ -711,20 +747,31 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
-  bind(tv, tensor);
+  expr_evaluator_.bind(tv, tensor);
 }
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto index =
-      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto indexed_id =
+      hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
+  auto index = indexed_id->isBroadcast()
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
   auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
                    .as<at::Tensor>();
-  int64_t axis = hir_alias_select->axis();
-  bind(hir_alias_select->out(), input.select(axis, index));
+
+  // Count reduction axes up to the target axis
+  int64_t reduction_count = std::count_if(
+      hir_alias_select->in()->getLogicalDomain().begin(),
+      hir_alias_select->in()->getLogicalDomain().begin() +
+          hir_alias_select->axis(),
+      [](const IterDomain* id) { return id->isReduction(); });
+  // Adjust the ATen axis by subtracting the number of reduction axes
+  int64_t axis = hir_alias_select->axis() - reduction_count;
+  expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
 }
 
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (!isKnown(binary_op->outputs().at(0))) {
+  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
     return unhandled(binary_op);
   }
 
@@ -758,7 +805,7 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
 void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   auto input_tv = reduction_op->in()->as<TensorView>();
   auto output_tv = reduction_op->out()->as<TensorView>();
-  if (!isKnown(output_tv)) {
+  if (!expr_evaluator_.isKnown(output_tv)) {
     return unhandled(reduction_op);
   }
 
@@ -798,10 +845,10 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 void HostIrEvaluator::handle(Deallocate* deallocate) {
   auto* tv = deallocate->buffer();
   NVF_ERROR(
-      isKnown(tv),
+      expr_evaluator_.isKnown(tv),
       "Tried to free buffer associated with unknown TensorView",
       tv);
-  invalidate(tv);
+  expr_evaluator_.invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
@@ -831,7 +878,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   // here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
-    bind(expr->output(i), concrete_outputs.at(i));
+    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
   }
 }
 

@@ -1340,7 +1340,7 @@ TEST_F(PresegTest, MoveGatherOverCast) {
       unary_ops.begin(),
       unary_ops.end(),
       std::back_inserter(all_cast_ops),
-      [gather_op](UnaryOp* op) {
+      [](UnaryOp* op) {
         std::cout << op->toString() << std::endl;
         return op->getUnaryOpType() == UnaryOpType::Cast;
       });
