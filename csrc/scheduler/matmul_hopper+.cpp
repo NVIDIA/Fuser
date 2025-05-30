@@ -962,13 +962,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
-
-      // Do not propagate any other changes to LdMatrix.
-      propagate_to.push_back(reg_tv);
-    } else {
-      // Propagate changes to the cache_after tensor if not using TMA load.
-      propagate_to.push_back(c);
     }
+    // Propagate changes to the cache_after tensor if not using TMA load.
+    propagate_to.push_back(c);
   }
   propagate_to.insert(
       propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
@@ -1016,13 +1012,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
       d_smem->split(-1, hardcoded_smem_vectorize_factor);
-      for (auto c : register_tvs) {
-        bool is_2d_epilogue_input =
-            TensorDomain::noBroadcasts(c->domain()->logical()).size() == 2;
-        if (is_2d_epilogue_input) {
-          c->split(-1, hardcoded_smem_vectorize_factor);
-        }
-      }
     }
 
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
