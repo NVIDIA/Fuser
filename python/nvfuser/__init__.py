@@ -101,7 +101,14 @@ class InputDescriptor:
 
     def make_repro_tensor(self) -> torch.Tensor:
         """Create a tensor of the same `low` and `high` as the saved input"""
-        return torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high}, requires_grad={self.requires_grad}).as_strided({self.size}, {self.strides}, {self.storage_offset})
+        return torch.testing.make_tensor(
+            self.size,
+            dtype=self.dtype,
+            device=self.device,
+            low=self.low,
+            high=self.high,
+            requires_grad=self.requires_grad,
+        ).as_strided(self.size, self.strides, self.storage_offset)
 
     def to_make_tensor_str(self) -> str:
         """Create a stringified :func:`InputDescriptor.make_repro_tensor`."""
