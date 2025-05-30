@@ -6642,7 +6642,8 @@ TEST_F(IndexingTest, LdStMatrix) {
       }
 
       return std::string(
-          "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
+          "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( (
+  ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
     }
   };
   IndexValidator<GetReference>::validate(&fusion, false);
