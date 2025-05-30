@@ -963,53 +963,37 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
     }
-    // Propagate changes to the cache_after tensor if not using TMA load.
+    // Propagate changes to the cache_after tensor
     propagate_to.push_back(c);
   }
+
+  // TMem load is scheduled separately, so don't propagate to it.
   propagate_to.insert(
       propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
 
-  // Manually schedule register cache and output TensorView
+  // The chain of operations storing data to global memory:
+  //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
+  // We schedule d_smem and propagate it back.
   for (Val* dv : fusion_->outputs()) {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
-
-    // The chain of operations storing data to global memory:
-    //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
-
-    // Set MemoryType
     dc->setMemoryType(MemoryType::Local);
     d_smem->setMemoryType(MemoryType::Shared);
 
-    d->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::CpAsyncBulkTensorTile);
-
-    // Apply the common transforms to dc, d_smem, d
-    // After these transforms we schedule the inner two non-reduction loops
-    // (instruction tile) of dc and propagate is back till the outputs of mma.
+    // We schedule the epilogue like:
+    // (v = tmem_vectorize_factor, vv = smem_vectorize_factor
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
     blockTileTensors({d, d_smem});
     parallelizeBlocks({d, d_smem});
     for (auto tv : {d, d_smem}) {
       transformLikeMmaOutputWithoutK(tv);
-      // TIDx is 128, so we use it for lanes of the accumulator. Also, we
-      // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
-      // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
       tv->axis(-2)->parallelize(ParallelType::TIDx);
       if (tmem_vectorize_factor < getN(params_->mma_macro)) {
         tv->split(-1, tmem_vectorize_factor);
       }
     }
-
-    // Vectorize the epilogue input load and output store. TMem load can
-    // be vectorized to 512 byte, but gmem load/store can only be vectorized
-    // to 16 bytes. So we need to further split the last dimension and use
-    // multiple vector loads/stores. for each TMem load/store.
-    // After split and parallelization:
-    // (v = tmem_vectorize_factor, vv = smem_vectorize_factor)
-    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
-    // TODO: Support vectorization_factor in MatmulParams
     if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
       d_smem->split(-1, hardcoded_smem_vectorize_factor);
     }
@@ -1025,11 +1009,16 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     d_smem->setAllocationDomain(d_smem->getLoopDomain(), true);
 
     // Schedule global memory output; Output from TMA Store
+    d->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
     for (int64_t i = -5; i <= -1; i++) {
       d->axis(i)->parallelize(ParallelType::Bulk);
     }
   }
 
+  // Schedule TMem load as:
+  // (v = tmem_vectorize_factor)
+  // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
   blockTileTensors(tmem_ld_tvs);
   parallelizeBlocks(tmem_ld_tvs);
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
