@@ -7,14 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <host_ir/lower.h>
-#include <ir/all_nodes.h>
+#include <ir/base_nodes.h>
+#include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    const HostIrLowerParams& params);
+    const CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
 } // namespace nvfuser
