@@ -27,14 +27,14 @@ namespace nvfuser::preseg_passes {
 // are placed together. See `setLoopAndAllocationDomain` for more details.
 // Eventually, this pass should run after `markAliasesPrepare` and
 // `AllocationDomainPass` after they are fixed.
-class MakeReshardingContiguousPass
-    : public OptimizationPass<MakeReshardingContiguousPass> {
-  friend class OptimizationPass<MakeReshardingContiguousPass>;
+class FinalizeMultideviceDomainsPass
+    : public OptimizationPass<FinalizeMultideviceDomainsPass> {
+  friend class OptimizationPass<FinalizeMultideviceDomainsPass>;
 
  protected:
   static void runPass(Fusion* fusion);
   static constexpr std::string_view name() {
-    return "MakeReshardingContiguousPass";
+    return "FinalizeMultideviceDomainsPass";
   }
 };
 

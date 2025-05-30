@@ -8,10 +8,12 @@
 #pragma once
 
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 
 #include <string>
 #include <vector>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/scheduler_types.h>
@@ -58,6 +60,34 @@ void testValidate(
 // A gmock matcher for matching heuristics.
 MATCHER_P(HeuristicIs, heuristic, "") {
   return arg->schedulerType() == heuristic;
+}
+
+// Matches any subclass of T.
+//
+// See
+// https://google.github.io/googletest/gmock_cook_book.html#writing-new-monomorphic-matchers
+// for how to write a matcher.
+template <typename T>
+class IsAMatcher {
+ public:
+  using is_gtest_matcher = void;
+
+  bool MatchAndExplain(const PolymorphicBase* pb, std::ostream*) const {
+    return pb->isA<T>();
+  }
+
+  void DescribeTo(std::ostream* os) const {
+    *os << "is " << demangle(typeid(T).name());
+  }
+
+  void DescribeNegationTo(std::ostream* os) const {
+    *os << "is not " << demangle(typeid(T).name());
+  }
+};
+
+template <typename T>
+inline testing::Matcher<const PolymorphicBase*> IsA() {
+  return IsAMatcher<T>();
 }
 
 // Validate that the fusion is segmented with desired scheduler, currently only

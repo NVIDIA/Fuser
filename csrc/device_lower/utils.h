@@ -15,7 +15,7 @@
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
-#include <val_graph.h>
+#include <val_graph_nodes.h>
 
 #include <bitset>
 #include <map>
@@ -25,6 +25,7 @@
 namespace nvfuser {
 
 class ThreadPredicateMap;
+class ValGraph;
 
 namespace scope_utils {
 
@@ -37,31 +38,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
 } // namespace scope_utils
 
 namespace ir_utils {
-
-// Somtimes we want to temporarily view a tensorview with another tensordomain.
-// This isn't a permanent transformation, but in indexing we want to index
-// producers with a consumer set of indices, so we need to view the producer
-// transformed like consumer while we index. This will set the tv with td for
-// the life of this context guard.
-class TVDomainGuard {
- private:
-  TensorView* tv_;
-  TensorDomain* prev_domain_;
-
- public:
-  explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
-  TVDomainGuard(const TVDomainGuard&) = delete;
-  NVF_API TVDomainGuard(TVDomainGuard&&);
-
-  //! An utility to access the tensordomain before the temporary
-  //!  view. This is used to retrieve information, like swizzle
-  //!  information that can only be reliably kept at the original domain.
-  const TensorDomain* prevDomain() const {
-    return prev_domain_;
-  }
-
-  NVF_API ~TVDomainGuard();
-};
 
 // Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
@@ -128,10 +104,22 @@ bool isStMatrixOp(const Expr* expr);
 bool isCpAsyncOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
-//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+//!  a cp.async.bulk or cp.async.bulk.tensor
 bool isCpAsyncBulkLoad(const Expr* expr);
 bool isCpAsyncBulkStore(const Expr* expr);
 bool isCpAsyncBulk(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk.tensor intrinsic.
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr);
+bool isCpAsyncBulkTensorTileStore(const Expr* expr);
+bool isCpAsyncBulkTensorTile(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk intrinsic.
+bool isCpAsyncBulk1DLoad(const Expr* expr);
+bool isCpAsyncBulk1DStore(const Expr* expr);
+bool isCpAsyncBulk1D(const Expr* expr);
 
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
@@ -378,6 +366,9 @@ struct IterDomainDependencySorter {
 // Check if all the inputs of the given MmaOp is guarded by mbarrier
 bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
+// Check if the given ForLoop is a warp specialized loop by checking
+// the circular buffer type of the loop domain.
+bool isWarpSpecializedLoop(ForLoop* loop);
 } // namespace lower_utils
 
 } // namespace nvfuser

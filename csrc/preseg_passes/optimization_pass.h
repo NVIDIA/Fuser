@@ -69,8 +69,6 @@ class OptimizationPass {
 #endif
   }
 
-  virtual ~OptimizationPass() = default;
-
  protected:
   static inline std::atomic<bool> flag_{true};
 };

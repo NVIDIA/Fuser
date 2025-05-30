@@ -100,7 +100,7 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
 
 KernelArgumentHolder ExecutorDispatch::run(
     ExecutorAbstract* executor,
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder outputs,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {

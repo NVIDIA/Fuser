@@ -4610,6 +4610,55 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   NVF_CHECK(at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
 }
 
+TEST_P(MLPBenchmarkTest, BatchGEMM) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t Batch = 3, M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1}, dtype); // Batch, M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1, -1}, dtype); // Batch, K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({Batch, M, K}, options);
+  auto t1 = at::randn({Batch, K, N}, options);
+  auto out_ref = at::matmul(t0, t1);
+
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
+  // TODO Fix std::get variant error in expression evaluator because of linear
+  // index
+  // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     MLPBenchmarkTest,

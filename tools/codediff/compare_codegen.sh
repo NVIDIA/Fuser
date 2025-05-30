@@ -37,9 +37,9 @@
 # command type passed to run_command.sh. Should be one of GOOGLEBENCH,
 # GOOGLETEST, PYTEST, or UNKNOWN.
 #
-# By default, `python setup.py develop` is used to rebuild the project.
-# You can also set environment variable CUSTOM_BUILD_COMMAND if your build
-# is different.
+# By default, `pip install -v --no-build-isolation python/` is used to rebuild
+# the project. You can also set environment variable CUSTOM_BUILD_COMMAND if
+# your build is different.
 
 set -e
 set -o pipefail
@@ -149,7 +149,7 @@ collect_kernels() {
     commit=$2
 
     # Make sure we are doing a clean rebuild. Otherwise we might get linking error.
-    python setup.py clean
+    rm -rf $nvfuserdir/python/build
 
     git -c advice.detachedHead=false checkout "$commit"
     git submodule update --init --recursive
@@ -182,7 +182,7 @@ collect_kernels() {
     # Build in Release mode
     (
         cd "$nvfuserdir"
-        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-python setup.py develop}"
+        CUSTOM_BUILD_COMMAND="${CUSTOM_BUILD_COMMAND:-pip install -v --no-build-isolation python/}"
         bash -c "${CUSTOM_BUILD_COMMAND}"
     )
 

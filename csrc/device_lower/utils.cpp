@@ -45,53 +45,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
 
 namespace ir_utils {
 
-TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
-    : tv_(tv), prev_domain_(tv_->domain()) {
-  tv_->setDomain(td);
-}
-
-TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
-    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
-  std::swap(tv_, guard.tv_);
-}
-
-TVDomainGuard::~TVDomainGuard() {
-  if (tv_ != nullptr) {
-    tv_->setDomain(prev_domain_);
-  }
-}
-
-ir_utils::TVDomainGuard overrideContiguityGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getAllocationDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getMaybeAllocationDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
-ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getLogicalDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
 std::vector<IterDomain*> iterDomainInputsOf(
     const std::vector<IterDomain*>& input_ids,
     const std::vector<IterDomain*>& all_inputs) {
@@ -239,6 +192,38 @@ bool isCpAsyncBulkLoad(const Expr* expr) {
 
 bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
 }
 
 bool isLdStTMem(const Expr* expr) {
@@ -2101,6 +2086,13 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
 } // namespace lower_utils
 
 } // namespace nvfuser

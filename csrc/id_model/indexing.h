@@ -144,6 +144,9 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids) const;
 
+  ExprPath<ExprGroup> getPredicateIndexingPath(TensorView* tv, const Expr* expr)
+      const;
+
   // Protect the index of the innermost loop with magic zero.
   //
   // NOTE: This just follows how the original indexer adds magic zero
@@ -215,6 +218,22 @@ class TensorIndexer {
       const std::vector<IterDomain*>& loop_domains,
       const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
+
+  // Grab all non-divisible splits whose input IDs need to be
+  // predicated.
+  ValGroups getNonDivisibleIdsToPredicate(
+      TensorView* tv,
+      const IndexingInfo& index_info) const;
+
+  // Augment IndexingInfo with index mappings for non-divisible split
+  // predicates. Non-divisible splits on the normal indexing path
+  // should not need any additional indexing, but those not in the
+  // path need another traversal.
+  void updateIndexInfoForNonDivisibleSplits(
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      const ValGroups& non_divisible_ids,
+      IndexingInfo& index_info) const;
 
  private:
   // Using non-const references of IdModel because traversalGraph() returns a

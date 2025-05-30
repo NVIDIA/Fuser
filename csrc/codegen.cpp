@@ -164,6 +164,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.lparams_ = lparams;
     codegen.has_warp_specialized_ =
         kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    codegen.warp_specialized_on_ =
+        kernel->summary().circular_buffer_info.getWarpSpecializedOn();
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -425,6 +427,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
           }
+          if (kernel_summary.all_block_reductions_are_warp_reduction) {
+            smem_buf_size_ss << " / 32";
+          }
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
             std::stringstream smem_buf_size_with_outer_opt;
@@ -434,9 +439,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 16);\n";
+                   << smem_buf_size << ", 128);\n";
         }
 
         if (has_parallel_welford) {
@@ -3008,7 +3013,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(lparams_.bdimx());
+    template_args.arg(
+        warp_specialized_on_ == ParallelType::TIDx
+            ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
+            : lparams_.bdimx());
     indent() << genCall(
                     "warp::iterGroupedStaticWarpAllReduce",
                     template_args,
@@ -3859,6 +3867,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   LaunchParams lparams_;
   //! Whether the kernel has warp specialization
   bool has_warp_specialized_ = false;
+  //! Warp specialized on parallel type
+  ParallelType warp_specialized_on_ = ParallelType::Serial;
 };
 
 } // namespace

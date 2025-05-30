@@ -182,7 +182,7 @@ struct TransformReplayOptions {
   }
 };
 
-class NVF_API TransformReplay {
+class TransformReplay {
  public:
   // Replay producer as consumer, returns {producer, producer_compute_at_axis}.
   //
@@ -272,7 +272,7 @@ class NVF_API TransformReplay {
       const TensorView* target);
 };
 
-class NVF_API TransformPropagator
+class TransformPropagator
     : public MaxLogicalDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;

@@ -120,6 +120,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
+      {"host_ir_lowering_logging", DebugDumpOption::HostIrLoweringLogging},
       {"host_ir", DebugDumpOption::HostIr},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
@@ -143,6 +144,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
+      {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
       {"transform_propagator", DebugDumpOption::TransformPropagator}};

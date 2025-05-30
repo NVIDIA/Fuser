@@ -9,6 +9,7 @@
 
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
+#include <val_graph_nodes.h>
 
 #include <iostream>
 #include <string>
@@ -50,11 +51,6 @@ namespace nvfuser {
 // ValGraph can be used with any Val types, however, it's currenty
 // only tested with IterDomain. Some of the routines might need to be
 // extended for other Val types.
-
-using ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
-using ValGroups = VectorOfUniqueEntries<ValGroup>;
-using ExprGroup = std::shared_ptr<VectorOfUniqueEntries<Expr*>>;
-using ExprGroups = VectorOfUniqueEntries<ExprGroup>;
 
 class ValGraph {
  public:

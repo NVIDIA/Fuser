@@ -15,6 +15,7 @@
 #include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <python_utils.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
@@ -1225,29 +1226,7 @@ struct TensorRecord : RecordFunctor {
         stride_order_(std::move(_stride_order)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {
-    if (!stride_order_.empty()) {
-      int64_t rank = (int64_t)stride_order_.size();
-      std::unordered_set<int64_t> order_set;
-      for (auto& order : stride_order_) {
-        order_set.insert(order);
-        if (order < 0) {
-          NVF_CHECK(
-              order >= -rank,
-              "define_tensor stride_order argument is out of range, expects >= -" +
-                  std::to_string(rank) + ", but got: " + std::to_string(order));
-          order += rank;
-        } else {
-          NVF_CHECK(
-              order < rank,
-              "define_tensor stride_order argument is out of range, expects < " +
-                  std::to_string(rank) + ", but got: " + std::to_string(order));
-        }
-      }
-      NVF_CHECK(
-          order_set.size() == stride_order_.size(),
-          "define_tensor got duplicated stride_order entries: " +
-              toDelimitedString(stride_order_));
-    }
+    normalizeStrideOrder(stride_order_);
   }
   ~TensorRecord() override = default;
   RecordFunctor* clone() final {
@@ -1324,38 +1303,14 @@ struct TensorRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto rank = shape_.size();
-    std::vector<bool> is_expand(rank);
-
-    for (const auto index : arange(rank)) {
-      // since contiguity_ vector is given to the corresponding order in alloc
-      // domain, while is_expand is given to root domain, we need to map it
-      // correctly with `contig_index` and `index`.
-      //
-      // stride_order[i] indicates that:
-      //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
-      //   to `alloc_domain[rank - 1 - stride_order_[i]]`
-      //
-      // Hence `index` on root domain would be corresponding to the contiguity
-      // index `contig_index = rank - 1 - stride_order[index]`
-      const auto contig_index = stride_order_.empty()
-          ? index
-          : rank - 1 - static_cast<size_t>(stride_order_[index]);
-      const bool is_broadcast = !contiguity_[contig_index].has_value();
-      const bool has_non_broadcast_size = (shape_[index] != 1);
-      // A root dimension is expand dimension if:
-      //   The dimension is marked a broadcast; and
-      //   The dimension has an expanded extent.
-      is_expand[index] = is_broadcast && has_non_broadcast_size;
-    }
-
-    auto tv = TensorViewBuilder()
-                  .contiguity(contiguity_)
-                  .shape(shape_)
-                  .dtype(dtype_)
-                  .expanded(std::move(is_expand))
-                  .strideOrder(stride_order_)
-                  .build();
+    TensorView* tv =
+        TensorViewBuilder()
+            .contiguity(contiguity_)
+            .shape(shape_)
+            .dtype(dtype_)
+            .expanded(getExpanded(shape_, contiguity_, stride_order_))
+            .strideOrder(stride_order_)
+            .build();
 
     if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);

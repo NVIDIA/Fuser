@@ -8,11 +8,14 @@
 
 #include <bindings.h>
 
-namespace python {
+namespace nvfuser::python {
 
 void initNvFuserPythonBindings(PyObject* module) {
   auto nvfuser = py::handle(module).cast<py::module>();
+  bindEnums(nvfuser);
   bindFusionIr(nvfuser);
+  bindRuntime(nvfuser);
+  bindOperations(nvfuser);
 }
 
-} // namespace python
+} // namespace nvfuser::python

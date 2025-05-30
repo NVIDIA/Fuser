@@ -889,14 +889,14 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   FusionGuard fg(hic.get());
 
   constexpr int64_t kNDims = 2;
-  TensorView* tva = makeSymbolicTensor(kNDims);
-  TensorView* tvb = makeSymbolicTensor(kNDims);
+  TensorView* tva = makeContigTensor(kNDims);
+  TensorView* tvb = makeContigTensor(kNDims);
   // some ops, like MatMulOp are natively supported as HostIrs, and do not need
   // to be implemented as a Fusion
   TensorView* tvc = matmul(tva, tvb);
   Expr* matmul_op = tvc->definition();
 
-  TensorView* tvd = makeSymbolicTensor(kNDims);
+  TensorView* tvd = makeContigTensor(kNDims);
   // Before defining the communication (reduce-scatter) that produces tvd from
   // tvc, it is required to set tvd and tvc device mesh (this might be removed
   // in the future)
@@ -915,8 +915,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       /*in=*/tvc,
       /*team=*/all_devices,
       /*(unused)root=*/-1,
-      RedOpType::SUM,
-      /*scattered_axis=*/0);
+      RedOpType::SUM);
 
   // Since communications are non-blocking, it is always required to wait for a
   // posted communication. Node that "wait" blocks the stream but not the CPU

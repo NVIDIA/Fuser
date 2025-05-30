@@ -257,6 +257,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
 const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
   if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -267,7 +268,6 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
-      FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);

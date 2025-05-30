@@ -5,8 +5,8 @@
 import sys
 
 assert (
-    "nvfuser_next" not in sys.modules
-), "Cannot import nvfuser if nvfuser_next module is already imported."
+    "nvfuser_direct" not in sys.modules
+), "Cannot import nvfuser if nvfuser_direct module is already imported."
 
 import logging
 import os

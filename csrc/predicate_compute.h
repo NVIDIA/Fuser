@@ -15,7 +15,29 @@
 #include <logical_domain_map.h>
 
 namespace nvfuser {
+// Struct holds the info returned from OneDimTmaLoadExpectArrive()
+struct OneDimTmaPredicateInfo {
+  // predicate value for 1D TMA load, it combines ElectSync and Inline
+  // predicate
+  Val* combined_pred_val = nullptr;
+  // Inline predicate, used in corresponding
+  Val* inline_pred_val = nullptr;
+  // index of the circular buffer loop
+  Val* circular_loop_index = nullptr;
 
+  // Reset after each use to ensure for each OneDimTmaLoadExpectArrive
+  // there is only one corresponding OneDimTmaWaitParity
+  void reset() {
+    combined_pred_val = nullptr;
+    inline_pred_val = nullptr;
+    circular_loop_index = nullptr;
+  }
+
+  // Ensure it is valid before use
+  bool isSet() const {
+    return combined_pred_val && inline_pred_val && circular_loop_index;
+  }
+};
 class PredicateCompute {
  public:
   // ignore_internal_syncthread_ops will prevent creation of predicates on
@@ -31,6 +53,21 @@ class PredicateCompute {
   static Val* getElectSyncPredicate(
       kir::Predicate* pred,
       const std::vector<ForLoop*>& loops);
+
+  //! Get predicate for expect arrive bytes and tma load.
+  //! The predicate combines ElectSync and Inline predicate for TMA load.
+  //! Inline predicate is further used in the predicate for wait parity.
+  static OneDimTmaPredicateInfo OneDimTmaLoadExpectArrive(
+      kir::Predicate* pred,
+      const std::vector<ForLoop*>& loops);
+
+  //! Get predicate for wait parity. Reuse [inline_pred_val] since
+  //! wait parity doesn't have any output tensor which is required generate
+  //! an inline predicate.
+  static Val* OneDimTmaWaitParity(
+      kir::Predicate* pred,
+      const std::vector<ForLoop*>& loops,
+      const OneDimTmaPredicateInfo& one_dim_tma_pred_info);
 };
 
 //! Parallelized domains may need to be predicated with threading

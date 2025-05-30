@@ -47,6 +47,9 @@ struct KernelSummary {
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 
+  //! Are all block reduction warp reductions?
+  bool all_block_reductions_are_warp_reduction = true;
+
   //! Number of static grid reductions
   bool has_grid_reductions = false;
 

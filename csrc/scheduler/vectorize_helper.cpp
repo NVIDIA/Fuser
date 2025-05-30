@@ -12,6 +12,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>

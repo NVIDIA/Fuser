@@ -713,6 +713,90 @@ Val* createMultipleExpressionElectSync(
 
 } // namespace
 
+// predicate value for 1D TMA load and expect arrive bytes, it combines
+// ElectSync and Inline predicate.
+OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& current_loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaLoadExpectArrive");
+  auto expr = pred->expr();
+  NVF_ERROR(expr != nullptr);
+  OneDimTmaPredicateInfo one_dim_tma_pred_info;
+  auto pval_elect_sync = createElectSyncPredicate(pred, true);
+  auto pval_inline = getInlinePredicate(
+      expr,
+      current_loops,
+      /*rotated_loop_=*/std::unordered_set<ForLoop*>{},
+      /*thread_pred=*/nullptr,
+      PredicateType::Inline);
+  // We want to merge [pval_inline] with [pval_elect_sync].
+  // However, the loop indices nested in [ IF ElectSync] are no longer
+  // accessible when predicates are combined. Therefore, we visit all the
+  // for-loops after the one contains elect sync and replace loop index with
+  // zero.
+  std::unordered_map<Val*, Val*> replace_map;
+  for (auto fl : pred->tma1dLoadLoops()) {
+    // save circular buffer loop index, will be replaced when generating
+    // predicate for MBarrierWaitParity in computation branch.
+    if (fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp) {
+      one_dim_tma_pred_info.circular_loop_index = fl->index();
+      continue;
+    }
+    // tma1dLoadLoops() returns all the loops above the actual tma load expr.
+    // skip the loops that are already in the current loop nest since their
+    // indices are accessible.
+    if (std::any_of(
+            current_loops.begin(), current_loops.end(), [&](ForLoop* loop) {
+              return loop->iter_domain() == fl->iter_domain();
+            })) {
+      continue;
+    }
+    // Replace indicies of other forloops to 0.
+    // Replace the loop index with zero removes the corresponding predicate
+    // to this loop-domain, we should ensure the split generating this
+    // domain is divisible.
+    replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+    auto id_def = fl->iter_domain()->definition();
+    if (!id_def) {
+      continue;
+    }
+    if (auto split = dynamic_cast<Split*>(id_def)) {
+      GpuLower::current()->validate(
+          split->isDivisible(),
+          "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+          split->toString());
+    }
+  }
+  pval_inline = ir_utils::replaceValRecursively(pval_inline, replace_map);
+  one_dim_tma_pred_info.inline_pred_val = pval_inline;
+  one_dim_tma_pred_info.combined_pred_val =
+      SimplifyingIrBuilder::logicalAndExpr(pval_elect_sync, pval_inline);
+  return one_dim_tma_pred_info;
+}
+
+// predicates MBarrierWaitParity for 1d tma load
+Val* PredicateCompute::OneDimTmaWaitParity(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& current_loops,
+    const OneDimTmaPredicateInfo& one_dim_tma_pred_info) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::OneDimTmaWaitParity");
+  auto expr = pred->expr();
+  NVF_ERROR(expr != nullptr);
+  // Since MBarrierWaitParity has no output tensor, its predicate value
+  // cannot be computed directly. Instead, we reuse [inline_pred_1d_tma], but
+  // replace the circular buffer load loop index with that of the circular
+  // buffer compute loop.
+  NVF_ERROR(expr->isA<kir::MBarrierWaitParity>())
+  auto inline_pred_1d_tma = one_dim_tma_pred_info.inline_pred_val;
+  auto circular_loop_index = one_dim_tma_pred_info.circular_loop_index;
+  auto fl = current_loops.back();
+  std::unordered_map<Val*, Val*> replace_map;
+  replace_map[circular_loop_index] = fl->index();
+  auto pred_val =
+      ir_utils::replaceValRecursively(inline_pred_1d_tma, replace_map);
+  return pred_val;
+}
+
 Val* PredicateCompute::getElectSyncPredicate(
     kir::Predicate* pred,
     const std::vector<ForLoop*>& loops) {
@@ -773,7 +857,7 @@ Val* PredicateCompute::getInlinePredicate(
   // TMem ld/st accesses TMem in a very specific pattern and can not be
   // predicated like accesses to general memory types, we do not have a good
   // way to predicate the accesses yet, so we just skip the predicate for now.
-  if (ir_utils::isCpAsyncBulk(expr) || ir_utils::isLdStTMem(expr)) {
+  if (ir_utils::isCpAsyncBulkTensorTile(expr) || ir_utils::isLdStTMem(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
@@ -829,7 +913,11 @@ Val* PredicateCompute::getInlinePredicate(
 
   preds.push_back(parallel_dom_pred);
 
-  if (thread_pred != nullptr) {
+  // Don't need thread predicate for 1D TMA load with circular buffer, it is
+  // already predicated with ElectSync.
+  if (thread_pred &&
+      !(ir_utils::isCpAsyncBulk1D(expr) &&
+        gpu_lower->circularBufferInfo().getCircularBufferAxis(out_tv))) {
     preds.push_back(thread_pred);
   }
 

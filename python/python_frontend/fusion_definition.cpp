@@ -453,10 +453,6 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
       if (scheds->multi_device_executor == nullptr) {
         MultiDeviceExecutorParams params;
         params.lower.communicator_backend = backend_type_;
-        // Disable StreamParallelType pass temporarily as proper stream lowering
-        // gets implemented
-        preseg_passes::OptimizationPassGuard<hir::StreamParallelType> guard(
-            false);
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
             std::make_unique<Fusion>(*scheds->preschedFusion()),
             Communicator::getInstance(),
@@ -531,9 +527,10 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
               ->completeFusion();
     output_shardings = getOutputShardings(fusion);
     NVF_ERROR(
-        output_shardings.empty() || output_shardings.size() == outputs.size(),
+        output_shardings.empty() ||
+            std::ssize(output_shardings) == outputs.size(),
         "Found ",
-        output_shardings.size(),
+        std::ssize(output_shardings),
         " output shardings but expected ",
         outputs.size(),
         " or 0.");

@@ -50,6 +50,7 @@ enum class DebugDumpOption {
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
   LaunchParam, //!< Dump the Launch parameters of kernel
+  DynamicSharedMemory, //!< Dump the dynamic shared memory allocation
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
@@ -65,6 +66,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
+  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.

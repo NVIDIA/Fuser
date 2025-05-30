@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -3714,6 +3715,125 @@ class MergeUpAndDownCast {
   SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
 };
 
+// Concat is represented as PadOp nodes of inputs, followed by a
+// ConcatOp node. It's unlikely they should be separated.
+class MergeCatWithInputPads {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergeCatWithInputPads merge_cat_with_input_pads(segment_candidate_finder);
+  }
+
+ private:
+  MergeCatWithInputPads(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {
+    merge();
+  }
+
+  void merge() {
+    std::unordered_set<SegmentedGroup*> considered_groups;
+    std::vector<std::vector<SegmentedGroup*>> candidates;
+
+    for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
+      if (considered_groups.contains(group)) {
+        continue;
+      }
+
+      auto groups_to_merge = getGroupsToMerge(group);
+      if (!groups_to_merge.has_value()) {
+        continue;
+      }
+
+      considered_groups.insert(
+          groups_to_merge->begin(), groups_to_merge->end());
+
+      candidates.emplace_back(*groups_to_merge);
+    }
+
+    // Try merging the detected group
+    for (const auto& groups_to_merge : candidates) {
+      mergeGroups(groups_to_merge);
+    }
+  }
+
+  // Given a segmented group, try to detect a concat pattern, where
+  // all of the inputs are produced by pad groups.
+  std::optional<std::vector<SegmentedGroup*>> getGroupsToMerge(
+      SegmentedGroup* cat_group) {
+    // This pass is assumed to be applied before the iterative
+    // merge step, so only consider groups that are not yet merged
+    // at all.
+    if (cat_group->exprs().size() != 1) {
+      return std::nullopt;
+    }
+
+    // Technically, this can be just an add operation as concat can be
+    // represented with pad and add.
+    // TODO: Consider extending this pattern matching to support
+    // add-based concat
+    auto cat = dynamic_cast<CatOp*>(cat_group->exprs().at(0));
+    if (cat == nullptr) {
+      return std::nullopt;
+    }
+
+    // Check if a given pad is for the cat. More strictly, the actual
+    // padding widths do matter, but it's unikely to make any
+    // difference. Since this is a heuristic, this check should be
+    // good enough.
+    auto is_matching_pad = [&cat](PadOp* pad) {
+      if (!pad->value()->isZero()) {
+        return false;
+      }
+      auto padded_axes = pad->getPaddedAxes();
+      return padded_axes.size() == 1 &&
+          padded_axes.at(0) == cat->concatenatedDim();
+    };
+
+    std::vector<SegmentedGroup*> groups_to_merge;
+    groups_to_merge.reserve(cat->inputs().size() + 1);
+    for (const auto cat_inp : cat->inputs()) {
+      auto pad = dynamic_cast<PadOp*>(cat_inp->definition());
+      if (pad == nullptr || !is_matching_pad(pad)) {
+        return std::nullopt;
+      }
+
+      auto producer_edge_it = std::ranges::find_if(
+          cat_group->producer_edges, [&](SegmentedEdge* producer_edge) {
+            SegmentedGroup* producer_group = producer_edge->from;
+            return producer_group->exprs().size() == 1 &&
+                producer_group->exprs().at(0) == pad &&
+                producer_group->consumer_edges.size() == 1;
+          });
+      if (producer_edge_it == cat_group->producer_edges.end()) {
+        return std::nullopt;
+      }
+
+      groups_to_merge.push_back((*producer_edge_it)->from);
+    }
+
+    groups_to_merge.push_back(cat_group);
+
+    return groups_to_merge;
+  }
+
+  bool mergeGroups(const std::vector<SegmentedGroup*>& groups) {
+    auto sched_type = tryMerge(
+        segment_candidate_finder_->segmented_fusion_.get(),
+        segment_candidate_finder_->runtimeInfo(),
+        groups);
+
+    if (sched_type == SchedulerType::None) {
+      return false;
+    }
+
+    segment_candidate_finder_->mergeAllGivenGroups(groups);
+
+    return true;
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Allow the segmentation algorithm to prefer certain exprs to merge
@@ -3836,7 +3956,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
   auto merge_candidates = group->getMergeCandidates();
   if (std::ranges::find_if(
           merge_candidates, [&](const SegmentedGroup::NeighborGroup& neighbor) {
-            return neighbor.group != producer_group;
+            return neighbor.group == producer_group;
           }) == merge_candidates.end()) {
     return std::nullopt;
   }
@@ -3851,6 +3971,10 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
   }
 
   const auto merge_candidates = group->getMergeCandidates();
+
+  if (merge_candidates.empty()) {
+    return std::nullopt;
+  }
 
   for (auto expr : group->exprs()) {
     auto pad = dynamic_cast<PadOp*>(expr);
@@ -3883,7 +4007,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       if (std::ranges::find_if(
               merge_candidates,
               [&](const SegmentedGroup::NeighborGroup& neighbor) {
-                return neighbor.group != consumer_group;
+                return neighbor.group == consumer_group;
               }) == merge_candidates.end()) {
         continue;
       }
@@ -4140,6 +4264,10 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
+
+  MergeCatWithInputPads::run(this);
+  validateIfDebug(true);
+
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 

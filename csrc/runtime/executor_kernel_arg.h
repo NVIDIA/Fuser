@@ -179,8 +179,8 @@ class NVF_API KernelArgumentHolder {
     return std::back_inserter(arguments_);
   }
 
-  size_t size() const {
-    return arguments_.size();
+  int64_t size() const {
+    return std::ssize(arguments_);
   }
 
   bool empty() const {

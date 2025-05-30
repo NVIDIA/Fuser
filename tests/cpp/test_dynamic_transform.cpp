@@ -833,11 +833,14 @@ void reductionDynamicViewAddFusion(
     auto outputs = executor_cache.runFusionWithInputs(args);
     checkCache(expect_miss);
 
-    auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
-                                             : at::sum(at_x, kReductionAxis);
+    auto at_tv1 = reshape_before_reduction ? at_x + at_bias
+                                           : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
+    auto at_y = reshape_before_reduction ? at::sum(at_x_reshape, kReductionAxis)
+                                         : at_x_reshape + at_bias;
 
-    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
+    testValidate(
+        executor_cache.fusion(), outputs, args, {at_y}, __LINE__, __FILE__);
   }
 }
 

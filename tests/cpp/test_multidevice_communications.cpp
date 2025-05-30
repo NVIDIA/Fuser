@@ -376,8 +376,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
       in,
       all_ranks_,
       /*root=*/-1,
-      kReductionOp,
-      /*scattered_axis=*/1);
+      kReductionOp);
 
   const int num_devices = communicator_->size();
   const int device_id = communicator_->deviceId();
