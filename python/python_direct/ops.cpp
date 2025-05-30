@@ -40,9 +40,7 @@ Element-wise addition of two operands.
 Parameters
 ----------
 lhs : Val or TensorView
-    The left-hand side operand.
 rhs : Val or TensorView
-    The right-hand side operand.
 
 Returns
 -------
@@ -58,32 +56,28 @@ Element-wise arctangent of lhs/rhs choosing the quadrant.
 Parameters
 ----------
 lhs : Val or TensorView
-    The y-coordinates.
 rhs : Val or TensorView
-    The x-coordinates.
 
 Returns
 -------
 Val or TensorView
-    The angles in radians between the positive x-axis and the rays to the points (x,y).
+    The angles in radians between the positive x-axis and a line to the (x, y) point.
 )")
           NVFUSER_DIRECT_BINDING_BINARY_OP(
               "div",
               div,
               R"(
-Element-wise integer division.
+Element-wise division.
 
 Parameters
 ----------
 lhs : Val or TensorView
-    The dividend.
 rhs : Val or TensorView
-    The divisor.
 
 Returns
 -------
 Val or TensorView
-    The integer quotient.
+    The quotient of the division, truncated towards zero as per C++'s operator /.
 )")
               NVFUSER_DIRECT_BINDING_BINARY_OP(
                   "truediv",
@@ -94,9 +88,7 @@ Element-wise true (floating point) division.
 Parameters
 ----------
 lhs : Val or TensorView
-    The dividend.
 rhs : Val or TensorView
-    The divisor.
 
 Returns
 -------
@@ -107,19 +99,17 @@ Val or TensorView
                       "fmod",
                       fmod,
                       R"(
-Element-wise floating-point remainder.
+Element-wise floating-point mod.
 
 Parameters
 ----------
 lhs : Val or TensorView
-    The dividend.
 rhs : Val or TensorView
-    The divisor.
 
 Returns
 -------
 Val or TensorView
-    The floating-point remainder of the division.
+    The floating-point mod.
 )")
                       NVFUSER_DIRECT_BINDING_BINARY_OP(
                           "mul",
@@ -130,9 +120,7 @@ Element-wise multiplication.
 Parameters
 ----------
 lhs : Val or TensorView
-    The first factor.
 rhs : Val or TensorView
-    The second factor.
 
 Returns
 -------
@@ -148,9 +136,7 @@ Return the next floating-point value after lhs towards rhs.
 Parameters
 ----------
 lhs : Val or TensorView
-    The starting values.
 rhs : Val or TensorView
-    The direction values.
 
 Returns
 -------
@@ -166,9 +152,7 @@ Element-wise power function.
 Parameters
 ----------
 lhs : Val or TensorView
-    The base values.
 rhs : Val or TensorView
-    The exponent values.
 
 Returns
 -------
@@ -184,9 +168,7 @@ Element-wise IEEE remainder.
 Parameters
 ----------
 lhs : Val or TensorView
-    The dividend.
 rhs : Val or TensorView
-    The divisor.
 
 Returns
 -------
@@ -200,9 +182,7 @@ Element-wise subtraction.
 Parameters
 ----------
 lhs : Val or TensorView
-    The minuend.
 rhs : Val or TensorView
-    The subtrahend.
 
 Returns
 -------
@@ -216,9 +196,7 @@ Element-wise minimum.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -232,9 +210,7 @@ Element-wise maximum.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -248,9 +224,7 @@ Element-wise modulo operation.
 Parameters
 ----------
 lhs : Val or TensorView
-    The dividend.
 rhs : Val or TensorView
-    The divisor.
 
 Returns
 -------
@@ -264,9 +238,7 @@ Element-wise equality comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -280,9 +252,7 @@ Element-wise greater than or equal comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -296,9 +266,7 @@ Element-wise greater than comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -312,9 +280,7 @@ Element-wise less than or equal comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -328,9 +294,7 @@ Element-wise less than comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -344,9 +308,7 @@ Element-wise not equal comparison.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -360,9 +322,7 @@ Element-wise logical AND.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -376,9 +336,7 @@ Element-wise logical OR.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -392,9 +350,7 @@ Element-wise bitwise AND.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -408,9 +364,7 @@ Element-wise bitwise OR.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -424,9 +378,7 @@ Element-wise bitwise XOR.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
@@ -440,9 +392,7 @@ Element-wise bitwise left shift.
 Parameters
 ----------
 lhs : Val or TensorView
-    Values to shift.
 rhs : Val or TensorView
-    Number of positions to shift by.
 
 Returns
 -------
@@ -456,9 +406,7 @@ Element-wise bitwise right shift.
 Parameters
 ----------
 lhs : Val or TensorView
-    Values to shift.
 rhs : Val or TensorView
-    Number of positions to shift by.
 
 Returns
 -------
@@ -472,9 +420,7 @@ Element-wise logical right shift.
 Parameters
 ----------
 lhs : Val or TensorView
-    Values to shift.
 rhs : Val or TensorView
-    Number of positions to shift by.
 
 Returns
 -------
@@ -488,9 +434,7 @@ Element-wise greatest common divisor.
 Parameters
 ----------
 lhs : Val or TensorView
-    First input.
 rhs : Val or TensorView
-    Second input.
 
 Returns
 -------
