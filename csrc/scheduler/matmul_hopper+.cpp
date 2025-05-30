@@ -954,7 +954,10 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       parallelizeBlocks({c_cache});
       transformLikeMmaOutputWithoutK(c_cache);
 
-      // TODO: parallelize c_cache as bulk
+      for (int64_t i = -5; i <= -1; i++) {
+        c_cache->axis(i)->parallelize(ParallelType::Bulk);
+      }
+
       TensorView* reg_tv = cacheAfter(c_cache);
       register_tvs.push_back(reg_tv);
 
