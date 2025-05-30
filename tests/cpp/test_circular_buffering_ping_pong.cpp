@@ -28,8 +28,7 @@ using PingPongCircularBufferingParams = std::tuple<int>;
 using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
