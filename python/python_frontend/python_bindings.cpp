@@ -2975,9 +2975,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       "scatter",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
-         int64_t dim,
          Tensor index,
-         Tensor src) -> Tensor {
+         Tensor src,
+         int64_t dim) -> Tensor {
         FUSER_PERF_SCOPE("Operators.scatter");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3013,9 +3013,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         return output;
       },
       py::arg("arg1"),
-      py::arg("dim"),
       py::arg("index"),
       py::arg("src"),
+      py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
       "gather",
