@@ -3333,7 +3333,8 @@ TensorDomain::TensorDomain(
         logical_domain_, allocation_domain_, additional_ids_);
   }
   if (alternate_loop_domain_.has_value()) {
-    validateLoopDomain(logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+    validateLoopDomain(
+        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
   }
 
   // resetDomains initializes other member variables, required by clang-tidy
