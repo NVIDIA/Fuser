@@ -833,6 +833,23 @@ FusionProfiler::~FusionProfiler() {
   teardownCupti(subscriber_handle_);
 }
 
+FusionProfiler::~FusionProfiler() {
+  FusionProfiler* fp = get();
+  if (!fp->cupti_disabled_) {
+    // Disable all activities
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+
+    // Force flush any remaining activities
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
+
+    NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
+    debug() << "FusionProfiler destructor called" << std::endl;
+  }
+}
+
 void FusionProfiler::startCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
   FusionProfiler& fp = get();
