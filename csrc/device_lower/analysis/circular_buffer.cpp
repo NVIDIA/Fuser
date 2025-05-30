@@ -598,6 +598,7 @@ Val* CircularBufferInfo::getLinearIndex(
 
   // The inner-most and outer-most for loops can be different.
   // Get outer-most for-loop index.
+  auto warp_specialized = std::get<WarpSpecialized>(circular_buffer_type);
   int64_t outer_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
 
@@ -610,7 +611,9 @@ Val* CircularBufferInfo::getLinearIndex(
     inner_loop_index = warp_specialized.stage_slice_position.value() - 1;
   }
   // Calculate insertion position.
-  int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
+  int64_t insertion_position = warp_specialized.stage_slice_position.has_value()
+          ? warp_specialized.stage_slice_position.value() - 1
+                : inner_loop_index - outer_loop_index + 1;
   return getLinearIndexRelativeForLoopStack(
       loops, insertion_position, /*start=*/outer_loop_index);
 }
