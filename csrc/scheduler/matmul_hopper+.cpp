@@ -938,6 +938,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    // TODO: should we rename use_ldst_matrix to use_tma_for_epilogue_input?
     bool load_with_tma = params_->use_ldst_matrix;
     bool is_2d_epilogue_input =
         TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
@@ -947,23 +948,17 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       c_cache->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
       c_cache->setMemoryType(MemoryType::Shared);
-
-      // Apply the default scheduling that is common to all register
-      // TensorViews after wgmma.
       blockTileTensors({c_cache});
       parallelizeBlocks({c_cache});
       transformLikeMmaOutputWithoutK(c_cache);
-
       c_cache->setAllocationDomain(c_cache->getLoopDomain(), true);
       for (int64_t i = -5; i <= -1; i++) {
         c_cache->axis(i)->parallelize(ParallelType::Bulk);
       }
 
+      // Schedule smem->register load for epilogue input
       TensorView* reg_tv = cacheAfter(c_cache);
       register_tvs.push_back(reg_tv);
-
-      // Apply the default scheduling that is common to all register
-      // TensorViews after wgmma.
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
