@@ -588,7 +588,7 @@ Val* CircularBufferInfo::getLinearIndex(
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
-  auto circular_buffer_type = circular_buffer_tv->circularBufferOptions().type;
+  const auto& circular_buffer_type = circular_buffer_tv->circularBufferOptions().type;
   bool is_warp_specialized =
       std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   if (!is_warp_specialized) {
