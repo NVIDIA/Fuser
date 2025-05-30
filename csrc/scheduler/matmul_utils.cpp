@@ -1165,17 +1165,23 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     int64_t Ntiles =
         ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
 
-    // Limit num clusters to the size needed to cover the problem, in case
-    // fewer are needed than the maximum that can be computed in a single wave.
-    const int64_t cgas_needed = ceilDiv(Mtiles, mparams->cluster_dims.x) *
-        ceilDiv(Ntiles, mparams->cluster_dims.y);
     const int64_t num_sms =
         at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
     const int64_t auto_cgas = num_sms /
         (mparams->cluster_dims.x * mparams->cluster_dims.y *
          mparams->cluster_dims.z);
-    mparams->num_clusters =
-        (cgas_needed < 0.9 * auto_cgas) ? cgas_needed : auto_cgas;
+
+    if (mparams->cluster_dims == MatmulParams::ClusterDims{1, 1, 1}) {
+      mparams->num_clusters = auto_cgas;
+    } else {
+      // Limit num clusters to the size needed to cover the problem, in case
+      // fewer are needed than the maximum that can be computed in a single
+      // wave.
+      const int64_t cgas_needed = ceilDiv(Mtiles, mparams->cluster_dims.x) *
+          ceilDiv(Ntiles, mparams->cluster_dims.y);
+      mparams->num_clusters =
+          (cgas_needed < 0.9 * auto_cgas) ? cgas_needed : auto_cgas;
+    }
   }
 
   if (isHopper(mparams->mma_macro)) {
