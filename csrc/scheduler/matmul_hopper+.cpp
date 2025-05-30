@@ -645,6 +645,7 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
 
 void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -670,7 +671,6 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
-    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     if (tmem_vectorize_factor < getN(params_->mma_macro)) {
       d->split(-1, tmem_vectorize_factor);
     }
@@ -1045,6 +1045,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     transformLikeMmaOutputWithoutK(tmem_ld_tv);
     tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+      tmem_ld_tv->split(-1, tmem_vectorize_factor);
+    }
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
