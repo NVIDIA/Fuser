@@ -984,8 +984,8 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     dc->setMemoryType(MemoryType::Local);
     d_smem->setMemoryType(MemoryType::Shared);
 
-    d->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::CpAsyncBulkTensorTile);
+    // d->definition()->as<LoadStoreOp>()->setOpType(
+    //     LoadStoreOpType::CpAsyncBulkTensorTile);
 
     // Apply the common transforms to dc, d_smem, d
     // After these transforms we schedule the inner two non-reduction loops
@@ -1033,9 +1033,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
     // Schedule global memory output; Output from TMA Store
-    for (int64_t i = -5; i <= -1; i++) {
-      d->axis(i)->parallelize(ParallelType::Bulk);
-    }
+    // for (int64_t i = -5; i <= -1; i++) {
+    //   d->axis(i)->parallelize(ParallelType::Bulk);
+    // }
   }
 
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
