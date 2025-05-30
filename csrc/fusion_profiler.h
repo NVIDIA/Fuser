@@ -237,6 +237,7 @@ class SegmentProfiler {
 //! segments.
 class FusionProfiler {
   FusionProfiler();
+  ~FusionProfiler();
 
   //! Method to access FusionProfiler singleton
   static FusionProfiler* get();

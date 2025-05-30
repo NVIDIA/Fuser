@@ -11,7 +11,7 @@ from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from nvfuser.benchmark_utils import TorchProfileTimer, FusionProfileTimer
+from nvfuser.benchmark_utils import TorchProfileTimer, FusionProfileTimer, CuptiTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -106,7 +106,7 @@ class NVFBenchmark:
 
         # Modify the default timer.
         if device == "cuda":
-            benchmark_fixture._timer = TorchProfileTimer()
+            benchmark_fixture._timer = CuptiTimer()
         else:
             benchmark_fixture._timer = FusionProfileTimer()
         # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
