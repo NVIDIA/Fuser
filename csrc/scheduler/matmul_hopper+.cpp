@@ -971,7 +971,8 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       propagate_to.push_back(c);
     }
   }
-  propagate_to.insert(propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
+  propagate_to.insert(
+      propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
 
   // Manually schedule register cache and output TensorView
   for (Val* dv : fusion_->outputs()) {
