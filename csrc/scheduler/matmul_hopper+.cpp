@@ -1043,8 +1043,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   parallelizeBlocks(tmem_ld_tvs);
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     transformLikeMmaOutputWithoutK(tmem_ld_tv);
-    std::cout << "tmem_ld_tv: " << tmem_ld_tv->toString() << std::endl;
-    tmem_ld_tv->printTransforms();
+    tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
