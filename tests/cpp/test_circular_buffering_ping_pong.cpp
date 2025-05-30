@@ -62,6 +62,8 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
     // [I, 2, 132, 4]
     tv->axis(0)->parallelize(ParallelType::Serial);
     tv->axis(2)->parallelize(ParallelType::BIDx);
+    // Axis 3 cannot use ParallelType::Unroll, so explicitly set it to
+    // ParallelType::Serial here
     tv->axis(3)->parallelize(ParallelType::Serial);
   }
 
@@ -124,7 +126,9 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
 
   auto out_ref = t0 + t0;
   auto cg_outputs = ke.run({t0});
-  // check shared memory size
+  testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
+
+  // Check shared memory size is allocated based on stage_slice_position
   int64_t size_per_row = dim1 * sizeof(float);
   int64_t rows_per_sync = 0;
   if (stage_slice_position == 2) {
@@ -137,10 +141,9 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   int64_t smem_buffer_size = size_per_row * stages * rows_per_sync;
   int64_t smem_barrier_size = 128;
   EXPECT_EQ(ke.lastLaunchParams().smem(), smem_buffer_size + smem_barrier_size)
-      << "Shared memory size err, expected "
+      << "Shared memory size error, expected "
       << smem_buffer_size + smem_barrier_size << ", got "
       << ke.lastLaunchParams().smem();
-  testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
