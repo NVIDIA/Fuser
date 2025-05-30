@@ -430,7 +430,7 @@ class MatmulParams : public HeuristicParams {
     }
     ss << "\n";
     ss << cluster_dims.toString() << "\n"
-       << "Number of CTAs: " << num_clusters << "\n"
+       << "Number of CGAs: " << num_clusters << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
