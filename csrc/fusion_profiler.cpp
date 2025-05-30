@@ -606,8 +606,11 @@ FusionProfiler::FusionProfiler()
       segments_(),
       device_descriptors_(),
       kernel_profiles_(),
-      corrid_2_segid_() {
+      corrid_2_segid_(),
+      subscriber_handle_(nullptr) {
   if (!cupti_disabled_) {
+    debug() << "FusionProfiler constructor called" << std::endl;
+    NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle_, nullptr, nullptr));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
         cupti_buffer_requested, cupti_buffer_completed));
   }
@@ -615,13 +618,13 @@ FusionProfiler::FusionProfiler()
 
 FusionProfiler* FusionProfiler::get() {
   static std::mutex singleton_lock;
-  static FusionProfiler* singleton = nullptr;
+  static std::unique_ptr<FusionProfiler> singleton;
 
   std::lock_guard<std::mutex> guard(singleton_lock);
   if (singleton == nullptr) {
-    singleton = new FusionProfiler();
+    singleton = std::make_unique<FusionProfiler>();
   }
-  return singleton;
+  return singleton.get();
 }
 
 void FusionProfiler::reset() {
@@ -802,21 +805,34 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   fp->state_ = ProfilerState::Processed;
 }
 
-FusionProfiler::~FusionProfiler() {
-  FusionProfiler* fp = get();
-  if (!fp->cupti_disabled_) {
-    // Disable all activities
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
-
-    // Force flush any remaining activities
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
-
-    NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
-    debug() << "FusionProfiler destructor called" << std::endl;
+void FusionProfiler::cleanup() {
+  FusionProfiler::reset();
+  
+  if (cupti_disabled_) {
+    return;
   }
+
+  // Disable all activities
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+
+  // Force flush any remaining activities
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
+
+  // First unsubscribe if we have a valid handle
+  if (subscriber_handle_ != nullptr) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(subscriber_handle_));
+  }
+
+  // Then finalize CUPTI
+  NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
+}
+
+
+FusionProfiler::~FusionProfiler() {
+  FusionProfiler::cleanup();
 }
 
 void FusionProfiler::startCompile() {
