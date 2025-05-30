@@ -130,6 +130,53 @@ def test_cross_entropy_mini_benchmark_bwd(benchmark, executor: str, vocab_size: 
     run_benchmark(benchmark, unary_bwd_torch, [outputs, grads, *inputs])
 
 
+def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
+    T0 = fd.define_tensor(shape=[4096], contiguity=[True], dtype=DataType.Int, is_cpu=False, stride_order=[0])
+    T1 = fd.define_tensor(shape=[1, 4096, -1], contiguity=[None, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+    V00 = fd.ops.shape(T0)
+    Shape_T0 = fd.ops.at(V00, index=-1)
+    V01 = fd.ops.shape(T1)
+    Shape_T1_0 = fd.ops.at(V01, index=0)
+    Shape_T1_1 = fd.ops.at(V01, index=1)
+    Shape_T1_2 = fd.ops.at(V01, index=2)
+    S1 = fd.define_scalar(1, dtype=DataType.Int)
+    S1 = fd.ops.add(S1, Shape_T0)
+    S2 = fd.define_scalar(0, dtype=DataType.Int)
+    T6 = fd.ops.pad(T0, [0, 1], S2)
+    T13 = fd.ops.slice(T6, start_indices=[1], end_indices=[S1], strides=[1], manual_normalization=0)
+    T14 = fd.ops.cast(T1, dtype=DataType.Float)
+    T15 = fd.ops.squeeze(T14, dims=[0], squeeze_expanded=False)
+    S16 = fd.define_scalar(-100, dtype=DataType.Int)
+    S17 = fd.define_scalar(0.00000, dtype=DataType.Float)
+    T18 = fd.ops.ne(T13, S16)
+    T19 = fd.ops.where(T18, T13, S17)
+    V20 = fd.ops.shape(T13)
+    S21 = fd.ops.at(V20, index=-1)
+    T24 = fd.ops.broadcast_in_dim(T19, shape=[S21, 1], broadcast_dims=[0])
+    T25 = fd.ops.take_along_axis(T15, T24, dim=1)
+    V26 = fd.ops.shape(T13)
+    S27 = fd.ops.at(V26, index=-1)
+    T29 = fd.ops.reshape(T25, new_shape=[S27])
+    T30 = fd.ops.max(T15, dims=[1], keepdim=False, dtype=DataType.Null)
+    V31 = fd.ops.shape(T13)
+    S32 = fd.ops.at(V31, index=-1)
+    T35 = fd.ops.broadcast_in_dim(T30, shape=[S32, 1], broadcast_dims=[0])
+    T36 = fd.ops.sub(T15, T35)
+    T37 = fd.ops.exp(T36)
+    T38 = fd.ops.sum(T37, dims=[1], keepdim=False, dtype=DataType.Null)
+    T39 = fd.ops.log(T38)
+    T40 = fd.ops.sub(T29, T30)
+    T41 = fd.ops.sub(T40, T39)
+    T42 = fd.ops.neg(T41)
+    T43 = fd.ops.where(T18, T42, S17)
+    T44 = fd.ops.sum(T18, dims=[0], keepdim=False, dtype=DataType.Null)
+    T45 = fd.ops.cast(T44, dtype=DataType.Float)
+    T46 = fd.ops.sum(T43, dims=[0], keepdim=False, dtype=DataType.Null)
+    T47 = fd.ops.div(T46, T45)
+    fd.add_output(T47)
+
+
+
 def nvfuser_fusion_id0(fd: FusionDefinition, inputs) -> None:
     # T0 = fd.define_tensor(
     #     shape=[1, 4096, 152064],
@@ -196,24 +243,30 @@ def nvfuser_fusion_id0(fd: FusionDefinition, inputs) -> None:
 def test_run_loss_benchmark(benchmark):
 
     inputs = [
-        torch.randn(
-            1, 4096, 152064, requires_grad=False, device="cuda", dtype=torch.bfloat16
-        ),
+
         torch.randint(
             0,
             128,
             (
-                1,
+                # 1,
                 4096,
             ),
             requires_grad=False,
             device="cuda",
         ),
+
+        torch.randn(
+            4096, 32064, requires_grad=False, device="cuda", dtype=torch.bfloat16
+        ),
     ]
 
-    fun = nvfuser_fusion_id0
+    inputs[1] = torch.broadcast_to(
+        inputs[1], (1, *inputs[1].shape)
+    )  # Add batch dimension for the model
+
+    fun = nvfuser_fusion_id1
 
     with FusionDefinition() as fd:
-        fun(fd, inputs)
+        fun(fd)
 
     run_benchmark(benchmark, fd.execute, inputs)
