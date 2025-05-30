@@ -560,6 +560,7 @@ class HopperBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -570,6 +571,7 @@ class BlackwellBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -581,6 +583,7 @@ class TmaBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
