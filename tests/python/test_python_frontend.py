@@ -4532,8 +4532,8 @@ with FusionDefinition() as fd:
     nvfuser_fusion_id0(fd)
 
 inputs = [
-    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0,),
-    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0,),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0, requires_grad=False).as_strided((4, 4), (4, 1), 0),
+    torch.testing.make_tensor((4, 4), dtype=torch.float32, device="cuda:0", low=0.0, high=1.0, requires_grad=False).as_strided((4, 4), (4, 1), 0),
 ]
 fd.execute(inputs)
 """

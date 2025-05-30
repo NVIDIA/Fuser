@@ -61,29 +61,34 @@ def disable_automatic_serialization():
 
 # NOTE(crcrpar): The main motivation of this dataclass is to avoid unexpected negative values being supplied to indexing such as embedding.
 # See NVIDIA/Fuser#4529.
-class InputReproducer:
+class InputDescriptor:
+    """Dataclass to describe an input tensor."""
     low: Number
     high: Number
     device: str
     dtype: torch.dtype
     size: tuple[int, ...]
     strides: tuple[int, ...]
+    storage_offset: int
+    requires_grad: bool
     is_contiguous: bool
 
     def __init__(self, tensor: torch.Tensor) -> None:
         if type(tensor) is not torch.Tensor:
             msg = f"Repro script only supports {torch.Tensor} but {type(tensor)}"
             raise RuntimeError(msg)
-        self.low, self.high = InputReproducer.get_min_and_max(tensor)
+        self.low, self.high = InputDescriptor._get_min_and_max(tensor)
         self.dtype = tensor.dtype
         self.device = f'"{str(tensor.device)}"'
         self.size = tuple(tensor.size())
         self.strides = tuple(tensor.stride())
+        self.storage_offset = tensor.storage_offset()
+        self.requires_grad = tensor.requires_grad
         self.is_contiguous = tensor.is_contiguous()
 
     @torch.inference_mode()
     @staticmethod
-    def get_min_and_max(tensor: torch.Tensor) -> tuple[Number | None, Number | None]:
+    def _get_min_and_max(tensor: torch.Tensor) -> tuple[Number | None, Number | None]:
         if tensor.dtype is torch.bool:
             return 0, 2
 
@@ -94,13 +99,13 @@ class InputReproducer:
         min_max = torch.aminmax(t)
         return min_max[0].cpu().item(), min_max[1].cpu().item()
 
+    def make_repro_tensor(self) -> torch.Tensor:
+        """Create a tensor of the same `low` and `high` as the saved input"""
+        return torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high}, requires_grad={self.requires_grad}).as_strided({self.size}, {self.strides}, {self.storage_offset})
+
     def to_make_tensor_str(self) -> str:
-        if self.is_contiguous:
-            return f"torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high},)"
-        if self.dtype.is_floating_point:
-            return f"torch.randn({self.size}, dtype={self.dtype}, device={self.device}).as_strided({self.size}, {self.strides})"
-        else:
-            return f"torch.randint({self.low}, {self.high}, {self.size}, dtype={self.dtype}, device={self.device},).as_strided({self.size}, {self.strides})"
+        """Create a stringified :func:`InputDescriptor.make_repro_tensor`."""
+        return f"torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high}, requires_grad={self.requires_grad}).as_strided({self.size}, {self.strides}, {self.storage_offset})"
 
 
 class FusionDefinition(_C._FusionDefinition):
@@ -358,8 +363,13 @@ class FusionDefinition(_C._FusionDefinition):
                     self.schedule()
                     self._finalize_schedule(inputs)
 
+        # TODO(crcrpar): Think about deprecating `self.fake_inputs` in favor of `InputDescriptor`.
         if save_repro_inputs:
-            self.last_input_reproducers = [InputReproducer(tensor) for tensor in inputs]
+            from torch._subclasses.fake_tensor import FakeTensorMode
+
+            fake_mode = FakeTensorMode()
+            self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
+            self.input_descriptors = [InputDescriptor(tensor) for tensor in inputs]
 
         if hasattr(self, "segments") and len(self.segments) > 0:
             return self._execute_segments(inputs, device=device, profile=profile)
@@ -545,14 +555,14 @@ class FusionDefinition(_C._FusionDefinition):
 
     def last_repro_script(self) -> str:
         assert (
-            self.last_input_reproducers is not None
+            self.fake_inputs is not None
         ), "fd.last_repro_script() cannot provide a repro because fd.execute(inputs, save_repro_state=True) was not executed!"
-        script = self.repro_script_for(self.last_input_reproducers)
+        script = self.repro_script_for(self.input_descriptors)
         return script
 
     def repro_script_for(
         self,
-        inputs: list[torch.Tensor] | list[InputReproducer] | None = None,
+        inputs: list[torch.Tensor] | list[InputDescriptor] | None = None,
     ) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
@@ -572,8 +582,8 @@ class FusionDefinition(_C._FusionDefinition):
             for i in inputs:
                 # TODO(crcrpar): Think about how to support tensor wrapper subclasses such as DTensor
                 if isinstance(i, torch.Tensor):
-                    i = InputReproducer(i)
-                if isinstance(i, InputReproducer):
+                    i = InputDescriptor(i)
+                if isinstance(i, InputDescriptor):
                     msg += f"    {i.to_make_tensor_str()},\n"
                 else:
                     input_as_string = str(i)
