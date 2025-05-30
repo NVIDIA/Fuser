@@ -20,7 +20,11 @@
 
 namespace nvfuser {
 
-using PointwiseTest = NVFuserTest;
+class PointwiseTest : public NVFuserTest {
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 namespace {
 
