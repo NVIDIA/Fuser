@@ -560,7 +560,6 @@ class HopperBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
