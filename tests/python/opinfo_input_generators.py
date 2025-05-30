@@ -708,6 +708,56 @@ def full_error_generator(
     ), RuntimeError, "The value -2 at index 1 was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1)."
 
 
+def scatter_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    # torch.scatter(input: Tensor, dim: int, index: LongTensor, src: LongTensor)
+    # * input, index and src tensors have same ndims.
+    # * index tensors must be <= input tensor along all dims.
+    # * index tensors must be == src tensor along all dims.
+    # * index tensors must have unique value across specified axis.
+
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    def make_unique_index(shape_b, dim, extent):
+        logits_shape = shape_b.copy()
+        logits_shape[dim] = extent
+        logits = make_tensor(logits_shape, device="cuda", dtype=torch.float)
+        # return index tensor with unique entry
+        return logits.argsort(dim).narrow(dim, 0, shape_b[dim])
+
+    make_index = partial(
+        make_tensor, device="cuda", dtype=torch.long, requires_grad=False
+    )
+
+    # a.shape, dim, b.shape
+    cases = (
+        ((8, 2, 3), 0, (4, 2, 3)),
+        ((4, 2, 3), 1, (4, 2, 3)),
+        ((4, 2, 3), 2, (4, 2, 2)),
+        ((8,), 0, (8)),
+        ((8,), 0, (4)),
+        ((8,), 0, (1)),
+        ((4, 1), 0, (1, 1)),
+        ((4, 5), 1, (4, 1)),
+        ((8, 2, 3), 0, (4, 1, 2)),
+        ((8, 2, 3), 1, (4, 1, 2)),
+        ((8, 2, 3), 2, (4, 1, 2)),
+        # negative dim
+        ((8, 2, 3), -3, (4, 2, 3)),
+        ((4, 2, 3), -2, (4, 2, 3)),
+        ((4, 2, 3), -1, (4, 2, 2)),
+    )
+
+    for shape_a, dim, shape_b in cases:
+        a = make_arg(shape_a)
+        b = make_unique_index(shape_b, dim, shape_a[dim])
+        c = make_arg(shape_b)
+        yield SampleInput(a, b, c, dim)
+
+
 def gather_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

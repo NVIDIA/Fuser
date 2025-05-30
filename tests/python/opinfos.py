@@ -27,6 +27,7 @@ from opinfo_input_generators import (
     _elementwise_unary_torch,
     full_error_generator,
     gather_generator,
+    scatter_generator,
     index_select_generator,
     index_select_error_generator,
     index_put_accumulate_generator,
@@ -989,6 +990,29 @@ broadcast_in_dim_symbolic_opinfo = OpInfo(
     ),
 )
 shape_ops.append(broadcast_in_dim_symbolic_opinfo)
+
+
+# translate between nvfuser and pytorch argument order for scatter
+def scatter_wrapper(
+    fn: callable, input: torch.Tensor, index: torch.Tensor, src: torch.Tensor, dim: int
+):
+    return fn(input, dim, index, src)
+
+
+scatter_opinfo = OpInfo(
+    lambda fd: fd.ops.scatter,
+    "scatter",
+    sample_input_generator=scatter_generator,
+    error_input_generator=take_along_axis_error_generator,
+    reference=partial(scatter_wrapper, torch.scatter),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(scatter_opinfo)
 
 
 # translate between nvfuser and pytorch argument order for gather, take_along_dim, and index_select
