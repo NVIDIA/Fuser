@@ -454,12 +454,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (id_def_split->factor() != inner_loop->stop()) {
       return nullptr;
     }
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-    if (!id_def_split->factor()->isConstScalar() ||
-        id_def_split->factor()->evaluate().as<int64_t>() != num_sms) {
-      return nullptr;
-    }
 
     // Check that the outer loop is a serial for-loop.
     if (outer_loop_id->isParallelized()) {
