@@ -927,6 +927,8 @@ constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 
 void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+
   std::vector<TensorView*> tmem_ld_tvs =
       !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
 
@@ -993,7 +995,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
     // (instruction tile) of dc and propagate is back till the outputs of mma.
     blockTileTensors({d, d_smem});
     parallelizeBlocks({d, d_smem});
-    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     for (auto tv : {d, d_smem}) {
       transformLikeMmaOutputWithoutK(tv);
       // TIDx is 128, so we use it for lanes of the accumulator. Also, we
