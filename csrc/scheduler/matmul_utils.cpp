@@ -497,13 +497,6 @@ bool fillDefaultHopperHeuristic(
     }
 
     mparams->cluster_dims = largest_cga_cfg;
-
-    // Limit num clusters to the size needed to cover the problem, in case
-    // fewer are needed than the maximum that can be computed in a single wave.
-    const int64_t cgas_needed = ceilDiv(Xtiles, mparams->cluster_dims.x) *
-        ceilDiv(Ytiles, mparams->cluster_dims.y);
-    const int64_t auto_cgas = num_sms / largest_cga;
-    mparams->num_clusters = cgas_needed < auto_cgas ? cgas_needed : auto_cgas;
   }
 
   // This is the size of the non-fast dimension before swizzling
@@ -1162,6 +1155,27 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+  }
+
+  if (mparams->tiling_strategy ==
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+    const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
+    int64_t Mtiles =
+        ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+    int64_t Ntiles =
+        ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+    // Limit num clusters to the size needed to cover the problem, in case
+    // fewer are needed than the maximum that can be computed in a single wave.
+    const int64_t cgas_needed = ceilDiv(Mtiles, mparams->cluster_dims.x) *
+        ceilDiv(Ntiles, mparams->cluster_dims.y);
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    const int64_t auto_cgas = num_sms /
+        (mparams->cluster_dims.x * mparams->cluster_dims.y *
+         mparams->cluster_dims.z);
+    mparams->num_clusters =
+        (cgas_needed < 0.9 * auto_cgas) ? cgas_needed : auto_cgas;
   }
 
   if (isHopper(mparams->mma_macro)) {
