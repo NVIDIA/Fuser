@@ -423,6 +423,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
     if (val > 0) {
       expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
+      std::cout << "p_type " << p_type
+      << " val: " << val.as<int64_t>() << std::endl;      
     }
   }
 
@@ -473,7 +475,6 @@ LaunchParams KernelExecutor::computeLaunchParams(
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
         grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
-
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,

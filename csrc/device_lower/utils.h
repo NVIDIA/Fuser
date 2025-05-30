@@ -368,7 +368,7 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
 // Check if the given ForLoop is a warp specialized loop by checking
 // the circular buffer type of the loop domain.
-bool isWarpSpecializedLoop(ForLoop* loop);
+bool isWarpSpecializedLoop(const ForLoop* loop);
 } // namespace lower_utils
 
 } // namespace nvfuser

@@ -65,8 +65,10 @@ void UnrollPass::dispatch(Expr* expr) {
 
   // Predicate MBarrierWaitParity is required for 1D TMA.
   if (one_dim_tma_predicate_added_ && expr->isA<kir::MBarrierWaitParity>() &&
-      for_loops_.back()->circularBufferLoopStage() ==
-          CircularBufferLoopStage::ComputeWarp) {
+      std::any_of(for_loops_.begin(), for_loops_.end(), [](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() ==
+            CircularBufferLoopStage::ComputeWarp;
+      })) {
     auto pred = IrBuilder::create<kir::Predicate>(
         PredicateType::OneDimTmaWaitParity, expr);
     auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
@@ -254,8 +256,8 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
-  // Don't need to unroll for 1D TMA load since split by unroll factor
-  // for 1D TMA tv is divisible.
+  // Don't need to unroll for 1D TMA load or consumer exprs since split by
+  // unroll factor for 1D TMA tv is divisible.
   bool is_unroll_1d_tma = false;
   if (fl->iter_domain()->getParallelType() == ParallelType::Unroll) {
     const auto& exprs = ir_utils::flattenScopedExprs(fl->body().exprs());
@@ -263,6 +265,12 @@ void UnrollPass::handle(ForLoop* fl) {
       if (ir_utils::isCpAsyncBulk1DLoad(expr)) {
         is_unroll_1d_tma = true;
         break;
+      }
+      for (auto input : expr->inputs()) {
+        if (ir_utils::isCpAsyncBulk1DLoad(input->definition())) {
+          is_unroll_1d_tma = true;
+          break;
+        }
       }
     }
   }
