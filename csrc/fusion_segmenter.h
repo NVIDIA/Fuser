@@ -570,6 +570,7 @@ class SegmentCandidateFinder {
   // when they are grouped into the same segment. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
   void privatizeUpcast();
+  void privatizeSqueeze();
 
   void findSegments();
 

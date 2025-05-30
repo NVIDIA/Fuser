@@ -3953,6 +3953,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
   }
 
+  privatizeSqueeze();
   privatizeUpcast();
   findSegments();
 }
@@ -4216,6 +4217,7 @@ void SegmentCandidateFinder::findSegments() {
 void SegmentCandidateFinder::privatizeUpcast() {
   // Insert castOp to complete_fusion_
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+  IrGraphGenerator::print(segmented_fusion_->complete_fusion_.get(), "a.dot");
 
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
 
@@ -4262,6 +4264,73 @@ void SegmentCandidateFinder::privatizeUpcast() {
 
       privatized_upcast_ops_[maybe_upcast_op].insert(
           upcast_out_tv_clone->definition()->as<UnaryOp>());
+    }
+  }
+}
+
+void SegmentCandidateFinder::privatizeSqueeze() {
+  // Insert castOp to complete_fusion_
+  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+
+  const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+
+  for (auto expr : exprs) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    for (const auto i : arange(expr->inputs().size())) {
+      auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
+      if (maybe_upcast_out_tv == nullptr) {
+        continue;
+      }
+
+      // Check if the input is an output of an upcast op
+      // auto maybe_upcast_op =
+      //     dynamic_cast<UnaryOp*>(maybe_upcast_out_tv->definition());
+      // if (maybe_upcast_op == nullptr ||
+      //     maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+      //   continue;
+      // }
+
+      if (!maybe_upcast_out_tv->definition()->isA<SqueezeOp>()) {
+        continue;
+      }
+
+      auto squeeze_op = maybe_upcast_out_tv->definition()->as<SqueezeOp>();
+
+      // auto precisions =
+      //     ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      // if (!precisions.has_value() || precisions->first >= precisions->second)
+      // {
+      //   continue;
+      // }
+
+      // Check if there's multiple uses of the upcast output
+      auto uses_of_upcast_out_tv = maybe_upcast_out_tv->uses();
+      if (uses_of_upcast_out_tv.size() < 2) {
+        continue;
+      }
+
+      // If this is the first use of the upcast output, keep it as is
+      if (expr == uses_of_upcast_out_tv.front()) {
+        continue;
+      }
+
+      // auto upcast_out_tv_clone =
+      //     castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      // expr = ir_utils::replaceValInExprInputs(
+      //     expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+
+      auto squeeze_out_tv_clone = squeeze(
+          squeeze_op->input(0)->as<TensorView>(),
+          squeeze_op->getSqueezeDimFlags());
+
+      expr = ir_utils::replaceValInExprInputs(
+          expr, maybe_upcast_out_tv, squeeze_out_tv_clone);
+
+      // privatized_upcast_ops_[maybe_upcast_op].insert(
+      //     upcast_out_tv_clone->definition()->as<UnaryOp>());
     }
   }
 }
