@@ -161,7 +161,10 @@ def nvfuser_fusion_id1(fd : FusionDefinition) -> None :
     V31 = fd.ops.shape(T13)
     S32 = fd.ops.at(V31, index=-1)
     T35 = fd.ops.broadcast_in_dim(T30, shape=[S32, 1], broadcast_dims=[0])
-    T36 = fd.ops.sub(T15, T35)
+    T15_ = fd.ops.segment_set(T1)
+    T15_ = fd.ops.cast(T15_, dtype=DataType.Float)
+    T15_ = fd.ops.squeeze(T15_, dims=[0], squeeze_expanded=False)
+    T36 = fd.ops.sub(T15_, T35)
     T37 = fd.ops.exp(T36)
     T38 = fd.ops.sum(T37, dims=[1], keepdim=False, dtype=DataType.Null)
     T39 = fd.ops.log(T38)
@@ -240,7 +243,8 @@ def nvfuser_fusion_id0(fd: FusionDefinition, inputs) -> None:
     fd.add_output(T59)
 
 
-def test_run_loss_benchmark(benchmark):
+@pytest.mark.parametrize("vocab_size", SyntheticMiniModel.generate_vocab_sizes())
+def test_run_loss_benchmark(benchmark, vocab_size):
 
     inputs = [
 
@@ -256,7 +260,7 @@ def test_run_loss_benchmark(benchmark):
         ),
 
         torch.randn(
-            4096, 32064, requires_grad=False, device="cuda", dtype=torch.bfloat16
+            4096, vocab_size, requires_grad=False, device="cuda", dtype=torch.bfloat16
         ),
     ]
 

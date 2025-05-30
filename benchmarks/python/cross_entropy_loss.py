@@ -196,7 +196,7 @@ class SyntheticMiniModel:
 
     @staticmethod
     def generate_vocab_sizes():
-        return (131072,)
+        # return (131072,)
         sizes_from_models = [
             49152,  # Starcoder
             129280,  # DeepSeek-R1
