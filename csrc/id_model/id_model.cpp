@@ -766,8 +766,7 @@ void buildAsyncWarpInliningInfo(
             ir_utils::getStageSlicePosition(tv);
         return opt_stage_slice_position.value_or(-1);
       });
-  NVF_ERROR(
-      stage_slice_positions.size() > 1 && stage_slice_positions.front() > -1);
+  NVF_ERROR(stage_slice_positions.size() > 1);
   NVF_ERROR(std::all_of(
       stage_slice_positions.begin() + 1,
       stage_slice_positions.end(),
@@ -776,6 +775,11 @@ void buildAsyncWarpInliningInfo(
   TensorView* async_warp_tv = async_warp_tvs.front();
   NVF_ERROR(async_warp_tv != nullptr);
   int64_t stage_slice_position = stage_slice_positions.front();
+
+  // short-circuit: stage_slice_position is not used.
+  if (stage_slice_position == -1) {
+    return;
+  }
 
   VectorOfUniqueEntries<IterDomain*> all_inline_deps(
       async_warp_tv->getLoopDomain().begin(),
