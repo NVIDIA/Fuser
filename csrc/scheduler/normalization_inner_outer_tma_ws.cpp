@@ -30,7 +30,8 @@ void getHeuristics(
   rparams->tma_warp_specialized = true;
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
-  NVF_ERROR(hp_threads_per_block_max >= 128L, 
+  NVF_ERROR(
+      hp_threads_per_block_max >= 128L,
       "Threads per block max should be at least 128, got ",
       hp_threads_per_block_max);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -95,7 +96,7 @@ void getHeuristics(
         int buffer_per_thread = buffer_per_element * elements_per_thread;
         return buffer_per_thread / scheduler_utils::bytes_per_register;
       };
-  auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx) {
+  auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx, int64_t bdimy) {
     int64_t reg_count = 0;
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
@@ -112,8 +113,8 @@ void getHeuristics(
     reg_count += regs_buffer_size / scheduler_utils::bytes_per_register;
     // regs for indexing, etc.
     reg_count += scheduler_utils::register_overhead;
-    // total usage should be less than 255
-    return reg_count <= scheduler_utils::max_registers_per_thread;
+    // total usage should be less than max available
+    return reg_count <= getRegPerThreadGivenThreadsPerSM(bdimx*bdimy);
   };
   // bdimx: number of threads for inner dim.
   int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
@@ -130,7 +131,7 @@ void getHeuristics(
   // Try to update paras in each loop and break if no update is made.
   const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
   const int64_t max_bdimy = std::min(4L, hp_threads_per_block_max / 128L);
-  const int64_t max_iter_unroll =  16L / (int64_t)computation_dtype_size;
+  const int64_t max_iter_unroll = 16L / (int64_t)computation_dtype_size;
   while (1) {
     bool is_updated = false;
     // increase circular buffer stages
@@ -141,7 +142,8 @@ void getHeuristics(
     // increase iter_unroll
     // iter_unroll should be divisible by outer_dim_numel due to limitation of
     // 1D TMA predicate.
-    if (iter_unroll * 2 <= max_iter_unroll && is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
+    if (iter_unroll * 2 <= max_iter_unroll &&
+        is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
         outer_dim_numel % (iter_unroll * 2) == 0) {
       is_updated = true;
       iter_unroll *= 2;
@@ -151,6 +153,7 @@ void getHeuristics(
     // multiple independent computation groups only supports bdimx == 128
     // disable this option for now as runtime is not ready yet.
     if (bdimy * 2 <= max_bdimy &&
+        is_enough_regs(iter_unroll, bdimx, bdimy * 2) &&
         is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
       is_updated = true;
       bdimy *= 2;
@@ -159,7 +162,7 @@ void getHeuristics(
     // increase bdimx but don't exceed hp_threads_per_block_max and only when
     // registers are not enough, e.g. each thread has too many elements.
     if (bdimy == 1 && bdimx * 2 <= max_bdimx &&
-        !is_enough_regs(iter_unroll, bdimx) &&
+        !is_enough_regs(iter_unroll, bdimx, bdimy) &&
         is_enough_smem(iter_unroll, n_stages, bdimx * 2, bdimy)) {
       is_updated = true;
       bdimx *= 2;
@@ -733,7 +736,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           } else {
             cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
           }
-        }
         // Unroll the consumers to prevent inlineMost from inlining them
         // to the right of the vectorized axis, which can cause expression
         // sort errors.
@@ -742,24 +744,40 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         // used in the for-loop before and after the iteration grouped
         // reduction, we will leave this for heuristic tuning since unroll all
         // consumers may lead to better performance if register usage is not a
-        // concern.
-        // for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-        //   // consumer->axis(2)->parallelize(ParallelType::Unroll);
-        //   if (consumer->definition()->isA<UnaryOp>() &&
-        //       ir_utils::getSoleProducerTv(consumer)->nDims() >=
-        //           tma_inline_pos + 1) {
-        //     tv_inline_pos_map.emplace(consumer, tma_inline_pos);
-        //   }
-        // }
-        for (auto tv : fusion->allTvs()) {
-          if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
-              tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                  UnaryOpType::Reciprocal) {
-            std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
-            tv_inline_pos_map.emplace(tv, 2);
+        // concern.          
+          // for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
+          //   if(consumer->name() != 21){
+          //     continue;
+          //   }
+          //   std::cout << "WAR expr sort tv: " << consumer->toString() << std::endl;
+          //   tv_inline_pos_map.emplace(consumer, 2);
+          // }
+          std::unordered_set<TensorView*> disjoint_tvs = scheduler_utils::getAllTvsFrom(
+              {cached_tv},
+              {inner_reduction_tvs.begin(),
+               inner_reduction_tvs.end()});
+          for(auto tv : disjoint_tvs) {
+              std::cout << "WAR expr sort tv: " << tv->toString()
+                        << std::endl;
           }
         }
       }
+      fusion->printMath();
+      // for (auto tv : fusion->allTvs()) {
+      //   if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>()
+      //   &&
+      //       tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+      //           UnaryOpType::Reciprocal) {
+      //     std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
+      //     tv_inline_pos_map.emplace(tv, 2);
+      //   }
+      // }
+
+      // Id Model
+        // TODO: Reuse this id_model in getResolutionPointsOf
+      IdModel id_model(fusion);
+      const auto& dvs = id_model.maybeBuildGraph(IdMappingMode::BROADCAST).disjointValSets();
+      std::cout << dvs.toString() << std::endl;
     }
 
     std::unordered_set<TensorView*> exclude_tvs;
