@@ -114,7 +114,7 @@ void getHeuristics(
     // regs for indexing, etc.
     reg_count += scheduler_utils::register_overhead;
     // total usage should be less than max available
-    return reg_count <= getRegPerThreadGivenThreadsPerSM(bdimx*bdimy);
+    return reg_count <= getRegPerThreadGivenThreadsPerSM(bdimx * bdimy);
   };
   // bdimx: number of threads for inner dim.
   int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
@@ -736,48 +736,31 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           } else {
             cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
           }
-        // Unroll the consumers to prevent inlineMost from inlining them
-        // to the right of the vectorized axis, which can cause expression
-        // sort errors.
-        // TODO: Revise inlineMost to handle this automatically.
-        // TODO: Ideally, we only need to unroll the consumers that are
-        // used in the for-loop before and after the iteration grouped
-        // reduction, we will leave this for heuristic tuning since unroll all
-        // consumers may lead to better performance if register usage is not a
-        // concern.          
+          // Unroll the consumers to prevent inlineMost from inlining them
+          // to the right of the vectorized axis, which can cause expression
+          // sort errors.
+          // TODO: Revise inlineMost to handle this automatically.
+          // TODO: Ideally, we only need to unroll the consumers that are
+          // used in the for-loop before and after the iteration grouped
+          // reduction, we will leave this for heuristic tuning since unroll all
+          // consumers may lead to better performance if register usage is not a
+          // concern.
           // for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-          //   if(consumer->name() != 21){
-          //     continue;
-          //   }
-          //   std::cout << "WAR expr sort tv: " << consumer->toString() << std::endl;
-          //   tv_inline_pos_map.emplace(consumer, 2);
+          //   std::cout << "WAR expr sort tv: " << consumer->toString() <<
+          //   std::endl; tv_inline_pos_map.emplace(consumer, 2);
           // }
-          std::unordered_set<TensorView*> disjoint_tvs = scheduler_utils::getAllTvsFrom(
+          const auto& dep_vals = DependencyCheck::getAllValsBetween(
               {cached_tv},
-              {inner_reduction_tvs.begin(),
-               inner_reduction_tvs.end()});
-          for(auto tv : disjoint_tvs) {
-              std::cout << "WAR expr sort tv: " << tv->toString()
-                        << std::endl;
+              {outer_reduction_tvs.begin(), outer_reduction_tvs.end()});
+          for (auto val : dep_vals) {
+            auto tv = dynamic_cast<TensorView*>(val);
+            if (tv && tv != cached_tv && tv->definition()->isA<UnaryOp>()) {
+              std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
+              tv_inline_pos_map.emplace(tv, 2);
+            }
           }
         }
       }
-      fusion->printMath();
-      // for (auto tv : fusion->allTvs()) {
-      //   if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>()
-      //   &&
-      //       tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-      //           UnaryOpType::Reciprocal) {
-      //     std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
-      //     tv_inline_pos_map.emplace(tv, 2);
-      //   }
-      // }
-
-      // Id Model
-        // TODO: Reuse this id_model in getResolutionPointsOf
-      IdModel id_model(fusion);
-      const auto& dvs = id_model.maybeBuildGraph(IdMappingMode::BROADCAST).disjointValSets();
-      std::cout << dvs.toString() << std::endl;
     }
 
     std::unordered_set<TensorView*> exclude_tvs;
