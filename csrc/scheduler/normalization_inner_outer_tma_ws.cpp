@@ -749,10 +749,37 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           //   std::cout << "WAR expr sort tv: " << consumer->toString() <<
           //   std::endl; tv_inline_pos_map.emplace(consumer, 2);
           // }
-          const auto& dep_vals = DependencyCheck::getAllValsBetween(
-              {cached_tv},
-              {outer_reduction_tvs.begin(), outer_reduction_tvs.end()});
-          for (auto val : dep_vals) {
+          const auto& vals_to_outer_reduction =
+              DependencyCheck::getAllValsBetween(
+                  {cached_tv},
+                  {outer_reduction_tvs.begin(), outer_reduction_tvs.end()});
+          std::vector<TensorView*> fusion_output_dep_inner_redu;
+          for (auto output : fusion->outputs()) {
+            auto output_tv = dynamic_cast<TensorView*>(output);
+            if (output_tv &&
+                std::any_of(
+                    inner_reduction_tvs.begin(),
+                    inner_reduction_tvs.end(),
+                    [&](TensorView* inner_redu_tv) {
+                      return DependencyCheck::isDependencyOf(
+                          inner_redu_tv, output_tv);
+                    })) {
+              std::cout << "add output tv " << output_tv->toString()
+                        << " to fusion_output_dep_inner_redu" << std::endl;
+              fusion_output_dep_inner_redu.emplace_back(output_tv);
+            }
+          }
+          const auto& vals_to_slected_fusion_output =
+              DependencyCheck::getAllValsBetween(
+                  {cached_tv}, {fusion_output_dep_inner_redu.begin(),
+                                fusion_output_dep_inner_redu.end()});
+          for (auto val : vals_to_outer_reduction) {
+            if(std::find(
+                   vals_to_slected_fusion_output.begin(),
+                   vals_to_slected_fusion_output.end(),
+                   val) == vals_to_slected_fusion_output.end()) {
+              continue;
+            }
             auto tv = dynamic_cast<TensorView*>(val);
             if (tv && tv != cached_tv && tv->definition()->isA<UnaryOp>()) {
               std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
