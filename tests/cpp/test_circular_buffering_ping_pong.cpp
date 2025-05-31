@@ -309,13 +309,18 @@ TEST_F(PingPongCircularBuffering, ProducerConsumerDifferentError) {
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-using SiblingPingPongCircularBufferingInnerSplit =
-    NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
-TEST_P(SiblingPingPongCircularBufferingInnerSplit, TwoTmaLoads) {
+using PingPongSiblingLoadsParams = std::tuple<bool, int>;
+using SiblingPingPongCircularBuffering =
+    NVFuserFixtureParamTest<PingPongSiblingLoadsParams>;
+TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
-  // Incorrect results for IdModel
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  auto [use_id_model, stage_slice_position] = GetParam();
+  if (use_id_model) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    GTEST_SKIP() << "Fails without setting allocateIndexVariables via IdModel";
+  }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -386,7 +391,6 @@ TEST_P(SiblingPingPongCircularBufferingInnerSplit, TwoTmaLoads) {
     inlineSelectedAt({tv}, tv, 4);
   }
 
-  auto [stage_slice_position] = GetParam();
   for (auto tv : {tv2, tv3}) {
     tv->circularBuffer(
         stages,
@@ -408,11 +412,12 @@ TEST_P(SiblingPingPongCircularBufferingInnerSplit, TwoTmaLoads) {
 // TODO: Enable after supporting multi-role specialization.
 INSTANTIATE_TEST_SUITE_P(
     ,
-    SiblingPingPongCircularBufferingInnerSplit,
-    ::testing::Combine(testing::Range(3, 5)),
-    [](const testing::TestParamInfo<PingPongCircularBufferingParams>& info) {
+    SiblingPingPongCircularBuffering,
+    ::testing::Combine(testing::Bool(), testing::Range(3, 5)),
+    [](const testing::TestParamInfo<PingPongSiblingLoadsParams>& info) {
       std::stringstream ss;
-      ss << "stage_slice_position_" << std::get<0>(info.param);
+      ss << "IdModel_" << std::get<0>(info.param);
+      ss << "_stage_slice_position_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
 
