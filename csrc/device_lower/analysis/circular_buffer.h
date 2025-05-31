@@ -15,6 +15,16 @@
 
 namespace nvfuser {
 
+struct AsyncWarp {
+  std::vector<Expr*> exprs;
+  std::vector<TensorView*> tvs;
+  int64_t stage_slice_position;
+};
+
+// This helper function scans through all expressions, finds mbarrier async
+// operations, and gather them into separate AsyncWarps.
+std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs);
+
 IterDomain* getCircularBufferAxis(const TensorView* tv);
 
 void validateCircularBufferedTensor(const TensorView* tv);
