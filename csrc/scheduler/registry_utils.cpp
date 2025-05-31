@@ -86,6 +86,20 @@ std::deque<std::deque<TensorView*>> tvChains(
   return tv_chains;
 }
 
+bool rejectScheduleFusionOutputRequirement(
+    Expr* expr,
+    SchedulerType scheduler_type) {
+  if (!expr->output(0)->isFusionOutput()) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "First output of ",
+        expr->getOpString(),
+        " must be fusion output.");
+    return true;
+  }
+  return false;
+}
+
 bool rejectScheduleFusionInputRequirement(
     Expr* expr,
     SchedulerType scheduler_type) {
@@ -179,6 +193,11 @@ bool rejectScheduleForMemoryPromotion(
         continue;
       }
       if (rejectScheduleFusionInputRequirement(expr, scheduler_type)) {
+        return true;
+      }
+    }
+    if (expr->isOneOf<ScatterOp>()) {
+      if (rejectScheduleFusionOutputRequirement(expr, scheduler_type)) {
         return true;
       }
     }
