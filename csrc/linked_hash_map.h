@@ -49,6 +49,9 @@ class LinkedHashMap {
   const_iterator end() const {
     return order_.end();
   }
+  size_t size() const {
+    return key_to_index_.size();
+  }
 
  private:
   std::list<value_type> order_;
