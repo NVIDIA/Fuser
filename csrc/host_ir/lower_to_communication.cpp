@@ -52,7 +52,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
 void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
@@ -79,7 +79,7 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 /*
@@ -91,7 +91,7 @@ need multiple Gathers if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -111,7 +111,7 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        params.communicator_backend));
+        backend));
   }
 }
 
@@ -119,7 +119,7 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -131,7 +131,7 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -139,7 +139,7 @@ void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     DeviceIdxType root,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
@@ -155,7 +155,7 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -165,7 +165,7 @@ void lowerToBroadcast(
 void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
@@ -196,7 +196,7 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          params.communicator_backend));
+          backend));
     }
   } else {
     // Either of the following two cases is happening.
@@ -209,7 +209,7 @@ void lowerToBroadcastOrSendRecv(
         input_tv,
         output_tv,
         /*root=*/sender_mesh.at(0),
-        params,
+        backend,
         comms);
   }
 }
@@ -218,7 +218,7 @@ void lowerToReduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -244,7 +244,7 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        params.communicator_backend));
+        backend));
   }
 }
 
@@ -252,7 +252,7 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -264,14 +264,14 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      params.communicator_backend));
+      backend));
 }
 
 void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -284,7 +284,7 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      params.communicator_backend));
+      backend));
 }
 
 } // namespace
@@ -292,7 +292,7 @@ void lowerToReduceScatter(
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    const HostIrLowerParams& params) {
+    const CommunicatorBackend backend) {
   FusionGuard fg(c->fusion());
 
   std::vector<Expr*> comms;
@@ -339,26 +339,26 @@ std::vector<Expr*> convertSingleOpToCommunication(
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
       lowerToReduceScatter(
-          input_tv, output_tv, op_type, params, comms, my_device_idx);
+          input_tv, output_tv, op_type, backend, comms, my_device_idx);
     } else {
       if (same_mesh) {
         lowerToAllreduce(
-            input_tv, output_tv, op_type, params, comms, my_device_idx);
+            input_tv, output_tv, op_type, backend, comms, my_device_idx);
       } else {
-        lowerToReduce(input_tv, output_tv, op_type, params, comms);
+        lowerToReduce(input_tv, output_tv, op_type, backend, comms);
       }
     }
   } else {
     if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, params, comms);
+      lowerToScatter(input_tv, output_tv, backend, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, params, comms, my_device_idx);
+        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
       } else {
-        lowerToGather(input_tv, output_tv, params, comms);
+        lowerToGather(input_tv, output_tv, backend, comms);
       }
     } else {
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, params, comms);
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
     }
   }
 

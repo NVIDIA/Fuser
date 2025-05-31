@@ -9,7 +9,6 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
-#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -25,7 +24,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (HostIrLower::canLower(expr)) {
+    if (!isResharding(expr)) {
       continue;
     }
     NVF_ERROR(
