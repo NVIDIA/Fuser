@@ -708,43 +708,37 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
   return resolved_bcast_domains;
 }
 
-// The compute_at_position is defined from producer to consumer. Thus, sibling
-// TMA load operations cannot be inlined unless they are inlined with their
-// consumer.
-//
-// For ping-pong warp specialized kernels, the compute_at_position must be to
-// the left of the warp-specialized thread axis because of parallel type
-// propagation rules. See PingPongCircularBuffering.ProducerWarpSpecializedError
-// for an example.
-//
-// This helper function inlines sibling asynchronous operations such as TMA
-// Loads based on stage_slice_position.
-//
-// TODO Support UTCMMA based on producer-consumer relationships
-void buildAsyncWarpInliningInfo(
-    StatefulInliningInfo& info,
-    const std::vector<Expr*>& exprs,
-    const ValGraph& permissive_graph) {
+struct AsyncWarp {
+  std::vector<Expr*> exprs;
+  std::vector<TensorView*> tvs;
+  int64_t stage_slice_position;
+};
+
+// Scan through all expressions. Find mbarrier async operations. Gather into
+// separate AsyncWarps.
+std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps;
+
   // Gather all async operations.
-  std::vector<Expr*> async_warp;
+  std::vector<Expr*> async_warp_exprs;
   std::copy_if(
-      exprs.begin(), exprs.end(), std::back_inserter(async_warp), [](Expr* e) {
+      exprs.begin(),
+      exprs.end(),
+      std::back_inserter(async_warp_exprs),
+      [](Expr* e) {
         // TODO Add support for blackwell MmaOp
         return ir_utils::isCpAsyncBulkLoad(e);
       });
 
   // short-circuit: no async operations detected.
-  if (async_warp.size() <= 1) {
-    return;
+  if (async_warp_exprs.size() <= 1) {
+    return async_warps;
   }
 
-  // TODO Divide into AsyncWarps for multi-role specialization
-  // The current assumption is a single AsyncWarp with same
-  // stage_slice_position. Get TensorViews for async warps
   std::vector<TensorView*> async_warp_tvs;
   std::transform(
-      async_warp.begin(),
-      async_warp.end(),
+      async_warp_exprs.begin(),
+      async_warp_exprs.end(),
       std::back_inserter(async_warp_tvs),
       [](Expr* e) {
         auto output_tvs =
@@ -776,19 +770,64 @@ void buildAsyncWarpInliningInfo(
   NVF_ERROR(async_warp_tv != nullptr);
   int64_t stage_slice_position = stage_slice_positions.front();
 
-  // short-circuit: stage_slice_position is not used.
-  if (stage_slice_position == -1) {
+  // TODO Divide into AsyncWarps for multi-role specialization
+  // The current assumption is a single AsyncWarp with same
+  // stage_slice_position. Get TensorViews for async warps
+  async_warps.emplace_back(
+      async_warp_exprs, async_warp_tvs, stage_slice_position);
+  return async_warps;
+}
+
+// The compute_at_position is defined from producer to consumer. Thus, sibling
+// TMA load operations cannot be inlined unless they are inlined with their
+// consumer.
+//
+// For ping-pong warp specialized kernels, the compute_at_position must be to
+// the left of the warp-specialized thread axis because of parallel type
+// propagation rules. See PingPongCircularBuffering.ProducerWarpSpecializedError
+// for an example.
+//
+// This helper function inlines sibling asynchronous operations such as TMA
+// Loads based on stage_slice_position.
+//
+// TODO Support UTCMMA based on producer-consumer relationships
+void buildAsyncWarpInliningInfo(
+    StatefulInliningInfo& info,
+    const std::vector<Expr*>& exprs,
+    const ValGraph& permissive_graph) {
+  std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
+
+  // short-circuit: no async operations detected.
+  if (async_warps.size() == 0) {
+    return;
+  }
+  NVF_ERROR(
+      async_warps.size() == 1, "Multi-role specialization is not supported");
+
+  const AsyncWarp& async_warp = async_warps.front();
+
+  // short-circuit: no sibling relationships to map.
+  if (async_warp.tvs.size() == 1) {
     return;
   }
 
+  // short-circuit: stage_slice_position is not used.
+  if (async_warp.stage_slice_position == -1) {
+    return;
+  }
+
+  NVF_ERROR(!async_warp.tvs.empty());
+  TensorView* async_warp_tv = async_warp.tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+
   VectorOfUniqueEntries<IterDomain*> all_inline_deps(
       async_warp_tv->getLoopDomain().begin(),
-      async_warp_tv->getLoopDomain().begin() + stage_slice_position);
+      async_warp_tv->getLoopDomain().begin() + async_warp.stage_slice_position);
   info.ordered_sibling_ids.pushBack(all_inline_deps);
 
   auto all_tv_ids = async_warp_tv->domain()->allIDs();
-  for (const auto i : arange(1, async_warp_tvs.size())) {
-    auto tv_i = async_warp_tvs.at(i);
+  for (const auto i : arange(1, async_warp.tvs.size())) {
+    auto tv_i = async_warp.tvs.at(i);
     auto all_tv_i_ids = tv_i->domain()->allIDs();
 
     auto sibling_map =
