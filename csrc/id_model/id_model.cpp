@@ -708,6 +708,98 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
   return resolved_bcast_domains;
 }
 
+// The compute_at_position is defined from producer to consumer. Thus, sibling
+// TMA load operations cannot be inlined unless they are inlined with their
+// consumer.
+//
+// For ping-pong warp specialized kernels, the compute_at_position must be to
+// the left of the warp-specialized thread axis because of parallel type
+// propagation rules. See PingPongCircularBuffering.ProducerWarpSpecializedError
+// for an example.
+//
+// This helper function inlines sibling asynchronous operations such as TMA
+// Loads based on stage_slice_position.
+//
+// TODO Support UTCMMA based on producer-consumer relationships
+void buildAsyncWarpInliningInfo(
+    StatefulInliningInfo& info,
+    const std::vector<Expr*>& exprs,
+    const ValGraph& permissive_graph) {
+  // Gather all async operations.
+  std::vector<Expr*> async_warp;
+  std::copy_if(
+      exprs.begin(), exprs.end(), std::back_inserter(async_warp), [](Expr* e) {
+        // TODO Add support for blackwell MmaOp
+        return ir_utils::isCpAsyncBulkLoad(e);
+      });
+
+  // short-circuit: no async operations detected.
+  if (async_warp.size() <= 1) {
+    return;
+  }
+
+  // TODO Divide into AsyncWarps for multi-role specialization
+  // The current assumption is a single AsyncWarp with same
+  // stage_slice_position. Get TensorViews for async warps
+  std::vector<TensorView*> async_warp_tvs;
+  std::transform(
+      async_warp.begin(),
+      async_warp.end(),
+      std::back_inserter(async_warp_tvs),
+      [](Expr* e) {
+        auto output_tvs =
+            ir_utils::filterByType<TensorView>(e->outputs()).vector();
+        NVF_ERROR(output_tvs.size() == 1);
+        return output_tvs.front();
+      });
+  NVF_ERROR(async_warp_tvs.size() > 1);
+
+  // Check that all operations in the same warp have the same
+  // stage_slice_position.
+  std::vector<int64_t> stage_slice_positions;
+  std::transform(
+      async_warp_tvs.begin(),
+      async_warp_tvs.end(),
+      std::back_inserter(stage_slice_positions),
+      [](TensorView* tv) {
+        std::optional<int64_t> opt_stage_slice_position =
+            ir_utils::getStageSlicePosition(tv);
+        return opt_stage_slice_position.value_or(-1);
+      });
+  NVF_ERROR(
+      stage_slice_positions.size() > 1 && stage_slice_positions.front() > -1);
+  NVF_ERROR(std::all_of(
+      stage_slice_positions.begin() + 1,
+      stage_slice_positions.end(),
+      [&](int64_t v) { return v == stage_slice_positions.front(); }));
+
+  TensorView* async_warp_tv = async_warp_tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+  int64_t stage_slice_position = stage_slice_positions.front();
+
+  VectorOfUniqueEntries<IterDomain*> all_inline_deps(
+      async_warp_tv->getLoopDomain().begin(),
+      async_warp_tv->getLoopDomain().begin() + stage_slice_position);
+  info.ordered_sibling_ids.pushBack(all_inline_deps);
+
+  auto all_tv_ids = async_warp_tv->domain()->allIDs();
+  for (const auto i : arange(1, async_warp_tvs.size())) {
+    auto tv_i = async_warp_tvs.at(i);
+    auto all_tv_i_ids = tv_i->domain()->allIDs();
+
+    auto sibling_map =
+        permissive_graph.buildMapBetween(all_tv_ids, all_tv_i_ids);
+    for (const auto& [tv_id_1, tv_ids] : sibling_map) {
+      // Note that tv_ids can have multiple domains as this graph
+      // is a Permissive graph and there may be broadcast merged
+      // domains
+      if (!tv_ids.empty() && all_inline_deps.has(tv_id_1->as<IterDomain>())) {
+        info.sibling_maps[tv_id_1->as<IterDomain>()].pushBack(tv_ids);
+      }
+    }
+  }
+}
+
 } // namespace
 
 // Grab inlining relationships
@@ -801,6 +893,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
       }
     }
   }
+
+  buildAsyncWarpInliningInfo(info, exprs, permissive_graph);
   return info;
 }
 
