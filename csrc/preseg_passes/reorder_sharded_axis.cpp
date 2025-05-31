@@ -21,6 +21,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+#if 0
 // Returns the position of an IterDomain in given domain.
 int64_t posInDomain(
     const std::vector<IterDomain*>& domain,
@@ -34,6 +35,7 @@ int64_t posInDomain(
       domain);
   return std::distance(domain.begin(), pos);
 }
+#endif
 
 // Propagates the DID transformations of ref to tv and parallelizes tv like ref.
 void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
@@ -43,9 +45,90 @@ void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
   shardAllLike(ref, {tv}, {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
 }
 
+#if 0
 bool isReduceOrAllreduce(CommunicationInfo communication_info) {
   return communication_info.type == CommunicationType::Reduce ||
       communication_info.type == CommunicationType::Allreduce;
+}
+#endif
+
+bool isLocalSizeOne(IterDomain* id) {
+  return id->isParallelized() || id->isBroadcast() || id->isReduction();
+}
+
+Layout getRequiredLayout(
+    TensorView* tv,
+    const CommunicationType type,
+    IterDomain* sharded_id) {
+  NVF_ERROR(
+      std::find(
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end(),
+          sharded_id) != tv->getLogicalDomain().end());
+
+  if (type == CommunicationType::Reduce ||
+      type == CommunicationType::Allreduce) {
+    return Layout{
+        tv->getMaybeAllocationDomain(),
+        TensorDomain::getContiguityFilledWith(
+            tv->getMaybeAllocationDomain(), true)};
+  }
+
+  // FIXME: helper: is sharded_id in front?
+  Layout layout = *canonicalizeLayout(tv);
+  for (IterDomain* id : layout.allocation_domain) {
+    if (id == sharded_id) {
+      // FIXME: helper
+      return Layout{
+          tv->getMaybeAllocationDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getMaybeAllocationDomain(), true)};
+    }
+    if (!isLocalSizeOne(id)) {
+      // FIXME: helper
+      Layout sharded_in_front;
+      sharded_in_front.allocation_domain.reserve(
+          layout.allocation_domain.size());
+      sharded_in_front.allocation_domain.push_back(sharded_id);
+      for (IterDomain* alloc_id : layout.allocation_domain) {
+        if (alloc_id != sharded_id) {
+          sharded_in_front.allocation_domain.push_back(alloc_id);
+        }
+      }
+      sharded_in_front.contiguity = TensorDomain::getContiguityFilledWith(
+          sharded_in_front.allocation_domain, true);
+      return sharded_in_front;
+    }
+  }
+  NVF_THROW(
+      "Should never reach here - sharded_id must be found in allocation domain");
+}
+
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+
+// Returns whether `layout` is compliant with `required`. This is
+// uni-directional. For example, `contiguity=[t,t]` is compliant with
+// `contiguity=[f,f]` but not vice versa.
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 void makeCommunicationLayoutCompliant(
@@ -57,6 +140,33 @@ void makeCommunicationLayoutCompliant(
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
+  // FIXME: distinguish p and c?
+  Layout p_layout =
+      getRequiredLayout(input, communication_info.type, p_sharded_id);
+  if (input->hasAllocation()) {
+    // FIXME: isCompliantWith from alias_analysis.cc
+    if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
+      TensorView* input_copy = input->cacheAfter();
+      transformAndParallelizeLike(input, input_copy);
+      input = input_copy;
+    }
+  }
+  // FIXME: helper?
+  input->setAllocationDomain(p_layout.allocation_domain, p_layout.contiguity);
+
+  // FIXME: dedup
+  Layout c_layout =
+      getRequiredLayout(output, communication_info.type, c_sharded_id);
+  if (output->hasAllocation()) {
+    if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
+      TensorView* output_copy = output->cacheBefore();
+      transformAndParallelizeLike(output, output_copy);
+      output = output_copy;
+    }
+  }
+  output->setAllocationDomain(c_layout.allocation_domain, c_layout.contiguity);
+
+#if 0
   // Copy input if:
   // 1. Input is not contiguous.
   // 2. Input is not allocation compliant and is not a reduce/allreduce.
@@ -154,6 +264,7 @@ void makeCommunicationLayoutCompliant(
             (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
         true);
   }
+#endif
 }
 
 } // namespace
@@ -176,6 +287,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
+#if 0
     if (isCommunicationLayoutCompliant(expr)) {
       // Set the allocation domain explicitly to avoid changes by other passes.
       // No reordering / copying is needed.
@@ -185,12 +297,14 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
       continue;
     }
+#endif
 
+    // FIXME: p_sharded == c_sharded == 0. Some Allreduces with mesh{0} fail
+    // getCommunicationInfo.
     auto communication_info = getCommunicationInfo(expr);
-    NVF_ERROR(
-        communication_info.has_value(),
-        "Communication info not found for ",
-        expr->toString());
+    if (!communication_info.has_value()) {
+      continue;
+    }
 
     makeCommunicationLayoutCompliant(expr, *communication_info);
   }

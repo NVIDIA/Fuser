@@ -21,6 +21,7 @@ struct CommunicationInfo {
   IterDomain* c_sharded_id;
 };
 
+// FIXME: remove these two methods in favor of getRequiredLayout
 // Checks whether the allocation order of id in tv is compliant
 // with NCCL/UCC requirements. Specifically, it checks that a gather/scatter
 // axis is outermost in the allocation unless its local size is 1.

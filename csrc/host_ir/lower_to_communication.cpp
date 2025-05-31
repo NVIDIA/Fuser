@@ -294,6 +294,7 @@ IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   return logical_ids.at(0);
 }
 
+// FIXME: remove
 bool isLocalSizeOne(IterDomain* id) {
   return id->isParallelized() || id->isBroadcast() || id->isReduction();
 }

@@ -14,6 +14,7 @@
 #include <ir/internal_base_nodes.h>
 
 namespace nvfuser {
+// FIXME: make it a class
 // With respect to the logical domain. `allocation_domain` must be a
 // permutation of the corresponding logcial domain, and `contiguity` must be of
 // the same length as `allocation`. See canonicalizeLayout for how we handle DID
