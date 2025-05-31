@@ -867,7 +867,53 @@ void ComputeAtMap::validateAndPropagatePType() {
   }
 }
 
+std::vector<ValGroup> getSiblingIds(const AsyncWarp& async_warp) {
+  std::vector<ValGroup> ids;
+
+  for (int64_t idx : arange(async_warp.stage_slice_position)) {
+    ValGroup vg =
+        std::make_shared<nvfuser::VectorOfUniqueEntries<nvfuser::Val*>>();
+
+    for (TensorView* tv : async_warp.tvs) {
+      vg->pushBack(tv->axis(idx));
+    }
+
+    ids.push_back(vg);
+  }
+  return ids;
+}
+
+std::vector<ValGroup> getAsyncWarpSiblingIds(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
+
+  // short-circuit: no async operations detected.
+  if (async_warps.size() == 0) {
+    return {};
+  }
+  NVF_ERROR(
+      async_warps.size() == 1, "Multi-role specialization is not supported");
+
+  const AsyncWarp& async_warp = async_warps.front();
+
+  // short-circuit: no sibling relationships to map.
+  if (async_warp.tvs.size() == 1) {
+    return {};
+  }
+
+  // short-circuit: stage_slice_position is not used.
+  if (async_warp.stage_slice_position == -1) {
+    return {};
+  }
+
+  return getSiblingIds(async_warp);
+}
+
 void ComputeAtMap::allocateIndexVariables() {
+  std::vector<ValGroup> async_warp_sibling_ids =
+      getAsyncWarpSiblingIds(fusion_->exprs());
+  std::vector<const VectorOfUniqueEntries<IterDomain*>*>
+      async_warp_disjoint_set(async_warp_sibling_ids.size(), nullptr);
+
   // Run through all disjoint sets registered in loop map,
   //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
@@ -919,6 +965,11 @@ void ComputeAtMap::allocateIndexVariables() {
 
     auto concrete_loop_id = concrete_loop_id_it->second;
 
+    auto async_warp_sibling_ids_iter = std::find_if(
+        async_warp_sibling_ids.begin(),
+        async_warp_sibling_ids.end(),
+        [&](ValGroup vg) { return vg->has(concrete_loop_id); });
+
     // Need to allocate circular buffered loop differently.
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             concrete_loop_id)) {
@@ -930,6 +981,17 @@ void ComputeAtMap::allocateIndexVariables() {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
+      }
+    } else if (async_warp_sibling_ids_iter != async_warp_sibling_ids.end()) {
+      int64_t index = std::distance(
+          async_warp_sibling_ids.begin(), async_warp_sibling_ids_iter);
+      if (async_warp_disjoint_set.at(index) == nullptr) {
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            IrBuilder::create<Val>(DataType::Index);
+        async_warp_disjoint_set.at(index) = loop_disjoint_set.get();
+      } else {
+        loop_index_variable_map_[loop_disjoint_set.get()] =
+            loop_index_variable_map_.at(async_warp_disjoint_set.at(index));
       }
     } else {
       // Everything now should be serial concrete loops,
