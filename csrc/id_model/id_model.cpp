@@ -810,12 +810,14 @@ StatefulInliningInfo buildStatefulInliningInfo(
         return ir_utils::isCpAsyncBulkLoad(e);
       });
 
+  // short-circuit: no async operations detected.
   if (async_warp.size() <= 1) {
     return info;
   }
 
-  // TODO Divide into AsyncWarps
-  // Assume single AsyncWarp with same stage_slice_position
+  // TODO Divide into AsyncWarps for multi-role specialization
+  // The current assumption is a single AsyncWarp with same
+  // stage_slice_position. Get TensorViews for async warps
   std::vector<TensorView*> async_warp_tvs;
   std::transform(
       async_warp.begin(),
@@ -829,26 +831,28 @@ StatefulInliningInfo buildStatefulInliningInfo(
       });
   NVF_ERROR(async_warp_tvs.size() > 1);
 
-  std::vector<int64_t> aw_stage_slice_positions;
+  // Check that all operations in the same warp have the same
+  // stage_slice_position.
+  std::vector<int64_t> stage_slice_positions;
   std::transform(
       async_warp_tvs.begin(),
       async_warp_tvs.end(),
-      std::back_inserter(aw_stage_slice_positions),
+      std::back_inserter(stage_slice_positions),
       [](TensorView* tv) {
         std::optional<int64_t> opt_stage_slice_position =
             ir_utils::getStageSlicePosition(tv);
         return opt_stage_slice_position.value_or(-1);
       });
-  NVF_ERROR(aw_stage_slice_positions.size() > 1);
-
+  NVF_ERROR(
+      stage_slice_positions.size() > 1 && stage_slice_positions.front() > -1);
   NVF_ERROR(std::all_of(
-      aw_stage_slice_positions.begin() + 1,
-      aw_stage_slice_positions.end(),
-      [&](int64_t v) { return v == aw_stage_slice_positions.front(); }));
+      stage_slice_positions.begin() + 1,
+      stage_slice_positions.end(),
+      [&](int64_t v) { return v == stage_slice_positions.front(); }));
 
   TensorView* async_warp_tv = async_warp_tvs.front();
   NVF_ERROR(async_warp_tv != nullptr);
-  int64_t stage_slice_position = aw_stage_slice_positions.front();
+  int64_t stage_slice_position = stage_slice_positions.front();
 
   VectorOfUniqueEntries<IterDomain*> all_inline_deps(
       async_warp_tv->getLoopDomain().begin(),
