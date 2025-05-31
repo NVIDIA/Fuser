@@ -132,7 +132,7 @@ TensorView* indexPutAccumulate(
   //     value [ seq, hidden ]
   // Consumers:
   //     output [ vocab, hidden ]
-  TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  auto* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
   IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
   return out;
 }
