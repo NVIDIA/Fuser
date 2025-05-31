@@ -66,15 +66,18 @@ class CircularBufferInfo {
   bool hasIndependentComputeWarpGroups() const {
     return independent_compute_warp_groups_;
   }
-
-  //! Returns true if the iterdomain will be realized
-  //!  as a circular buffer loop.
-  bool isCircularBufferedIterDomain(IterDomain* id);
+  int64_t getComputationWarpGroups() const {
+    return computation_warp_groups_;
+  }
 
   ParallelType getWarpSpecializedOn() const {
     return warp_specialized_on_;
   }
 
+  //! Returns true if the iterdomain will be realized
+  //!  as a circular buffer loop.
+  bool isCircularBufferedIterDomain(IterDomain* id);
+  bool isComputationWarpGroupIterDomain(IterDomain* id);
   //! Returns true if the fusion has warp specialized circular buffer
   bool hasWarpSpecialized() const {
     return warp_specialized_on_ != ParallelType::Serial;
@@ -124,6 +127,9 @@ class CircularBufferInfo {
       IterDomain* circular_buffered_id,
       const CircularBufferOptions& opt);
 
+  // Set number of computation warp groups
+  void setComputationWarpGroups(const TensorView* tv);
+
  private:
   //! Keeps track of information for lowering circular buffered tensors
   std::unordered_map<const TensorView*, TvInfo> map_;
@@ -154,6 +160,14 @@ class CircularBufferInfo {
   //! in ComputeWarp. Otherwise, it is per warp-group or 128 threads. It is True
   //! if the warp specialized axis is to the left of the stage_slice_position.
   bool independent_compute_warp_groups_ = false;
+
+  //! Number of computation warp groups
+  int64_t computation_warp_groups_ = -1;
+
+  //! Keeps track of which domain is parallelized by computation warp groups in
+  //! computation branch. In loading branch, these domains are merged into one
+  //! loop, so they should share the same index in allocateIndexVariables()
+  std::unordered_set<const IterDomain*> computation_warp_groups_loop_id_;
 };
 
 } // namespace nvfuser

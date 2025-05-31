@@ -133,6 +133,15 @@ TensorView* scheduleReductionTV(
     }
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+    if (rparams->computation_warp_groups > 1) {
+      auto option = rparams->circular_buffer_options;
+      auto ws_pt = std::get<WarpSpecialized>(option.type).on;
+      NVF_ERROR(
+          ws_pt == ParallelType::TIDy,
+          "Warp specialization only supports TIDy, got ",
+          ws_pt);
+      inner_parallel_static(iter_axis, ws_pt, rparams->computation_warp_groups);
+    }
   } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
@@ -338,6 +347,10 @@ TensorView* scheduleReductionTV(
     }
     NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
+  }
+  if(rparams->computation_warp_groups > 1){
+    reduction_rf_tv->reorder({{1,2}});
+    std::cout << "reduction_rf_tv " << reduction_rf_tv->toString() << std::endl;
   }
 
   return reduction_rf_tv;

@@ -871,6 +871,11 @@ void ComputeAtMap::allocateIndexVariables() {
   // Run through all disjoint sets registered in loop map,
   //  all lowered ForLoop will correspond to one of the disjoint sets
   //  and we only need one index variable for each set.
+  // All domains parallelized by computation warp groups share the same index
+  // variable. This occurs because their loops are merged into a single loop
+  // during the circular buffer pass, separating data loading for different warp
+  // groups.
+  Val* computation_warp_group_index = nullptr;
   for (const auto& loop_disjoint_set : id_graph_.loopNodes().disjointSets()) {
     ParallelType ptype = ParallelType::Serial;
 
@@ -931,6 +936,14 @@ void ComputeAtMap::allocateIndexVariables() {
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
       }
+    } else if (GpuLower::current()
+                   ->circularBufferInfo()
+                   .isComputationWarpGroupIterDomain(concrete_loop_id)) {
+      if (!computation_warp_group_index) {
+        computation_warp_group_index = IrBuilder::create<Val>(DataType::Index);
+      }
+      loop_index_variable_map_[loop_disjoint_set.get()] =
+          computation_warp_group_index;
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.

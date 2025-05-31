@@ -1286,7 +1286,8 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 }
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
-  int64_t dim0 = 2048;
+  // int64_t dim0 = 128 * 148;
+  int64_t dim0 = 16384;
   for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
       for (bool warp_specialized : {true, false}) {
