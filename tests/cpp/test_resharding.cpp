@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
@@ -592,7 +593,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       preseg_passes::InsertReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
-    if (isResharding(expr) && isInnerResharding(expr)) {
+    if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {
       num_inner_reshardings++;
     }
   }
@@ -602,7 +603,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
-      EXPECT_FALSE(isInnerResharding(expr));
+      EXPECT_TRUE(isCommunicationLayoutCompliant(expr));
     }
   }
 }
