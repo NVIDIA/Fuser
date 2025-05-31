@@ -772,4 +772,66 @@ IterDomain* getCircularBufferAxis(const TensorView* tv) {
   return tv->axis(cb_axis);
 }
 
+std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps;
+
+  // Gather all async operations.
+  std::vector<Expr*> async_warp_exprs;
+  std::copy_if(
+      exprs.begin(),
+      exprs.end(),
+      std::back_inserter(async_warp_exprs),
+      [](Expr* e) {
+        // TODO Add support for blackwell MmaOp
+        return ir_utils::isCpAsyncBulkLoad(e);
+      });
+
+  // short-circuit: no async operations detected.
+  if (async_warp_exprs.size() <= 1) {
+    return async_warps;
+  }
+
+  std::vector<TensorView*> async_warp_tvs;
+  std::transform(
+      async_warp_exprs.begin(),
+      async_warp_exprs.end(),
+      std::back_inserter(async_warp_tvs),
+      [](Expr* e) {
+        auto output_tvs =
+            ir_utils::filterByType<TensorView>(e->outputs()).vector();
+        NVF_ERROR(output_tvs.size() == 1);
+        return output_tvs.front();
+      });
+  NVF_ERROR(async_warp_tvs.size() > 1);
+
+  // Check that all operations in the same warp have the same
+  // stage_slice_position.
+  std::vector<int64_t> stage_slice_positions;
+  std::transform(
+      async_warp_tvs.begin(),
+      async_warp_tvs.end(),
+      std::back_inserter(stage_slice_positions),
+      [](TensorView* tv) {
+        std::optional<int64_t> opt_stage_slice_position =
+            ir_utils::getStageSlicePosition(tv);
+        return opt_stage_slice_position.value_or(-1);
+      });
+  NVF_ERROR(stage_slice_positions.size() > 1);
+  NVF_ERROR(std::all_of(
+      stage_slice_positions.begin() + 1,
+      stage_slice_positions.end(),
+      [&](int64_t v) { return v == stage_slice_positions.front(); }));
+
+  TensorView* async_warp_tv = async_warp_tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+  int64_t stage_slice_position = stage_slice_positions.front();
+
+  // TODO Divide into AsyncWarps for multi-role specialization
+  // The current assumption is a single AsyncWarp with same
+  // stage_slice_position. Get TensorViews for async warps
+  async_warps.emplace_back(
+      async_warp_exprs, async_warp_tvs, stage_slice_position);
+  return async_warps;
+}
+
 } // namespace nvfuser
