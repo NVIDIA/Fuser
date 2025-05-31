@@ -38,6 +38,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
     traverseAndInsert(exprs);
+    NVF_ERROR(
+        !one_dim_tma_predicate_info_.isSet(),
+        "Unpaired OneDimTmaLoadExpectArrive detected.");
   }
 
   using kir::ExprMutator::handle;
