@@ -21,54 +21,6 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-bool isLocalSizeOne(IterDomain* id) {
-  return id->isParallelized() || id->isBroadcast() || id->isReduction();
-}
-
-// Always returns canonicalized.
-Layout getRequiredLayout(
-    TensorView* tv,
-    const CommunicationType type,
-    IterDomain* sharded_id) {
-  NVF_ERROR(
-      std::find(
-          tv->getLogicalDomain().begin(),
-          tv->getLogicalDomain().end(),
-          sharded_id) != tv->getLogicalDomain().end());
-
-  if (type == CommunicationType::Reduce ||
-      type == CommunicationType::Allreduce) {
-    Layout layout = *canonicalizeLayout(tv);
-    layout.makeContiguous();
-    return layout;
-  }
-
-  // FIXME: helper: is sharded_id in front?
-  Layout layout = *canonicalizeLayout(tv);
-  for (IterDomain* id : layout.allocation_domain) {
-    if (id == sharded_id) {
-      layout.makeContiguous();
-      return layout;
-    }
-    if (!isLocalSizeOne(id)) {
-      // FIXME: helper
-      Layout sharded_in_front;
-      sharded_in_front.allocation_domain.reserve(
-          layout.allocation_domain.size());
-      sharded_in_front.allocation_domain.push_back(sharded_id);
-      for (IterDomain* alloc_id : layout.allocation_domain) {
-        if (alloc_id != sharded_id) {
-          sharded_in_front.allocation_domain.push_back(alloc_id);
-        }
-      }
-      sharded_in_front.contiguity = TensorDomain::getContiguityFilledWith(
-          sharded_in_front.allocation_domain, true);
-      return sharded_in_front;
-    }
-  }
-  NVF_THROW(
-      "Should never reach here - sharded_id must be found in allocation domain");
-}
 
 // FIXME: reuese
 bool contiguityIsCompliant(
@@ -145,7 +97,7 @@ void makeCommunicationLayoutCompliant(
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
   Layout p_layout =
-      getRequiredLayout(input, communication_info.type, p_sharded_id);
+      getCommunicationLayout(input, communication_info.type, p_sharded_id);
   // FIXME: isCompliantWith from alias_analysis.cc
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
@@ -160,7 +112,7 @@ void makeCommunicationLayoutCompliant(
 
   // FIXME: dedup
   Layout c_layout =
-      getRequiredLayout(output, communication_info.type, c_sharded_id);
+      getCommunicationLayout(output, communication_info.type, c_sharded_id);
   if (output->hasAllocation()) {
     if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
       TensorView* output_copy = set(output);

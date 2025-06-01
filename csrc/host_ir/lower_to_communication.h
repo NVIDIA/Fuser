@@ -9,11 +9,11 @@
 
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
+#include <ir/allocation_utils.h>
 
 namespace nvfuser {
 
 struct CommunicationInfo {
-  // Allgather/Gather/Scatter/ReduceScatter/Allreduce/Reduce
   CommunicationType type;
   // Sharded logical IDs in producer/consumer.
   // For ReduceScatter, this is the scattered axis. Reduced axis is not stored.
@@ -41,6 +41,12 @@ bool isCommunicationLayoutCompliant(Expr* expr);
 // communication. If multiple communications are present, this function will
 // raise an error.
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
+
+// Always returns canonicalized.
+Layout getCommunicationLayout(
+    TensorView* tv,
+    const CommunicationType type,
+    IterDomain* sharded_id);
 
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
