@@ -196,7 +196,7 @@ void makeCommunicationLayoutCompliant(
   // FIXME: dedup
   Layout c_layout =
       getRequiredLayout(output, communication_info.type, c_sharded_id);
-  if (output->hasAllocation() || output->isFusionOutput()) {
+  if (output->hasAllocation()) {
     if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
       TensorView* output_copy = set(output);
       TransformReplay::selfReplay(
