@@ -16,6 +16,7 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <scheduler/utils.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -103,6 +104,7 @@ Layout getRequiredLayout(
       "Should never reach here - sharded_id must be found in allocation domain");
 }
 
+// FIXME: reuese
 bool contiguityIsCompliant(
     const std::optional<bool>& actual,
     const std::optional<bool>& required) {
@@ -112,6 +114,7 @@ bool contiguityIsCompliant(
   return actual == required;
 }
 
+// FIXME: reuse
 // Returns whether `layout` is compliant with `required`. This is
 // uni-directional. For example, `contiguity=[t,t]` is compliant with
 // `contiguity=[f,f]` but not vice versa.
@@ -130,6 +133,42 @@ bool isCompliantWith(const Layout& layout, const Layout& required) {
   return true;
 }
 
+// FIXME: reuse
+std::optional<Layout> mapInLayoutToOutRoot(
+    const std::optional<Layout>& preferred_in_layout,
+    TensorView* in,
+    TensorView* out) {
+  if (!preferred_in_layout.has_value()) {
+    return std::nullopt;
+  }
+
+  if (!ir_utils::computePermutation(
+           in->getLogicalDomain(), preferred_in_layout->allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an logical permutation. As
+    // an extension, we could map in_alloc to in_logical and apply the inverse
+    // mapping to out_root.
+    return std::nullopt;
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
+
+  Layout preferred_out_layout;
+  for (auto&& [in_alloc_id, contiguity] :
+       zip(preferred_in_layout->allocation_domain,
+           preferred_in_layout->contiguity)) {
+    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
+    if (out_root_id == nullptr) {
+      // This can happen when in_alloc_id is of type reduction or squeezed out.
+      continue;
+    }
+    preferred_out_layout.allocation_domain.push_back(out_root_id);
+    preferred_out_layout.contiguity.push_back(contiguity);
+  }
+  return preferred_out_layout;
+}
+
 void makeCommunicationLayoutCompliant(
     Expr* expr,
     CommunicationInfo communication_info) {
@@ -144,9 +183,10 @@ void makeCommunicationLayoutCompliant(
       getRequiredLayout(input, communication_info.type, p_sharded_id);
   // FIXME: isCompliantWith from alias_analysis.cc
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
-    TensorView* input_copy = input->cacheAfter();
-    transformAndParallelizeLike(
-        input, input_copy, PropagateDirection::kForward);
+    TensorView* input_copy = set(input);
+    TransformReplay::selfReplay(input->domain(), input_copy->domain());
+    ir_utils::replaceValInExprInputs(expr, input, input_copy);
+    p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
     input = input_copy;
   }
   // FIXME: helper?
@@ -157,10 +197,9 @@ void makeCommunicationLayoutCompliant(
       getRequiredLayout(output, communication_info.type, c_sharded_id);
   if (output->hasAllocation() || output->isFusionOutput()) {
     if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
-      TensorView* output_copy = output->cacheBefore();
-      transformAndParallelizeLike(
-          output, output_copy, PropagateDirection::kBackward);
-      output = output_copy;
+      TensorView* output_copy = set(output);
+      TransformReplay::selfReplay(output->domain(), output_copy->domain());
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
     }
   }
   output->setAllocationDomain(c_layout.allocation_domain, c_layout.contiguity);
