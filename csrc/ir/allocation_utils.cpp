@@ -146,4 +146,8 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
   return layout;
 }
 
+void Layout::makeContiguous() {
+  contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, true);
+}
+
 } // namespace nvfuser

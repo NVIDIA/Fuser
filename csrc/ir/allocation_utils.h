@@ -27,6 +27,8 @@ struct Layout {
   int64_t size() const;
 
   std::string toString(int indent_size = 0) const;
+
+  void makeContiguous();
 };
 
 // Computes `Split`'s output contiguity. Returns the outer contiguity and then

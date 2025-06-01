@@ -38,10 +38,12 @@ int64_t posInDomain(
 #endif
 
 // Propagates the DID transformations of ref to tv and parallelizes tv like ref.
-void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
+void transformAndParallelizeLike(
+    TensorView* ref,
+    TensorView* tv,
+    const PropagateDirection direction) {
   auto old2new = reorderDIDToFront(ref);
-  propagateDIDTransform(
-      ref, {tv}, /*did_pos=*/old2new.size(), PropagateDirection::kForward);
+  propagateDIDTransform(ref, {tv}, /*did_pos=*/old2new.size(), direction);
   shardAllLike(ref, {tv}, {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
 }
 
@@ -56,6 +58,7 @@ bool isLocalSizeOne(IterDomain* id) {
   return id->isParallelized() || id->isBroadcast() || id->isReduction();
 }
 
+// Always returns canonicalized.
 Layout getRequiredLayout(
     TensorView* tv,
     const CommunicationType type,
@@ -68,21 +71,17 @@ Layout getRequiredLayout(
 
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce) {
-    return Layout{
-        tv->getMaybeAllocationDomain(),
-        TensorDomain::getContiguityFilledWith(
-            tv->getMaybeAllocationDomain(), true)};
+    Layout layout = *canonicalizeLayout(tv);
+    layout.makeContiguous();
+    return layout;
   }
 
   // FIXME: helper: is sharded_id in front?
   Layout layout = *canonicalizeLayout(tv);
   for (IterDomain* id : layout.allocation_domain) {
     if (id == sharded_id) {
-      // FIXME: helper
-      return Layout{
-          tv->getMaybeAllocationDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getMaybeAllocationDomain(), true)};
+      layout.makeContiguous();
+      return layout;
     }
     if (!isLocalSizeOne(id)) {
       // FIXME: helper
@@ -143,13 +142,12 @@ void makeCommunicationLayoutCompliant(
   // FIXME: distinguish p and c?
   Layout p_layout =
       getRequiredLayout(input, communication_info.type, p_sharded_id);
-  if (input->hasAllocation()) {
-    // FIXME: isCompliantWith from alias_analysis.cc
-    if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
-      TensorView* input_copy = input->cacheAfter();
-      transformAndParallelizeLike(input, input_copy);
-      input = input_copy;
-    }
+  // FIXME: isCompliantWith from alias_analysis.cc
+  if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
+    TensorView* input_copy = input->cacheAfter();
+    transformAndParallelizeLike(
+        input, input_copy, PropagateDirection::kForward);
+    input = input_copy;
   }
   // FIXME: helper?
   input->setAllocationDomain(p_layout.allocation_domain, p_layout.contiguity);
@@ -157,10 +155,11 @@ void makeCommunicationLayoutCompliant(
   // FIXME: dedup
   Layout c_layout =
       getRequiredLayout(output, communication_info.type, c_sharded_id);
-  if (output->hasAllocation()) {
+  if (output->hasAllocation() || output->isFusionOutput()) {
     if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
       TensorView* output_copy = output->cacheBefore();
-      transformAndParallelizeLike(output, output_copy);
+      transformAndParallelizeLike(
+          output, output_copy, PropagateDirection::kBackward);
       output = output_copy;
     }
   }
