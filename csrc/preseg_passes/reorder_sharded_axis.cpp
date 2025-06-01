@@ -184,7 +184,8 @@ void makeCommunicationLayoutCompliant(
   // FIXME: isCompliantWith from alias_analysis.cc
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
-    TransformReplay::selfReplay(input->domain(), input_copy->domain());
+    TransformReplay::selfReplay(
+        input->domain(), input_copy->domain(), /*ignore_reductions=*/true);
     ir_utils::replaceValInExprInputs(expr, input, input_copy);
     p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
     input = input_copy;
@@ -198,7 +199,8 @@ void makeCommunicationLayoutCompliant(
   if (output->hasAllocation() || output->isFusionOutput()) {
     if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
       TensorView* output_copy = set(output);
-      TransformReplay::selfReplay(output->domain(), output_copy->domain());
+      TransformReplay::selfReplay(
+          output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
     }
   }
