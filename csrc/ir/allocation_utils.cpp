@@ -13,16 +13,16 @@
 namespace nvfuser {
 
 int64_t Layout::size() const {
-  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
-  return std::ssize(allocation_domain);
+  NVF_ERROR_EQ(allocation_domain_.size(), contiguity_.size());
+  return std::ssize(allocation_domain_);
 }
 
 std::string Layout::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "<allocation=["
-                          << toDelimitedString(allocation_domain)
+                          << toDelimitedString(allocation_domain_)
                           << "], contiguity=["
-                          << toDelimitedString(contiguity, /*delim=*/" ")
+                          << toDelimitedString(contiguity_, /*delim=*/" ")
                           << "]>";
   return ss.str();
 }
@@ -144,22 +144,27 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
     allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
   }
 
-  Layout layout;
+  std::vector<IterDomain*> canonicalized_allocation;
+  canonicalized_allocation.reserve(allocation.size());
+  std::vector<std::optional<bool>> canonicalized_contiguity;
+  canonicalized_contiguity.reserve(allocation.size());
   for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
-    layout.allocation_domain.push_back(alloc_id);
-    layout.contiguity.push_back(contiguity);
+    canonicalized_allocation.push_back(alloc_id);
+    canonicalized_contiguity.push_back(contiguity);
   }
 
   NVF_ERROR(
       std::is_permutation(
           tv->getLogicalDomain().begin(),
           tv->getLogicalDomain().end(),
-          layout.allocation_domain.begin(),
-          layout.allocation_domain.end()),
+          canonicalized_allocation.begin(),
+          canonicalized_allocation.end()),
       "This indicates that logical and allocation are not connected via "
       "transforms. This is most often caused by forgetting to concretize "
       "a fusion with dynamic reshapes.");
-  return layout;
+
+  return Layout(
+      std::move(canonicalized_allocation), std::move(canonicalized_contiguity));
 }
 
 } // namespace nvfuser
