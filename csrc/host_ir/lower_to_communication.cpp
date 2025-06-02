@@ -421,6 +421,12 @@ Layout getCommunicationLayout(
     return layout;
   }
 
+  if (isLocalSizeOne(sharded_id)) {
+    // Parallelized dimension, broadcast, and reduction do not affect
+    // allocation.
+    return layout;
+  }
+
   for (int64_t i = 0; i < sharded_id_pos; i++) {
     IterDomain* id = layout.allocation_domain[i];
     if (!isLocalSizeOne(id)) {

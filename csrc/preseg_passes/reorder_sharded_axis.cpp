@@ -76,9 +76,12 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    // FIXME: p_sharded == c_sharded == 0. Some Allreduces with mesh{0} fail
-    // getCommunicationInfo.
     auto communication_info = getCommunicationInfo(expr);
+    // Should really be simply NVF_ERROR(communication_info.has_value());
+    //
+    // I'll try to do that after #4552 is merged. Some of the `mesh.size() > 1`
+    // check in getCommunicationInfo and convertSingleOpToCommuniation will also
+    // need to go away for this simplification.
     if (!communication_info.has_value()) {
       continue;
     }
