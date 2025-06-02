@@ -801,10 +801,12 @@ AllocPosInfo getAllocPosInfo(
 
   bool outer_alloc_found = false;
   int64_t compute_pos = tv->getComputeAtPosition();
-  if (tv->isCircularBuffered() &&
-      gpu_lower->circularBufferInfo().hasWarpSpecialized()) {
-    const auto& warp_specialized = std::get<WarpSpecialized>(
-        tv->circularBufferOptions().type);
+  // For warp specialized circular buffers its stage_slice_position controls the
+  // buffer size for each stage.
+  const auto& circular_buffer_type = tv->circularBufferOptions().type;
+  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    const auto& warp_specialized =
+        std::get<WarpSpecialized>(circular_buffer_type);
     if (warp_specialized.stage_slice_position.has_value()) {
       compute_pos = warp_specialized.stage_slice_position.value();
     }
