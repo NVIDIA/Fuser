@@ -2918,8 +2918,6 @@ TEST_P(StMatrixTest, Regular) {
 
   fusion.manage("ldst_matrix_m_tile", tile_m);
   fusion.manage("ldst_matrix_n_tile", tile_n);
-  fusion.manage("ldst_matrix_m_smem", sizeM);
-  fusion.manage("ldst_matrix_n_smem", sizeN);
 
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, dtype);
   fusion.addInput(tv0);
@@ -2936,6 +2934,16 @@ TEST_P(StMatrixTest, Regular) {
   tv0->merge(0);
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  AbstractTensor stmatrix_abstract =
+      mma_utils::scheduleLdStMatrixSharedMemory(tv2, tile_m, tile_n);
+  std::vector<IterDomain*> stmatrix_domain =
+      stmatrix_abstract.as<IterDomain*>();
+  stmatrix_domain.at(stmatrix_domain.size() - 2)
+      ->parallelize(ParallelType::TIDx);
+  stmatrix_domain.at(stmatrix_domain.size() - 1)
+      ->parallelize(ParallelType::Vectorize);
+  tv2->setAlternateLoopDomain(stmatrix_domain);
 
   for (auto tv : {tv1, tv2}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
