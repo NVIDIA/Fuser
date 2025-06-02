@@ -811,6 +811,21 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
 
+      // reg_tv is the consumer for ldmatrix. Set alternate loop domain to
+      // generate shared memory address for ldmatrix.
+      AbstractTensor reg_tv_ldmatrix_abstract =
+          mma_utils::scheduleLdStMatrixSharedMemory(
+              reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+      std::vector<IterDomain*> reg_tv_ldmatrix =
+          reg_tv_ldmatrix_abstract.as<IterDomain*>();
+
+      // Parallelize
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 2)
+          ->parallelize(ParallelType::TIDx);
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 1)
+          ->parallelize(ParallelType::Vectorize);
+      reg_tv->setAlternateLoopDomain(reg_tv_ldmatrix);
+
       // Schedule the loop and allocation domain of LdMatrix like the
       // accumulation register TensorView of wgmma.
       AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
