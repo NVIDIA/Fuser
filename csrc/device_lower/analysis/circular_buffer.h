@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+// Track information for each individual AsyncWarp. Currently, only one
+// AsyncWarp is supported.
 struct AsyncWarp {
   std::vector<Expr*> exprs;
   std::vector<TensorView*> tvs;
