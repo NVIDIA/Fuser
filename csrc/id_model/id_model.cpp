@@ -715,13 +715,57 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 //
 // For ping-pong warp specialized kernels, the compute_at_position must be to
 // the left of the warp-specialized thread axis because of parallel type
-// propagation rules. See PingPongCircularBuffering.ProducerWarpSpecializedError
-// for an example.
+// propagation rules. If not, the warp-specialized thread axis will incorrectly
+// appear in the AsyncWarp. For example, see
+// PingPongCircularBuffering.ProducerWarpSpecializedError.
 //
-// This helper function inlines sibling asynchronous operations such as TMA
-// Loads based on stage_slice_position.
+// buildAsyncWarpInliningInfo inlines sibling asynchronous operations such as
+// TMA Loads based on stage_slice_position.
 //
-// TODO Support UTCMMA based on producer-consumer relationships
+// For example, say you have a fusion definition: tv2 = add(tv0, tv1)
+// The fusion's schedule loads tv0 and tv1 to shared memory with TMA and creates
+// a warp specialized pipeline using the TIDy thread axis.
+//
+// Let the iterDomain schedule for the TensorViews be:
+// * tv0_smem[outer_persistent, serial(2), bulk(128)] = tma_load(tv0)
+// * tv1_smem[outer_persistent, serial(2), bulk(128)] = tma_load(tv1)
+// * tv2[outer_persistent, TIDy(2), TIDx(128)] = add(tv0_smem, tv1_smem)
+//
+// Let the compute_at_position be 1 because the tma loads and add operation
+// share the outer-most for-loop. Let the stage_slice_position be 2, so the
+// kernel loads 128 elements of tv0 and tv1 asynchronously and compute two warp
+// groups in parallel.
+//
+// The CTA shape is (TIDx = 128, TIDy = 3, TIDz = 1) for this example.
+//
+// Here is the Warp-Specialized kernel structure:
+// IF AsyncWarp:
+//   FOR outer_persistent:
+//     << compute_at_position(1)
+//     FOR SERIAL(2):
+//       << stage_slice_position(2)
+//       mbarrier::wait(empty)
+//       mbarrier::arriveExpectTx(full)
+//       tv0_smem = tma_load(tv0)
+//       tv1_smem = tma_load(tv1)
+//     END FOR
+//   END FOR
+// ELSE:
+//   FOR outer_persistent:
+//     << compute_at_position(1)
+//     FOR TIDy(2):
+//       << stage_slice_position(2)
+//       mbarrier::wait(full)
+//       tv2 = add(tv0_smem, tv1_smem)
+//       mbarrier::arrive(empty)
+//     END FOR
+//   END FOR
+// END IF
+//
+// The two TMA loads for tv0 and tv1 are assigned the same mbarrier, so they
+// must be issued in the same for-loop. This helper function updates
+// ordered_sibling_ids and sibling_maps in StatefulInliningInfo to create this
+// sibling relationship in the LOOP graph.
 void buildAsyncWarpInliningInfo(
     StatefulInliningInfo& info,
     const std::vector<Expr*>& exprs,
@@ -751,23 +795,24 @@ void buildAsyncWarpInliningInfo(
   TensorView* async_warp_tv = async_warp.tvs.front();
   NVF_ERROR(async_warp_tv != nullptr);
 
-  VectorOfUniqueEntries<IterDomain*> all_inline_deps(
+  // Gather all loop iterDomains to the left of the stage_slice_position.
+  VectorOfUniqueEntries<IterDomain*> stage_slice_position_ids(
       async_warp_tv->getLoopDomain().begin(),
       async_warp_tv->getLoopDomain().begin() + async_warp.stage_slice_position);
-  info.ordered_sibling_ids.pushBack(all_inline_deps);
+  info.ordered_sibling_ids.pushBack(stage_slice_position_ids);
 
-  auto all_tv_ids = async_warp_tv->domain()->allIDs();
-  for (const auto i : arange(1, async_warp.tvs.size())) {
-    auto tv_i = async_warp.tvs.at(i);
-    auto all_tv_i_ids = tv_i->domain()->allIDs();
+  // For all TensorViews in the AsyncWarp, build an iterDomain mapping between
+  // the first TensorView and all other TensorViews.
+  std::vector<IterDomain*> all_tv_ids = async_warp_tv->domain()->allIDs();
+  for (size_t i : arange(1, async_warp.tvs.size())) {
+    TensorView* tv_i = async_warp.tvs.at(i);
+    std::vector<IterDomain*> all_tv_i_ids = tv_i->domain()->allIDs();
 
-    auto sibling_map =
+    std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> sibling_map =
         permissive_graph.buildMapBetween(all_tv_ids, all_tv_i_ids);
     for (const auto& [tv_id_1, tv_ids] : sibling_map) {
-      // Note that tv_ids can have multiple domains as this graph
-      // is a Permissive graph and there may be broadcast merged
-      // domains
-      if (!tv_ids.empty() && all_inline_deps.has(tv_id_1->as<IterDomain>())) {
+      if (!tv_ids.empty() &&
+          stage_slice_position_ids.has(tv_id_1->as<IterDomain>())) {
         info.sibling_maps[tv_id_1->as<IterDomain>()].pushBack(tv_ids);
       }
     }

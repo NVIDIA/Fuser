@@ -774,21 +774,24 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
   std::vector<AsyncWarp> async_warps;
 
   // Gather all async operations.
+  // TODO Add support for blackwell MmaOp
   std::vector<Expr*> async_warp_exprs;
   std::copy_if(
       exprs.begin(),
       exprs.end(),
       std::back_inserter(async_warp_exprs),
-      [](Expr* e) {
-        // TODO Add support for blackwell MmaOp
-        return ir_utils::isCpAsyncBulkLoad(e);
-      });
+      [](Expr* e) { return ir_utils::isCpAsyncBulkLoad(e); });
 
-  // short-circuit: no async operations detected.
+  // short-circuit: No async operations detected.
   if (async_warp_exprs.size() <= 1) {
     return async_warps;
   }
 
+  // TODO Divide into operations into separate AsyncWarps for multi-role
+  // specialization. The current assumption is a single AsyncWarp with same
+  // stage_slice_position.
+
+  // Get TensorViews for async warps.
   std::vector<TensorView*> async_warp_tvs;
   std::transform(
       async_warp_exprs.begin(),
@@ -824,9 +827,6 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
   NVF_ERROR(async_warp_tv != nullptr);
   int64_t stage_slice_position = stage_slice_positions.front();
 
-  // TODO Divide into AsyncWarps for multi-role specialization
-  // The current assumption is a single AsyncWarp with same
-  // stage_slice_position. Get TensorViews for async warps
   async_warps.emplace_back(
       async_warp_exprs, async_warp_tvs, stage_slice_position);
   return async_warps;
