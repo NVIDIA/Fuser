@@ -315,6 +315,7 @@ void TransformReplay::selfReplay(
           it != replay.getReplay().end(),
           "failed to replay IterDomain: ",
           alloc_id);
+#if 0
       // The possibility of a mismatch is when one of the IDs are symbolic. We
       // need to ensure that new_contiguity is consistent with new_alloc_domain,
       // otherwise the later setAllocationDomain would fail checks.
@@ -327,6 +328,8 @@ void TransformReplay::selfReplay(
       } else {
         new_contiguity.push_back(contiguity);
       }
+#endif
+      new_contiguity.push_back(contiguity);
       it->second->parallelize(alloc_id->getParallelType());
       new_alloc_domain.push_back(it->second);
     }
