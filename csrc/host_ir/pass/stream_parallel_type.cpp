@@ -316,7 +316,7 @@ std::vector<Expr*> processForLoopBodies(
       // FOR StreamIdx in range(i0):
       //   [...]
       //   SetCurrentStream to Stream ( StreamIdx % numberOfStreams )
-      //   IF StreamIdx == myDeviceId: // This is the local copy
+      //   IF StreamIdx == rank: // This is the local copy
       //     Tv1[StreamIdx, ...].copy_(Tv0[0, ...]) // the index 0 because Tv0
       //     is sharded
       //   ELSE:
@@ -362,7 +362,7 @@ std::vector<Expr*> processForLoopBodies(
 
         auto* peer = for_loop->index();
         auto* my_device_id =
-            IrBuilder::create<NamedScalar>("myDeviceId", DataType::Int);
+            IrBuilder::create<NamedScalar>("rank", DataType::Int);
         auto* is_sending_to_self =
             IrBuilder::create<kir::Predicate>(eq(peer, my_device_id));
         auto if_then_else =

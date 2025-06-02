@@ -254,7 +254,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
-  expr_evaluator_.bind("myDeviceId", communicator_->deviceId());
+  expr_evaluator_.bind("rank", communicator_->deviceId());
   // process input values, converting IValue to PolymorphicValue
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
