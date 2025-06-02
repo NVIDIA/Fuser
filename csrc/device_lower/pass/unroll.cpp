@@ -256,8 +256,8 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
-  // Don't need to unroll for 1D TMA load or consumer exprs since split by
-  // unroll factor for 1D TMA tv is divisible.
+  // Don't need to unroll for 1D TMA load since split by unroll factor
+  // for 1D TMA tv is divisible.
   bool is_unroll_1d_tma = false;
   if (fl->iter_domain()->getParallelType() == ParallelType::Unroll) {
     const auto& exprs = ir_utils::flattenScopedExprs(fl->body().exprs());
@@ -265,12 +265,6 @@ void UnrollPass::handle(ForLoop* fl) {
       if (ir_utils::isCpAsyncBulk1DLoad(expr)) {
         is_unroll_1d_tma = true;
         break;
-      }
-      for (auto input : expr->inputs()) {
-        if (ir_utils::isCpAsyncBulk1DLoad(input->definition())) {
-          is_unroll_1d_tma = true;
-          break;
-        }
       }
     }
   }

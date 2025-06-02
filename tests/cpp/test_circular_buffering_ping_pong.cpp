@@ -28,7 +28,8 @@ using PingPongCircularBufferingParams = std::tuple<int>;
 using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto [stage_slice_position] = GetParam();
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -38,14 +39,16 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   constexpr int64_t circular_loop = 12;
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  int64_t dim0 = 1;
-  // adjust dim0 to introduce non-divisible split to test predicate
-  auto [stage_slice_position] = GetParam();
-  if (stage_slice_position == 4 || stage_slice_position == 3) {
-    dim0 *=
-        rows_per_stage * compute_warp_groups * (sm_count + 1) * circular_loop;
+  int64_t dim0 = rows_per_stage;
+  if (stage_slice_position == 2) {
+    // only not divisible by [circular_loop]
+    dim0 *= (compute_warp_groups * sm_count * (circular_loop + 1));
+  } else if (stage_slice_position == 3) {
+    // may not divisible by [circular_loop], [sm_count], and
+    // [compute_warp_groups]
+    dim0 *= (compute_warp_groups * sm_count * circular_loop + 1);
   } else {
-    dim0 *= rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+    dim0 *= (compute_warp_groups * sm_count * circular_loop);
   }
 
   constexpr int64_t dim1 = 128;
@@ -113,11 +116,17 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
       const char* str_match_pointer = strstr(e.what(), error_msg);
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
-    } else if (stage_slice_position >= 4) {
+    } else if (stage_slice_position == 5) {
       const char* error_msg =
-          R"(The stage_slice_position must not be positioned after the warp-specialized axis)";
+          R"(Detected an iterDomain with ParallelType::Bulk to the left of stage slice position.)";
       const char* str_match_pointer = strstr(e.what(), error_msg);
-      ASSERT_TRUE(str_match_pointer != nullptr) << e.what();
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    } else if (stage_slice_position == 6) {
+      const char* error_msg =
+          R"(Slice position must be inside TensorView nDims.)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr);
       return;
     }
     throw;
@@ -283,7 +292,7 @@ TEST_F(PingPongCircularBuffering, ProducerConsumerDifferentError) {
   inlineSelectedAt({tv1}, tv2, /*reference_pos=*/2);
   inlineSelectedAt({tv2}, tv2, /*reference_pos=*/3);
 
-  constexpr int64_t stage_slice_position = 3;
+  constexpr int64_t stage_slice_position = 4;
   tv1->circularBuffer(
       stages,
       stages - 1,

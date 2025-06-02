@@ -346,10 +346,6 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   // Step 5: Use independent warp groups if warp specialized axis is to the
   // left of the stage_slice_position
-  NVF_ERROR(
-      warp_specialized.stage_slice_position.value() - 1 <= ws_id_producer_pos,
-      "The stage_slice_position must not be positioned after the warp-specialized axis.",
-      tv->toString());
   return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
 }
 
