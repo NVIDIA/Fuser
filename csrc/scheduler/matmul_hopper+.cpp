@@ -768,8 +768,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
-  fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
 
   // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
   std::vector<TensorView*> tma_load_epilogue_inputs;

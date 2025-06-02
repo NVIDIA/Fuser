@@ -1672,14 +1672,12 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
       if (is_tma_ldmatrix) {
         NVF_ERROR(
+            in_tv->getLogicalDomain().size() >= 2,
+            "We only support 2D inputs ldmatrix");
+        NVF_ERROR(
             ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-                ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
-                ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
-                ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
-            "We support stmatrix only when tiling information is passed via fusion managed cache");
-        auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
-        auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
-
+                ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
+            "We support ldmatrix only when tiling information is passed via fusion managed cache");
         Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
             in_tv, ldst, for_loops_);
         Val* offset =
@@ -1688,7 +1686,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), offset);
         in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
 
-        auto num_regs = (m_tile) / 8 * (n_tile) / 8;
+        auto ldst_m_tile =
+            ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+        auto ldst_n_tile =
+            ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+        auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
         auto as_type = ArrayType{
             std::make_shared<DataType>(DataType::UInt32),
             static_cast<size_t>(num_regs)};
@@ -1705,17 +1707,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       NVF_ERROR(
           ldst->out()->as<TensorView>()->getLogicalDomain().size() >= 2,
           "We only support 2D inputs stmatrix");
-
       NVF_ERROR(
           ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-              ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
-              ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
-              ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
+              ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
           "We support stmatrix only when tiling information is passed via fusion managed cache");
-      auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
-      auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
-      // auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
-      // auto n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
@@ -1729,7 +1724,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
       out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
 
-      auto num_regs = (m_tile) / 8 * (n_tile) / 8;
+      auto ldst_m_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+      auto ldst_n_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+      auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
       auto as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
           static_cast<size_t>(num_regs)};

@@ -6291,6 +6291,8 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+namespace {
+
 AbstractTensor scheduleLdStMatrixBase(TensorView* tv) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
@@ -6437,6 +6439,8 @@ AbstractTensor scheduleLdStMatrixRegisters(const AbstractTensor& base_tensor) {
   return abstract_tensor;
 }
 
+} // namespace
+
 TEST_F(IndexingTest, LdStMatrix) {
   const auto dtype = DataType::BFloat16;
 
@@ -6460,8 +6464,6 @@ TEST_F(IndexingTest, LdStMatrix) {
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion.manage("ldst_matrix_m_smem", warp_m);
-  fusion.manage("ldst_matrix_n_smem", warp_n);
 
   // ===========================================================================
   // Create cache intermediate TensorViews
