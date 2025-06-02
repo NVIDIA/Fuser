@@ -738,7 +738,21 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 //
 // The CTA shape is (TIDx = 128, TIDy = 3, TIDz = 1) for this example.
 //
-// Here is the Warp-Specialized kernel structure:
+// Before circular-buffer pass:
+// FOR outer_persistent:
+//   << compute_at_position(1)
+//   FOR SERIAL(2):
+//     << stage_slice_position(2)
+//     tv0_smem = tma_load(tv0)
+//     tv1_smem = tma_load(tv1)
+//   END FOR
+//   FOR TIDy(2):
+//     << stage_slice_position(2)
+//     tv2 = add(tv0_smem, tv1_smem)
+//   END FOR
+// END FOR
+//
+// Here is the Warp-Specialized kernel structure after circular-buffer pass:
 // IF AsyncWarp:
 //   FOR outer_persistent:
 //     << compute_at_position(1)
