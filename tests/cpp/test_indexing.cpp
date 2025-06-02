@@ -6357,8 +6357,8 @@ AbstractTensor scheduleLdStMatrixSharedMemory(
   // The tile is stored in row-major order, so issue four stmatrix.x4
   // operations along the M dimension for a 128 thread warp group.
   // Also, traverse along 16 rows first before moving along column dimension.
-  abstract_tensor.reorder({{-5, -3}, {-4, -5}, {-3, -2}, {-2, -4}});
-  // (no(4), nio(4), niio(2), mo(4), mi(16), niii(8))
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
+  // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
 
   abstract_tensor.merge(-4, -3);
   abstract_tensor.merge(-3, -2);
@@ -6612,7 +6612,6 @@ TEST_F(IndexingTest, LdStMatrix) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 
-  /*
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
         : AbstractGetReference(indexer, id_model) {}
@@ -6642,12 +6641,10 @@ TEST_F(IndexingTest, LdStMatrix) {
       }
 
       return std::string(
-          "( ( ( ( ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) / 25 ) * 25 ) + ( (
-  ( i98 * 20 ) + ( ( i99 * 10 ) + i100 ) ) % 25 ) )");
+          R"(( ( toSmem(( getMetaData(T2) )) ) + ( ( ( ( ( ( ( threadIdx.y * 16384 ) + ( ( i234 / 4 ) * 4096 ) ) + ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) / 8 ) * 512 ) ) + ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) % 8 ) * 64 ) ) + ( ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) % 8 ) ^ ( ( ( ( i234 % 4 ) * 16 ) + ( ( ( ( threadIdx.x / 16 ) % 2 ) * 8 ) + 0 ) ) / 8 ) ) * 8 ) ) + ( ( ( ( i234 % 4 ) * 16 ) + ( ( ( ( threadIdx.x / 16 ) % 2 ) * 8 ) + 0 ) ) % 8 ) ) * 2 ) ))");
     }
   };
   IndexValidator<GetReference>::validate(&fusion, false);
-  */
 }
 
 } // namespace nvfuser
