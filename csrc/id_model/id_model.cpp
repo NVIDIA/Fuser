@@ -738,7 +738,7 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
 //
 // The CTA shape is (TIDx = 128, TIDy = 3, TIDz = 1) for this example.
 //
-// Before circular-buffer pass:
+// Here is kernel structure before circular-buffer pass:
 // FOR outer_persistent:
 //   << compute_at_position(1)
 //   FOR SERIAL(2):
