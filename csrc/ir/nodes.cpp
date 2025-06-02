@@ -4249,34 +4249,34 @@ NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {
   if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
 
 std::optional<ParallelType> NamedScalar::getParallelIndex() const {
   if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
