@@ -6293,7 +6293,9 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
 
 namespace {
 
-AbstractTensor scheduleLdStMatrixBase(TensorView* tv) {
+AbstractTensor scheduleLdStMatrixBase(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
   // The CTA tile is (128, 256).
@@ -6306,13 +6308,16 @@ AbstractTensor scheduleLdStMatrixBase(TensorView* tv) {
   // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
 
   // Split by TMA shared memory box
-  abstract_tensor.split(-1, 64);
+  DataType dtype = tv->getDataType().value();
+  int64_t smem_box_size = getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  abstract_tensor.split(-1, smem_box_size);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
 
   // Split by (16, 16) matrix for LdStMatrix.x4
+  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   abstract_tensor.split(-2, 16);
-  abstract_tensor.split(-1, 16);
+  abstract_tensor.split(-1, ldst_matrix_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
 
@@ -6441,8 +6446,12 @@ AbstractTensor scheduleLdStMatrixRegisters(const AbstractTensor& base_tensor) {
 
 } // namespace
 
-TEST_F(IndexingTest, LdStMatrix) {
+using LdStMatrixParams = std::tuple<MmaInputSmemSwizzle, int, int>;
+using LdStMatrixTest = NVFuserFixtureParamTest<LdStMatrixParams>;
+TEST_P(LdStMatrixTest, Shmoo) {
   const auto dtype = DataType::BFloat16;
+
+  auto& [swizzle, cta_multiple_m, cta_multiple_n] = GetParam();
 
   // Fusion Definition
   Fusion fusion;
@@ -6456,12 +6465,12 @@ TEST_F(IndexingTest, LdStMatrix) {
   // ===========================================================================
 
   // Constants
-  constexpr int64_t cta_m = 128;
-  constexpr int64_t cta_n = 256;
   constexpr int64_t warp_m = 64;
   constexpr int64_t warp_n = 256;
+  int64_t cta_m = warp_m * cta_multiple_m;
+  int64_t cta_n = warp_n * cta_multiple_n;
   constexpr int64_t ldst_matrix_tile_m = 16;
-  constexpr int64_t ldst_matrix_tile_n = 16;
+  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
 
@@ -6518,14 +6527,10 @@ TEST_F(IndexingTest, LdStMatrix) {
   // Schedule shared memory tensors using TMA Load and Store
 
   // Schedule output from TMA Load
-  MmaInputSmemSwizzle input_swizzle =
-      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, input_swizzle);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, swizzle);
 
   // Schedule global memory output from TMA Store
-  MmaInputSmemSwizzle output_swizzle =
-      mma_utils::tmaSwizzleSharedMemory(tv1_smem);
-  mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1, swizzle);
 
   // ===========================================================================
   // Schedule register tensors using LdMatrix and StMatrix
@@ -6538,13 +6543,12 @@ TEST_F(IndexingTest, LdStMatrix) {
   // assertion in indexing pass.
 
   // Move data from tv0_reg to tv1_smem using StMatrix
-  AbstractTensor tv1_smem_base_tensor = scheduleLdStMatrixBase(tv1_smem);
+  AbstractTensor tv1_smem_base_tensor =
+      scheduleLdStMatrixBase(tv1_smem, swizzle);
   AbstractTensor tv1_smem_abstract_tensor =
       scheduleLdStMatrixRegisters(tv1_smem_base_tensor);
   // Create tma store allocation domain with swizzle
-  if (output_swizzle != MmaInputSmemSwizzle::None) {
-    mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
-  }
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, swizzle);
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
@@ -6569,7 +6573,7 @@ TEST_F(IndexingTest, LdStMatrix) {
   // ===========================================================================
 
   // Move data from tv0_smem to tv0_reg using LdMatrix
-  AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg);
+  AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg, swizzle);
   AbstractTensor tv0_reg_abstract_tensor =
       scheduleLdStMatrixRegisters(tv0_reg_base_tensor);
   tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
@@ -6613,40 +6617,25 @@ TEST_F(IndexingTest, LdStMatrix) {
   ASSERT_TRUE(kernel != nullptr);
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
-
-  struct GetReference : AbstractGetReference {
-    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
-        : AbstractGetReference(indexer, id_model) {}
-    std::string getLinearIndexString(TensorView* tv, TensorView* maybe_consumer)
-        const override {
-      Expr* def = tv->definition();
-      if (def == nullptr) {
-        return std::string();
-      }
-
-      bool is_output_ldmatrix = ir_utils::isLdMatrixOp(def);
-      bool is_input_ldmatrix =
-          std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* e) {
-            return ir_utils::isLdMatrixOp(e);
-          });
-      if (!(is_output_ldmatrix || is_input_ldmatrix)) {
-        return std::string();
-      }
-
-      if (is_output_ldmatrix) {
-        return std::string("0");
-      }
-
-      // Skip consumer case
-      if (maybe_consumer == nullptr) {
-        return std::string();
-      }
-
-      return std::string(
-          R"(( ( toSmem(( getMetaData(T2) )) ) + ( ( ( ( ( ( ( threadIdx.y * 16384 ) + ( ( i234 / 4 ) * 4096 ) ) + ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) / 8 ) * 512 ) ) + ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) % 8 ) * 64 ) ) + ( ( ( ( ( ( ( threadIdx.x / 16 ) / 2 ) * 16 ) + ( threadIdx.x % 16 ) ) % 8 ) ^ ( ( ( ( i234 % 4 ) * 16 ) + ( ( ( ( threadIdx.x / 16 ) % 2 ) * 8 ) + 0 ) ) / 8 ) ) * 8 ) ) + ( ( ( ( i234 % 4 ) * 16 ) + ( ( ( ( threadIdx.x / 16 ) % 2 ) * 8 ) + 0 ) ) % 8 ) ) * 2 ) ))");
-    }
-  };
-  IndexValidator<GetReference>::validate(&fusion, false);
 }
+// MmaInputSmemSwizzle::None fails regardless of ldmatrix or stmatrix is enabled
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    LdStMatrixTest,
+    ::testing::Combine(
+        ::testing::Values(
+            MmaInputSmemSwizzle::B32,
+            MmaInputSmemSwizzle::B64,
+            MmaInputSmemSwizzle::B128),
+        ::testing::Values(1, 2),
+        ::testing::Values(1, 2)),
+    [](const testing::TestParamInfo<LdStMatrixParams>& info) {
+      std::stringstream ss;
+      int64_t cta_m = 64 * std::get<1>(info.param);
+      int64_t cta_n = 256 * std::get<2>(info.param);
+      ss << "swizzle_" << toString(std::get<0>(info.param)) << "_cta_m_"
+         << cta_m << "_cta_n_" << cta_n;
+      return sanitizeTestName(ss.str());
+    });
 
 } // namespace nvfuser
