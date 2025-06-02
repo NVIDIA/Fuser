@@ -423,8 +423,6 @@ LaunchParams KernelExecutor::computeLaunchParams(
     if (val > 0) {
       expr_eval.bind(p_type, val);
       launch_params.bind(val.as<int64_t>(), p_type);
-      std::cout << "p_type " << p_type
-      << " val: " << val.as<int64_t>() << std::endl;      
     }
   }
 

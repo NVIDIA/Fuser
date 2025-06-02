@@ -212,8 +212,6 @@ Val* TensorIndexer::getLinearIndex(
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
-    std::cout << "Circular buffer offset: "
-              << circular_buffer_offset->toInlineString() << std::endl;
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }

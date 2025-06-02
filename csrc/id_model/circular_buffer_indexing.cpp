@@ -104,9 +104,6 @@ Val* getOffsetForCircularBufferTensor(
   NVF_ERROR(circular_buffer_loop != nullptr);
 
   // Mostly just copied from getNonGlobalConsumerStridedIndices
-  for(auto fl : for_loops) {
-    std::cout << "ForLoop: " << fl->iterDomain()->toString() << std::endl;
-  }
   const CircularBufferLoopStage stage =
       circular_buffer_loop->circularBufferLoopStage();
 

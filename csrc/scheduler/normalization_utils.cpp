@@ -1371,10 +1371,6 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     if (rparams->tma_warp_specialized && rparams->is_non_circular_buffer_gmem_to_regs) {
       const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
           fusion, scheduler_utils::getReductionTvs(fusion));
-      for (auto tv : outer_broadcast_tvs) {
-        std::cout << "Skipping recompute for outer broadcast tv: "
-                  << tv->toString() << std::endl;
-      }
       if (std::any_of(
               outer_broadcast_tvs.begin(),
               outer_broadcast_tvs.end(),

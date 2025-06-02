@@ -94,5 +94,22 @@ std::vector<TensorView*> sortProjectableBufferInputs(
     const std::vector<TensorView*>& projectable_buffer_inputs,
     const std::vector<TensorView*>& outer_broadcast_tvs);
 
+// Returns tvs that are persistent due to grouped reductions,
+// such as the RMS tv in RMSNorm backward.
+
+// Normally, an inner broadcast tv can be inlined with ops before and after
+// inner reductions. But with grouped reductions, the loop over grouped domain
+// is separated into two disjoint loops by the runtime function. To be
+// accessible in both, certain tvs must be hoisted outside.
+
+// The algorithm traces all paths from `inner_bcast_tv` to fusion outputs:
+// (1) tvs on paths that include a reduction go into `p_of_reductions`.
+// (2) tvs on paths without reductions go into `c_of_reductions`.
+// (3) tvs in both sets are considered persistent.
+std::vector<TensorView*> getGroupedReductionPersistentTvs(
+    Fusion* fusion,
+    TensorView* inner_bcast_tv,
+    const std::vector<TensorView*>& reduction_tvs);
+
 } // namespace inner_outer_utils
 } // namespace nvfuser

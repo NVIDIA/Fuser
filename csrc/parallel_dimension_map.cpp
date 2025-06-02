@@ -77,10 +77,6 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       dim_map_.at(ptype) = SimplifyingIrBuilder::maxExpr(
           dim_map_.at(ptype), concrete_id->extent());
     }
-    std::cout << "ParallelDimensionMap: "
-              << "ptype: " << ptype
-              << ", concrete_id: " << concrete_id->toString()
-              << ", extent: " << dim_map_.at(ptype)->toString() << std::endl;
   }
 
   // Simplify dim_map_
