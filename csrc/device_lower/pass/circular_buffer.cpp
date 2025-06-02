@@ -1243,18 +1243,6 @@ class IsCircularBufferLoadLoop : public kir::IrVisitor {
   bool result_ = false;
 };
 
-namespace {
-
-bool isWarpSpecialized(ForLoop* loop) {
-  return std::holds_alternative<WarpSpecialized>(
-      GpuLower::current()
-          ->circularBufferInfo()
-          .getCircularBufferOptionsFor(loop->iter_domain())
-          .type);
-}
-
-} // namespace
-
 // Traverse lowered loop-nests and find all circular buffer loops and
 // associated load expressions.
 class CircularBufferLoopNestInspector : private kir::IrVisitor {
@@ -1271,7 +1259,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     InsertionInfo ws_info;
     int64_t inner_most_ws_position = -1;
     for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
-      if (!isWarpSpecialized(cb_loop)) {
+      if (!lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
       ws_info[cb_loop] = cb_exprs;
@@ -1306,7 +1294,7 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     // Get Pipeline InsertionInfo
     InsertionInfo pipeline_info;
     for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
-      if (isWarpSpecialized(cb_loop)) {
+      if (lower_utils::isWarpSpecializedLoop(cb_loop)) {
         continue;
       }
 
@@ -1470,7 +1458,7 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
       cb_info.hasIndependentComputeWarpGroups();
   kir::IfThenElse* ite = nullptr;
   if (independent_compute_warp_groups) {
-    NVF_ERROR(isWarpSpecialized(circular_buffer_loop));
+    NVF_ERROR(lower_utils::isWarpSpecializedLoop(circular_buffer_loop));
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(warp_specialize_on),
@@ -1544,12 +1532,7 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
-    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
-        GpuLower::current()
-            ->circularBufferInfo()
-            .getCircularBufferOptionsFor(loop->iter_domain())
-            .type);
-    NVF_ERROR(use_warp_specialization);
+    NVF_ERROR(lower_utils::isWarpSpecializedLoop(loop));
     NVF_ERROR(
         std::all_of(
             it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
@@ -1693,12 +1676,7 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
-    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
-        GpuLower::current()
-            ->circularBufferInfo()
-            .getCircularBufferOptionsFor(loop->iter_domain())
-            .type);
-    NVF_ERROR(!use_warp_specialization);
+    NVF_ERROR(!lower_utils::isWarpSpecializedLoop(loop));
 
     auto has_cp_async_bulk = std::any_of(
         it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
