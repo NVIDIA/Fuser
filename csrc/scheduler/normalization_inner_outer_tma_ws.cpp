@@ -89,10 +89,10 @@ void getHeuristics(
   // Given a smem buffer size, calculate the number of registers pre thread
   // required to cache it in registers. The total required register size may be
   // larger than smem size due to non-divisible split.
-  auto smem_to_regs =
-      [&](int64_t smem_buffer_size, int64_t bdimx, int64_t iter_unroll) {
+  auto round_up_reg_count =
+      [&](int64_t logical_size, int64_t bdimx, int64_t iter_unroll) {
         int persistent_batch = ceilDiv(after_vect, bdimx);
-        int buffer_per_element = smem_buffer_size / inner_dim_numel;
+        int buffer_per_element = logical_size / inner_dim_numel;
         int elements_per_thread = persistent_batch * iter_unroll * vect_factor;
         int buffer_per_thread = buffer_per_element * elements_per_thread;
         return buffer_per_thread / scheduler_utils::bytes_per_register;
@@ -102,16 +102,17 @@ void getHeuristics(
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
       reg_count +=
-          smem_to_regs(circular_buffered_smem_size, bdimx, iter_unroll);
+          round_up_reg_count(circular_buffered_smem_size, bdimx, iter_unroll);
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count +=
-          smem_to_regs(non_circular_buffered_smem_size, bdimx, iter_unroll);
+      reg_count += round_up_reg_count(
+          non_circular_buffered_smem_size, bdimx, iter_unroll);
     }
     // regs for partial outer reduction results.
-    reg_count += regs_buffer_size / scheduler_utils::bytes_per_register;
+    reg_count += round_up_reg_count(regs_buffer_size, bdimx, iter_unroll) /
+        scheduler_utils::bytes_per_register;
     // regs for indexing, etc.
     reg_count += scheduler_utils::register_overhead;
     // total usage should be less than max available
@@ -172,6 +173,10 @@ void getHeuristics(
     if (!is_updated) {
       break;
     }
+    std::cout << "TMA warp specialized: "
+              << "bdimx: " << bdimx << ", bdimy: " << bdimy
+              << ", iter_unroll: " << iter_unroll << ", n_stages: " << n_stages
+              << std::endl;
   }
   int64_t inner_batch = ceilDiv(after_vect, bdimx);
 
@@ -741,7 +746,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
               inner_outer_utils::getGroupedReductionPersistentTvs(
                   fusion, cached_tv, reduction_tvs);
           for (auto gp_tv : grouped_reduction_persistent_tvs) {
-            tv_inline_pos_map.emplace(gp_tv, 2);
+            std::cout << "Inline grouped persistent tv: "
+                      << gp_tv->toString() << std::endl;
+            tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
           }
         }
       }
