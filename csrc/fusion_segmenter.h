@@ -572,6 +572,14 @@ class SegmentCandidateFinder {
   void privatizeUpcast();
   void privatizeSqueeze();
 
+  template <typename T>
+  typename std::enable_if<
+      std::is_same<T, UnaryOp>::value || std::is_same<T, SqueezeOp>::value,
+      bool>::type
+  privatizeUpCastOrSqueezeOp();
+
+  void privatizeOps();
+
   void findSegments();
 
   // Revert privatized upcast ops when not necessary
