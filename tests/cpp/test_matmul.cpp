@@ -4728,10 +4728,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
-  // NOTE: disabling smem use for this test since we currrently hit a bank
-  // conflict.
-  // TODO: enable smem epilogue once stmatrix is updated
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
   mparams.promote_prologue_smem_reuse = false;
 
