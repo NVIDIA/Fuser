@@ -784,8 +784,8 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
       std::back_inserter(async_warp_exprs),
       [](Expr* e) { return ir_utils::isCpAsyncBulkLoad(e); });
 
-  // short-circuit: No async operations detected.
-  if (async_warp_exprs.size() <= 1) {
+  // short-circuit: no async operations detected.
+  if (async_warp_exprs.empty()) {
     return async_warps;
   }
 
@@ -805,7 +805,7 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
         NVF_ERROR(output_tvs.size() == 1);
         return output_tvs.front();
       });
-  NVF_ERROR(async_warp_tvs.size() > 1);
+  NVF_ERROR(!async_warp_tvs.empty());
 
   // Check that all operations in the same warp have the same
   // stage_slice_position.
@@ -819,11 +819,12 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
             ir_utils::getStageSlicePosition(tv);
         return opt_stage_slice_position.value_or(-1);
       });
-  NVF_ERROR(stage_slice_positions.size() > 1);
-  NVF_ERROR(std::all_of(
-      stage_slice_positions.begin() + 1,
-      stage_slice_positions.end(),
-      [&](int64_t v) { return v == stage_slice_positions.front(); }));
+  NVF_ERROR(
+      stage_slice_positions.size() == 1 ||
+      std::all_of(
+          stage_slice_positions.begin() + 1,
+          stage_slice_positions.end(),
+          [&](int64_t v) { return v == stage_slice_positions.front(); }));
 
   TensorView* async_warp_tv = async_warp_tvs.front();
   NVF_ERROR(async_warp_tv != nullptr);
