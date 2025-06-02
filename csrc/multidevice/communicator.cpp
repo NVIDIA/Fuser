@@ -347,11 +347,13 @@ c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
-  NVF_ERROR(
+  NVF_CHECK(
       is_available(),
       "The singleton Communicator isn't available. "
-      "This is likely because Communicator::cleanup has been called "
-      "or the instance wasn't successfully initialized.");
+      "This is most likely because the instance wasn't successfully "
+      "initialized due to lack of a multi-process running (e.g. mpirun or "
+      "torchrun). Sometimes, this is because Communicator::cleanup has been "
+      "accidentally called before this function.");
 
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team

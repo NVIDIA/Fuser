@@ -67,7 +67,10 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
 
       // Propagate shardings from input and manually apply sharding deletions.
-      shardAllLike(input, {input_permute, output_permute, new_output});
+      shardAllLike(
+          input,
+          {input_permute, output_permute, new_output},
+          deviceAndStreamParallelTypes());
       output_permute->axis(0)->parallelize(ParallelType::Serial);
       new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
       output_permute->setDeviceMesh(output->getDeviceMesh());

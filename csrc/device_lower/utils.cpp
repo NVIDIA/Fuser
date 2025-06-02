@@ -194,6 +194,38 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+
 bool isLdStTMem(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::LdTMem ||
@@ -768,9 +800,19 @@ AllocPosInfo getAllocPosInfo(
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
-
+  int64_t compute_pos = tv->getComputeAtPosition();
+  // For warp specialized circular buffers its stage_slice_position controls the
+  // buffer size for each stage.
+  const auto& circular_buffer_type = tv->circularBufferOptions().type;
+  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    const auto& warp_specialized =
+        std::get<WarpSpecialized>(circular_buffer_type);
+    if (warp_specialized.stage_slice_position.has_value()) {
+      compute_pos = warp_specialized.stage_slice_position.value();
+    }
+  }
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_pos) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -2054,6 +2096,13 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
 } // namespace lower_utils
 
 } // namespace nvfuser

@@ -48,6 +48,8 @@ enum class ValType {
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
+// OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
+// load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
 enum class PredicateType {
   Manual,
   Inline,
@@ -56,7 +58,9 @@ enum class PredicateType {
   Misaligned,
   ReductionWrite,
   LoopRotation,
-  ElectSync
+  ElectSync,
+  OneDimTmaLoadExpectArrive,
+  OneDimTmaWaitParity,
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.
@@ -704,7 +708,7 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
-  DIDx,
+  DIDx = 0,
   DIDy,
   DIDz,
   BIDz,
@@ -720,8 +724,11 @@ enum class ParallelType {
   Mma,
   Group,
   Bulk,
-  Serial
+  Serial,
+  Count, // sentinel, not an actual ParallelType
 };
+
+std::unordered_set<ParallelType> allParallelTypes();
 
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);

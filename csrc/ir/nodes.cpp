@@ -3055,7 +3055,7 @@ void IterDomain::parallelize(ParallelType t) {
         "a start of ",
         start(),
         " and extent ",
-        extent(),
+        extent()->toInlineString(),
         " .");
   }
 
@@ -4676,7 +4676,7 @@ std::string LinearOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << inB()->toString();
-  if (has_bias()) {
+  if (hasBias()) {
     indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
   }
   indent(ss, indent_size + 1) << ")\n";
@@ -4714,7 +4714,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
   squeeze_device_dims(weight, num_device_dims);
 
   at::Tensor out_tensor;
-  if (has_bias()) {
+  if (hasBias()) {
     auto bias = inputs.at(2).as<at::Tensor>();
     squeeze_device_dims(bias, num_device_dims);
     out_tensor = at::linear(in, weight, bias);

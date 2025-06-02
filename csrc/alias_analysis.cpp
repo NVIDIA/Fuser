@@ -56,78 +56,6 @@ class AliasFinder : public OptOutConstDispatch {
   AliasAnalysisResult& analysis_;
 };
 
-// Computes `Split`'s output contiguity. Returns the outer contiguity and then
-// the inner contiguity.
-std::pair<std::optional<bool>, std::optional<bool>> splitContiguity(
-    const std::optional<bool>& contiguity) {
-  // Credits to @jacobhinkle:
-  // https://github.com/NVIDIA/Fuser/pull/1124#discussion_r1368682735
-  if (!contiguity.has_value()) {
-    return {std::nullopt, std::nullopt};
-  }
-  if (*contiguity) {
-    return {true, true};
-  } else {
-    return {true, false};
-  }
-}
-
-// Computes `Merge`'s output contiguity. Returns a pair
-// `<mergeable,contiguity>`. `mergeable` indicates whether the two IterDomains
-// can be merged without materialization. For example, there's no way to merge
-// `outer=f,inner=t` while keeping the output as an alias, because a dimension
-// can only have one stride. `contiguity` is the contiguity of the merged output
-// IterDomain.
-//
-// Credits to @jacobhinkle:
-// https://github.com/NVIDIA/Fuser/pull/1124#discussion_r1368682735
-std::pair<bool, std::optional<bool>> mergeContiguity(
-    const bool outer_is_expanded,
-    const std::optional<bool>& outer_contiguity,
-    const bool inner_is_expanded,
-    const std::optional<bool>& inner_contiguity) {
-  // Statuses `b` and `e` are represented in the IR with isBroadcast() and
-  // hasExpandedExtent(). Status `C` means stops propagating because we know we
-  // can't alias at that point.
-  //
-  // o\i | t  f  b  e
-  // ----+-----------
-  //  t  | t  f  t  C
-  //  f  | C  C  f  C
-  //  b  | t  f  b  e
-  //  e  | C  C  e  e
-  if (!outer_contiguity.has_value() && !outer_is_expanded) {
-    return {true, inner_contiguity};
-  }
-  if (!inner_contiguity.has_value() && !inner_is_expanded) {
-    return {true, outer_contiguity};
-  }
-
-  // o\i | t  f  b  e
-  // ----+-----------
-  //  t  | t  f     C
-  //  f  | C  C     C
-  //  b  |
-  //  e  | C  C     e
-  if (outer_is_expanded && inner_is_expanded) {
-    return {true, std::nullopt};
-  }
-  if (outer_is_expanded || inner_is_expanded) {
-    return {false, std::nullopt};
-  }
-
-  // o\i | t  f  b  e
-  // ----+-----------
-  //  t  | t  f
-  //  f  | C  C
-  //  b  |
-  //  e  |
-  if (*outer_contiguity) {
-    return {true, inner_contiguity};
-  }
-  return {false, std::nullopt};
-}
-
 // A helper function used to compute the perferred output layout. It computes
 // the mapping from `in_logical` to `out_root` and applies that mapping to
 // `preferred_in_layout`. For many ops, this function returns a good initial
@@ -174,94 +102,32 @@ std::optional<Layout> mapInLayoutToOutRoot(
 }
 
 namespace {
-// Given a TV, returns its layout with repsect to the logical domain. When
-// `allocation` is a split of `logical`, walks backwards from `allocation` to
-// `logical` to find a permutation of `logical` that satisfies the order in
-// `allocation`. The returned contiguity is computed according to
-// splitContiguity and mergeContiguity.
-//
-// Example:
-//   input TV:
-//     logical: [b, s, h]
-//     allocation: [s, d, h/d, b]
-//     contiguity: [t, t, f, t]
-//   output layout:
-//     allocation: [s, h, b]
-//     contiguity: [t, f, t]
-//
-// I chose to canonicalize layouts to logical so I didn't have to change the
-// main bulk of alias analysis which was written for single GPU.
-std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
-  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  const std::vector<IterDomain*>& allocation = tv->getMaybeAllocationDomain();
-  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (auto&& [alloc_id, contiguity] : zip(allocation, tv->getContiguity())) {
-    allocation_to_contiguity.pushBack(alloc_id, contiguity);
+
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+
+// Returns whether `layout` is compliant with `required`. This is
+// uni-directional. For example, `contiguity=[t,t]` is compliant with
+// `contiguity=[f,f]` but not vice versa.
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
   }
 
-  for (Expr* transform : DependencyCheck::getAllExprsBetween(
-                             {logical.begin(), logical.end()},
-                             {allocation.begin(), allocation.end()}) |
-           std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(transform);
-    if (split == nullptr) {
-      // We can handle merges using a similar logic if/when we need to.
-      return std::nullopt;
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
+      return false;
     }
-
-    // When split->outer() is parallelized and split->inner() is serial, we
-    // remove split->outer() regardless of its position and replace
-    // split->inner() with split->in(). This way, even when split->outer() is
-    // not adjacent to split->inner() (e.g. when it's outermost), we can
-    // still undo the split.
-    //
-    // Several other cases that I haven't implemented for simplicity.
-    //
-    // When split->outer() is serial and split->inner() is parallelized, we
-    // could remove split->inner() and replace split->outer() with
-    // split->in() regardless of split->inner()'s position.
-    //
-    // When split->outer() and split->inner() are both parallelized, we could
-    // replace either of them with split->in() and remove the other.
-    NVF_ERROR(!split->inner()->isParallelized());
-
-    const auto [outer_contiguity, next_i] =
-        allocation_to_contiguity.erase(split->outer());
-    if (!split->outer()->isParallelized()) {
-      // Check adjacency only if split->outer() is not parallelized.
-      if (next_i == allocation_to_contiguity.end() ||
-          next_i->first != split->inner()) {
-        return std::nullopt;
-      }
-    }
-    const auto [inner_contiguity, merge_i] =
-        allocation_to_contiguity.erase(split->inner());
-    const auto [mergeable, contiguity] = mergeContiguity(
-        split->outer()->hasExpandedExtent(),
-        outer_contiguity,
-        split->inner()->hasExpandedExtent(),
-        inner_contiguity);
-    if (!mergeable) {
-      return std::nullopt;
-    }
-    allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
   }
-
-  Layout layout;
-  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
-    layout.allocation_domain.push_back(alloc_id);
-    layout.contiguity.push_back(contiguity);
-  }
-  NVF_ERROR(
-      std::is_permutation(
-          logical.begin(),
-          logical.end(),
-          layout.allocation_domain.begin(),
-          layout.allocation_domain.end()),
-      "This indicates that logical and allocation are not connected via "
-      "transforms. This is most often caused by forgetting to concretize "
-      "a fusion with dynamic reshapes.");
-  return layout;
+  return true;
 }
 
 bool okToRelayout(
@@ -277,7 +143,7 @@ bool okToRelayout(
   if (!old_layout.has_value()) {
     return false;
   }
-  return new_layout.isCompliantWith(*old_layout);
+  return isCompliantWith(new_layout, *old_layout);
 }
 } // namespace
 
@@ -617,47 +483,6 @@ AliasAnalysisResult findAliases(
   }
   analysis.finalize();
   return analysis;
-}
-
-int64_t Layout::size() const {
-  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
-  return std::ssize(allocation_domain);
-}
-
-std::string Layout::toString(const int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "<allocation=["
-                          << toDelimitedString(allocation_domain)
-                          << "], contiguity=["
-                          << toDelimitedString(contiguity, /*delim=*/" ")
-                          << "]>";
-  return ss.str();
-}
-
-namespace {
-bool contiguityIsCompliant(
-    const std::optional<bool>& actual,
-    const std::optional<bool>& required) {
-  if (actual == true && required == false) {
-    return true;
-  }
-  return actual == required;
-}
-} // namespace
-
-bool Layout::isCompliantWith(const Layout& required) const {
-  if (allocation_domain != required.allocation_domain) {
-    // This can be relaxed by allowing broadcast dimensions to be ordered
-    // differently.
-    return false;
-  }
-
-  for (const auto i : arange(allocation_domain.size())) {
-    if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
-      return false;
-    }
-  }
-  return true;
 }
 
 } // namespace nvfuser
