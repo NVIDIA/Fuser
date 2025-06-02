@@ -7,6 +7,7 @@
 // clang-format on
 #include <ops/arith.h>
 #include <options.h>
+#include <scheduler/normalization_inner_outer_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -680,18 +681,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           } else {
             cached_tv->axis(2)->parallelize(ParallelType::Unroll);
           }
-        }
-        // Unroll the consumers to prevent inlineMost from inlining them
-        // to the right of the vectorized axis, which can cause expression
-        // sort errors.
-        // TODO: Revise inlineMost to handle this automatically.
-        // TODO: Ideally, we only need to unroll the consumers that are
-        // used in the for-loop before and after the iteration grouped
-        // reduction, we will leave this for heuristic tuning since unroll all
-        // consumers may lead to better performance if register usage is not a
-        // concern.
-        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-          consumer->axis(2)->parallelize(ParallelType::Unroll);
+          const auto& grouped_reduction_persistent_tvs =
+              inner_outer_utils::getGroupedReductionPersistentTvs(
+                  fusion, cached_tv, reduction_tvs);
+          for (auto gp_tv : grouped_reduction_persistent_tvs) {
+            tv_inline_pos_map.emplace(gp_tv, 2);
+          }
         }
       }
     }
