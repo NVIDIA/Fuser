@@ -18,9 +18,12 @@ namespace nvfuser {
 // Track information for each individual AsyncWarp. Currently, only one
 // AsyncWarp is supported.
 struct AsyncWarp {
+  // All the expressions in the AsyncWarp
   std::vector<Expr*> exprs;
+  // The corresponding output TensorView for all expressions.
   std::vector<TensorView*> tvs;
-  int64_t stage_slice_position;
+  // The common stage_slice_position for all TensorViews.
+  int64_t stage_slice_position = -1;
 };
 
 // This helper function scans through all expressions, finds mbarrier async
