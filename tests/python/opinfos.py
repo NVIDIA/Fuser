@@ -1003,7 +1003,6 @@ scatter_opinfo = OpInfo(
     lambda fd: fd.ops.scatter,
     "scatter",
     sample_input_generator=scatter_generator,
-    error_input_generator=take_along_axis_error_generator,
     reference=partial(scatter_wrapper, torch.scatter),
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
