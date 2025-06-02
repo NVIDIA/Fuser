@@ -3682,7 +3682,7 @@ MatmulParams defaultHopperParams() {
   return mparams;
 }
 
-TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_Basic) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3691,9 +3691,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
-
-  constexpr bool use_smem_epilogue = false;
-  constexpr bool use_warp_specialization = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3737,20 +3734,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv1c->setMemoryType(MemoryType::Shared);
 
-  TensorView *tv3c = nullptr, *tv3_shmem = nullptr;
-  if (use_smem_epilogue) {
-    tv3_shmem = tv3->cacheBefore();
-    tv3c = tv3_shmem->cacheBefore();
-    tv3_shmem->setMemoryType(MemoryType::Shared);
-    tv3c->setMemoryType(MemoryType::Local);
-    tv3_shmem->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::StMatrix);
-    tv3->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::CpAsyncBulkTensorTile);
-  } else {
-    tv3c = tv3->cacheBefore();
-    tv3c->setMemoryType(MemoryType::Local);
-  }
+  TensorView* tv3c = nullptr;
+  tv3c = tv3->cacheBefore();
+  tv3c->setMemoryType(MemoryType::Local);
 
   // gmem [K, M, 1] -TMA-> smem [K, M, 1]
   // gmem [K, 1, N] -TMA-> smem [K, 1, N]
@@ -3803,47 +3789,17 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  if (!use_smem_epilogue) {
-    for (auto tv : {tv3c, tv3}) {
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv->getLoopDomain());
-      tv->setLoopDomain(s.as<IterDomain*>());
-    }
-    tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-  } else {
+  for (auto tv : {tv3c, tv3}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3c->getLoopDomain());
-    tv3c->setLoopDomain(s.as<IterDomain*>());
-    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
-
-    constexpr int64_t stmatrix_tile_m = 16;
-    constexpr int64_t stmatrix_tile_n = 16;
-    fusion.manage("ldst_matrix_m_tile", stmatrix_tile_m);
-    fusion.manage("ldst_matrix_n_tile", stmatrix_tile_n);
-    fusion.manage("ldst_matrix_m_smem", getM(macro));
-    fusion.manage("ldst_matrix_n_smem", getN(macro));
-
-    MmaInputSmemSwizzle store_swizzle =
-        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
-
-    // This internally calls
-    // Schedule shared memory cache; Output from StMatrix
-    mma_utils::scheduleLdStMatrixForMmaOutput(
-        tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
-
-    // Schedule global memory output; Output from TMA Store
-    mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
   }
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   inlineMost();
 
-  if (use_warp_specialization) {
-    tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-    tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-  } else {
-    tv0c->circularBuffer(stages, prefetch);
-    tv1c->circularBuffer(stages, prefetch);
-  }
+  tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+  tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
 
   auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
 
