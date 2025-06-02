@@ -588,8 +588,10 @@ Val* CircularBufferInfo::getLinearIndex(
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
-  bool is_warp_specialized = std::holds_alternative<WarpSpecialized>(
-      circular_buffer_tv->circularBufferOptions().type);
+  const auto& circular_buffer_type =
+      circular_buffer_tv->circularBufferOptions().type;
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   if (!is_warp_specialized) {
     return loops[inner_loop_index]->indexOrStartIfTrivial();
   }
@@ -599,6 +601,14 @@ Val* CircularBufferInfo::getLinearIndex(
   int64_t outer_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
 
+  // The inner_loop_index is the for-loop where the mbarrier arrive and wait
+  // operations are inserted in circular buffering pass. Use
+  // stage_slice_position if available. Otherwise, the default value is the
+  // first serial for-loop to the left of compute_at_position.
+  auto warp_specialized = std::get<WarpSpecialized>(circular_buffer_type);
+  if (warp_specialized.stage_slice_position.has_value()) {
+    inner_loop_index = warp_specialized.stage_slice_position.value() - 1;
+  }
   // Calculate insertion position.
   int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
   return getLinearIndexRelativeForLoopStack(

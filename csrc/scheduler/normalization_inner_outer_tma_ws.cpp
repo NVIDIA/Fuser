@@ -19,10 +19,10 @@ void getHeuristics(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
     const int64_t regs_buffer_size,
-    const int64_t smem_buffer_size,
-    const int64_t smem_overhead,
+    const int64_t circular_buffered_smem_size,
+    const int64_t non_circular_buffered_smem_size,
     const size_t tmp_gmem_dtype_size,
-    const size_t vectorize_factor,
+    const size_t max_allowed_vect_factor,
     const int64_t hp_threads_per_block_min,
     const int64_t hp_threads_per_block_max,
     const bool project_to_input,
@@ -31,157 +31,163 @@ void getHeuristics(
   rparams->project_persistent_buffers = project_to_input;
   rparams->cparams.index_type = index_type;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t device_multiprocessor_count =
-      (int64_t)dev_prop->multiProcessorCount;
-  // Parameters for inner reduction:
-  // Reduction dim: inner_vect, inner_batch, and bdimx
-  // Iteration dim: gdimy
+  const int64_t sm_count = (int64_t)dev_prop->multiProcessorCount;
 
-  // Parameters for outer reduction:
-  // Reduction dim: serial
-  // Iteration dim: vectorization_factor_outer, bdimx, gdimy
-  struct InnerOuterParams {
-    int64_t inner_vect = -1;
-    int64_t inner_batch = -1;
-    int64_t gdimy = -1;
-    int64_t tmp_gmem_write_vect = -1;
-    int64_t vectorization_factor_outer = -1;
-    int64_t bdimx = -1;
-    // derived metrics for sorting
-    int64_t warps_per_sm = -1;
-    int64_t required_register_per_thread = -1;
-    int64_t available_register_per_thread = -1;
+  // Params for 1st stage, inner reduction and partial outer reduction.
+  // Inner dim: inner_vect, inner_batch, and bdimx
+  // Outer dim: iter_unroll, independent computation groups, SM count
+  // Circular buffer: n_stages
+  // Use the maximum vectorization factor
+  const int64_t vect_factor = (int64_t)max_allowed_vect_factor;
+  const int64_t after_vect = inner_dim_numel / vect_factor;
+  const int64_t gdimy = sm_count;
 
-    void verify() {
-      NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
-      NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
-      NVF_ERROR(bdimx != -1, "bdimx is not set.");
-      NVF_ERROR(gdimy != -1, "gdimy is not set.");
-      NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
-      NVF_ERROR(
-          vectorization_factor_outer != -1,
-          "vectorization_factor_outer is not set.");
+  // Shared memory controls max possible circular buffer stages and iter
+  // unrolls. Check shared memory usage it is calculated as:
+  // (1) Non-circular buffered smem size
+  // (2) Circular buffered smem size, which is proportional to [iter_unroll] and
+  //     [n_stages]
+  // (3) Mbarrier size, which is proportional to [n_stages], each
+  //     stage requires 16 bytes for WAR and RAW.
+  // (4) Reduction workspace size, which is proportional to [iter_unroll] and
+  //     [n_computation_warps]
+  auto is_enough_smem =
+      [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
+        // non-circular buffered and circular buffered smem size
+        int64_t buffer_size = non_circular_buffered_smem_size +
+            circular_buffered_smem_size * iter_unroll * n_stages;
+        // mbarrier size
+        int64_t mbarrier_size = 16 * n_stages;
+        // reduction workspace size, need to be aligned to 128 bytes since
+        // other smems are stacked on top of it directly, see
+        // assignNextAddress in StackBasedSharedMemAllocator
+        int64_t reduction_workspace_size = roundUpToMultiple(
+            iter_unroll * bdimx * bdimy * tmp_gmem_dtype_size, 128);
+        return (int64_t)dev_prop->sharedMemPerBlockOptin >=
+            buffer_size + mbarrier_size + reduction_workspace_size;
+      };
+
+  // Check register usage,  it is calculated as:
+  // (1) Used to further cache circular buffered tv, optional [true]
+  // (2) Used to further cache non-circular buffered tv, optional [true]
+  // (3) Used to cache partial outer reduction results
+  // (4) overhead for indexing, etc.
+  const bool is_circular_buffer_regs_cached = true;
+  const bool is_non_circular_buffer_regs_cached = true;
+  // Given a smem buffer size, calculate the number of registers pre thread
+  // required to cache it in registers. The total required register size may be
+  // larger than smem size due to non-divisible split.
+  auto smem_to_regs =
+      [&](int64_t smem_buffer_size, int64_t bdimx, int64_t iter_unroll) {
+        int persistent_batch = ceilDiv(after_vect, bdimx);
+        int buffer_per_element = smem_buffer_size / inner_dim_numel;
+        int elements_per_thread = persistent_batch * iter_unroll * vect_factor;
+        int buffer_per_thread = buffer_per_element * elements_per_thread;
+        return buffer_per_thread / scheduler_utils::bytes_per_register;
+      };
+  auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx) {
+    int64_t reg_count = 0;
+    // cache circular buffered tv
+    if (is_circular_buffer_regs_cached) {
+      reg_count +=
+          smem_to_regs(circular_buffered_smem_size, bdimx, iter_unroll);
     }
-    std::string toString() const {
-      std::stringstream ss;
-      ss << "inner_vect: " << inner_vect << ", inner_batch: " << inner_batch
-         << ", gdimy: " << gdimy
-         << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
-         << ", vectorization_factor_outer: " << vectorization_factor_outer
-         << ", bdimx: " << bdimx << ", warps_per_sm: " << warps_per_sm
-         << ", required_register_per_thread: " << required_register_per_thread
-         << ", available_register_per_thread: "
-         << available_register_per_thread;
-      return ss.str();
-    }
-  };
 
-  // Estimate register usage per thread based on buffer size.
-  // Assuming a constant register overhead for non-buffer related usage,
-  // and all the register buffers are stored in registers.
-  auto get_estimated_register_usage = [&](int64_t batch_mul_vect) {
-    int64_t persistent_buffer_size =
-        regs_buffer_size / inner_dim_numel * batch_mul_vect;
-    int64_t estimated_register_count =
-        persistent_buffer_size / scheduler_utils::bytes_per_register +
-        scheduler_utils::register_overhead;
-    return std::min(
-        estimated_register_count, scheduler_utils::max_registers_per_thread);
+    // cache non-circular buffered tv
+    if (is_non_circular_buffer_regs_cached) {
+      reg_count +=
+          smem_to_regs(non_circular_buffered_smem_size, bdimx, iter_unroll);
+    }
+    // regs for partial outer reduction results.
+    reg_count += regs_buffer_size / scheduler_utils::bytes_per_register;
+    // regs for indexing, etc.
+    reg_count += scheduler_utils::register_overhead;
+    // total usage should be less than 255
+    return reg_count <= scheduler_utils::max_registers_per_thread;
   };
+  // bdimx: number of threads for inner dim.
+  int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
+  // bdimy: number of independent warp groups for outer dim.
+  int64_t bdimy = 1;
+  // iter_unroll: unroll for outer dim, these rows are grouped together in TMA
+  // load and reduction.
+  int64_t iter_unroll = 1;
+  // n_stages: circular buffer stages.
+  int64_t n_stages = 1;
+  NVF_ERROR(
+      is_enough_smem(iter_unroll, n_stages, bdimx, bdimy),
+      "Not enough shared memory for TMA warp specialized.");
+  // Try to update paras in each loop and break if no update is made.
+  while (1) {
+    bool is_updated = false;
+    // increase circular buffer stages
+    if (is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
+      is_updated = true;
+      n_stages *= 2;
+    }
+    // increase iter_unroll
+    // iter_unroll should be divisible by outer_dim_numel due to limitation of
+    // 1D TMA predicate.
+    if (is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
+        outer_dim_numel % (iter_unroll * 2) == 0) {
+      is_updated = true;
+      iter_unroll *= 2;
+    }
+    // increase bdimx but don't exceed hp_threads_per_block_max and only when
+    // registers are not enough, e.g. each thread has too many elements.
+    if (bdimx * 2 <= hp_threads_per_block_max &&
+        !is_enough_regs(iter_unroll, bdimx) &&
+        is_enough_smem(iter_unroll, n_stages, bdimx * 2, bdimy)) {
+      is_updated = true;
+      bdimx *= 2;
+    }
+
+    // increase bdimy when bdimx is not increased
+    // multiple independent computation groups only supports bdimx == 128
+    // disable this option for now as runtime is not ready yet.
+    if (false && bdimx == 128 &&
+        is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
+      is_updated = true;
+      bdimy *= 2;
+    }
+    if (!is_updated) {
+      break;
+    }
+  }
+  int64_t inner_batch = ceilDiv(after_vect, bdimx);
 
   // The inner reduction part of the kernel also does a partial outer reduction
   // and stores the partial results in tmp gmem and then reloaded to finish the
-  // outer reduciton. This function set the vectorization factor for write and
+  // outer reduction. This function set the vectorization factor for write and
   // and read of the partial outer reduction result.
   // For write to tmp gmem, follows vectorization factor of inner reduction
   //                        but don't exceed 16 bytes.
-  // For read from tmp gmem, since the paralelization is changed, a different
+  // For read from tmp gmem, since the parallelization is changed, a different
   //                         vectorization factor is used to optimize the
-  //                         number of reaductions per thread.
-  auto get_outer_reduction_buffer_vect_factor = [&](int64_t inner_vect) {
-    constexpr int64_t max_gmem_vect_access_bytes = 16;
-    const int64_t max_tmp_gmem_vect_factor = std::min(
-        max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
-    int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
-    const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
-    int64_t vectorization_factor_outer =
-        std::min(workload_per_thread, max_tmp_gmem_vect_factor);
-    return std::make_pair(tmp_gmem_write_vect, vectorization_factor_outer);
-  };
+  //                         number of reductions per thread.
+  constexpr int64_t max_gmem_vect_access_bytes = 16;
+  const int64_t max_tmp_gmem_vect_factor = std::min(
+      max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, vect_factor);
+  int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
+  const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
+  int64_t vectorization_factor_outer =
+      std::min(workload_per_thread, max_tmp_gmem_vect_factor);
 
-  // Get the heuristics given vectorization factor and bdimx.
-  auto get_heuristics_given_vect_threads = [&](int64_t vect_factor,
-                                               int64_t bdimx) {
-    InnerOuterParams iop;
-    // (1) inner reduction
-    // Reduction dim: inner_batch, bdimx, vect_factor
-    // Iteration dim: gdimy
-    iop.inner_vect = vect_factor;
-    iop.bdimx = bdimx;
-    iop.inner_batch = ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx);
-    iop.gdimy = device_multiprocessor_count;
-
-    // (2) outer reduction
-    // Iteration dim: gdimy, bdimx, vectorization_factor_outer
-    // Reduction dim: serial
-    std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
-        get_outer_reduction_buffer_vect_factor(iop.inner_vect);
-    // (3) Derived metrics warps_per_sm and register usage for sorting
-    iop.warps_per_sm = ceilDiv(iop.bdimx, dev_prop->warpSize) * iop.gdimy /
-        device_multiprocessor_count;
-    iop.available_register_per_thread =
-        getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
-    iop.required_register_per_thread =
-        get_estimated_register_usage(iop.inner_vect * iop.inner_batch);
-    return iop;
-  };
-
-  // Use the maximum vectorization factor
-  const int64_t vect_factor = (int64_t)vectorize_factor;
-
-  // Set bdimx, will be revised in heuristics tuning.
-  // bdimy is reserved for warp specialization
-  // bdimz is not used
-  const int64_t max_persistent_batch = 10L;
-  const int64_t after_vect = inner_dim_numel / vect_factor;
-  int64_t bdimx = std::min(128L, after_vect);
-  bdimx = std::max(bdimx, ceilDiv(after_vect, max_persistent_batch));
-  bdimx = scheduler_utils::roundUpToN(bdimx, 128L);
-
-  auto iop = get_heuristics_given_vect_threads(vect_factor, bdimx);
   rparams->combined_split_grid_inner_dim =
-      iop.vectorization_factor_outer * iop.bdimx * iop.gdimy < inner_dim_numel;
-
-  // check all the parameters in InnerOuterParams are set.
-  iop.verify();
-
+      vectorization_factor_outer * bdimx * gdimy < inner_dim_numel;
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   rparams->combined_inner_outer = true;
 
-  // TODO: This is a heuristic, need to be tuned.
-  // Set circular buffer, n_stages and n_prefetch are tunable parameters.
-  // n_stages is also limited by smem
-  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerBlockOptin /
-      (smem_overhead + smem_buffer_size);
-  int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
-  int64_t n_stages_prefered = std::min(2L, iter_remaining);
-  int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
-  int64_t n_prefetch = n_stages - 1L;
   // Non Warp Specialized dim can't have more than 128 threads
   // see https://github.com/NVIDIA/Fuser/pull/4398.
   // Still want to use TIDy if bdimx <=128, which is more convenient for
   // ping-pong computations.
-  ParallelType ws_pt =
-      iop.bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
+  ParallelType ws_pt = bdimx > 128 ? ParallelType::TIDx : ParallelType::TIDy;
   WarpSpecialized ws(ws_pt);
-  // This is a heuristic para, multiple independent computation warp groups
-  // is not supported yet. Only need to enable register sharing when there
-  // are more than 256 threads, otherwise each thread can use 255 registers
-  // which is already the max allowed number.
-  int64_t independent_computation_groups = 1;
-  int64_t computation_threads = iop.bdimx * independent_computation_groups;
-  int64_t total_threads = ws_padded_threads + computation_threads;
+  int64_t computation_threads = bdimx * bdimy;
+  int64_t total_threads =
+      kWarpSpecializationPaddedThreads + computation_threads;
   if (total_threads > 256) {
     int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
     // Assume each padded threads keep [tma_branch_registers] registers and all
@@ -189,52 +195,35 @@ void getHeuristics(
     // [tma_branch_registers] is a tunable parameter,
     int64_t tma_branch_registers = 32;
     int64_t compute_branch_registers = reg_per_thread +
-        (reg_per_thread - tma_branch_registers) * ws_padded_threads /
-            computation_threads;
+        (reg_per_thread - tma_branch_registers) *
+            kWarpSpecializationPaddedThreads / computation_threads;
     compute_branch_registers =
         scheduler_utils::roundDownToN(compute_branch_registers, 8);
     ws.num_registers =
         std::make_pair(tma_branch_registers, compute_branch_registers);
   }
   CircularBufferOptions circular_buffer_options{
-      .type = ws, .stage = n_stages, .prefetch = n_prefetch};
+      .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
   rparams->circular_buffer_options = circular_buffer_options;
 
-  // TODO: This is a heuristic, need to be tuned.
-  // Iteration unroll factor, limited by:
-  // (1) heuristic selection
-  // (2) max possible due to smem limitation
-  // (3) Predicate of 1D TMA load requires iteration dim divisible by unroll
-  //     factor.
-  // (4) Round down to power of 2, since we need vectorized access in
-  //     smem reduction and loading of inner broadcast tv.
-  iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
-  int64_t heu_iter_unroll = std::min(2L, iter_remaining);
-  int64_t max_iter_unroll = max_n_copies / n_stages;
-  int64_t iter_unroll_factor = std::min(heu_iter_unroll, max_iter_unroll);
-  iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
-  while (outer_dim_numel % iter_unroll_factor) {
-    iter_unroll_factor /= 2;
-  }
-  rparams->unroll_factor_iter_dom = iter_unroll_factor;
-  rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
-  rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
-  rparams->cparams.maxrregcount = iop.available_register_per_thread;
-  rparams->unroll_factor_inner_reduction = iop.inner_vect;
-  rparams->batches_per_block_inner_reduction = iop.inner_batch;
+  rparams->unroll_factor_iter_dom = iter_unroll;
+  rparams->vectorization_factor_outer = vectorization_factor_outer;
+  rparams->vectorization_factor_tmp_gmem_write = tmp_gmem_write_vect;
+  rparams->unroll_factor_inner_reduction = vect_factor;
+  rparams->batches_per_block_inner_reduction = inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
-  rparams->vectorize_inner_reduction = iop.inner_vect > 1;
+  rparams->vectorize_inner_reduction = vect_factor > 1;
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
 
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
-      iop.gdimy,
+      gdimy,
       LaunchParams::UNINITIALIZED_VAL,
       n_stages > 1 && ws_pt == ParallelType::TIDx
-          ? iop.bdimx + ws_padded_threads
-          : iop.bdimx,
+          ? bdimx + kWarpSpecializationPaddedThreads
+          : bdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -245,15 +234,18 @@ void getHeuristics(
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
             << "regs_buffer_size: " << regs_buffer_size << "\n"
-            << "smem_buffer_size: " << smem_buffer_size << "\n"
-            << "smem_overhead: " << smem_overhead << "\n"
-            << "vectorize_factor_input: " << iop.inner_vect << "\n"
-            << "vectorization_factor_tmp_gmem_write: "
-            << iop.tmp_gmem_write_vect << "\n"
-            << "vectorization_factor_outer: " << iop.vectorization_factor_outer
+            << "circular_buffered_smem_size: " << circular_buffered_smem_size
             << "\n"
-            << "bdimx: " << iop.bdimx << "\n"
-            << "gdimy: " << iop.gdimy << "\n";
+            << "non_circular_buffered_smem_size: "
+            << non_circular_buffered_smem_size << "\n"
+            << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"
+            << "vectorization_factor_tmp_gmem_write: " << tmp_gmem_write_vect
+            << "\n"
+            << "vectorization_factor_outer: " << vectorization_factor_outer
+            << "\n"
+            << "bdimx: " << bdimx << "\n"
+            << "bdimy: " << bdimy << "\n"
+            << "gdimy: " << gdimy << "\n";
     debug() << "smem_persistent_buffers: " << "\n";
     for (auto buffer : rparams->smem_persistent_buffers) {
       debug() << buffer->toString() << "\n";

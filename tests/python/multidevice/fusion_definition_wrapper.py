@@ -7,13 +7,28 @@ import torch.distributed as dist
 from collections.abc import Iterable
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
-from typing import Callable, cast
+from typing import Callable, cast, TypeAlias
+
+
+DTensorsKey: TypeAlias = tuple[tuple[str, str], ...]
+
+
+def make_key_from_dtensors(dtensors: Iterable[DTensor]) -> DTensorsKey:
+    key = tuple((repr(dt.device_mesh), repr(dt.placements)) for dt in dtensors)
+    return key
 
 
 class FusionDefinitionWrapper:
     def __init__(self, define_fusion: Callable[[nvfuser.FusionDefinition], None]):
         """Wraps a function that defines a fusion without `multidevice_schedule`."""
+        # The complete FusionDefinition (w/ multidevice_scheduler) will have to
+        # be created at "call" time according to the input DTensors.
         self._define_fusion = define_fusion
+
+        # In theory, a FusionDefinitionWrapper can own multiple
+        # `FusionDefinition`s, because different shardings lead to different
+        # `multidevice_schedule`s. In practice, this would trigger #4507.
+        self._fusion_definition_cache: dict[DTensorsKey, nvfuser.FusionDefinition] = {}
 
     def _create_fusion_definition(
         self, in_dtensors: Iterable[DTensor]
@@ -57,8 +72,16 @@ class FusionDefinitionWrapper:
 
         return Model()
 
+    def _get_or_create_fusion_definition(
+        self, in_dtensors: Iterable[DTensor]
+    ) -> nvfuser.FusionDefinition:
+        key = make_key_from_dtensors(in_dtensors)
+        return self._fusion_definition_cache.setdefault(
+            key, (lambda: self._create_fusion_definition(in_dtensors))()
+        )
+
     def __call__(self, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
-        fusion_def = self._create_fusion_definition(in_dtensors)
+        fusion_def = self._get_or_create_fusion_definition(in_dtensors)
 
         in_tensors = [in_dtensor.to_local() for in_dtensor in in_dtensors]
         out_tensors, out_shardings = fusion_def.execute(in_tensors)

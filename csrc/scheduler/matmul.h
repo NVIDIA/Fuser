@@ -89,6 +89,14 @@ class Common {
       TensorView* operand,
       int64_t vec_size) = 0;
 
+  //! Update IdModel by adding domain2 to it and mapping it to domain1
+  //! Unfortunately, IDs in domain1 might not be present in the IdModel because
+  //! IdModel is not automatically updated when we do scheduling and rFactor.
+  //! In this case, the corresponding IDs will be just skipped.
+  void addAndMapDomain(
+      const std::vector<IterDomain*>& domain1,
+      const std::vector<IterDomain*>& domain2);
+
   //! This calls orig->cacheBefore() and also updates the broadcast graph to
   //! reflect the new IterDomain mappings
   TensorView* cacheBefore(

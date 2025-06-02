@@ -7,9 +7,25 @@
 // clang-format on
 
 #include <ir/allocation_utils.h>
+#include <ir/iostream.h>
 #include <linked_hash_map.h>
 
 namespace nvfuser {
+
+int64_t Layout::size() const {
+  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
+  return std::ssize(allocation_domain);
+}
+
+std::string Layout::toString(const int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "<allocation=["
+                          << toDelimitedString(allocation_domain)
+                          << "], contiguity=["
+                          << toDelimitedString(contiguity, /*delim=*/" ")
+                          << "]>";
+  return ss.str();
+}
 
 std::pair<std::optional<bool>, std::optional<bool>> splitContiguity(
     const std::optional<bool>& contiguity) {
