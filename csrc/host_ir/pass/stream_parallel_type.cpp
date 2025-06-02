@@ -361,8 +361,10 @@ std::vector<Expr*> processForLoopBodies(
             output_tv);
 
         auto* peer = for_loop->index();
-        auto* is_sending_to_self = IrBuilder::create<kir::Predicate>(
-            eq(peer, NamedScalar::getParallelIndex(ParallelType::DIDx)));
+        auto* my_device_id =
+            IrBuilder::create<NamedScalar>("myDeviceId", DataType::Int);
+        auto* is_sending_to_self =
+            IrBuilder::create<kir::Predicate>(eq(peer, my_device_id));
         auto if_then_else =
             IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
 
