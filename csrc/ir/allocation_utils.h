@@ -14,7 +14,6 @@
 #include <ir/internal_base_nodes.h>
 
 namespace nvfuser {
-// FIXME: make it a class
 // With respect to the logical domain. `allocation_domain` must be a
 // permutation of the corresponding logcial domain, and `contiguity` must be of
 // the same length as `allocation`. See canonicalizeLayout for how we handle DID
@@ -28,7 +27,7 @@ struct Layout {
 
   std::string toString(int indent_size = 0) const;
 
-  void makeContiguous();
+  Layout contiguous() const;
 };
 
 // Computes `Split`'s output contiguity. Returns the outer contiguity and then

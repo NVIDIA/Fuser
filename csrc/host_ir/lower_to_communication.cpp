@@ -12,6 +12,7 @@
 #include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
@@ -391,48 +392,46 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   return communication_info;
 }
 
+namespace {
+int64_t posInDomain(const std::vector<IterDomain*>& domain, IterDomain* id) {
+  auto pos = std::find(domain.begin(), domain.end(), id);
+  if (pos == domain.end()) {
+    return -1;
+  }
+  return std::distance(domain.begin(), pos);
+}
+} // namespace
+
 Layout getCommunicationLayout(
     TensorView* tv,
     const CommunicationType type,
     IterDomain* sharded_id) {
+  Layout layout = canonicalizeLayout(tv)->contiguous();
+  const int64_t sharded_id_pos =
+      posInDomain(layout.allocation_domain, sharded_id);
   NVF_ERROR(
-      std::find(
-          tv->getLogicalDomain().begin(),
-          tv->getLogicalDomain().end(),
-          sharded_id) != tv->getLogicalDomain().end());
+      sharded_id_pos >= 0,
+      "Sharded ID (",
+      sharded_id,
+      ") not found in the allocation domain of the tensor view: ",
+      tv);
 
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce) {
-    Layout layout = *canonicalizeLayout(tv);
-    layout.makeContiguous();
     return layout;
   }
 
-  // FIXME: helper: is sharded_id in front?
-  Layout layout = *canonicalizeLayout(tv);
-  for (IterDomain* id : layout.allocation_domain) {
-    if (id == sharded_id) {
-      layout.makeContiguous();
-      return layout;
-    }
+  for (int64_t i = 0; i < sharded_id_pos; i++) {
+    IterDomain* id = layout.allocation_domain[i];
     if (!isLocalSizeOne(id)) {
-      // FIXME: helper
-      Layout sharded_in_front;
-      sharded_in_front.allocation_domain.reserve(
-          layout.allocation_domain.size());
-      sharded_in_front.allocation_domain.push_back(sharded_id);
-      for (IterDomain* alloc_id : layout.allocation_domain) {
-        if (alloc_id != sharded_id) {
-          sharded_in_front.allocation_domain.push_back(alloc_id);
-        }
-      }
-      sharded_in_front.contiguity = TensorDomain::getContiguityFilledWith(
-          sharded_in_front.allocation_domain, true);
-      return sharded_in_front;
+      std::vector<IterDomain*> new_allocation = TensorDomain::orderedAs(
+          layout.allocation_domain, {{sharded_id_pos, i}});
+      return Layout{
+          new_allocation,
+          TensorDomain::getContiguityFilledWith(new_allocation, true)};
     }
   }
-  NVF_THROW(
-      "Should never reach here - sharded_id must be found in allocation domain");
+  return layout;
 }
 
 bool isCommunicationLayoutCompliant(Expr* expr) {

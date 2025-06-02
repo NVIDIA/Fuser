@@ -164,8 +164,10 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
   return layout;
 }
 
-void Layout::makeContiguous() {
-  contiguity = TensorDomain::getContiguityFilledWith(allocation_domain, true);
+Layout Layout::contiguous() const {
+  return Layout(
+      allocation_domain,
+      TensorDomain::getContiguityFilledWith(allocation_domain, true));
 }
 
 namespace {

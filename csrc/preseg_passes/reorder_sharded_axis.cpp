@@ -41,7 +41,6 @@ void makeCommunicationLayoutCompliant(
     p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
     input = input_copy;
   }
-  // FIXME: helper?
   input->setAllocationDomain(p_layout.allocation_domain, p_layout.contiguity);
 
   Layout c_layout =
