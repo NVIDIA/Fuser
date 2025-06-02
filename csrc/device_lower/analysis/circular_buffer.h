@@ -22,7 +22,8 @@ struct AsyncWarp {
 };
 
 // This helper function scans through all expressions, finds mbarrier async
-// operations, and gather them into separate AsyncWarps.
+// operations such as TMA Loads and Blackwell UTCMMA, and gather them into
+// separate AsyncWarps.
 std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs);
 
 IterDomain* getCircularBufferAxis(const TensorView* tv);
