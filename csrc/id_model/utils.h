@@ -123,7 +123,10 @@ inline std::vector<IterDomain*> getLoopIds(
 
   NVF_ERROR(
       !use_alternate_loop_domain ||
-      output_tv->getAlternateLoopDomain().has_value());
+          output_tv->getAlternateLoopDomain().has_value(),
+      "getLoopIds is attempting to use alternate loop domain, "
+      "but it does not exist for ",
+      output_tv->toString());
 
   auto loop_ids = (use_alternate_loop_domain)
       ? output_tv->getAlternateLoopDomain().value()

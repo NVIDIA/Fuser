@@ -918,12 +918,27 @@ void TensorIndexer::ensureStaticIndexing(
 
 namespace {
 
+// Use alternate loop domain for the shared memory tensor for ldmatrix and
+// stmatrix.
 bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
   // short-circuit: not (ldmatrix or stmatrix)
   if (!ir_utils::isLdMatrixOp(expr) && !ir_utils::isStMatrixOp(expr)) {
     return false;
   }
-  return tv->getMemoryType() == MemoryType::Shared;
+  // short-circuit: only the shared memory TensorView uses alternate loop
+  // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
+  // output TensorView.
+  if (tv->getMemoryType() != MemoryType::Shared) {
+    return false;
+  }
+
+  TensorView* output_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(output_tv != nullptr);
+  NVF_ERROR(
+      output_tv->getAlternateLoopDomain().has_value(),
+      "Expected the alternate loop domain to be defined for the output TensorView of ",
+      expr->toString());
+  return true;
 }
 
 } // namespace
