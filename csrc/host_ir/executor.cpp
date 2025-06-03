@@ -254,6 +254,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  expr_evaluator_.bind("rank", communicator_->deviceId());
   // process input values, converting IValue to PolymorphicValue
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
@@ -704,7 +705,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (expr_evaluator_.isKnown(out_tv)) {
     auto out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    out_tensor.copy_(t);
+    out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
     // copy data if yes. For example,
