@@ -99,7 +99,7 @@ TEST_P(LowerGatherTest, ) {
 }
 
 namespace {
-std::string nameFromTuple(
+std::string paramToString(
     const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
   auto&& [meshes, enable_hir] = info.param;
   auto&& [in_mesh, out_mesh] = meshes;
@@ -113,7 +113,7 @@ std::string nameFromTuple(
   for (auto id : out_mesh.vector()) {
     ss << "_" << id;
   }
-  ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+  ss << (enable_hir ? "_HostIr" : "_NonHostIr");
 
   return ss.str();
 }
@@ -127,7 +127,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
         testing::Bool()),
-    nameFromTuple);
+    paramToString);
 
 class LowerScatterTest
     : public MultiDeviceTest,
@@ -178,7 +178,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
         testing::Bool()),
-    nameFromTuple);
+    paramToString);
 
 class LowerSendRecvTest
     : public MultiDeviceTest,
@@ -231,7 +231,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
         testing::Bool()),
-    nameFromTuple);
+    paramToString);
 
 class LowerCollectiveTest : public MultiDeviceTest,
                             public testing::WithParamInterface<
