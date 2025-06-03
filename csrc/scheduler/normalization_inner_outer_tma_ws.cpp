@@ -91,41 +91,67 @@ void getHeuristics(
   // Given a smem buffer size, calculate the number of registers pre thread
   // required to cache it in registers. The total required register size may be
   // larger than smem size due to non-divisible split.
-  auto round_up_reg_count =
-      [&](int64_t logical_size, int64_t bdimx, int64_t iter_unroll) {
-        int persistent_batch = ceilDiv(after_vect, bdimx);
-        int buffer_per_element = logical_size / inner_dim_numel;
-        int elements_per_thread = persistent_batch * iter_unroll * vect_factor;
-        int buffer_per_thread = buffer_per_element * elements_per_thread;
-        return buffer_per_thread / scheduler_utils::bytes_per_register;
-      };
+  auto round_up_reg_count = [&](int64_t logical_size, int64_t bdimx) {
+    int persistent_batch = ceilDiv(after_vect, bdimx);
+    int buffer_per_element = logical_size / inner_dim_numel;
+    int elements_per_thread = persistent_batch * vect_factor;
+    int buffer_per_thread = buffer_per_element * elements_per_thread;
+    return buffer_per_thread / scheduler_utils::bytes_per_register;
+  };
+  // Assume each padded threads keep [tma_branch_registers] registers and all
+  // others are moved to computation threads. The granularity is 8.
+  // [tma_branch_registers] is a tunable parameter. When estimated
+  // compute_branch_regs is not divisible by granularity, it is rounded down
+  // and needs to recompute tma_branch_registers.
+  // For example, assuming 256 computation threads, initial register = 168,
+  // tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
+  // divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded
+  // down to 232. re-calculate [tma_branch_registers] using: borrowed
+  // registers = (232 - 168) * 256 / 128 = 128. tma_branch_registers = 168 -
+  // 128 = 40
+  auto get_register_sharing = [&](int64_t reg_per_thread,
+                                  int64_t computation_threads) {
+    int64_t tma_branch_regs = reg_per_async_thread;
+    int64_t compute_branch_regs = reg_per_thread +
+        (reg_per_thread - tma_branch_regs) * kWarpSpecializationPaddedThreads /
+            computation_threads;
+    if (compute_branch_regs % regs_granularity != 0) {
+      compute_branch_regs -= compute_branch_regs % regs_granularity;
+      tma_branch_regs = reg_per_thread -
+          (compute_branch_regs - reg_per_thread) * computation_threads /
+              kWarpSpecializationPaddedThreads;
+    }
+    return std::make_pair(tma_branch_regs, compute_branch_regs);
+  };
   auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx, int64_t bdimy) {
     int64_t reg_count = 0;
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
       reg_count +=
-          round_up_reg_count(circular_buffered_smem_size, bdimx, iter_unroll);
+          round_up_reg_count(circular_buffered_smem_size, bdimx) * iter_unroll;
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count += round_up_reg_count(
-          non_circular_buffered_smem_size, bdimx, iter_unroll);
+      reg_count += round_up_reg_count(non_circular_buffered_smem_size, bdimx);
     }
     // regs for partial outer reduction results.
-    reg_count += round_up_reg_count(regs_buffer_size, bdimx, iter_unroll) /
-        scheduler_utils::bytes_per_register;
+    reg_count += round_up_reg_count(regs_buffer_size, bdimx);
     // regs for indexing, etc.
-    reg_count += scheduler_utils::register_overhead;
+    constexpr int64_t register_overhead_ws_tma = 40l;
+    reg_count += register_overhead_ws_tma;
+    int64_t available_regs = getRegPerThreadGivenThreadsPerSM(
+        bdimx * bdimy + kWarpSpecializationPaddedThreads);
+    auto [_, compute_branch_regs] =
+        get_register_sharing(available_regs, bdimx * bdimy);
     // regs for async warps
-    reg_count += kWarpSpecializationPaddedThreads * reg_per_async_thread / (bdimx * bdimy);
-    // round up to granularity
-    reg_count = roundUpToMultiple(reg_count, regs_granularity);
-    // total usage should be less than max available
+    // reg_count += kWarpSpecializationPaddedThreads * reg_per_async_thread /
+    // (bdimx * bdimy); round up to granularity reg_count =
+    // roundUpToMultiple(reg_count, regs_granularity); total usage should be
+    // less than max available
     std::cout << "reg_count " << reg_count
-              << ", getRegPerThreadGivenThreadsPerSM(bdimx * bdimy): "
-              << getRegPerThreadGivenThreadsPerSM(bdimx * bdimy) << std::endl;
-    return reg_count <= getRegPerThreadGivenThreadsPerSM(bdimx * bdimy);
+              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
+    return reg_count <= compute_branch_regs;
   };
   // bdimx: number of threads for inner dim.
   int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
@@ -141,9 +167,9 @@ void getHeuristics(
       "Not enough shared memory for TMA warp specialized.");
   // Try to update paras in each loop and break if no update is made.
   const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
-  const int64_t max_bdimy = std::min(4L, hp_threads_per_block_max / 128L);
-  // const int64_t iter_unroll_max = 16L / (int64_t)computation_dtype_size;
-  const int64_t iter_unroll_prefered = sizeof(uint64_t) / (int64_t)computation_dtype_size;
+  const int64_t max_bdimy = std::min(3L, hp_threads_per_block_max / 128L);
+  const int64_t iter_unroll_max = 16L / (int64_t)computation_dtype_size;
+
   while (1) {
     bool is_updated = false;
     // increase circular buffer stages
@@ -154,8 +180,8 @@ void getHeuristics(
     // increase iter_unroll
     // iter_unroll should be divisible by outer_dim_numel due to limitation of
     // 1D TMA predicate.
-    if (iter_unroll * 2 <= iter_unroll_prefered &&
-      is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
+    if (iter_unroll * 2 <= iter_unroll_max &&
+        is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
         is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
         outer_dim_numel % (iter_unroll * 2) == 0) {
       is_updated = true;
@@ -166,7 +192,7 @@ void getHeuristics(
     // multiple independent computation groups only supports bdimx == 128
     // disable this option for now as runtime is not ready yet.
     if (bdimy * 2 <= max_bdimy &&
-        is_enough_regs(iter_unroll, bdimx, bdimy * 2) &&
+        is_enough_regs(iter_unroll, bdimx, bdimy + 1) &&
         is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
       is_updated = true;
       bdimy *= 2;
@@ -174,21 +200,12 @@ void getHeuristics(
 
     // increase bdimx but don't exceed hp_threads_per_block_max and only when
     // registers are not enough, e.g. each thread has too many elements.
-    if (bdimy == 1 && bdimx * 2 <= max_bdimx &&
+    if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
         !is_enough_regs(iter_unroll, bdimx, bdimy) &&
-        is_enough_smem(iter_unroll, n_stages, bdimx * 2, bdimy)) {
+        is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
       is_updated = true;
-      bdimx *= 2;
+      bdimx += 128;
     }
-    // if(!is_updated){
-    //   if (iter_unroll * 2 <= iter_unroll_max &&
-    //     is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
-    //       is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
-    //       outer_dim_numel % (iter_unroll * 2) == 0) {
-    //     is_updated = true;
-    //     iter_unroll *= 2;
-    //   }
-    // }
 
     if (!is_updated) {
       break;
@@ -197,6 +214,11 @@ void getHeuristics(
               << "bdimx: " << bdimx << ", bdimy: " << bdimy
               << ", iter_unroll: " << iter_unroll << ", n_stages: " << n_stages
               << std::endl;
+  }
+  // Ensure n_stages divisible by bdimy, which ensures each computation warp
+  // group handles a different circular buffer stage with different mbarrier.
+  if (n_stages % bdimy != 0) {
+    n_stages -= (n_stages % bdimy);
   }
   int64_t inner_batch = ceilDiv(after_vect, bdimx);
 
@@ -240,28 +262,8 @@ void getHeuristics(
       kWarpSpecializationPaddedThreads + computation_threads;
   if (total_threads > 256) {
     int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
-    // Assume each padded threads keep [tma_branch_registers] registers and all
-    // others are moved to computation threads. The granularity is 8.
-    // [tma_branch_registers] is a tunable parameter. When estimated
-    // compute_branch_regs is not divisible by granularity, it is rounded down
-    // and needs to recompute tma_branch_registers.
-    // For example, assuming 256 computation threads, initial register = 168,
-    // tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
-    // divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded
-    // down to 232. re-calculate [tma_branch_registers] using: borrowed
-    // registers = (232 - 168) * 256 / 128 = 128. tma_branch_registers = 168 -
-    // 128 = 40
-    int64_t tma_branch_regs = reg_per_async_thread;
-    int64_t compute_branch_regs = reg_per_thread +
-        (reg_per_thread - tma_branch_regs) * kWarpSpecializationPaddedThreads /
-            computation_threads;
-    if (compute_branch_regs % regs_granularity != 0) {
-      compute_branch_regs -= compute_branch_regs % regs_granularity;
-      tma_branch_regs = reg_per_thread -
-          (compute_branch_regs - reg_per_thread) * computation_threads /
-              kWarpSpecializationPaddedThreads;
-    }
-    ws.num_registers = std::make_pair(tma_branch_regs, compute_branch_regs);
+
+    ws.num_registers = get_register_sharing(reg_per_thread, bdimx * bdimy);
   }
   CircularBufferOptions circular_buffer_options{
       .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
@@ -765,8 +767,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
               inner_outer_utils::getGroupedReductionPersistentTvs(
                   fusion, cached_tv, reduction_tvs);
           for (auto gp_tv : grouped_reduction_persistent_tvs) {
-            std::cout << "Inline grouped persistent tv: "
-                      << gp_tv->toString() << std::endl;
+            std::cout << "Inline grouped persistent tv: " << gp_tv->toString()
+                      << std::endl;
             tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
           }
         }
