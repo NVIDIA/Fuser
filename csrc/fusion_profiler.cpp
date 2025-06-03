@@ -733,8 +733,8 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 }
 
 /*static*/ void FusionProfiler::stop() {
-  NVF_CHECK_EQ(state(), ProfilerState::Running);
   FusionProfiler& fp = get();
+  NVF_CHECK_EQ(state(), ProfilerState::Running);
   fp.host_timer_.stop();
   fp.fusion_timer_.stop();
   fp.state_ = ProfilerState::Finished;
