@@ -56,7 +56,8 @@ bool HostIrExecutor::supported(Fusion* fusion) {
             [](Expr* e) {
               return isResharding(e) && HostIrLower::canLower(e);
             }),
-        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
+        "Could not execute fusion as all expressions in a host IR container "
+        "must be communication based at this point.");
     return true;
   }
   return false;
@@ -434,7 +435,8 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     }
     if (use_preallocated_outputs) {
       TORCH_WARN(
-          "FusionExecutorCache does not support with preallocated outputs, so we are copying the outputs in expr ",
+          "FusionExecutorCache does not support with preallocated outputs, so "
+          "we are copying the outputs in expr ",
           post_ir);
       auto tmp_outputs = fec_.at(hu).runFusionWithInputs(input_args);
       for (auto output_idx : c10::irange(tmp_outputs.size())) {
