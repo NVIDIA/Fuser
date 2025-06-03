@@ -712,8 +712,8 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 }
 
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
-  FusionProfiler& fp = getInstance();
   FusionProfiler::cupti_disabled_ = cupti_disable;
+  FusionProfiler& fp = getInstance();
   NVF_CHECK(
       fp.state_ != ProfilerState::Running,
       "FusionProfiler has already Started! Stop the profiler before starting again.");
