@@ -603,6 +603,42 @@ constexpr CUpti_ActivityKind cupti_activities[] = {
     CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION
 };
 
+void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
+  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
+      cupti_buffer_requested, cupti_buffer_completed));
+}
+
+void enableCuptiActivities() {
+  for (const auto& activity : cupti_activities) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(activity));
+  }
+}
+
+void disableCuptiActivities() {
+  for (const auto& activity : cupti_activities) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(activity));
+  }
+}
+
+void disableCupti(CUpti_SubscriberHandle subscriber_handle) {
+  // Disable all activities
+  disableCuptiActivities();
+
+  // Force flush any remaining activities
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
+
+  // Unsubscribe if we have a valid handle, so no future callbacks will be 
+  // associated with this handle.
+  if (subscriber_handle != nullptr) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(subscriber_handle));
+    subscriber_handle = nullptr;
+  }
+
+  // Detach CUPTI from the current process.
+  NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
+}
+
 } // namespace
 
 // Define static members
@@ -623,28 +659,18 @@ FusionProfiler::FusionProfiler()
       corrid_2_segid_(),
       subscriber_handle_(nullptr) {
   if (!FusionProfiler::cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle_, /*callback=*/nullptr, /*userData=*/nullptr));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
-        cupti_buffer_requested, cupti_buffer_completed));
+    initializeCupti(subscriber_handle_);
   }
   FusionProfiler::is_initialized_ = true;
 }
 
-/*static*/ FusionProfiler& FusionProfiler::getInstance(bool cupti_disabled, bool allow_initialization) {
-  NVF_CHECK(allow_initialization || is_initialized_, "FusionProfiler is not initialized. Did you call start()?");
-
-  // If required, we can allow changing the CUPTI state if it is not running
-  // This would require us to release all CUPTI resources if it was enabled,
-  // or subscribe to CUPTI if it was disabled.
-  NVF_CHECK(!is_initialized_ || (cupti_disabled == FusionProfiler::cupti_disabled_), "CUPTI state is not consistent!");
-  
+/*static*/ FusionProfiler& FusionProfiler::getInstance() {
   static FusionProfiler singleton;
   return singleton;
 }
 
 void FusionProfiler::reset() {
-  // If the singleton is not initialized, do not reset it.
-  // This is to avoid creating a new instance when one does not exist.
+  // If the singleton is not initialized, no need to reset it.
   if (!FusionProfiler::is_initialized_) {
     return;
   }
@@ -686,15 +712,14 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 }
 
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
-  FusionProfiler& fp = getInstance(/*cupti_disabled=*/cupti_disable, /*allow_initialization=*/true);
+  FusionProfiler& fp = getInstance();
+  FusionProfiler::cupti_disabled_ = cupti_disable;
   NVF_CHECK(
       fp.state_ != ProfilerState::Running,
       "FusionProfiler has already Started! Stop the profiler before starting again.");
   FusionProfiler::reset();
-  if (!fp.cupti_disabled_) {
-    for (const auto& activity : cupti_activities) {
-      NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(activity));
-    }
+  if (!FusionProfiler::cupti_disabled_) {
+    enableCuptiActivities();
   }
   cudaDeviceSynchronize();
   fp.fusion_timer_.start();
@@ -831,22 +856,7 @@ void FusionProfiler::cleanup() {
   if (FusionProfiler::cupti_disabled_) {
     return;
   }
-
-  // Disable all activities
-  for (const auto& activity : cupti_activities) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(activity));
-  }
-
-  // Force flush any remaining activities
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
-
-  // First unsubscribe if we have a valid handle
-  if (fp.subscriber_handle_ != nullptr) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(fp.subscriber_handle_));
-  }
-
-  // Then finalize CUPTI -- detach from CUPTI
-  NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
+  disableCupti(fp.subscriber_handle_);
 }
 
 FusionProfiler::~FusionProfiler() {
