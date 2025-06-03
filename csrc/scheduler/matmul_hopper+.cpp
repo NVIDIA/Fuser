@@ -419,8 +419,9 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     if (has_cga) {
       int64_t cm = params_->cluster_dims.x;
       int64_t cn = params_->cluster_dims.y;
-      if (params_->cta_order ==
-          MatmulParams::TileRasterizationOrder::RowMajor) {
+      if (false &&
+          params_->cta_order ==
+              MatmulParams::TileRasterizationOrder::RowMajor) {
         std::swap(cm, cn);
       }
       GemmTile cga_tile{
@@ -647,26 +648,16 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        // For persistent kernels, we parallelize BIDx, and if cluster_dims is
-        // non-trivial then we also bind BIDy and BIDz
         if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
+          // With CGAs, we only bind BIDz to indicate the cluster ID and
+          // BIDx/BIDy are the cluster dimensions
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
-          switch (params_->cta_order) {
-            // TODO: Should we instead check the roles of these dimensions to
-            // take the outermost two M or N axes?
-            case MatmulParams::TileRasterizationOrder::ColumnMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
-              break;
-            case MatmulParams::TileRasterizationOrder::RowMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
-              break;
-            default:
-              NVF_THROW(
-                  "Invalid TileRasterizationOrder passed to Matmul scheduler");
-          }
+          // BIDx and BIDy are the cluster dims and always correspond to M and
+          // N, regardless of cta_order
+          tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+          tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
         } else {
+          // Without CGAs, we only bind BIDx
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
         }
         break;

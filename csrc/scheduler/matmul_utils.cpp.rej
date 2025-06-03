@@ -1,0 +1,66 @@
+--- csrc/scheduler/matmul_utils.cpp
++++ csrc/scheduler/matmul_utils.cpp
+@@ -465,14 +466,11 @@ bool fillDefaultHopperHeuristic(
+   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
+       computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
+     // TODO: check that these are not reversed
+-    int64_t Xtiles =
+-        mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+-        ? Mtiles
+-        : Ntiles;
+-    int64_t Ytiles =
+-        mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+-        ? Ntiles
+-        : Mtiles;
++    int64_t Xtiles = Mtiles;
++    int64_t Ytiles = Ntiles;
++    if (mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
++      std::swap(Xtiles, Ytiles);
++    }
+ 
+     const int64_t num_sms =
+         at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+@@ -1233,6 +1282,43 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
+           ceilDiv(Ntiles, mparams->cluster_dims.y);
+       mparams->num_clusters =
+           (cgas_needed < 0.9 * auto_cgas) ? cgas_needed : auto_cgas;
++
++      int64_t skyline_limit = getMaxActiveClusters(mparams->cluster_dims);
++      int64_t cluster_size = 
++        (mparams->cluster_dims.x * mparams->cluster_dims.y *
++         mparams->cluster_dims.z);
++      /*
++      int64_t num_tpcs = ceilDiv(cluster_size, 2);
++      const std::vector<int64_t> skyline = {0, 4, 0, 0, 1, 0, 0, 0, 5, 2, 0};
++      skyline_limit = 0;
++      for (const int64_t gpc_tpcs : arange(11)) {
++        int64_t num_gpcs = skyline.at((size_t)gpc_tpcs);
++        skyline_limit += num_gpcs * (gpc_tpcs / num_tpcs);
++      }
++      */
++      // [Skyline] 0 4 0 0 1 0 0 0 5 2 0
++      // i.e.
++      //   2x GPCs with 9 TPCs each = 36 SMs
++      //   5x GPCs with 8 TPCs each = 80 SMs
++      //   1x GPCs with 4 TPCs each = 8 SMs
++      //   4x GPCs with 1 TPCs each = 8 SMs
++      //   Total TPCs = 66
++      //   Total SMs = 132
++      if (cluster_size == 8) {
++        // Takes 4 TPCs there are 7 GPCs with at least 8 TPCs  and 1 with 4 TPCs, 
++        NVF_ERROR(skyline_limit == 15, skyline_limit);  // = 120 SMs
++      } else if (cluster_size == 4) {
++        // Takes 2 TPCs.
++        //   2x8
++        //  +5x8
++        //  +1x4
++        //  = 16 + 40 + 4 = 60 TPCs
++        NVF_ERROR(skyline_limit == 30, skyline_limit);  // = 120 SMs
++      } else if (cluster_size == 2) {
++        // Always full occupancy
++        NVF_ERROR(skyline_limit == 66, skyline_limit);
++      }
++      mparams->num_clusters = std::min(mparams->num_clusters, skyline_limit);
+     }
+   }
+ 
