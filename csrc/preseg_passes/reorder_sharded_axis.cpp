@@ -174,7 +174,8 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
         (expr->isA<LoadStoreOp>() &&
          (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) ||
             expr->isA<ReductionOp>(),
-        "Expected the resharding expression to be LoadStoreOp::Set or ReductionOp, got ",
+        "Expected the resharding expression to be LoadStoreOp::Set or "
+        "ReductionOp, got ",
         expr->toString());
 
     if (isCommunicationLayoutCompliant(expr)) {

@@ -347,7 +347,8 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
     }
   }
   NVF_THROW(
-      "Should never reach here - sharded_id must be found in allocation domain");
+      "Should never reach here - sharded_id must be found in allocation "
+      "domain");
 }
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
@@ -425,7 +426,8 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       auto c_it = p2c_map.find(p_logical_id);
       NVF_ERROR(
           c_it != p2c_map.end(),
-          "Cannot find the mapped consumer logical ID for the producer logical ID ",
+          "Cannot find the mapped consumer logical ID for the producer logical "
+          "ID ",
           p_logical_id->toString());
       if (!c_it->second->isReduction()) {
         continue;
