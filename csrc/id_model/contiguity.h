@@ -95,7 +95,7 @@ class ContigIDGroups {
       std::vector<bool> contiguity,
       const ExprPath<ExprGroup>& path_from_alloc,
       const ValGraph& graph,
-      bool is_predicate_pass);
+      bool is_predicate_pass = false);
 
   void dispatch(const ExprGroup& eg, Direction direction) {
     NVF_ERROR(!eg->empty());
@@ -127,6 +127,11 @@ class ContigIDGroups {
 
   const std::unordered_map<IterDomain*, ValGroup>& allocToContigIDs() const {
     return alloc_to_contig_ids_;
+  }
+
+  // Temporary getter for testing purposes
+  const OrderedIdGroupInformation* getConsistentTransformInfoForTests() const {
+    return consistent_transform_info_.get();
   }
 
  private:
