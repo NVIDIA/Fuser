@@ -600,8 +600,7 @@ constexpr CUpti_ActivityKind cupti_activities[] = {
     CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL,
     CUPTI_ACTIVITY_KIND_DRIVER,
     CUPTI_ACTIVITY_KIND_RUNTIME,
-    CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION
-};
+    CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION};
 
 void enableCuptiActivities() {
   for (const auto& activity : cupti_activities) {
@@ -616,7 +615,8 @@ void disableCuptiActivities() {
 }
 
 void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
-  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(
+      &subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
       cupti_buffer_requested, cupti_buffer_completed));
 }
@@ -628,7 +628,7 @@ void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
   // Force flush any remaining activities
   NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
 
-  // Unsubscribe if we have a valid handle, so no future callbacks will be 
+  // Unsubscribe if we have a valid handle, so no future callbacks will be
   // associated with this handle.
   if (subscriber_handle != nullptr) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(subscriber_handle));
@@ -747,9 +747,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
   if (!fp.cupti_disabled_) {
-    for (const auto& activity : cupti_activities) {
-      NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(activity));
-    }
+    disableCuptiActivities();
     // This will be populated by the following `cuptiActivityFlushAll` call.
     fp.kernel_profiles_.reserve(fp.segments_.size());
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));

@@ -10,9 +10,9 @@
 #include <unordered_map>
 
 #include <c10/cuda/CUDAStream.h>
-#include <cupti.h>
 #include <cuda_runtime.h>
 #include <cuda_utils.h>
+#include <cupti.h>
 #include <debug.h>
 #include <options.h>
 #include <utils.h>
@@ -237,7 +237,6 @@ class SegmentProfiler {
 //! \brief A singleton class to profile Fusions that can include multiple
 //! segments.
 class FusionProfiler {
-
  private:
   FusionProfiler();
   ~FusionProfiler();
