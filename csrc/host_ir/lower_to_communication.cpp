@@ -351,8 +351,8 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
 }
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
-  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
-  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+  auto* producer = expr->inputs().at(0)->as<TensorView>();
+  auto* consumer = expr->outputs().at(0)->as<TensorView>();
   bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
