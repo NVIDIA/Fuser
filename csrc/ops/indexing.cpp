@@ -145,7 +145,8 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "the input and index tensor must have the same dimensions for torch.gather");
+      "the input and index tensor must have the same dimensions for "
+      "torch.gather");
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain;
@@ -179,7 +180,8 @@ TensorView* scatterOp(
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
       self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
-      "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
+      "self, index and src tensor should all have the same number of "
+      "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
@@ -236,7 +238,8 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "The input and index tensor must have the same dimensions for take_along_axis");
+      "The input and index tensor must have the same dimensions for "
+      "take_along_axis");
 
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 

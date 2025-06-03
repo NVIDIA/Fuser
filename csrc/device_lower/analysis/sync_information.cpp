@@ -63,7 +63,8 @@ void validateParallelizationOfTensor(TensorView* tv) {
       tv->name(),
       ". The tensor is parallelized with ",
       predicated_parallel_types.toString(),
-      ", but it's invalid to use the types as the tensor is also predicated with them.",
+      ", but it's invalid to use the types as the tensor is also predicated "
+      "with them.",
       ", thread pred: ",
       thread_pred.limited_types.toString());
 }
@@ -414,7 +415,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global Memory based on parallelization strategy.",
+              "). Producer is required to be in Global Memory based on "
+              "parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         } else if (raw_dims.hasTID()) {
@@ -432,7 +434,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy.",
+              "). Producer is required to be in Global, Shared or Tensor "
+              "Memory based on parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         }

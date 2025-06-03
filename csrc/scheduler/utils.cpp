@@ -1160,7 +1160,8 @@ std::pair<bool, bool> canonicalDimReduction(
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
-          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+          "3D reduction with first two merged axes broadcast should be 2D "
+          "reduction.");
       tv->reorder({{0, 1}});
     }
     return {true, true};
@@ -1190,7 +1191,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
           [&seen_reduction_exprs](TensorView* tv) {
             NVF_ERROR(
                 tv->definition() != nullptr,
-                "Somehow a tensor view without a definition but a reduction snuck into the scheduler reduction list.");
+                "Somehow a tensor view without a definition but a reduction "
+                "snuck into the scheduler reduction list.");
             if (!seen_reduction_exprs.emplace(tv->definition()).second) {
               return true;
             }

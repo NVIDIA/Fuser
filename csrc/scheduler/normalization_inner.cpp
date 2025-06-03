@@ -538,7 +538,8 @@ void innerPersistentHeuristicSharedMemory(
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
   NVF_ERROR(
       properties.total_reduction_numel >= vectorize_factor * bdimx,
-      "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
+      "total_reduction_numel should be larger than or equal to "
+      "vectorize_factor * bdimx.\n",
       "total_reduction_numel= ",
       properties.total_reduction_numel,
       ", vectorize_factor= ",
@@ -1145,7 +1146,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
         schedulerType(),
         can_use_smem_persistent
             ? "not enough registers or shared memory for persistence."
-            : "not enough registers for persistence and shared memory persistence is not supported yet.");
+            : "not enough registers for persistence and shared memory "
+              "persistence is not supported yet.");
     return false;
   }
 

@@ -349,7 +349,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_outs.begin(),
               def_outs.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "This function does not support outputs of transformations with mismatching rfactor flags. ",
+          "This function does not support outputs of transformations with "
+          "mismatching rfactor flags. ",
           "If one output is rfactor all should be rfactor.");
 
       // If outputs are rfactor all the inputs should be as well. It doesn't
@@ -361,7 +362,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
+          "Inputs producing an logical domain, should be marked as rfactor but "
+          "found:\n  ",
           rfactor_def->toString());
 
       // Check which definition in the unique exact definition set this
@@ -509,7 +511,8 @@ bool reductionInterferingView(
           id);
       NVF_ERROR(
           find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
+          "Issue with view analysis on reduction like schedule, with "
+          "reference: ",
           reduction_reference->toString());
       auto logical_pos = std::distance(
           reduction_reference->getLogicalDomain().begin(), find_it);

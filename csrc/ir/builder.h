@@ -124,7 +124,8 @@ class IrBuilder {
     } else {
       static_assert(
           is_std_vector_v<T>,
-          "Argument for function array must be vector of value or nested vector");
+          "Argument for function array must be vector of value or nested "
+          "vector");
       std::vector<Val*> array_members;
       std::transform(
           members.begin(),

@@ -336,8 +336,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
     if (is_output_sharded) {
       NVF_ERROR(
           same_mesh,
-          "ReduceScatter operation must have the same sender and receiver device mesh. "
-          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
+          "ReduceScatter operation must have the same sender and receiver "
+          "device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot "
+          "another device mesh");
       lowerToReduceScatter(
           input_tv, output_tv, op_type, params, comms, my_device_idx);
     } else {
