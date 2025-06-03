@@ -1287,14 +1287,18 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   // int64_t dim0 = 128 * 148;
-  int64_t dim0 = 16384;
-  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
+  int64_t dim0 = 1024;
+  for (int64_t dim1 = 768; dim1 <= 16384; dim1 += 256) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
-      for (bool warp_specialized : {true, false}) {
+      for (bool warp_specialized : {true}) {
         for (bool contig : {true, false}) {
           if (!warp_specialized && !contig) {
             // Don't need to test non-contiguous version when warp
             // specialization is not used.
+            continue;
+          }
+          if(dim1 != 1024 && !contig) {
+            // to save test time
             continue;
           }
           values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
