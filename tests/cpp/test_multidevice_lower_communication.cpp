@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -677,9 +678,7 @@ INSTANTIATE_TEST_SUITE_P(
       const auto& [backend_type, enable_host_ir_lowering] = info.param;
       std::stringstream ss;
       ss << backend_type;
-      ss
-          << (enable_host_ir_lowering ? "_HirLowerEnabled"
-                                      : "_HirLowerDisabled");
+      ss << (enable_host_ir_lowering ? "_HostIr" : "_NonHostIr");
       return ss.str();
     }));
 } // namespace nvfuser

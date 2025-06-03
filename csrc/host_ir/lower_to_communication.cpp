@@ -370,9 +370,9 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
 
   // This ignores device dimensions on reduction axis.
   auto producer_pt_to_did =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   auto consumer_pt_to_did =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
   for (ParallelType pt : kParallelTypeDIDs) {
     IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);

@@ -68,9 +68,6 @@ bool isSharded(const TensorView* tv) {
   return is_sharded;
 }
 
-// Collect device and stream parallelized IterDomains in `domain` and return
-// them as a ParallelType-to-IterDomain map. Excludes device parallelization
-// (DID) on reduction iterdomains.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
   const std::unordered_set<ParallelType>& parallel_types =
