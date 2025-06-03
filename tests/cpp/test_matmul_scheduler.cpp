@@ -3330,9 +3330,6 @@ class HopperPlusMatmulSchedulerTest
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     } else {
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
-      if (use_smem_epilogue) {
-        GTEST_SKIP() << "TMA store is not supported for Blackwell yet.";
-      }
     }
 
     if (a_k_inner) {
