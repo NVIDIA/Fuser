@@ -144,7 +144,8 @@ static TensorView* factoryOutput(
     if (ext.hasValue()) {
       NVF_CHECK(
           ext.is<int64_t>(),
-          "Expected int extent argument to factory function but found constant value ",
+          "Expected int extent argument to factory function but found constant "
+          "value ",
           shi->toInlineString());
       iter_type =
           ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
@@ -1188,7 +1189,8 @@ TensorView* newForReduction(
       *(axes_set.rbegin()),
       ") is outside nDims (",
       orig_domain.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
+      "). Keep in mind reductions are relative to root domains, not modified "
+      "views.");
 
   auto reduced_axis_iter = axes_set.begin();
   for (const auto dim : arange(orig_domain.size())) {
@@ -1205,7 +1207,8 @@ TensorView* newForReduction(
       if (id->isBroadcast()) {
         NVF_CHECK(
             id->isImplicitBroadcast(),
-            "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+            "Cannot reduce an axis that is marked as broadcasted as it has an "
+            "undetermined size. Tried to reduce ID = ",
             id,
             " of tensor ",
             tv);
@@ -1260,12 +1263,15 @@ TensorView* reductionOpRaw(
 
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1360,12 +1366,15 @@ TensorView* reductionOp(
     DataType dtype /* DataType::Null */) {
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1571,8 +1580,10 @@ WelfordResult WelfordRaw(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1637,8 +1648,10 @@ WelfordResult Welford(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -2127,7 +2140,8 @@ static TensorView* newForMma(
         ax,
         ") is outside nDims (",
         orig_domain_a.size(),
-        "). Keep in mind reductions are relative to root domains, not modified views.");
+        "). Keep in mind reductions are relative to root domains, not modified "
+        "views.");
     is_reduction[ax] = true;
   }
   std::vector<IterDomain*> new_domain;
@@ -2145,7 +2159,8 @@ static TensorView* newForMma(
 
     NVF_CHECK(
         !(dim_is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+        "Cannot reduce an axis that is marked as broadcasted as it has an "
+        "undetermined size. Tried to reduce ID = ",
         id,
         " of tensor ",
         tv_a,
@@ -2207,7 +2222,8 @@ TensorView* fusedMultiplySum(
   //  mma as well, for maybe fusing bias in prolog.
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
   NVF_CHECK(
       init->dtype() == out->dtype(),
       "Init value dtype for fusedMultiplySum must match output.");

@@ -422,19 +422,22 @@ struct SliceOpRecord : RecordFunctor {
       Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
-          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
+          "Slice operation start_indices must be greater than or equal to 0. "
+          "Start Indices: ",
           start_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           !start_idx->isConstInt() || !end_idx->isConstInt() ||
               end_idx->evaluate().as<int64_t>() >=
                   start_idx->evaluate().as<int64_t>(),
-          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
+          "Slice operation end_indices must be greater than or equal to "
+          "start_indices. Start Indices: ",
           start_idx->evaluate().as<int64_t>(),
           " End Indices: ",
           end_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
-          "nvFuser Limitation: All slice operation strides must be of const size 1.");
+          "nvFuser Limitation: All slice operation strides must be of const "
+          "size 1.");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice, manual_normalization_);
@@ -1977,12 +1980,14 @@ struct ScalarRecord : RecordFunctor {
       if (value_.is<bool>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Bool,
-            "A ScalarRecord for Bool inline definition not have a matching data type!");
+            "A ScalarRecord for Bool inline definition not have a matching "
+            "data type!");
         os << ((bool)value_ ? "True" : "False");
       } else if (value_.is<double>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Double,
-            "A ScalarRecord for Double inline definition not have a matching data type!");
+            "A ScalarRecord for Double inline definition not have a matching "
+            "data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1997,7 +2002,8 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<int64_t>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Int,
-            "A ScalarRecord for Int inline definition not have a matching data type!");
+            "A ScalarRecord for Int inline definition not have a matching data "
+            "type!");
         os << value_;
       } else {
         NVF_THROW("A ScalarRecord with an unsupported inline definition type!");

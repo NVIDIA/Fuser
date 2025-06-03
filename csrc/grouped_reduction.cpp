@@ -85,7 +85,8 @@ bool validateReductionGrouping(
     GROUP_REDUCTION_CHECK(
         error_on_failure,
         output_domain.size() == num_logical_dims,
-        "Invalid grouped reduction due to mismatched number of root dimensions. "
+        "Invalid grouped reduction due to mismatched number of root "
+        "dimensions. "
         "Expected: ",
         num_logical_dims,
         ". Detected: ",
@@ -111,7 +112,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isBroadcast() == output_id->isBroadcast(),
-          "Invalid grouped reduction due to mismatched broadcast root domains. ",
+          "Invalid grouped reduction due to mismatched broadcast root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -124,7 +126,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isReduction() == output_id->isReduction(),
-          "Invalid grouped reduction due to mismatched reduction root domains. ",
+          "Invalid grouped reduction due to mismatched reduction root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
