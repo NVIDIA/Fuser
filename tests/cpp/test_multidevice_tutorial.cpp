@@ -26,10 +26,10 @@ class MultiDeviceTutorial : public MultiDeviceTest {
   void SetUp() {
     MultiDeviceTest::SetUp();
     if (!communicator_->is_available()) {
-      GTEST_SKIP()
-          << "Distributed setting not available. "
-          << "Make sure you are on a node with n>1 GPUs and run "
-          << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 tutorial_multidevice`";
+      GTEST_SKIP() << "Distributed setting not available. "
+                   << "Make sure you are on a node with n>1 GPUs and run "
+                   << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
+                      "tutorial_multidevice`";
     }
   }
 

@@ -64,4 +64,24 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
 //     contiguity: [t, f, t]
 std::optional<Layout> canonicalizeLayout(const TensorView* tv);
 
+// Returns whether `layout` is compliant with `required`. This is
+// uni-directional. For example, `contiguity=[t,t]` is compliant with
+// `contiguity=[f,f]` but not vice versa.
+bool isCompliantWith(const Layout& layout, const Layout& required);
+
+// A helper function used to compute the perferred output layout. It computes
+// the mapping from `in_logical` to `out_root` and applies that mapping to
+// `preferred_in_layout`. For many ops, this function returns a good initial
+// preferred output layout for aliasing because it tries to preserve the input
+// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
+// using expressions will have to modify this initial layout so its allocation
+// domain will be a function of its logical domain.
+//
+// Returns `nullopt` if computation fails, so the caller can handle things
+// conservatively.
+std::optional<Layout> mapInLayoutToOutRoot(
+    const std::optional<Layout>& in_layout,
+    TensorView* in,
+    TensorView* out);
+
 } // namespace nvfuser

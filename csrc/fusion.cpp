@@ -238,7 +238,8 @@ void Fusion::addInput(Val* input) {
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
-        "Immediate scalar value cannot be added as an input. It is not necessary to pass it as an input.");
+        "Immediate scalar value cannot be added as an input. It is not "
+        "necessary to pass it as an input.");
   }
 
   NVF_CHECK(
@@ -764,7 +765,8 @@ void Fusion::aliasOutputToInput(
     const AllocationType type) {
   NVF_CHECK(
       type != AllocationType::New,
-      "New is returned automatically for a missing key. Don't add it explicitly.");
+      "New is returned automatically for a missing key. Don't add it "
+      "explicitly.");
 
   if (type == AllocationType::Evaluate) {
     NVF_CHECK(

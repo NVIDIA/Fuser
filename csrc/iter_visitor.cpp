@@ -58,7 +58,8 @@ class MemberStatements : public OptOutDispatch {
   void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
         val,
-        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse "
+        "val, ");
     OptOutDispatch::dispatch(val);
   }
 
@@ -483,7 +484,8 @@ void BackwardVisitor::traverseTo(
       for (auto out : traversal_pair.first->outputs()) {
         NVF_ERROR(
             vals.find(out) != vals.end(),
-            "Invalid backward traversal found. Some output paths were not provided:",
+            "Invalid backward traversal found. Some output paths were not "
+            "provided:",
             out);
       }
     }

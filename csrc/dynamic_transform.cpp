@@ -457,13 +457,15 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
       } else {
         NVF_CHECK(
             out_size == in_size,
-            "Mismatch in sizes when concretizing expand. Expanded or Iteration domain ",
+            "Mismatch in sizes when concretizing expand. Expanded or Iteration "
+            "domain ",
             inp_id->toString(),
             " has possibly expanded extent ",
             in_size,
             " which is incompatible with expansion to size ",
             out_size,
-            ". Note that already-expanded axes may not themselves be expanded.");
+            ". Note that already-expanded axes may not themselves be "
+            "expanded.");
         expand_axes.push_back(false);
       }
     }
@@ -629,7 +631,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
       : info_(info) {
     NVF_ERROR(
         fusion == info->fusion(),
-        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
+        "Invalid DynamicTransformInitialInfo. The associated Fusion is "
+        "different from the given Fusion");
     FusionGuard fg(fusion);
     concretize();
   }
@@ -1108,7 +1111,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
         NVF_CHECK(
             updated_id == inp_id || !updated_id->isSymbolic(),
-            "Mutated IterDomains between root and logical should not be symbolic");
+            "Mutated IterDomains between root and logical should not be "
+            "symbolic");
         if (i == 0) {
           // ops::promoteIterType will favor Symbolic if it encounters it
           // alongside Broadcast. This is preferable at fusion definition, but

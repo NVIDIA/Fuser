@@ -199,7 +199,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
+        "to use combined reduction, inner reduction tensor should be "
+        "[I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
     return false;
   }
 
@@ -207,7 +208,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should have shared input.");
+        "to use combined reduction, inner reduction and outer reduction should "
+        "have shared input.");
     return false;
   }
 
@@ -215,7 +217,9 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
+        "to use combined reduction, inner reduction and outer reduction should "
+        "not have shared consumer, their consumers should not have shared "
+        "non-outer-reduction producer.");
     return false;
   }
 
@@ -275,7 +279,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+        "to use combined reduction, every iteration axis in inner reduction tv "
+        "should match to a reduction domain in outer reduction tv.");
     return false;
   }
 
@@ -436,7 +441,8 @@ void InnerOuterPersistentKernelScheduler::schedule(
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
-      "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
+      "Incorrect parameters sent to "
+      "InnerOuterPersistentKernelScheduler::schedule",
       params);
   if (rparams->tma_warp_specialized) {
     inner_outer_tma_warp_specialized::scheduleFusion(fusion, rparams);
