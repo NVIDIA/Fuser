@@ -157,8 +157,18 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
     auto* without_bias = linear(linear_op->inA(), linear_op->inB());
     TransformReplay::selfReplay(out->domain(), without_bias->domain());
 
-    TensorView* broadcasted_bias =
-        broadcast(linear_op->bias(), {true, true, false});
+    TensorView* broadcasted_bias = [&]() {
+      const int64_t rank_after_broadcast = std::ssize(
+          TensorDomain::noReductions(without_bias->getLogicalDomain()));
+      NVF_ERROR(
+          rank_after_broadcast > 0,
+          "without_bias is expected to be at least 1D: ",
+          without_bias);
+      std::vector<bool> is_broadcast_dim(rank_after_broadcast, true);
+      is_broadcast_dim.back() = false;
+      return broadcast(linear_op->bias(), is_broadcast_dim);
+    }();
+
     TensorView* new_out = add(without_bias, broadcasted_bias);
     TransformReplay::selfReplay(
         out->domain(), new_out->domain(), /*ignore_reductions=*/true);
