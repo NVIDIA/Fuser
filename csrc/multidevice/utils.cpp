@@ -243,11 +243,13 @@ int64_t getShardedLogicalAxis(
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and therefore bailed out: ",
+          "Failed to attribute the sharding to a single tensor axis and "
+          "therefore bailed out: ",
           merge);
     } else {
       NVF_THROW(
-          "Unexpected transforms from logical to a DID-parallel allocation IterDomain: ",
+          "Unexpected transforms from logical to a DID-parallel allocation "
+          "IterDomain: ",
           def);
     }
   }

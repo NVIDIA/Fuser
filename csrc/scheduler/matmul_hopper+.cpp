@@ -134,17 +134,20 @@ void HopperPlus::validate() const {
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
         params_->splitk_factor == 1,
-        "Hopper+ matmul scheduler does not support scheduling persistent split-K kernels");
+        "Hopper+ matmul scheduler does not support scheduling persistent "
+        "split-K kernels");
   }
 
   NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
-      "Hopper+ matmul scheduler does not support distributing stages across SMs a la stream-K");
+      "Hopper+ matmul scheduler does not support distributing stages across "
+      "SMs a la stream-K");
 
   NVF_CHECK(
       isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
+      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
@@ -158,7 +161,8 @@ void HopperPlus::validate() const {
   } else if (isPingPong()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
-        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul Kernels");
+        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
+        "Kernels");
   }
 }
 
@@ -1028,7 +1032,8 @@ void HopperPlus::setUpCircularBuffering() {
                 params_->circular_buffer_options.smem_circular_buffer_stage,
         "smem_circular_buffer_prefetch_gap is ",
         params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
-        " but is expected to be positive and not greater than number of stages: ",
+        " but is expected to be positive and not greater than number of "
+        "stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
     CircularBufferType cb_type;

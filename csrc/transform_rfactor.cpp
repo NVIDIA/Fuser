@@ -106,7 +106,8 @@ class ReplayRFactor : public ReplayTransformations {
     // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     // Check if we need to mark the outputs as an logical domain meaning this
     // transformation must be present in replays otherwise it breaks the compute
@@ -208,7 +209,8 @@ class ReplayRFactor : public ReplayTransformations {
       NVF_ERROR(
           static_logical_ids_.count(m->inner()) ==
               static_logical_ids_.count(m->outer()),
-          "If one input to a merge is a static logical id, the other must be as well.");
+          "If one input to a merge is a static logical id, the other must be "
+          "as well.");
       updateRFactorDomain(m->outer(), m->inner(), m->out(), nullptr);
     }
   }
@@ -284,7 +286,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int64_t i) {
     NVF_CHECK(
         i >= -ndims && i < ndims,
-        "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
+        "Rfactor replay received an axis outside the number of dims in the "
+        "tensor, acceptable inclusive range is ",
         -ndims,
         " to ",
         ndims - 1);
@@ -456,7 +459,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     auto p2o_it = producer_to_original_map.find(p_root_id);
     NVF_ERROR(
         p2o_it != producer_to_original_map.end(),
-        "Missing mapping from original tensor domain to producer tensor domain.");
+        "Missing mapping from original tensor domain to producer tensor "
+        "domain.");
     auto original_id = p2o_it->second;
     auto new_consumer_root =
         IterDomainBuilder(original_id->start(), original_id->extent())

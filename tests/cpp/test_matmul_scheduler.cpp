@@ -2528,7 +2528,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   NVF_CHECK(
       !runtime->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
+      "fusion got segmented, expected to match whole fusion with single "
+      "segment");
 
   NVF_CHECK(
       isSchedulerInUse(runtime, SchedulerType::Matmul),
