@@ -622,15 +622,22 @@ FusionProfiler::FusionProfiler()
       kernel_profiles_(),
       corrid_2_segid_(),
       subscriber_handle_(nullptr) {
-  FusionProfiler::is_initialized_ = true;  // Set to true when constructor is called
-  if (!cupti_disabled_) {
+  if (!FusionProfiler::cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle_, /*callback=*/nullptr, /*userData=*/nullptr));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
         cupti_buffer_requested, cupti_buffer_completed));
   }
+  FusionProfiler::is_initialized_ = true;
 }
 
-/*static*/ FusionProfiler& FusionProfiler::getInstance() {
+/*static*/ FusionProfiler& FusionProfiler::getInstance(bool cupti_disabled, bool allow_initialization) {
+  NVF_CHECK(allow_initialization || is_initialized_, "FusionProfiler is not initialized. Did you call start()?");
+
+  // If required, we can allow changing the CUPTI state if it is not running
+  // This would require us to release all CUPTI resources if it was enabled,
+  // or subscribe to CUPTI if it was disabled.
+  NVF_CHECK(!is_initialized_ || (cupti_disabled == FusionProfiler::cupti_disabled_), "CUPTI state is not consistent!");
+  
   static FusionProfiler singleton;
   return singleton;
 }
@@ -655,12 +662,10 @@ void FusionProfiler::reset() {
 }
 
 ProfilerState FusionProfiler::state() {
-  NVF_CHECK(FusionProfiler::is_initialized_, "FusionProfiler is not initialized, call start() first!");
   return getInstance().state_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
-  NVF_CHECK(FusionProfiler::is_initialized_, "FusionProfiler is not initialized, call start() first!");
   FusionProfiler& fp = getInstance();
   NVF_CHECK_EQ(state(), ProfilerState::Running);
   fp.segments_.reserve(num);
@@ -670,7 +675,6 @@ void FusionProfiler::createSegments(size_t num) {
 }
 
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
-  NVF_CHECK(FusionProfiler::is_initialized_, "FusionProfiler is not initialized, call start() first!");
   FusionProfiler& fp = getInstance();
   NVF_CHECK(
       fp.segments_.size() > idx,
@@ -682,13 +686,12 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 }
 
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
-  FusionProfiler::cupti_disabled_ = cupti_disable;
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = getInstance(/*cupti_disabled=*/cupti_disable, /*allow_initialization=*/true);
   NVF_CHECK(
       fp.state_ != ProfilerState::Running,
       "FusionProfiler has already Started! Stop the profiler before starting again.");
   FusionProfiler::reset();
-  if (!cupti_disabled_) {
+  if (!fp.cupti_disabled_) {
     for (const auto& activity : cupti_activities) {
       NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(activity));
     }

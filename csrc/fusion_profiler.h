@@ -287,7 +287,13 @@ class FusionProfiler {
 
  private:
   //! Method to access FusionProfiler singleton
-  static FusionProfiler& getInstance();
+  //! \note This method assumes the singleton has been initialized via initialize()
+  static FusionProfiler& getInstance(bool cupti_disabled = false, bool allow_initialization = false);
+
+  //! Method to initialize the FusionProfiler singleton
+  //! \note This should be called before any other FusionProfiler methods
+  //! \param cupti_disable Whether to disable CUPTI functionality
+  static void initialize(bool cupti_disable = false);
 
   // Because this method may resize `device_descriptors_`, a call to it may
   // invalidate the references returned by previous calls.
