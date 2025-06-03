@@ -377,7 +377,8 @@ uint32_t SegmentProfiler::segmentId() const {
 auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
   NVF_CHECK(
       !prof.kernel_profiles.empty(),
-      "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
+      "Cannot convert FusionProfile to a tuple containing CUPTI gathered "
+      "stats!");
   NVF_CHECK(
       seg_id < prof.kernel_profiles.size(),
       "Invalid seg_id for FusionProfile. Segments: ",
@@ -606,11 +607,8 @@ FusionProfiler::FusionProfiler()
       segments_(),
       device_descriptors_(),
       kernel_profiles_(),
-      corrid_2_segid_(),
-      subscriber_handle_(nullptr) {
+      corrid_2_segid_() {
   if (!cupti_disabled_) {
-    debug() << "FusionProfiler constructor called" << std::endl;
-    NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle_, nullptr, nullptr));
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
         cupti_buffer_requested, cupti_buffer_completed));
   }
@@ -618,13 +616,13 @@ FusionProfiler::FusionProfiler()
 
 FusionProfiler* FusionProfiler::get() {
   static std::mutex singleton_lock;
-  static std::unique_ptr<FusionProfiler> singleton;
+  static FusionProfiler* singleton = nullptr;
 
   std::lock_guard<std::mutex> guard(singleton_lock);
   if (singleton == nullptr) {
-    singleton = std::make_unique<FusionProfiler>();
+    singleton = new FusionProfiler();
   }
-  return singleton.get();
+  return singleton;
 }
 
 void FusionProfiler::reset() {
@@ -656,7 +654,8 @@ void FusionProfiler::createSegments(size_t num) {
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
   NVF_CHECK(
       get()->segments_.size() > idx,
-      "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
+      "FusionProfiler: You are attempting to access non-existent segments! "
+      "Segments: ",
       get()->segments_.size(),
       " Idx: ",
       idx);
@@ -668,7 +667,8 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   fp->cupti_disabled_ = cupti_disable;
   NVF_CHECK(
       fp->state_ != ProfilerState::Running,
-      "FusionProfiler has already Started! Stop the profiler before starting again.");
+      "FusionProfiler has already Started! Stop the profiler before starting "
+      "again.");
   reset();
   if (!fp->cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
@@ -805,36 +805,6 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   fp->state_ = ProfilerState::Processed;
 }
 
-void FusionProfiler::cleanup() {
-  FusionProfiler::reset();
-  
-  if (cupti_disabled_) {
-    return;
-  }
-
-  // Disable all activities
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
-
-  // Force flush any remaining activities
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
-
-  // First unsubscribe if we have a valid handle
-  if (subscriber_handle_ != nullptr) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(subscriber_handle_));
-  }
-
-  // Then finalize CUPTI
-  NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
-}
-
-
-FusionProfiler::~FusionProfiler() {
-  FusionProfiler::cleanup();
-}
-
 void FusionProfiler::startCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
   get()->compile_timer_.start();
@@ -859,7 +829,8 @@ const FusionProfile& FusionProfiler::profile() {
   NVF_CHECK_EQ(
       state(),
       ProfilerState::Processed,
-      "The FusionProfile struct data is not valid because it has not been processed!");
+      "The FusionProfile struct data is not valid because it has not been "
+      "processed!");
   return get()->profile_;
 }
 
@@ -876,7 +847,8 @@ void FusionProfiler::recordAsyncCorrIdActivity(
   FusionProfiler* fp = get();
   NVF_CHECK(
       fp->corrid_2_segid_.count(corr_id) == 0,
-      "Segment Correlation Activity asociated with this correlation id already exists! ",
+      "Segment Correlation Activity asociated with this correlation id already "
+      "exists! ",
       corr_id);
   fp->corrid_2_segid_[corr_id] = seg_id;
 }
