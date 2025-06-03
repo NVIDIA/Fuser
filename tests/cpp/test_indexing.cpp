@@ -5252,6 +5252,118 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(ContigIndexingTest, Transpose) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [I0, I1]
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = transpose(tv1);
+  fusion.addOutput(tv2);
+
+  for (auto tv : {tv1, tv2}) {
+    tv->split(0, 32);
+    tv->split(-1, 32);
+    tv->reorder({{2, 1}});
+    tv->merge(-2, -1);
+    tv->split(-1, 128);
+    tv->split(-2, 4);
+  }
+
+  tv1->reorder({{0, 1}});
+
+  inlineMost();
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::BIDy);
+  tv2->axis(-2)->parallelize(ParallelType::TIDy);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // clang-format off
+  /*
+    T1_s_float[iS8{( ceilDiv(i2, 32) )}, iS6{( ceilDiv(i0, 32) )}, iS13{2}, iS14{4}, iS12{128}] ca_pos( 2 )
+     logical domain : (iS2{i0}, iS3{i2})
+     contiguity: t t
+     Split: iS2{i0} by factor 32 -> iS6{( ceilDiv(i0, 32) )}, iS7{32}
+     Split: iS3{i2} by factor 32 -> iS8{( ceilDiv(i2, 32) )}, iS9{32}
+     Merge: iS7{32} and iS9{32} -> iS10{1024}
+     Split: iS10{1024} by factor 128 -> iS11{8}, iS12{128}
+     Split: iS11{8} by factor 4 -> iS13{2}, iS14{4}
+     loop domain : (iS8{( ceilDiv(i2, 32) )}, iS6{( ceilDiv(i0, 32) )}, iS13{2}, iS14{4}, iS12{128})
+    T2_g_float[iblockIdx.x15{( ceilDiv(i2, 32) )}, iblockIdx.y17{( ceilDiv(i0, 32) )}, iS22{2}, ithreadIdx.y23{4}, ithreadIdx.x21{128}] ca_pos( 5 ) produce_pos( 2 )
+     root domain : (iS4{i0}, iS5{i2})
+     logical domain : (iS5{i2}, iS4{i0})
+     contiguity: t t
+     Split: iS5{i2} by factor 32 -> iblockIdx.x15{( ceilDiv(i2, 32) )}, iS16{32}
+     Split: iS4{i0} by factor 32 -> iblockIdx.y17{( ceilDiv(i0, 32) )}, iS18{32}
+     Merge: iS16{32} and iS18{32} -> iS19{1024}
+     Split: iS19{1024} by factor 128 -> iS20{8}, ithreadIdx.x21{128}
+     Split: iS20{8} by factor 4 -> iS22{2}, ithreadIdx.y23{4}
+     loop domain : (iblockIdx.x15{( ceilDiv(i2, 32) )}, iblockIdx.y17{( ceilDiv(i0, 32) )}, iS22{2}, ithreadIdx.y23{4}, ithreadIdx.x21{128})
+  */
+  // clang-format on
+
+  // Check how tv1 is indexed as the producer of tv2. The indexing
+  // traversal starts from the loop domain of tv2, traversing
+  // backwards to the common iter domains, {iS7, iS18} as well as
+  // {iS9, iS16}. From there, the traversal moves forward to the loop
+  // domain of tv1 since the loop domain is the allocation domain of
+  // the tensor. Note that iS10, which is the output of following the
+  // merge of iS7 and iS9, is contiguous, so the indexing traversal
+  // should stop there.
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getLinearIndex(TensorView* tv, TensorView* maybe_consumer)
+        const override {
+      bool as_consumer = maybe_consumer == nullptr;
+
+      if (tv->name() != 1 || as_consumer) {
+        return nullptr;
+      }
+      auto consumer_tv = maybe_consumer;
+
+      // [i0, i1, i2, i3, i4]
+      std::vector<Val*> loop_indices =
+          getLoopIndices(consumer_tv, indexer_, for_loops_);
+      auto i2 = loop_indices.at(2);
+      auto i3 = loop_indices.at(3);
+      auto i4 = loop_indices.at(4);
+
+      // iS19: (i2 * 4 + TIDy) * 128 + TIDx
+      auto id19 = addExpr(
+          mulExpr(addExpr(mulExpr(i2, createInt(4)), i3), createInt(128)), i4);
+      // iS16: iS19 / 32
+      auto id16 = divExpr(id19, createInt(32));
+      // iS18: iS19 % 32
+      auto id18 = modExpr(id19, createInt(32));
+      // iS10: iS18 * 32 + iS16
+      auto id10 = addExpr(mulExpr(id18, createInt(32)), id16);
+
+      return id10;
+    }
+  };
+
+  IndexValidator<GetReference>::validate(&fusion, true);
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({100, 100}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(ContigPredicateIndexingTest, SimplePointwise1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
