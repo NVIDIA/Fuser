@@ -27,14 +27,16 @@ void checkInlineable(const Expr* expr) {
         input->isScalar() || input->isA<kir::TensorIndex>() ||
             (expr->isA<UnaryOp>() &&
              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Address),
-        "Printing inline computations involving values other than scalars is not currently supported.");
+        "Printing inline computations involving values other than scalars is "
+        "not currently supported.");
   }
   NVF_CHECK(
       expr->outputs().size() == 1,
       "Cannot print inline computations if there's more than one output.");
   NVF_CHECK(
       expr->output(0)->isScalar() || expr->output(0)->isA<NamedScalar>(),
-      "Printing inline computations involving values other than scalars is not currently supported.");
+      "Printing inline computations involving values other than scalars is not "
+      "currently supported.");
 }
 
 void IrPrinter::handle(Fusion* fusion) {

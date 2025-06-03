@@ -343,7 +343,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
 
 std::string EndCoalescing::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "EndCoalescing" << std::endl;
+  indent(ss, indent_size) << "EndCoalescing " << name() << std::endl;
   return ss.str();
 }
 

@@ -114,7 +114,8 @@ void verifyShape(const std::vector<int64_t>& shape) {
         shape[i],
         " at index ",
         i,
-        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+        " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+        "static(>1).");
   }
 }
 

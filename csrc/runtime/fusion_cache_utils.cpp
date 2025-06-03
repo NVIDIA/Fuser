@@ -205,7 +205,8 @@ void prepareRuntimeOrder(
     }
     NVF_ERROR(
         one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
+        "Couldn't run all groups, something must have gone wrong in "
+        "segmentation.");
   }
 }
 
