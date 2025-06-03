@@ -37,6 +37,8 @@ void getHeuristics(
       hp_threads_per_block_max);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t sm_count = (int64_t)dev_prop->multiProcessorCount;
+  constexpr int64_t reg_per_async_thread = 32L;
+  constexpr int64_t regs_granularity = 8;
 
   // Params for 1st stage, inner reduction and partial outer reduction.
   // Inner dim: inner_vect, inner_batch, and bdimx
@@ -115,7 +117,14 @@ void getHeuristics(
         scheduler_utils::bytes_per_register;
     // regs for indexing, etc.
     reg_count += scheduler_utils::register_overhead;
+    // regs for async warps
+    reg_count += kWarpSpecializationPaddedThreads * reg_per_async_thread / (bdimx * bdimy);
+    // round up to granularity
+    reg_count = roundUpToMultiple(reg_count, regs_granularity);
     // total usage should be less than max available
+    std::cout << "reg_count " << reg_count
+              << ", getRegPerThreadGivenThreadsPerSM(bdimx * bdimy): "
+              << getRegPerThreadGivenThreadsPerSM(bdimx * bdimy) << std::endl;
     return reg_count <= getRegPerThreadGivenThreadsPerSM(bdimx * bdimy);
   };
   // bdimx: number of threads for inner dim.
@@ -133,7 +142,8 @@ void getHeuristics(
   // Try to update paras in each loop and break if no update is made.
   const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
   const int64_t max_bdimy = std::min(4L, hp_threads_per_block_max / 128L);
-  const int64_t max_iter_unroll = 16L / (int64_t)computation_dtype_size;
+  // const int64_t iter_unroll_max = 16L / (int64_t)computation_dtype_size;
+  const int64_t iter_unroll_prefered = sizeof(uint64_t) / (int64_t)computation_dtype_size;
   while (1) {
     bool is_updated = false;
     // increase circular buffer stages
@@ -144,7 +154,8 @@ void getHeuristics(
     // increase iter_unroll
     // iter_unroll should be divisible by outer_dim_numel due to limitation of
     // 1D TMA predicate.
-    if (iter_unroll * 2 <= max_iter_unroll &&
+    if (iter_unroll * 2 <= iter_unroll_prefered &&
+      is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
         is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
         outer_dim_numel % (iter_unroll * 2) == 0) {
       is_updated = true;
@@ -169,6 +180,15 @@ void getHeuristics(
       is_updated = true;
       bdimx *= 2;
     }
+    // if(!is_updated){
+    //   if (iter_unroll * 2 <= iter_unroll_max &&
+    //     is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
+    //       is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
+    //       outer_dim_numel % (iter_unroll * 2) == 0) {
+    //     is_updated = true;
+    //     iter_unroll *= 2;
+    //   }
+    // }
 
     if (!is_updated) {
       break;
@@ -231,8 +251,7 @@ void getHeuristics(
     // down to 232. re-calculate [tma_branch_registers] using: borrowed
     // registers = (232 - 168) * 256 / 128 = 128. tma_branch_registers = 168 -
     // 128 = 40
-    constexpr int64_t regs_granularity = 8;
-    int64_t tma_branch_regs = 40;
+    int64_t tma_branch_regs = reg_per_async_thread;
     int64_t compute_branch_regs = reg_per_thread +
         (reg_per_thread - tma_branch_regs) * kWarpSpecializationPaddedThreads /
             computation_threads;
