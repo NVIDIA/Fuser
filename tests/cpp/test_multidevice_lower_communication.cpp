@@ -10,11 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -685,5 +682,4 @@ INSTANTIATE_TEST_SUITE_P(
                                       : "_HirLowerDisabled");
       return ss.str();
     }));
-
 } // namespace nvfuser

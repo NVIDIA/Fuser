@@ -166,15 +166,16 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
 
-    if (!(expr->isA<LoadStoreOp>() &&
-          (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) &&
-        !expr->isA<ReductionOp>()) {
-      continue;
-    }
-
     if (!isResharding(expr)) {
       continue;
     }
+
+    NVF_ERROR(
+        (expr->isA<LoadStoreOp>() &&
+         (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) ||
+            expr->isA<ReductionOp>(),
+        "Expected the resharding expression to be LoadStoreOp::Set or ReductionOp, got ",
+        expr->toString());
 
     if (isCommunicationLayoutCompliant(expr)) {
       // Set the allocation domain explicitly to avoid changes by other passes.
