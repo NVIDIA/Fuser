@@ -127,9 +127,7 @@ def test_transformer_layer(
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:
-            # Due to
-            # https://github.com/Lightning-AI/lightning-thunder/issues/701, a
-            # limitation in TransformerEngine, we can't repeatedly call
+            # Due to https://github.com/NVIDIA/TransformerEngine/issues/990, we can't repeatedly call
             # torch.autograd.backward to benchmark just backprop. As a
             # workaround, the code below runs forward before each backprop but
             # only measure the backprop time.
