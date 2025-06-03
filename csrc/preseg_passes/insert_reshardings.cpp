@@ -14,6 +14,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 
@@ -129,6 +130,42 @@ void insertReshardingSetsAfter(Fusion* fusion) {
   }
 }
 
+void canonicalizeLoopDomain(TensorView* tv) {
+  LinkedHashMap<IterDomain*, std::monostate> loop;
+  for (IterDomain* id : tv->getLoopDomain()) {
+    loop.pushBack(id, std::monostate());
+  }
+
+  for (Expr* transform :
+       DependencyCheck::getAllExprsBetween(
+           {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
+           std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(transform);
+    if (split == nullptr) {
+      continue;
+    }
+
+    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
+      continue;
+    }
+
+    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
+      continue;
+    }
+
+    loop.erase(split->outer());
+    const auto inner_i = loop.erase(split->inner()).second;
+    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+    // `outer` and `inner` are all serial, `in`'s position in the loop domain
+    // doesn't matter.
+    loop.insert(inner_i, split->in(), std::monostate());
+  }
+
+  auto keys_view = std::views::keys(loop);
+  tv->setLoopDomain({keys_view.begin(), keys_view.end()});
+}
+
 // If a TensorView has a reduction dimension that's DID-split, we R-factor the
 // TensorView into a local reduction followed by an allreduce.
 //
@@ -219,6 +256,8 @@ void rFactorLoopSplits(Fusion* fusion) {
           loop_id->parallelize(ParallelType::Serial);
         }
       }
+
+      canonicalizeLoopDomain(local);
     }
   }
 }
