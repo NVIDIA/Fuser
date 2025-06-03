@@ -14,6 +14,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
+#include <cuda_utils.h>
 #include <debug.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
@@ -23,6 +24,7 @@
 #include <mma_type.h>
 #include <options.h>
 #include <runtime/executor_utils.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -38,7 +40,6 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "matmul_heuristic.h"
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -1052,6 +1053,74 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   return calc.compute();
 }
 
+const char* noopPtx = R"(
+.version 8.0
+.target sm_90
+.address_size 64
+
+.entry noopKernel()
+{
+  ret;
+}
+
+)";
+
+//! Determine how many CGAs can launch in a single wave with the given cluster
+//! dimensions
+int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
+  // TODO: make these thread_local and initialize only once to reduce latency
+  cudaLibrary_t lib;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaLibraryLoadData(&lib, noopPtx, NULL, NULL, 0, NULL, NULL, 0));
+  cudaKernel_t func;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaLibraryGetKernel(&func, lib, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
+      &max_smem_opt_in, cudaDevAttrMaxSharedMemoryPerBlockOptin, /*device=*/0));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaFuncSetAttribute(
+      func, cudaFuncAttributeMaxDynamicSharedMemorySize, max_smem_opt_in));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaFuncSetAttribute(
+      func, cudaFuncAttributeNonPortableClusterSizeAllowed, 1));
+
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
+
+  int32_t max_active_blocks;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
+
+  int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
+
+  cudaLaunchConfig_t config{0};
+  cudaLaunchAttribute attribute[1];
+  attribute[0].id = cudaLaunchAttributeClusterDimension;
+  attribute[0].val.clusterDim.x = (uint32_t)cluster_size;
+  attribute[0].val.clusterDim.y = 1;
+  attribute[0].val.clusterDim.z = 1;
+
+  config.numAttrs = 1;
+  config.attrs = attribute;
+  config.blockDim.x = 128;
+  config.blockDim.y = 1;
+  config.blockDim.z = 1;
+
+  config.dynamicSmemBytes = maxDynamicSmemSize;
+
+  config.gridDim.x = (unsigned int)cluster_size;
+  config.gridDim.y = (unsigned int)max_active_blocks;
+  config.gridDim.z = 1;
+
+  int num_clusters;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaOccupancyMaxActiveClusters(&num_clusters, (CUfunction)func, &config));
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaLibraryUnload(lib));
+
+  return (int64_t)num_clusters;
+}
+
 } // anonymous namespace
 
 std::unique_ptr<MatmulParams> getMatmulHeuristics(
@@ -1159,28 +1228,20 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
 
   if (mparams->tiling_strategy ==
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
-    const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
-    int64_t Mtiles =
-        ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
-    int64_t Ntiles =
-        ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
-
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-    const int64_t auto_cgas = num_sms /
+    const int64_t cluster_size =
         (mparams->cluster_dims.x * mparams->cluster_dims.y *
          mparams->cluster_dims.z);
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-    if (mparams->cluster_dims == MatmulParams::ClusterDims{1, 1, 1}) {
-      mparams->num_clusters = auto_cgas;
-    } else {
-      // Limit num clusters to the size needed to cover the problem, in case
-      // fewer are needed than the maximum that can be computed in a single
-      // wave.
-      const int64_t cgas_needed = ceilDiv(Mtiles, mparams->cluster_dims.x) *
-          ceilDiv(Ntiles, mparams->cluster_dims.y);
-      mparams->num_clusters =
-          (cgas_needed < 0.9 * auto_cgas) ? cgas_needed : auto_cgas;
+    mparams->num_clusters = num_sms / cluster_size;
+
+    if (cluster_size > 2L) {
+      // Large cluster sizes might require lower than 100% occupancy, so we
+      // limit the number of launched CGAs here to guarantee only a single wave
+      // gets launched.
+      mparams->num_clusters = std::min(
+          mparams->num_clusters, getMaxActiveClusters(mparams->cluster_dims));
     }
   }
 
