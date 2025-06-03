@@ -147,7 +147,7 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId
     // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
     // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
     // resharding.
-    if (id->isReduction() && id->isDeviceDim()) {
+    if (id->isReduction()) {
       continue;
     }
 
