@@ -86,6 +86,14 @@ ContigIDGroups::ContigIDGroups(
 void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Only forward direction is supported for now
   if (direction != Direction::Forward) {
+    // Backward propagation for Merge is not implemented.
+    // Considering the backward case of a Merge (i.e., if merge->out() is given as contiguous,
+    // what does it imply for merge->outer() and merge->inner()?):
+    // While merge->outer() and merge->inner() would also be contiguous in such a scenario,
+    // this information does not typically lead to further simplification of indices beyond
+    // what using merge->out() already provides if it was part of a contiguous chain.
+    // The primary goal of contiguity analysis is to find larger, merged domains to simplify indexing.
+    // Decomposing a known contiguous merged domain doesn't usually serve this purpose.
     return;
   }
 
@@ -168,6 +176,73 @@ void ContigIDGroups::handle(Split* split, Direction direction) {
       non_divisible_deps_.emplace(graph_.toGroup(split->outer()));
       non_divisible_deps_.emplace(graph_.toGroup(split->inner()));
     }
+  } else { // Direction == Direction::Backward
+    // BEGIN: Task 1.3 - Implement and finalize backward propagation logic for Split (Using Early Returns)
+    const ValGroup& split_in_group = graph_.toGroup(split->in());
+
+    // 1. Consistent Ordering Check (on split->in())
+    if (!(is_predicate_pass_ || consistent_transform_info_->isConsistentlyOrdered(split->in()))) {
+      return;
+    }
+
+    // 2. Exclusive Allocation Consumption Check (on split->in())
+    if (!consistent_transform_info_->exclusivelyConsumesAllocs(split->in())) {
+      return;
+    }
+
+    // 3. Original Allocation Domain Contiguity Check (on split->in()'s constituents, if not predicate pass)
+    if (!is_predicate_pass_) {
+      auto original_allocs_it = consistent_transform_info_->findAllocIDs(split->in());
+      if (original_allocs_it == consistent_transform_info_->idToAllocIds().end()) {
+        return; // Cannot verify original allocs
+      } else {
+        VectorOfUniqueEntries<IterDomain*> active_original_allocs = original_allocs_it->second;
+        bool contiguity_ok = true;
+        for (size_t i = 0; i < alloc_domains_.size(); ++i) {
+          IterDomain* current_master_alloc_domain = alloc_domains_[i];
+          if (active_original_allocs.erase(current_master_alloc_domain) > 0) { // If this master alloc is part of split->in
+            bool original_domain_is_contig = alloc_contiguity_[i];
+            if (!original_domain_is_contig && !active_original_allocs.empty()) {
+              // This original alloc domain was non-contiguous, and it wasn't the "innermost"
+              // of the original domains being combined to form split->in.
+              contiguity_ok = false;
+              break;
+            }
+          }
+        }
+        if (!contiguity_ok || !active_original_allocs.empty()){
+            // Contiguity rule violated, or some original allocs of split->in were not in alloc_domains_.
+            return;
+        }
+      }
+    }
+
+    // 4. Dependency Checks (on split_in_group itself)
+    // These deps would have been propagated by the constructor loop if applicable.
+    if (is_predicate_pass_ && non_divisible_deps_.contains(split_in_group)) {
+      return;
+    }
+    if (resize_deps_.contains(split_in_group)) {
+      return;
+    }
+
+    // All checks passed. split_in_group is now considered a new contiguous group.
+    contig_ids_.emplace(split_in_group);
+
+    // Update alloc_to_contig_ids_ for the original allocation domains that constitute split_in_group.
+    auto final_original_allocs_it = consistent_transform_info_->findAllocIDs(split->in());
+    NVF_ERROR(
+        final_original_allocs_it != consistent_transform_info_->idToAllocIds().end(),
+        "Backward Split: Contiguous input IterDomain ",
+        split->in()->toString(),
+        " must map to original allocation domains.");
+    for (IterDomain* constit_original_alloc_domain : final_original_allocs_it->second) {
+      // The assumption here is that constit_original_alloc_domain is already one of the
+      // alloc_domains_ that ContigIDGroups was initialized with, due to the behavior
+      // of consistent_transform_info_->findAllocIDs().
+      alloc_to_contig_ids_[constit_original_alloc_domain] = split_in_group;
+    }
+    // END: Task 1.3 - Implement and finalize backward propagation logic for Split (Using Early Returns)
   }
 }
 
