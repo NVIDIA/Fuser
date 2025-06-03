@@ -34,6 +34,9 @@ namespace schedule_matmul {
 
 namespace {
 
+constexpr int64_t hardcoded_smem_vectorize_factor = 4;
+constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
     std::vector<MatmulDimRole>& roles,
@@ -923,8 +926,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   }
 }
 
-constexpr int64_t hardcoded_smem_vectorize_factor = 4;
-
 void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
@@ -1062,8 +1063,6 @@ void HopperPlus::scheduleSplitKSumHopper() {
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
-
-constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
 
 // Schedule TMem load tv and splitk_sum tv as follows:
 //   v = vectorization factor for TMem load
