@@ -504,7 +504,8 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
 
 TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
   if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Test requires at least 2 devices.";
+    GTEST_SKIP() << "This test exercises ReorderShardedAxisPass, and requires "
+                    "at least 2 devices.";
   }
 
   auto fusion = std::make_unique<Fusion>();
@@ -552,9 +553,6 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
 }
 
 TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
-  if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Test requires at least 2 devices.";
-  }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -630,6 +628,11 @@ TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
 }
 
 TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "This test exercises ReorderShardedAxisPass, and requires "
+                    "at least 2 devices.";
+  }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
