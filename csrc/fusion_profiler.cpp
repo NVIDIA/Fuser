@@ -603,12 +603,6 @@ constexpr CUpti_ActivityKind cupti_activities[] = {
     CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION
 };
 
-void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
-  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
-      cupti_buffer_requested, cupti_buffer_completed));
-}
-
 void enableCuptiActivities() {
   for (const auto& activity : cupti_activities) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(activity));
@@ -621,7 +615,13 @@ void disableCuptiActivities() {
   }
 }
 
-void disableCupti(CUpti_SubscriberHandle subscriber_handle) {
+void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
+  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(&subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
+      cupti_buffer_requested, cupti_buffer_completed));
+}
+
+void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
   // Disable all activities
   disableCuptiActivities();
 
@@ -641,12 +641,9 @@ void disableCupti(CUpti_SubscriberHandle subscriber_handle) {
 
 } // namespace
 
-// Define static members
-bool FusionProfiler::cupti_disabled_ = false;
-bool FusionProfiler::is_initialized_ = false;
-
 FusionProfiler::FusionProfiler()
-    : cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
+    : cupti_disabled_(false),
+      cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
       state_(ProfilerState::Ready),
       fusion_id_(-1),
       profile_(),
@@ -658,23 +655,16 @@ FusionProfiler::FusionProfiler()
       kernel_profiles_(),
       corrid_2_segid_(),
       subscriber_handle_(nullptr) {
-  if (!FusionProfiler::cupti_disabled_) {
-    initializeCupti(subscriber_handle_);
-  }
-  FusionProfiler::is_initialized_ = true;
+  initializeCupti(subscriber_handle_);
 }
 
-/*static*/ FusionProfiler& FusionProfiler::getInstance() {
+/*static*/ FusionProfiler& FusionProfiler::get() {
   static FusionProfiler singleton;
   return singleton;
 }
 
 void FusionProfiler::reset() {
-  // If the singleton is not initialized, no need to reset it.
-  if (!FusionProfiler::is_initialized_) {
-    return;
-  }
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.state_ = ProfilerState::Ready;
   ++(fp.fusion_id_);
 
@@ -688,20 +678,20 @@ void FusionProfiler::reset() {
 }
 
 ProfilerState FusionProfiler::state() {
-  return getInstance().state_;
+  return get().state_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   NVF_CHECK_EQ(state(), ProfilerState::Running);
   fp.segments_.reserve(num);
   for (uint32_t i = 0; i < num; ++i) {
-    fp.segments_.emplace_back(i, cupti_disabled_);
+    fp.segments_.emplace_back(i, fp.cupti_disabled_);
   }
 }
 
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   NVF_CHECK(
       fp.segments_.size() > idx,
       "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
@@ -712,13 +702,13 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 }
 
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
-  FusionProfiler::cupti_disabled_ = cupti_disable;
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
+  fp.cupti_disabled_ = cupti_disable;
   NVF_CHECK(
       fp.state_ != ProfilerState::Running,
       "FusionProfiler has already Started! Stop the profiler before starting again.");
-  FusionProfiler::reset();
-  if (!FusionProfiler::cupti_disabled_) {
+  reset();
+  if (!fp.cupti_disabled_) {
     enableCuptiActivities();
   }
   cudaDeviceSynchronize();
@@ -744,7 +734,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 
 /*static*/ void FusionProfiler::stop() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.host_timer_.stop();
   fp.fusion_timer_.stop();
   fp.state_ = ProfilerState::Finished;
@@ -756,7 +746,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
-  if (!cupti_disabled_) {
+  if (!fp.cupti_disabled_) {
     for (const auto& activity : cupti_activities) {
       NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(activity));
     }
@@ -845,46 +835,33 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   fp.state_ = ProfilerState::Processed;
 }
 
-void FusionProfiler::cleanup() {
-  if (!FusionProfiler::is_initialized_) {
-    return;
-  }
-
-  FusionProfiler& fp = getInstance();
-  FusionProfiler::reset();
-  
-  if (FusionProfiler::cupti_disabled_) {
-    return;
-  }
-  disableCupti(fp.subscriber_handle_);
-}
-
 FusionProfiler::~FusionProfiler() {
-  FusionProfiler::cleanup();
-  FusionProfiler::is_initialized_ = false;
+  FusionProfiler& fp = get();
+  reset();
+  teardownCupti(fp.subscriber_handle_);
 }
 
 void FusionProfiler::startCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.compile_timer_.start();
 }
 
 void FusionProfiler::stopCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.profile_.output_bytes = bytes;
 }
 
@@ -893,7 +870,7 @@ const FusionProfile& FusionProfiler::profile() {
       state(),
       ProfilerState::Processed,
       "The FusionProfile struct data is not valid because it has not been processed!");
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   return fp.profile_;
 }
 
@@ -907,7 +884,7 @@ double FusionProfiler::lastKernelTime() {
 void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   NVF_CHECK(
       fp.corrid_2_segid_.count(corr_id) == 0,
       "Segment Correlation Activity asociated with this correlation id already exists! ",
@@ -916,12 +893,12 @@ void FusionProfiler::recordAsyncCorrIdActivity(
 }
 
 void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   fp.kernel_profiles_.emplace_back(std::move(prof));
 }
 
 uint8_t* FusionProfiler::cuptiBufferPtr() {
-  FusionProfiler& fp = getInstance();
+  FusionProfiler& fp = get();
   return fp.cupti_buffer_.data();
 }
 

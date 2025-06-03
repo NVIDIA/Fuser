@@ -242,15 +242,12 @@ class FusionProfiler {
   FusionProfiler();
   ~FusionProfiler();
 
+  FusionProfiler(const FusionProfiler&) = delete;
+  FusionProfiler& operator=(const FusionProfiler&) = delete;
+
  public:
   static void reset();
   static ProfilerState state();
-
-  // This is used to unsubscribe callbacks and detach from CUPTI.
-  // The destructor will otherwise handle this, but it is useful
-  // if the user wants to manually detach from CUPTI, for e.g. to
-  // use other applications that use CUPTI.
-  static void cleanup();
 
   //! Profiling Methods
   static void start(bool cupti_disable = false);
@@ -287,14 +284,14 @@ class FusionProfiler {
 
  private:
   //! Method to access FusionProfiler singleton
-  static FusionProfiler& getInstance();
+  static FusionProfiler& get();
 
   // Because this method may resize `device_descriptors_`, a call to it may
   // invalidate the references returned by previous calls.
   const DeviceDescriptor& deviceDescriptor(int device_id);
 
   //! Disables CUPTI usage in order to measure Host Time without CUPTI overhead
-  static bool cupti_disabled_;
+  bool cupti_disabled_;
   //! Buffer for Cupti to store Activity Buffers during async activity
   std::vector<uint8_t> cupti_buffer_;
   //! The state is used to check for errors in usage
@@ -319,9 +316,6 @@ class FusionProfiler {
 
   // CUPTI subscriber handle
   CUpti_SubscriberHandle subscriber_handle_;
-
-  // Static flag to check if the singleton is initialized
-  static bool is_initialized_;
 };
 
 } // namespace nvfuser
