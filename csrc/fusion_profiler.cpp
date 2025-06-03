@@ -694,7 +694,8 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   FusionProfiler& fp = get();
   NVF_CHECK(
       fp.segments_.size() > idx,
-      "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
+      "FusionProfiler: You are attempting to access non-existent segments! "
+      "Segments: ",
       fp.segments_.size(),
       " Idx: ",
       idx);
@@ -706,7 +707,8 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
   fp.cupti_disabled_ = cupti_disable;
   NVF_CHECK(
       fp.state_ != ProfilerState::Running,
-      "FusionProfiler has already Started! Stop the profiler before starting again.");
+      "FusionProfiler has already Started! Stop the profiler before starting "
+      "again.");
   reset();
   if (!fp.cupti_disabled_) {
     enableCuptiActivities();
@@ -867,7 +869,8 @@ const FusionProfile& FusionProfiler::profile() {
   NVF_CHECK_EQ(
       state(),
       ProfilerState::Processed,
-      "The FusionProfile struct data is not valid because it has not been processed!");
+      "The FusionProfile struct data is not valid because it has not been "
+      "processed!");
   FusionProfiler& fp = get();
   return fp.profile_;
 }
@@ -885,7 +888,8 @@ void FusionProfiler::recordAsyncCorrIdActivity(
   FusionProfiler& fp = get();
   NVF_CHECK(
       fp.corrid_2_segid_.count(corr_id) == 0,
-      "Segment Correlation Activity asociated with this correlation id already exists! ",
+      "Segment Correlation Activity asociated with this correlation id already "
+      "exists! ",
       corr_id);
   fp.corrid_2_segid_[corr_id] = seg_id;
 }
