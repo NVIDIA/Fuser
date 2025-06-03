@@ -939,12 +939,9 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
-    // TODO: should we rename use_ldst_matrix to use_tma_for_epilogue_input?
-    bool load_with_tma = params_->use_ldst_matrix;
     bool is_2d_epilogue_input =
         TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
-    if (load_with_tma && is_2d_epilogue_input &&
-        params_->async_gmem_load_operands) {
+    if (is_2d_epilogue_input && params_->async_gmem_load_operands) {
       // Schedule TMA load into shared memory for epilogue input
       c_cache->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::CpAsyncBulkTensorTile);
