@@ -2275,7 +2275,7 @@ TensorView* argsort(
     bool stable = false) {
   Val* out = ops::newValLike(inp, inp->getDataType().value());
   IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
-  return out;
+  return out->as<TensorView>();
 }
 
 } // namespace nvfuser
