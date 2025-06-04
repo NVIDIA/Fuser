@@ -216,8 +216,8 @@ def test_transformer_layer(setup_default_process_group, executor: Executor):
                 ]
                 assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
             case Executor.NVFUSER:
-                parallelize_module_with_nvfuser(
-                    transformer_layer, mesh, parallel_plan, ""
+parallelize_module_with_nvfuser(
+                    transformer_layer, mesh, parallel_plan, fqn=""
                 )
 
         batch_size = 1
