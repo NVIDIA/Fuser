@@ -130,8 +130,8 @@ TEST_F(ContigIDGroupsTest, BackwardReshapeInputNotContig) {
   // split.
   auto split_expr =
       dynamic_cast<Split*>(tv1->getLogicalDomain().at(0)->definition());
-  ASSERT_NE(split_expr, nullptr)
-      << "tv1's logical domain should be based on a Split operation after reshape.";
+  ASSERT_NE(split_expr, nullptr) << "tv1's logical domain should be based on a "
+                                    "Split operation after reshape.";
 
   ExprPath<ExprGroup> backward_path =
       buildBackwardExprPath(val_graph, split_expr);

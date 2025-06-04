@@ -285,7 +285,8 @@ void ContigIDGroups::handle(Split* split, Direction direction) {
     NVF_ERROR(
         final_original_allocs_it !=
             consistent_transform_info_->idToAllocIds().end(),
-        "Could not find original alloc IDs for split->in() after successful checks. This should not happen.");
+        "Could not find original alloc IDs for split->in() after successful "
+        "checks. This should not happen.");
     for (auto original_alloc_id : final_original_allocs_it->second) {
       alloc_to_contig_ids_[original_alloc_id] = split_in_group;
     }
