@@ -89,7 +89,7 @@ def parallelize_linear_with_nvfuser(
     output_layout = parallel_style.output_layouts[0]
 
     if isinstance(parallel_style, RowwiseParallel):
-        assert input_layout.is_shard(-1), "We only implemented TP."
+        assert input_layout.is_shard(-1), "We only implemented TP, which expects inputs to be sharded on the contracting dimension."
         assert output_layout.is_replicate(), "We only implemented TP."
         return TensorParallelLinear.distribute(
             linear, mesh, [input_layout], [Shard(-1)]
