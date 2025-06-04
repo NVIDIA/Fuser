@@ -361,14 +361,13 @@ void fillOptimalHopperTileSizes(
           // over a circular buffered solution like stages_per_sm = 5, but it
           // is also not ideal to use so low a cta_k that we need tons of
           // stages
-          if (best_stages < 4) {
+          if (best_stages < 10) {
             if (stages_per_sm > best_stages) {
-              // Always prefer at least 4 stages
               new_best = true;
             }
           } else {
-            // best_stages is already at least 4. From here prefer larger stages
-            new_best = stages_per_sm >= 4 && stages_per_sm < best_stages;
+            // best_stages is already at least 10. From here prefer fewer but larger stages
+            new_best = stages_per_sm >= 10 && stages_per_sm < best_stages;
           }
         }
         if (new_best) {
