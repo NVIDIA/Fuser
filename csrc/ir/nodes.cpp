@@ -5611,4 +5611,6 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
   return {result};
 }
 
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
+
 } // namespace nvfuser
