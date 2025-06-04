@@ -746,6 +746,17 @@ std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
   return warp_specialized.stage_slice_position.value();
 }
 
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {

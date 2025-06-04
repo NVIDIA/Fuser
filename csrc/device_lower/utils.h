@@ -180,6 +180,11 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
 //! circular buffer options struct.
 std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
 
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
 namespace lower_utils {
