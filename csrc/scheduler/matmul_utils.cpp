@@ -274,9 +274,12 @@ void fillOptimalHopperTileSizes(
     GemmTile instr;
   };
 
+  const int64_t num_sms =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
   // Compute how many total bytes need to be computed, summed over all tiles in
   // the output
-  const auto bytes_transferred = [m, n, k](const GemmTile& cta) {
+  const auto bytes_transferred = [m, n, k, num_sms](const GemmTile& cta) {
     const int64_t tiles_m = ceilDiv(m, cta.m);
     const int64_t tiles_n = ceilDiv(n, cta.n);
     const int64_t tiles_k = ceilDiv(k, cta.k);
@@ -293,8 +296,6 @@ void fillOptimalHopperTileSizes(
     // is how we model it. Note that we also do not model L2 locality here at
     // all, so this number is meant as a very rough estimate of compute time for
     // memory-bound problems.
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
     const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
     return num_waves * num_sms * bytes_per_output_tile;
   };
@@ -302,10 +303,10 @@ void fillOptimalHopperTileSizes(
   TileConfig best_config{
       /*cta=*/{64, 64, 64}, /*warp=*/{64, 64, 64}, /*instr=*/{64, 64, 16}};
   int64_t best_bytes_tx = std::numeric_limits<int64_t>::max();
+  int64_t best_stages = std::numeric_limits<int64_t>::max();
 
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
-  constexpr int64_t reserved_mbarrier_bytes = 1024L;
   for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
     for (const auto& [m_ratio, n_ratio] :
          std::vector<std::pair<int64_t, int64_t>>{
@@ -318,12 +319,28 @@ void fillOptimalHopperTileSizes(
         const int64_t cta_m = m_ratio * 64;
         const int64_t cta_n = n_ratio * instr_n;
 
-        const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2;
+        // TODO: inspect output tensors for epilogue smem dtype
+        const int64_t epilogue_bytes = cta_m * cta_n * 2;
+        // operands plus outputs plus mbarriers
+        const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2 + 8 * 2;
         // Don't consider cases where we would need fewer than 3 load stages due
         // to smem constraint
         const int64_t smem_bytes =
             at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
-        if (bytes_per_stage * 3L > smem_bytes - reserved_mbarrier_bytes) {
+        const int64_t max_stages =
+            ((smem_bytes - epilogue_bytes) / bytes_per_stage);
+        int64_t min_stages = 3L;
+
+        // There might be fewer than min_stages stages needed to compute the
+        // whole problem.
+        const int64_t tiles_m = ceilDiv(m, cta_m);
+        const int64_t tiles_n = ceilDiv(n, cta_n);
+        const int64_t stages_per_tile = ceilDiv(k, cta_k);
+        const int64_t tiles_per_sm = ceilDiv(tiles_m * tiles_n, num_sms);
+        const int64_t stages_per_sm = stages_per_tile * tiles_per_sm;
+        min_stages = std::max(1L, std::min(min_stages, stages_per_sm));
+
+        if (bytes_per_stage * min_stages + epilogue_bytes > smem_bytes) {
           continue;
         }
 
@@ -337,9 +354,27 @@ void fillOptimalHopperTileSizes(
             .instr = {64L, instr_n, 16L},
         };
         const int64_t bytes_tx = bytes_transferred(cfg.cta);
-        if (bytes_tx < best_bytes_tx) {
+        bool new_best = bytes_tx < best_bytes_tx;
+        if (bytes_tx == best_bytes_tx) {
+          // Break ties by preferring more stages, up to a point. We don't
+          // want to choose a non-circular buffered solution (best_stages==1)
+          // over a circular buffered solution like stages_per_sm = 5, but it
+          // is also not ideal to use so low a cta_k that we need tons of
+          // stages
+          if (best_stages < 4) {
+            if (stages_per_sm > best_stages) {
+              // Always prefer at least 4 stages
+              new_best = true;
+            }
+          } else {
+            // best_stages is already at least 4. From here prefer larger stages
+            new_best = stages_per_sm >= 4 && stages_per_sm < best_stages;
+          }
+        }
+        if (new_best) {
           best_bytes_tx = bytes_tx;
           best_config = cfg;
+          best_stages = stages_per_sm;
         }
       }
     }
