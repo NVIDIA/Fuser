@@ -90,6 +90,7 @@ class FusionInspector : private IterVisitor {
              }) ||
          is_static_warp_reduction())) {
       reduction_dep_[out].insert(rop);
+      std::cout << "Fused ReductionOp: " << rop->toString()  << std::endl;
     }
   }
   void handle(WelfordOp* wop) final {

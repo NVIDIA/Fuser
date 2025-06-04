@@ -186,7 +186,7 @@ void getHeuristics(
       is_enough_smem(iter_unroll, n_stages, bdimx, bdimy),
       "Not enough shared memory for TMA warp specialized.");
   // Try to update paras in each loop and break if no update is made.
-  const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
+  const int64_t max_bdimx = hp_threads_per_block_max - kWarpSpecializationPaddedThreads;
   int64_t target_stages = 2;
   int64_t target_bdimy = 2;
   int64_t target_iter_unroll = 2;
@@ -223,7 +223,6 @@ void getHeuristics(
       // increase bdimx but don't exceed hp_threads_per_block_max and only when
       // registers are not enough, e.g. each thread has too many elements.
       if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
-          !is_enough_regs(iter_unroll, bdimx, bdimy) &&
           is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
         is_updated = true;
         bdimx += 128;
@@ -250,13 +249,12 @@ void getHeuristics(
     set_heuristics_paras();
   }
   if (bdimy == 1) {
-    std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs = false "
-              << std::endl;
+    std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs = false "  << std::endl;
     reset_paras();
     target_iter_unroll = 1;
     is_non_circular_buffer_gmem_to_regs = false;
     set_heuristics_paras();
-  }  
+  }
   // else if(bdimy == 1 || iter_unroll == 1){
   //   std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs =
   //   false " << std::endl; is_non_circular_buffer_gmem_to_regs = false;
@@ -270,6 +268,17 @@ void getHeuristics(
   }
   if (n_stages % bdimy != 0) {
     n_stages -= (n_stages % bdimy);
+  }
+
+  // No ping-pong when hidden size >= 16K
+  if(bdimy == 1) {
+    std::cout << "\n======= retry without ping-pong "  << std::endl;
+    reset_paras();
+    target_stages = 16;
+    target_iter_unroll = 1;
+    target_bdimy = 1;
+    is_non_circular_buffer_gmem_to_regs = true;
+    set_heuristics_paras();
   }
   int64_t inner_batch = ceilDiv(after_vect, bdimx);
 

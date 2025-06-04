@@ -3046,7 +3046,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   std::string genBarrierId(bool is_computation_warp_groups) {
     std::stringstream ss;
-    if (is_computation_warp_groups) {
+    if (is_computation_warp_groups && computation_warp_groups_ > 1) {
       ss << next_barrier_id_ << " + "
          << genInline(NamedScalar::getParallelIndex(warp_specialized_on_));
       next_barrier_id_ += computation_warp_groups_;
