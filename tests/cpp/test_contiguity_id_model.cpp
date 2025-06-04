@@ -29,8 +29,9 @@ namespace nvfuser {
 
 class ContigIDGroupsTest : public NVFuserTest {
  protected:
-  ContigIDGroupsTest() {
-    // Common setup for tests, if any
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 
   // Helper to construct a simple backward path for testing
@@ -88,7 +89,8 @@ TEST_F(ContigIDGroupsTest, BackwardSplitInputBecomesContig) {
       tv1->getMaybeAllocationDomain(),
       std::vector<bool>(2, true),
       backward_path,
-      val_graph);
+      val_graph,
+      /*is_predicate_pass=*/false);
 
   // 4. Perform assertion
   // We expect tv0->axis(0) to be marked as contiguous after backward
@@ -143,7 +145,11 @@ TEST_F(ContigIDGroupsTest, BackwardReshapeInputNotContig) {
       tv1_alloc_domains.size(), false); // Key difference
 
   ContigIDGroups contig_finder(
-      tv1_alloc_domains, tv1_initial_contiguity, backward_path, val_graph);
+      tv1_alloc_domains,
+      tv1_initial_contiguity,
+      backward_path,
+      val_graph,
+      /*is_predicate_pass=*/false);
 
   // 4. Perform assertion
   // We expect tv1->axis(0) (which was part of the initial non-contiguous set
@@ -204,7 +210,11 @@ TEST_F(ContigIDGroupsTest, BackwardSplitWithReorderedAllocAndInitialContig) {
       tv1_alloc_domains.size(), true); // All true
 
   ContigIDGroups contig_finder(
-      tv1_alloc_domains, tv1_initial_contiguity, backward_path, val_graph);
+      tv1_alloc_domains,
+      tv1_initial_contiguity,
+      backward_path,
+      val_graph,
+      /*is_predicate_pass=*/false);
 
   // 4. Perform assertion
   // Check the contiguity of tv1->axis(0) (an IterDomain from the loop domain).
