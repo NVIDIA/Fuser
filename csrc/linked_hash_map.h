@@ -49,8 +49,10 @@ class LinkedHashMap {
   const_iterator end() const {
     return order_.end();
   }
-  size_t size() const {
-    return key_to_index_.size();
+
+  int64_t size() const {
+    NVF_ERROR_EQ(order_.size(), key_to_index_.size());
+    return std::ssize(order_);
   }
 
  private:
