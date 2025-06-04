@@ -89,20 +89,30 @@ def parallelize_linear_with_nvfuser(
     output_layout = parallel_style.output_layouts[0]
 
     if isinstance(parallel_style, RowwiseParallel):
-        assert input_layout.is_shard(-1), "We only implemented TP, which expects inputs to be sharded on the contracting dimension."
-        assert output_layout.is_replicate(), "We only implemented TP."
+        # We only support TP at this moment. A row-wise parallel linear is
+        # expected to have the input sharded on the contracting dimension and
+        # the output replicated.
+        assert input_layout.is_shard(-1), f"Unsupported layout: {input_layout}"
+        assert output_layout.is_replicate(), f"Unsupported layout: {output_layout}"
         return TensorParallelLinear.distribute(
             linear, mesh, in_placements=[input_layout], weight_placements=[Shard(-1)]
         )
 
     if isinstance(parallel_style, ColwiseParallel):
-        assert input_layout.is_replicate(), "We only implemented TP."
-        assert output_layout.is_shard(-1), "We only implemented TP."
-        return TensorParallelLinear.distribute(linear, mesh, [input_layout], [Shard(0)])
+        # We only support TP at this moment. A column-wise parallel linear is
+        # expected to have the input replicated and the output sharded on the
+        # feature dimension.
+        assert input_layout.is_replicate(), f"Unsupported layout: {input_layout}"
+        assert output_layout.is_shard(-1), f"Unsupported layout: {output_layout}"
+        return TensorParallelLinear.distribute(
+            linear, mesh, in_placements=[input_layout], weight_placements=[Shard(0)]
+        )
 
     assert False, f"Unsupported parallel style: {parallel_style}"
 
 
+# Recursively finds all linear modules and replaces them with tensor-parallel
+# nvFuser definitions if a parallel plan is found.
 def parallelize_module_with_nvfuser(
     module: torch.nn.Module,
     mesh: dist.device_mesh.DeviceMesh,
@@ -216,7 +226,7 @@ def test_transformer_layer(setup_default_process_group, executor: Executor):
                 ]
                 assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
             case Executor.NVFUSER:
-parallelize_module_with_nvfuser(
+                parallelize_module_with_nvfuser(
                     transformer_layer, mesh, parallel_plan, fqn=""
                 )
 
