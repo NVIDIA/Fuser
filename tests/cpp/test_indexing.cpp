@@ -6325,7 +6325,8 @@ AbstractTensor scheduleLdStMatrixBase(
 }
 
 AbstractTensor scheduleLdStMatrixSharedMemory(
-    const AbstractTensor& base_tensor) {
+    const AbstractTensor& base_tensor,
+    MmaInputSmemSwizzle swizzle) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
   // The CTA tile is (128, 256).
@@ -6367,9 +6368,23 @@ AbstractTensor scheduleLdStMatrixSharedMemory(
   abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
   // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
 
-  abstract_tensor.merge(-4, -3);
-  abstract_tensor.merge(-3, -2);
-  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+  if (swizzle == MmaInputSmemSwizzle::None) {
+    // When MmaInputSmemSwizzle::None, the fusion uses ldstmatrix.x2 for (16,
+    // 8). For (64, 256) cta_tile, (no(32), nio(1), mo(4), niio(1), mi(16),
+    // niii(8))
+    abstract_tensor.split(-1, 4);
+    // (no(32), nio(1), mo(4), niio(1), mi(16), niiio(2), niiii(4))
+    abstract_tensor.reorder({{-3, -2}, {-2, -3}});
+    // (no(32), nio(1), mo(4), niio(1), niiio(2), mi(16), niiii(4))
+    abstract_tensor.merge(-5, -4);
+    abstract_tensor.merge(-4, -3);
+    abstract_tensor.merge(-3, -2);
+    // (no(32), nio(1), (mo * niio * niiio * mi)(128), niiii(4))
+  } else {
+    abstract_tensor.merge(-4, -3);
+    abstract_tensor.merge(-3, -2);
+    // (no(4), nio(4), (mo * niio * mi)(128), niii(8))
+  }
 
   // Merge no and nio to create a single serial IterDomain
   // This ^^^ is an artifact of matmul scheduling functions.
@@ -6555,7 +6570,8 @@ TEST_P(LdStMatrixTest, Shmoo) {
 
   // tv1_smem is the consumer for stmatrix. tv0_reg is the consumer.
   std::vector<IterDomain*> tv1_smem_stmatrix =
-      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
+      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor, swizzle)
+          .as<IterDomain*>();
   tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 2)
       ->parallelize(ParallelType::TIDx);
   tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 1)
@@ -6581,7 +6597,8 @@ TEST_P(LdStMatrixTest, Shmoo) {
   // niiio)(128), (niio * mio * niiii)(8))
 
   std::vector<IterDomain*> tv0_reg_ldmatrix =
-      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
+      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor, swizzle)
+          .as<IterDomain*>();
   tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 2)
       ->parallelize(ParallelType::TIDx);
   tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 1)
@@ -6618,12 +6635,12 @@ TEST_P(LdStMatrixTest, Shmoo) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
-// MmaInputSmemSwizzle::None fails regardless of ldmatrix or stmatrix is enabled
 INSTANTIATE_TEST_SUITE_P(
     ,
     LdStMatrixTest,
     ::testing::Combine(
         ::testing::Values(
+            MmaInputSmemSwizzle::None,
             MmaInputSmemSwizzle::B32,
             MmaInputSmemSwizzle::B64,
             MmaInputSmemSwizzle::B128),
