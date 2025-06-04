@@ -1288,8 +1288,6 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
     tv->split(-1, 8);
     // [Ko, K8, No, N8]
     tv->reorder({{-2, -3}});
-    // [Ko, No, K8, N8]
-    num_ids_to_skip += 2;
   } else {
     auto dtype = tv->getDataType().value();
 
