@@ -143,8 +143,8 @@ jobs:
           max_bytes=$((5 * 1024 * 1024))
           too_large=""
 
-          git fetch origin ${{ github.base_ref }} --depth=1 || true
-          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }})
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          files=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}")
 
           for file in $files; do
             if [ -f "$file" ]; then
