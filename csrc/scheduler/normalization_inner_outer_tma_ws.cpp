@@ -241,14 +241,22 @@ void getHeuristics(
   // Try start with [is_circular_buffer_regs_cached = true]
   is_circular_buffer_regs_cached = true;
   set_heuristics_paras();
-  if (bdimy == 1 && iter_unroll == 1) {
+  if (bdimy == 1) {
     std::cout << "\n======= retry with is_circular_buffer_regs_cached = false "
               << std::endl;
-    target_iter_unroll = 1;
     reset_paras();
+    target_iter_unroll = 1;
     is_circular_buffer_regs_cached = false;
     set_heuristics_paras();
   }
+  if (bdimy == 1) {
+    std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs = false "
+              << std::endl;
+    reset_paras();
+    target_iter_unroll = 1;
+    is_non_circular_buffer_gmem_to_regs = false;
+    set_heuristics_paras();
+  }  
   // else if(bdimy == 1 || iter_unroll == 1){
   //   std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs =
   //   false " << std::endl; is_non_circular_buffer_gmem_to_regs = false;

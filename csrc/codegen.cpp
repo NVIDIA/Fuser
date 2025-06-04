@@ -1373,6 +1373,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return;
   }
 
+  int64_t getComputeThreadsTIDx() {
+    return warp_specialized_on_ == ParallelType::TIDx
+        ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
+        : lparams_.bdimx();
+  }
+
   void genWarpReduction(
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
@@ -1386,16 +1392,21 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     ArgumentBuilder template_args;
     if (warp_specialized_on_ != ParallelType::Serial) {
-      func_args.arg(
-          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
-          genSmemOffset());
+      if (computation_warp_groups_ > 1) {
+        func_args.arg(
+            genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+            genSmemOffset());
+      } else {
+        func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+      }
+
       func_args.arg(
           genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
       func_args.arg(genBarrierId(/*is_computation_warp_groups=*/true));
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
-      template_args.arg(lparams_.bdimx());
+      template_args.arg(getComputeThreadsTIDx());
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)
                << ";\n";
@@ -3023,7 +3034,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream offset_ss;
     offset_ss << genVariableName(
         NamedScalar::getParallelIndex(warp_specialized_on_));
-    offset_ss << " * " << lparams_.bdimx();
+    offset_ss << " * " << getComputeThreadsTIDx();
     if (kernel_->summary().num_grouped_iterations > 1) {
       offset_ss << " * " << kernel_->summary().num_grouped_iterations;
     }
@@ -3068,10 +3079,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(
-        warp_specialized_on_ == ParallelType::TIDx
-            ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
-            : lparams_.bdimx());
+    template_args.arg(getComputeThreadsTIDx());
     if (computation_warp_groups_ > 1) {
       func_args.arg(genBarrierId(true));
     }
