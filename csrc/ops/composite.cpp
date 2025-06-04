@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+
 #include <ir/builder.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
@@ -161,7 +163,9 @@ TensorView* newForLinear(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, input->dtype());
+  auto* output = IrBuilder::create<TensorView>(td, input->dtype());
+  output->setDeviceMesh(input->getDeviceMesh());
+  return output;
 }
 
 } // namespace
