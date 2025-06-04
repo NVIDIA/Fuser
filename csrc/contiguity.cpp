@@ -60,7 +60,8 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
   auto alloc_id_it = findAllocIDs(id);
   NVF_ERROR(
       alloc_id_it != id_to_alloc_ids_.end(),
-      "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
+      "Error replaying transforms in contiguous ID checker, couldn't find "
+      "mapped allocs of ",
       id->toString());
 
   const auto& alloc_ids = alloc_id_it->second;
@@ -75,7 +76,8 @@ bool OrderedIdInformation::checkExclusivelyConsumesAllocs(IterDomain* id) {
     auto alloc_id_it = findAllocIDs(other_active_id);
     NVF_ERROR(
         alloc_id_it != id_to_alloc_ids_.end(),
-        "Error replaying transforms in contiguous ID checker, couldn't find mapped allocs of ",
+        "Error replaying transforms in contiguous ID checker, couldn't find "
+        "mapped allocs of ",
         other_active_id->toString());
 
     const auto& other_alloc_ids = alloc_id_it->second;

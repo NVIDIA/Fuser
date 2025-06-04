@@ -29,6 +29,7 @@ using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto [stage_slice_position] = GetParam();
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -38,8 +39,19 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   constexpr int64_t circular_loop = 12;
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  const int64_t dim0 =
-      rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+  int64_t dim0 = rows_per_stage;
+  // Make dim0 non-divisible to test predicate
+  if (stage_slice_position == 2) {
+    // only not divisible by [circular_loop]
+    dim0 *= (compute_warp_groups * sm_count * (circular_loop + 1));
+  } else if (stage_slice_position == 3) {
+    // may not divisible by [circular_loop], [sm_count], and
+    // [compute_warp_groups]
+    dim0 *= (compute_warp_groups * sm_count * circular_loop + 1);
+  } else {
+    dim0 *= (compute_warp_groups * sm_count * circular_loop);
+  }
+
   constexpr int64_t dim1 = 128;
   constexpr int64_t stages = 6;
 
@@ -62,7 +74,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
     // [I, 2, 132, 4]
     tv->axis(0)->parallelize(ParallelType::Serial);
     tv->axis(2)->parallelize(ParallelType::BIDx);
-    tv->axis(3)->parallelize(ParallelType::Unroll);
+    tv->axis(3)->parallelize(ParallelType::Serial);
   }
 
   tv1->axis(1)->parallelize(ParallelType::Serial);
@@ -82,7 +94,6 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   inlineSelectedAt({tv1}, tv2, /*reference_pos=*/2);
   inlineSelectedAt({tv2}, tv2, /*reference_pos=*/3);
 
-  auto [stage_slice_position] = GetParam();
   tv1->circularBuffer(
       stages,
       stages - 1,
@@ -124,6 +135,22 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
 
   auto out_ref = t0 + t0;
   auto cg_outputs = ke.run({t0});
+  // check shared memory size
+  int64_t size_per_row = dim1 * sizeof(float);
+  int64_t rows_per_sync = 0;
+  if (stage_slice_position == 2) {
+    rows_per_sync = rows_per_stage * compute_warp_groups;
+  } else if (stage_slice_position == 3) {
+    rows_per_sync = rows_per_stage;
+  } else if (stage_slice_position == 4) {
+    rows_per_sync = 1;
+  }
+  int64_t smem_buffer_size = size_per_row * stages * rows_per_sync;
+  int64_t smem_barrier_size = 128;
+  EXPECT_EQ(ke.lastLaunchParams().smem(), smem_buffer_size + smem_barrier_size)
+      << "Shared memory size err, expected "
+      << smem_buffer_size + smem_barrier_size << ", got "
+      << ke.lastLaunchParams().smem();
   testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
