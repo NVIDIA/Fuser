@@ -422,19 +422,22 @@ struct SliceOpRecord : RecordFunctor {
       Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
-          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
+          "Slice operation start_indices must be greater than or equal to 0. "
+          "Start Indices: ",
           start_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           !start_idx->isConstInt() || !end_idx->isConstInt() ||
               end_idx->evaluate().as<int64_t>() >=
                   start_idx->evaluate().as<int64_t>(),
-          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
+          "Slice operation end_indices must be greater than or equal to "
+          "start_indices. Start Indices: ",
           start_idx->evaluate().as<int64_t>(),
           " End Indices: ",
           end_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
-          "nvFuser Limitation: All slice operation strides must be of const size 1.");
+          "nvFuser Limitation: All slice operation strides must be of const "
+          "size 1.");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice, manual_normalization_);
@@ -1798,6 +1801,59 @@ struct SelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+struct ScatterOpRecord : RecordFunctor {
+  ScatterOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.scatter",
+            serde::RecordType::ScatterOp),
+        dim_(dim) {}
+  ~ScatterOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScatterOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+
+    Val* output = scatter(arg1, dim_, arg3, arg4);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const ScatterOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
 struct GatherOpRecord : RecordFunctor {
   GatherOpRecord(
       std::vector<State> _args,
@@ -1977,12 +2033,14 @@ struct ScalarRecord : RecordFunctor {
       if (value_.is<bool>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Bool,
-            "A ScalarRecord for Bool inline definition not have a matching data type!");
+            "A ScalarRecord for Bool inline definition not have a matching "
+            "data type!");
         os << ((bool)value_ ? "True" : "False");
       } else if (value_.is<double>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Double,
-            "A ScalarRecord for Double inline definition not have a matching data type!");
+            "A ScalarRecord for Double inline definition not have a matching "
+            "data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -1997,7 +2055,8 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<int64_t>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Int,
-            "A ScalarRecord for Int inline definition not have a matching data type!");
+            "A ScalarRecord for Int inline definition not have a matching data "
+            "type!");
         os << value_;
       } else {
         NVF_THROW("A ScalarRecord with an unsupported inline definition type!");

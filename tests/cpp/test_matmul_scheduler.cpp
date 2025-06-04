@@ -2528,7 +2528,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   NVF_CHECK(
       !runtime->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
+      "fusion got segmented, expected to match whole fusion with single "
+      "segment");
 
   NVF_CHECK(
       isSchedulerInUse(runtime, SchedulerType::Matmul),
@@ -3329,12 +3330,6 @@ class HopperPlusMatmulSchedulerTest
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     } else {
       NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
-      if (splitk_factor > 1) {
-        GTEST_SKIP() << "SplitK is not supported for Blackwell yet.";
-      }
-      if (use_smem_epilogue) {
-        GTEST_SKIP() << "TMA store is not supported for Blackwell yet.";
-      }
     }
 
     if (a_k_inner) {

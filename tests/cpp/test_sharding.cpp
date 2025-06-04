@@ -12,8 +12,8 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
@@ -157,7 +157,7 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<
-      preseg_passes::MakeReshardingContiguousPass>::runPass(&fusion);
+      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -264,7 +264,8 @@ TEST_F(ShardingTest, ResidualAdd) {
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   // getShardedLogicalAxis uses maybeAllocationDomain to get the sharded axis.
   // Setting allocation domain here manually, which is otherwise done by
-  // MakeReshardingContiguousPass, to isolate the test to a single preseg pass.
+  // FinalizeMultideviceDomainsPass, to isolate the test to a single preseg
+  // pass.
   for (auto tv : fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
@@ -274,7 +275,8 @@ TEST_F(ShardingTest, ResidualAdd) {
   NVF_CHECK(expected_sharded_axis != -1, "tv0 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv1, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
+      "Expected tv1 to be sharded like tv0 due to backpropagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, PropagateParallelTypeOnce) {
@@ -309,7 +311,8 @@ TEST_F(ShardingTest, PropagateParallelTypeOnce) {
   NVF_CHECK(expected_sharded_axis != -1, "tv0 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv2, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv2 to be sharded like tv0 due to forward propagation of shardings.");
+      "Expected tv2 to be sharded like tv0 due to forward propagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
@@ -352,10 +355,12 @@ TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
   NVF_CHECK(expected_sharded_axis != -1, "tv2 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv3, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv3 to be sharded like tv2 due to backpropagation of shardings.");
+      "Expected tv3 to be sharded like tv2 due to backpropagation of "
+      "shardings.");
   NVF_CHECK(
       getShardedLogicalAxis(tv4, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv4 to be sharded like tv2 due to forward propagation of shardings.");
+      "Expected tv4 to be sharded like tv2 due to forward propagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, ShardedNonDivisibleReshape) {

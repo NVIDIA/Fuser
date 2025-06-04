@@ -298,7 +298,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       int64_t num_threads_per_cta = lparams_.nThreads();
       NVF_ERROR(
           num_threads_per_cta % 128 == 0,
-          "The number of threads per CTA is not correctly set, check launch para",
+          "The number of threads per CTA is not correctly set, check launch "
+          "para",
           lparams_.toString());
 
       int64_t initial_reg_count =
@@ -427,6 +428,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
           }
+          if (kernel_summary.all_block_reductions_are_warp_reduction) {
+            smem_buf_size_ss << " / 32";
+          }
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
             std::stringstream smem_buf_size_with_outer_opt;
@@ -436,16 +440,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 << ")";
             smem_buf_size = smem_buf_size_with_outer_opt.str();
           }
-          // Ensure that smem_offset remains 16-byte aligned, like shared_mem
+          // Ensure that smem_offset remains 128-byte aligned, like shared_mem
           indent() << "const unsigned smem_offset = alignBufferSize("
-                   << smem_buf_size << ", 16);\n";
+                   << smem_buf_size << ", 128);\n";
         }
 
         if (has_parallel_welford) {
           // Unpack shared mem pointer
           auto space_type = kernel_summary.largest_smem_data_type;
-          indent()
-              << "nvfuser_index_t block_size = blockDim.x*blockDim.y*blockDim.z;\n";
+          indent() << "nvfuser_index_t block_size = "
+                      "blockDim.x*blockDim.y*blockDim.z;\n";
           indent() << space_type << " *shared_mem_var = "
                    << "static_cast<" << space_type << "*>("
                    << "shared_mem);\n";
@@ -1331,7 +1335,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         !parallel_types.hasBID(),
-        "Parallel broadcast across blocks should have been translated to a GridBroadcast IR node");
+        "Parallel broadcast across blocks should have been translated to a "
+        "GridBroadcast IR node");
 
     ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeTIDs) {
@@ -1464,7 +1469,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         !has_grid_reduce,
-        "ReductionOp does not support block parallelization. GridReductionOp must be used. ",
+        "ReductionOp does not support block parallelization. GridReductionOp "
+        "must be used. ",
         rop->toString());
 
     if (!has_block_reduce) {
@@ -2659,7 +2665,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         parallel_types.hasBID(),
-        "GridBroadcast needs to be used with a broadcast op that is parallelized with the BID parallel types");
+        "GridBroadcast needs to be used with a broadcast op that is "
+        "parallelized with the BID parallel types");
 
     NVF_ERROR(grop->broadcast_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
@@ -3012,7 +3019,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(num_grouped_iterations);
     template_args.arg(
         warp_specialized_on_ == ParallelType::TIDx
-            ? lparams_.bdimx() - ws_padded_threads
+            ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
             : lparams_.bdimx());
     indent() << genCall(
                     "warp::iterGroupedStaticWarpAllReduce",
@@ -3053,7 +3060,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 reduction_ids.value().first->getParallelType() ==
                     ParallelType::TIDx &&
                 reduction_ids.value().second == nullptr,
-            "Grouped warp reduction is only supported for TIDx reduction with no second dimension.");
+            "Grouped warp reduction is only supported for TIDx reduction with "
+            "no second dimension.");
         return genGroupedWarpReduction(
             (int)num_grouped_iterations,
             output,
@@ -3086,7 +3094,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       NVF_ERROR(
           !has_grid_reduce,
-          "GroupedReductionOp does not support block parallelization. GroupedGridReduction must be used. ",
+          "GroupedReductionOp does not support block parallelization. "
+          "GroupedGridReduction must be used. ",
           grouped_rop->toString());
 
       if (!has_block_reduce) {
@@ -3115,7 +3124,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
     NVF_THROW(
-        "Should not reach here as grouped welford is only enabled for grid welford,",
+        "Should not reach here as grouped welford is only enabled for grid "
+        "welford,",
         " which is handled by its own handler");
   }
 

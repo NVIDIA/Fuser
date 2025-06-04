@@ -698,7 +698,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         IrTransformPrinter printer(os);
         printer.printTransforms(reference_tv);
         NVF_THROW(
-            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are "
+            "not disjoint. ",
             lhs_val->toString(),
             " belongs to both. device_aware_break_point = ",
             device_aware_break_point,
@@ -710,7 +711,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
     NVF_ERROR(
         !rhs_all_vals.empty(),
-        "Expecting at least one dimension in the RHS of the pointwise scheduler.");
+        "Expecting at least one dimension in the RHS of the pointwise "
+        "scheduler.");
 
     // Merge rhs, then lhs.
     IterDomain* rhs_id = nullptr;

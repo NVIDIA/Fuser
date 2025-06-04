@@ -5,12 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/make_resharding_contiguous.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 
 #include <fusion.h>
+#include <ir/allocation_utils.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <scheduler/utils.h>
 
@@ -55,62 +57,49 @@ bool validateMeshes(Fusion* fusion) {
 // behavior will be modified in the future with allocation and loop domain being
 // propagated independently.
 void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
-  auto alloc_dom = tv->getMaybeAllocationDomain();
-  auto contiguity = tv->getContiguity();
-
-  auto splitContiguity = [](std::optional<bool> contiguity)
-      -> std::pair<std::optional<bool>, std::optional<bool>> {
-    if (!contiguity.has_value()) {
-      return std::make_pair(std::nullopt, std::nullopt);
-    }
-    if (contiguity.value()) {
-      return std::make_pair(true, true);
-    }
-    return std::make_pair(true, false);
-  };
+  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
+  for (const auto&& [id, contiguity] :
+       zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
+    allocation_to_contiguity.pushBack(id, contiguity);
+  }
 
   // Allocation domain should be a permutation of logical domain at this point.
   std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
-      {alloc_dom.begin(), alloc_dom.end()},
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-
-  NVF_ERROR(
-      std::all_of(
-          transform_exprs.begin(),
-          transform_exprs.end(),
-          [](Expr* expr) { return expr->isA<Split>(); }),
-      "Expected all transform exprs to be a split between logical and "
-      "loop domain during sharding propagation.");
 
   for (auto* expr : transform_exprs) {
     Split* split = dynamic_cast<Split*>(expr);
-    auto find_it = std::find(alloc_dom.begin(), alloc_dom.end(), split->in());
     NVF_ERROR(
-        find_it != alloc_dom.end(),
-        "Split input ",
-        split->in()->toString(),
-        " not found in given ids: ",
-        alloc_dom);
+        split != nullptr,
+        "Expected all transform exprs to be a split between allocation and "
+        "loop domain during sharding propagation.");
+    const auto [contiguity, split_i] =
+        allocation_to_contiguity.erase(split->in());
+    auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
+    allocation_to_contiguity.insert(split_i, split->outer(), outer_contiguity);
+    allocation_to_contiguity.insert(split_i, split->inner(), inner_contiguity);
+  }
 
-    auto pos = std::distance(alloc_dom.begin(), find_it);
-    auto [outer_contiguity, inner_contiguity] =
-        splitContiguity(contiguity.at(pos));
+  std::vector<IterDomain*> new_allocation_domain;
+  std::vector<std::optional<bool>> new_contiguity;
+  new_allocation_domain.reserve(allocation_to_contiguity.size());
+  new_contiguity.reserve(allocation_to_contiguity.size());
 
-    alloc_dom[pos] = split->inner();
-    alloc_dom.insert(alloc_dom.begin() + pos, split->outer());
-
-    contiguity[pos] = inner_contiguity;
-    contiguity.insert(contiguity.begin() + pos, outer_contiguity);
+  for (auto&& [id, contiguity] : allocation_to_contiguity) {
+    new_allocation_domain.push_back(id);
+    new_contiguity.push_back(contiguity);
   }
 
   std::optional<std::vector<int64_t>> permutation =
-      ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
+      ir_utils::computePermutation(new_allocation_domain, tv->getLoopDomain());
   NVF_ERROR(
       permutation.has_value(),
       "Failed to find a valid permutation for reordering ",
       tv->getLoopDomain(),
       " as ",
-      alloc_dom);
+      new_allocation_domain);
   tv->reorder(permutation.value());
 
   if (is_resharding) {
@@ -119,7 +108,7 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
     // by ReorderShardedAxisPass. So we do not move the DIDx to the front in
     // this case. For example, in reduce-scatter, the scattered axis is the
     // outer-most dimension in communication input and output.
-    tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
+    tv->setAllocationDomain(tv->getLoopDomain(), new_contiguity);
     return;
   }
 
@@ -131,13 +120,15 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
       new2old.begin(),
       new2old.end(),
       std::back_inserter(reordered_contiguity),
-      [contiguity](int64_t i) -> std::optional<bool> { return contiguity[i]; });
+      [&new_contiguity](int64_t i) -> std::optional<bool> {
+        return new_contiguity[i];
+      });
   tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
 }
 
 } // namespace
 
-void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
+void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {
   bool has_mesh = validateMeshes(fusion);
   if (!has_mesh) {
     return;

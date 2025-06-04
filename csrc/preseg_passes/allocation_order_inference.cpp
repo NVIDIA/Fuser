@@ -322,7 +322,8 @@ void inferAllocationOrder(
             nonTrivialIterDomains(tv);
         NVF_ERROR(
             ref_alloc_non_trivial.size() == tv_alloc_non_trivial.size(),
-            "candidates of allocation order reference should have identical non-trivial ID size");
+            "candidates of allocation order reference should have identical "
+            "non-trivial ID size");
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
