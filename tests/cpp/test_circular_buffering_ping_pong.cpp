@@ -40,6 +40,7 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   int64_t dim0 = rows_per_stage;
+  // Make dim0 non-divisible to test predicate
   if (stage_slice_position == 2) {
     // only not divisible by [circular_loop]
     dim0 *= (compute_warp_groups * sm_count * (circular_loop + 1));
