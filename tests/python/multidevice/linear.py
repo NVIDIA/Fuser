@@ -46,14 +46,10 @@ def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
 
     grad_x = fd.ops.matmul(grad, w)
 
-    grad_flat_t = grad
-    if config.has_batch:
-        grad_flat_t = fd.ops.reshape(grad_flat_t, [-1, e_out])
+    grad_flat_t = fd.ops.reshape(grad_flat_t, [-1, e_out]) if config.has_batch else grad
     grad_flat_t = fd.ops.permute(grad_flat_t, [1, 0])
 
-    x_flat = x
-    if config.has_batch:
-        x_flat = fd.ops.reshape(x, [-1, e_in])
+    x_flat = fd.ops.reshape(x, [-1, e_in]) if config.has_batch else x
 
     grad_w = fd.ops.matmul(grad_flat_t, x_flat)
 
@@ -88,10 +84,10 @@ class LinearFunction(torch.autograd.Function):
         input: DTensor,
         weight: DTensor,
     ):
-        assert input.dim() in [2, 3]
+        assert input.dim() in (2, 3)
         op = get_fusion_definition_wrapper(
             ComputeType.FORWARD,
-            LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
+            LinearConfig(weight.size(1), weight.size(0), has_batch=(input.dim() == 3)),
         )
         (output,) = op([input, weight])
         ctx.save_for_backward(input, weight)
@@ -100,11 +96,11 @@ class LinearFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: DTensor):
         input, weight = ctx.saved_tensors
-        assert input.dim() in [2, 3]
+        assert input.dim() in (2, 3)
 
         op = get_fusion_definition_wrapper(
             ComputeType.BACKWARD,
-            LinearConfig(weight.size(1), weight.size(0), input.dim() == 3),
+            LinearConfig(weight.size(1), weight.size(0), has_batch=(input.dim() == 3)),
         )
         grad_x, grad_w = op([input, weight, grad_output])
         return (grad_x, grad_w)
