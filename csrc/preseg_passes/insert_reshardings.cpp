@@ -26,7 +26,8 @@ namespace {
 // We do no support resharding multi-output expressions. Fusions may contain
 // multi-output expressions if they don't require resharding.
 bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1 && expr->outputs().size() == 1;
+  return (expr->inputs().size() == 1 && expr->outputs().size() == 1) ||
+      isOptionEnabled(EnableOption::InsertReshardingAfter);
 }
 
 void insertReshardingSetsBefore(Fusion* fusion) {
@@ -124,7 +125,11 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // ParallelType::Serial is required here so the output is sharded as
       // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
       // input as the reference.
-      shardAllLike(input, {output}, allParallelTypes());
+      shardAllLike(
+          input,
+          {output},
+          std::unordered_set<ParallelType>(
+              {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()}));
     }
   }
 }
