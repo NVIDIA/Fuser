@@ -407,6 +407,27 @@ TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
   ke.compile(fusion.get(), {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+
+  // Validate loop mappings for sibling tma loads tv2 and tv3
+  IdModel id_model(fusion.get(), /*build_graphs=*/true);
+  const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  NVF_ERROR(tv2->nDims() == tv3->nDims());
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{0, stage_slice_position},
+          [&](int64_t pos) {
+            return loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected sibling iterDomains to the left of stage_slice_position to "
+      "belong to the same ValGroup in LOOP map");
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{stage_slice_position, tv2->nDims()},
+          [&](int64_t pos) {
+            return !loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected sibling iterDomains to the right of and including "
+      "stage_slice_position to belong to the same ValGroup in LOOP map");
 }
 // Stage_Split_Position 2 does not work currently with multiple TMA loads.
 // TODO: Enable after supporting multi-role specialization.
