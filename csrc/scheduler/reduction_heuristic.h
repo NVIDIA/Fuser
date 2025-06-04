@@ -142,6 +142,7 @@ class ReductionParams : public HeuristicParams {
 
   bool is_non_circular_buffer_gmem_to_regs = true;
 
+  bool is_circular_buffer_regs_cached = true;
   // Circular buffer used in tma warp specialized normalization
   CircularBufferOptions circular_buffer_options;
 

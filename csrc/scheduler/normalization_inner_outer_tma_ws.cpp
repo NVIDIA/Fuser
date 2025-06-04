@@ -161,9 +161,9 @@ void getHeuristics(
     // (bdimx * bdimy); round up to granularity reg_count =
     // roundUpToMultiple(reg_count, regs_granularity); total usage should be
     // less than max available
-    std::cout << "bdimx " << bdimx << ", bdimy " << bdimy << ", reg_count "
-              << reg_count << ", compute_branch_regs: " << compute_branch_regs
-              << std::endl;
+    std::cout << "bdimx " << bdimx << ", bdimy " << bdimy
+              << " ,iter_unroll: " << iter_unroll << ", reg_count " << reg_count
+              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
   };
   // bdimx: number of threads for inner dim.
@@ -184,52 +184,67 @@ void getHeuristics(
   const int64_t iter_unroll_max = inner_dim_numel <= 2048
       ? 16L / (int64_t)computation_dtype_size
       : 8L / (int64_t)computation_dtype_size;
+  auto set_heuristics_paras = [&]() {
+    while (1) {
+      bool is_updated = false;
+      // increase circular buffer stages
+      if (is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
+        is_updated = true;
+        n_stages *= 2;
+      }
 
-  while (1) {
-    bool is_updated = false;
-    // increase circular buffer stages
-    if (is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
-      is_updated = true;
-      n_stages *= 2;
-    }
-    // increase iter_unroll
-    // iter_unroll should be divisible by outer_dim_numel due to limitation of
-    // 1D TMA predicate.
-    if (iter_unroll * 2 <= iter_unroll_max &&
-        is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
-        is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
-        outer_dim_numel % (iter_unroll * 2) == 0) {
-      is_updated = true;
-      iter_unroll *= 2;
-    }
+      // increase bdimy when bdimx is not increased
+      // multiple independent computation groups only supports bdimx == 128
+      // disable this option for now as runtime is not ready yet.
+      if (bdimy * 2 <= max_bdimy &&
+          is_enough_regs(iter_unroll, bdimx, bdimy + 1) &&
+          is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
+        is_updated = true;
+        bdimy *= 2;
+      }
+      // increase iter_unroll
+      // iter_unroll should be divisible by outer_dim_numel due to limitation of
+      // 1D TMA predicate.
+      if (iter_unroll * 2 <= iter_unroll_max &&
+          is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
+          is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
+          outer_dim_numel % (iter_unroll * 2) == 0) {
+        is_updated = true;
+        iter_unroll *= 2;
+      }
 
-    // increase bdimy when bdimx is not increased
-    // multiple independent computation groups only supports bdimx == 128
-    // disable this option for now as runtime is not ready yet.
-    if (bdimy * 2 <= max_bdimy &&
-        is_enough_regs(iter_unroll, bdimx, bdimy + 1) &&
-        is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
-      is_updated = true;
-      bdimy *= 2;
-    }
+      // increase bdimx but don't exceed hp_threads_per_block_max and only when
+      // registers are not enough, e.g. each thread has too many elements.
+      if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
+          !is_enough_regs(iter_unroll, bdimx, bdimy) &&
+          is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
+        is_updated = true;
+        bdimx += 128;
+      }
 
-    // increase bdimx but don't exceed hp_threads_per_block_max and only when
-    // registers are not enough, e.g. each thread has too many elements.
-    if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
-        !is_enough_regs(iter_unroll, bdimx, bdimy) &&
-        is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
-      is_updated = true;
-      bdimx += 128;
+      if (!is_updated) {
+        break;
+      }
+      std::cout << "TMA warp specialized: "
+                << "bdimx: " << bdimx << ", bdimy: " << bdimy
+                << ", iter_unroll: " << iter_unroll
+                << ", n_stages: " << n_stages << std::endl;
     }
-
-    if (!is_updated) {
-      break;
-    }
-    std::cout << "TMA warp specialized: "
-              << "bdimx: " << bdimx << ", bdimy: " << bdimy
-              << ", iter_unroll: " << iter_unroll << ", n_stages: " << n_stages
+  };
+  // Try start with [is_circular_buffer_regs_cached = true]
+  set_heuristics_paras();
+  if (bdimy == 1 && iter_unroll == 1) {
+    std::cout << "\n======= retry with is_circular_buffer_regs_cached = false "
               << std::endl;
+    is_circular_buffer_regs_cached = false;
+    set_heuristics_paras();
   }
+  // else if(bdimy == 1 || iter_unroll == 1){
+  //   std::cout << "\n======= retry with is_non_circular_buffer_gmem_to_regs =
+  //   false " << std::endl; is_non_circular_buffer_gmem_to_regs = false;
+  //   set_heuristics_paras();
+  // }
+
   // Ensure n_stages divisible by bdimy, which ensures each computation warp
   // group handles a different circular buffer stage with different mbarrier.
   if (n_stages % bdimy != 0) {
@@ -262,7 +277,7 @@ void getHeuristics(
   rparams->combined_inner_outer = true;
   rparams->is_non_circular_buffer_gmem_to_regs =
       is_non_circular_buffer_gmem_to_regs;
-
+  rparams->is_circular_buffer_regs_cached = is_circular_buffer_regs_cached;
   // Non Warp Specialized dim can't have more than 128 threads
   // see https://github.com/NVIDIA/Fuser/pull/4398.
   // Still want to use TIDy if bdimx <=128, which is more convenient for
@@ -721,9 +736,11 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // Unroll axis. Which requires the tma tensor alive until the end of the
     // computation and delays the next TMA load until the end of the
     // computation.
-    for (auto tv : smem_consumers) {
-      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
-        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+    if (rparams->is_circular_buffer_regs_cached) {
+      for (auto tv : smem_consumers) {
+        if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
+          tv_inline_pos_map.emplace(tv, tma_inline_pos);
+        }
       }
     }
 
