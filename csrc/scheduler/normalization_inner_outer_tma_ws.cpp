@@ -49,8 +49,8 @@ void getHeuristics(
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t gdimy = sm_count;
 
-  const bool is_circular_buffer_regs_cached = true;
-  const bool is_non_circular_buffer_gmem_to_regs = true;
+  bool is_circular_buffer_regs_cached = true;
+  bool is_non_circular_buffer_gmem_to_regs = true;
 
   // Shared memory controls max possible circular buffer stages and iter
   // unrolls. Check shared memory usage it is calculated as:
@@ -150,7 +150,7 @@ void getHeuristics(
     // The overhead value should prevent unroll = 4 for size 3072 and enforce
     // unroll = 2 for size 4096. It should fall within the derived range of
     // (100, 120], based on buffer sizes and register sharing.
-    constexpr int64_t register_overhead_ws_tma = 120l;
+    constexpr int64_t register_overhead_ws_tma = 112L;
     reg_count += register_overhead_ws_tma;
     int64_t available_regs = getRegPerThreadGivenThreadsPerSM(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
@@ -161,8 +161,9 @@ void getHeuristics(
     // (bdimx * bdimy); round up to granularity reg_count =
     // roundUpToMultiple(reg_count, regs_granularity); total usage should be
     // less than max available
-    std::cout << "reg_count " << reg_count
-              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
+    std::cout << "bdimx " << bdimx << ", bdimy " << bdimy << ", reg_count "
+              << reg_count << ", compute_branch_regs: " << compute_branch_regs
+              << std::endl;
     return reg_count <= compute_branch_regs;
   };
   // bdimx: number of threads for inner dim.
@@ -180,7 +181,9 @@ void getHeuristics(
   // Try to update paras in each loop and break if no update is made.
   const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
   const int64_t max_bdimy = std::min(3L, hp_threads_per_block_max / 128L);
-  const int64_t iter_unroll_max = 16L / (int64_t)computation_dtype_size;
+  const int64_t iter_unroll_max = inner_dim_numel <= 2048
+      ? 16L / (int64_t)computation_dtype_size
+      : 8L / (int64_t)computation_dtype_size;
 
   while (1) {
     bool is_updated = false;
