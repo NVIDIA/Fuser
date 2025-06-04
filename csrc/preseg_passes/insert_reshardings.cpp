@@ -156,9 +156,10 @@ void canonicalizeLoopDomain(TensorView* tv) {
            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
            std::views::reverse) {
     auto* split = dynamic_cast<Split*>(transform);
-    if (split == nullptr) {
-      continue;
-    }
+    NVF_ERROR(
+        split == nullptr,
+        "Only splits are expected so far, but found: ",
+        transform);
 
     if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
       continue;
@@ -176,8 +177,8 @@ void canonicalizeLoopDomain(TensorView* tv) {
     loop.insert(inner_i, split->in(), std::monostate());
   }
 
-  auto keys_view = std::views::keys(loop);
-  tv->setLoopDomain({keys_view.begin(), keys_view.end()});
+  auto new_loop = std::views::keys(loop);
+  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
 // If a TensorView has a reduction dimension that's DID-split, we R-factor the
