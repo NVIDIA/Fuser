@@ -117,7 +117,12 @@ class TensorParallelLinear(torch.nn.Linear):
         out_features: int,
         in_placements: Iterable[Placement] = [],
     ):
-        super().__init__(in_features, out_features, bias=False)
+        # Unlike normal layers whose `__init__` allocates the parameters,
+        # `TensorParallelLinear` is expected to be created from a
+        # non-distributed Linear layer via the `distribute` method. Therefore,
+        # here, we construct super() with no memory allocated for weights. The
+        # weights will be derived by the `distribute` method.
+        super().__init__(in_features, out_features, bias=False, device="meta")
         self.in_placements = in_placements
 
     def __repr__(self):

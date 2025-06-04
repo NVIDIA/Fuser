@@ -158,6 +158,14 @@ def test_transformer_layer(setup_default_process_group, executor: Executor):
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
+        # Loading the model under `device="cuda"` makes weight initialization
+        # much faster but requires full GPU memory allocation.
+        #
+        # Alternatively, I think the following may work but haven't tried it:
+        # 1. Load the model under torch.nn.utils.init_empty_weights. This skips weight initialization and allocates full weights on CPU not GPU.
+        # 2. parallelize_module
+        # 3. Load pre-trained parameters.
+        # 4. Move the model to CUDA.
         model = load_model(config)
         # Training is unavailable (cf. https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439)
         model.eval()
