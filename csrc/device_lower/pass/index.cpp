@@ -1586,6 +1586,238 @@ static inline DataType getMmaOutType(TensorView* mma_out) {
 
 namespace {
 
+// Helper function to compute the index of the output of stmatrix (in shared
+// memory). We currently handle the cases:
+// 1. stmatrix.x4 (we have 16x16 tiles)
+// 2. stmatrix.x2 (we have 16x8 tiles)
+// The assumption of the function is that we have 128-threads (warp group or 4
+// warps) The stmatrix call is inside a for-loop. We can think of 4-stmatrix (4
+// warps) calls being issued for every iteration of the for-loop. For example if
+// we are storing [64, 16] piece of memory using stmatrix.x2 (16x8), there will
+// be two iteration of the for-loop. In the first iteration we'll store [64 (0
+// ... 63), 8(0 ... 7)] and in the next iteration we'll store [64 (0 ... 63),
+// 8(8 ... 15)].
+
+// In each iteration, the 4-warps will be storing what we'll call
+// a warp group box. Each warp group box will have (at most) 4 tile boxes,
+// that's the memory stored by each stmatrix issued. This each tile-box is of
+// shape: [16, 16], [16, 8]; to be supported: [8, 8].
+
+// For example, if we are store [64, 16] using stmatrix.x2 [16, 8], then the
+// warp group box will be [64, 8] (there will be 2 warp group boxes). If we are
+// using stmatrix.x4 [16, 16] then the warp group box will be [64, 16].
+
+// To compute the index/offset into shared memory, we sum the offset of the warp
+// group box, the tile box inside the warp group box, and then finally the
+// offset of the thread inside the tile box.
+
+// For an example of index computation assume we are storing [64, 32] using
+// stmatrix using a single warp group, that is the cta has 128 threads/4-warps.
+// We'll be using stmatrix.x4 (16x16 tiles). This will need two iterations of
+// the for-loop (loop index I = [0,1]). After each iteration we'd have store
+// [64, 16] piece of memory or a warp group box worth. Thus in this case the
+// offset of warp group box is:
+
+// warp_group_box_size_m = 64; warp_group_box_size_n = 16 * 2 = 32
+// num_warps_groups_m = 64/ (warp_group_box_size_m = 64)  = 1
+// warp_groups_box_offset_m =
+//        (I % num_warps_groups_m ) * warp_group_box_size_m = 0
+// warp_groups_box_offset_n =
+//        (I /  num_warps_groups_m) * warp_group_box_size_n = 32 (when I = 1)
+// warp_groups_offset =
+//                warp_groups_box_offset_m +  warp_groups_box_offset_n
+
+// A warp group box of size [64(M), 16(N)] has 4 tile boxes of size [16(tile_m),
+// 16(tile_n)] each.
+// Since each warp computes a tile box, we find tile_box_id as:
+// tile_box_id = threadIdx.x/32
+// tile_box_id will have two components tile_box_id_m, tile_box_id_n
+// But first we compute the number of tile boxes in the m and n dim .
+// tile_boxes_in_warp_group_box_m =
+//                    min (4, m/ tile_m(16))
+// tile_boxes_in_warp_group_box_n = 4 / tile_boxes_in_warp_group_box_m
+// Now tile_box_id_m =  tile_box_id % tile_boxes_in_warp_group_box_m
+// tile_box_id_n = tile_box_id / tile_boxes_in_warp_group_box_m
+// tile_box_offset_m = tile_box_id_m * tile_m(16) * N * 2 (half)
+// tile_box_offset_n = tile_box_id_n * tile_n (16) * N * 2 (half)
+// tile_box_offset = tile_box_offet_m + tile_box_offset_n
+
+// Inside the tile box [16, 16], we can think of it as 4 8x8 tiles
+// *****************
+// *       *       *
+// *       *       *
+// *  T0   *  T2   *
+// *       *       *
+// *       *       *
+// *****************
+// *       *       *
+// *       *       *
+// *  T1   *  T3   *
+// *       *       *
+// *       *       *
+// *****************
+// Since there are 128 threads working on 4 tile boxes.
+// Effective threadIdx effective_tidx = tidx.x % 32
+// offset_in_tile_box_m =
+//              (effective_tidx % 16 ) * N * 2 (half)
+// offset_in_tile_box_n =
+//              (effective_tidx/ 16 ) * 8 * 2 (half)
+// offset_in_tile = offset_in_tile_box_m + offset_in_tile_box_n
+// cumulative_offset = warp_groups_offset + tile_box_offset + offset_in_tile
+
+// In the above comment, M and N are instruction tiles.
+// We can mulitples of 4-warps (warp groups) working to execute stmatrix.
+// threadIdx.x will range from [0 ... 127] and will be the 4 warps to store
+// an instruction tile work of data.
+// threadIdx.y will provide the multiples of warp groups.
+
+// To account for the threadIdx.y we have to add it to the offset:
+// offset_from_threadIdx.y = threadIdx.y * M * N * 2 (half)
+
+// Final offset: cumulative_offset + offset_from_threadIdx.y
+Val* hardCodedSharedMemoryIndexForLdStMatrix(
+    TensorView* smem_tv,
+    const ForLoop* outer_loop,
+    const int64_t m_tile,
+    const int64_t n_tile,
+    const int64_t m,
+    const int64_t n) {
+  NVF_ERROR(
+      (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
+          (m_tile == 16 && n_tile == 16),
+      "size not currently supported for stmatrix");
+  Val* smem_index = nullptr;
+
+  NVF_ERROR(
+      dataTypeSize(smem_tv->dtype()) == 2,
+      "we only support 16-bit types in stmatrix");
+
+  NVF_ERROR(getSwizzle(smem_tv) == MmaInputSmemSwizzle::None);
+
+  auto dtype_size = 2;
+
+  // A tile_box can be 16x16, 16x8 [to do: 8x8]
+  // A warp group (128 threads) can work on a number of tile boxes.
+  int64_t max_tile_boxes_in_warp_group_box = 4;
+
+  // These two variables gives the shape of the warp group box in terms of tile
+  // boxes. Think of a tile box as a stmatrix call.
+  auto tiles_in_warp_group_m =
+      std::min(m / m_tile, max_tile_boxes_in_warp_group_box);
+  auto tiles_in_warp_group_n =
+      max_tile_boxes_in_warp_group_box / tiles_in_warp_group_m;
+
+  // The size of a warp group box in the m dim.
+  auto warp_group_box_size_m = tiles_in_warp_group_m * m_tile;
+
+  // Each iteration of the for-loop compute a warp group box worth of stmatrix
+  // Compute how many warp group boxes are there in the m-dim
+  auto warp_groups_m = m / warp_group_box_size_m;
+
+  // Compute the offset of a warp group box.
+  // On each iteration we work on a different warp-group box. So the offset
+  // is a function of the trip-count and the shape of the warp group box.
+  auto warp_group_box_offset_m = IrBuilder::mulExpr(
+      IrBuilder::modExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_m * m_tile * n * dtype_size, DataType::Index));
+
+  auto warp_group_box_offset_n = IrBuilder::mulExpr(
+      IrBuilder::divExpr(
+          outer_loop->index(),
+          IrBuilder::create<Val>(warp_groups_m, DataType::Index)),
+      IrBuilder::create<Val>(
+          tiles_in_warp_group_n * n_tile * dtype_size, DataType::Index));
+
+  // Offset of the warp group box.
+  auto warp_group_box_offset =
+      IrBuilder::addExpr(warp_group_box_offset_m, warp_group_box_offset_n);
+
+  auto tile_box_id = IrBuilder::divExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(/* each warp gets a box */ 32, DataType::Index));
+
+  // We compute the offset the the tile box inside the warp group box.
+  // We identify the co-ord (m, n ) of the tile box in the warp group box.
+  // The compute the offset of the box in terms of the m and n-dim and sum.
+  auto tile_box_id_m = IrBuilder::modExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
+
+  auto tile_box_id_n = IrBuilder::divExpr(
+      tile_box_id,
+      IrBuilder::create<Val>(tiles_in_warp_group_m, DataType::Index));
+
+  auto tile_box_id_m_offset = IrBuilder::mulExpr(
+      tile_box_id_m,
+      IrBuilder::create<Val>(m_tile * n * dtype_size, DataType::Index));
+
+  auto tile_box_id_n_offset = IrBuilder::mulExpr(
+      tile_box_id_n,
+      IrBuilder::create<Val>(n_tile * dtype_size, DataType::Index));
+
+  // Offset of the tile box inside the warp group box.
+  auto tile_box_offset =
+      IrBuilder::addExpr(tile_box_id_m_offset, tile_box_id_n_offset);
+
+  // If there is only one warp group box, then the cumulative offset is just the
+  // tile box offset.
+  auto warp_box_tile_box_offset_sum = (n == n_tile)
+      ? tile_box_offset
+      : IrBuilder::addExpr(warp_group_box_offset, tile_box_offset);
+
+  auto threadIdx_y_offset = IrBuilder::mulExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.y", DataType::Index),
+      IrBuilder::create<Val>(m * n * 2));
+
+  // Cumulative offset of the the warp group box and tile box and the product of
+  // the threadIx.y and the instruction tile.
+  auto cum_offset =
+      IrBuilder::addExpr(threadIdx_y_offset, warp_box_tile_box_offset_sum);
+
+  // Compute the offset of the thread inside the tile box.
+  // Since each warp works on a tile box, and there are 128-threads
+  // the effective tidx is threadIdx % 32
+  auto effective_tidx = IrBuilder::modExpr(
+      IrBuilder::create<NamedScalar>("threadIdx.x", DataType::Index),
+      IrBuilder::create<Val>(32, DataType::Index));
+
+  // tidx.x is the effective threadIdx.x
+  if (m_tile == 16 && n_tile == 16) {
+    // 2 is for dtype Half
+    // (tidx.x /  (8 * 2)) * 16
+    // This gives the offset in the n-dim
+    auto offset_in_tile_n = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(8 * dtype_size, DataType::Index),
+        IrBuilder::divExpr(
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)));
+
+    // (tidx.x%16) * n * 2
+    // This gives the offset inside the 16x16 tile in the m-dim.
+    auto offset_in_tile_m = IrBuilder::mulExpr(
+        IrBuilder::modExpr(
+            effective_tidx, IrBuilder::create<Val>(16, DataType::Index)),
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index));
+
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
+        IrBuilder::addExpr(
+            cum_offset,
+            IrBuilder::addExpr(offset_in_tile_m, offset_in_tile_n)));
+  } else if (m_tile == 16 && n_tile == 8) {
+    auto offset_in_tile = IrBuilder::mulExpr(
+        IrBuilder::create<Val>(n * dtype_size, DataType::Index),
+        effective_tidx);
+
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
+        IrBuilder::addExpr(offset_in_tile, cum_offset));
+  }
+  return IrBuilder::create<kir::TensorIndex>(smem_tv, smem_index);
+}
+
 Val* indexTMemLdSt(
     TensorView* tmem_tv,
     TensorView* consumer_tv,
@@ -1676,20 +1908,45 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             "We only support 2D inputs ldmatrix");
         NVF_ERROR(
             ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-                ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
+                ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
+                ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
+                ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
             "We support ldmatrix only when tiling information is passed via fusion managed cache");
-        Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
-            in_tv, ldst, for_loops_);
-        Val* offset =
-            SimplifyingIrBuilder::mulExpr(index, dataTypeSize(in_tv->dtype()));
-        Val* smem_index =
-            IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), offset);
-        in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
-
         auto ldst_m_tile =
             ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
         auto ldst_n_tile =
             ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+
+        MmaInputSmemSwizzle swizzle = getSwizzle(in_tv);
+        switch (swizzle) {
+          case MmaInputSmemSwizzle::None: {
+            int64_t m =
+                ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+            int64_t n =
+                ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+            in = hardCodedSharedMemoryIndexForLdStMatrix(
+                in_tv,
+                for_loops_[for_loops_.size() - 3],
+                ldst_m_tile,
+                ldst_n_tile,
+                m,
+                n);
+          } break;
+          case MmaInputSmemSwizzle::B128:
+          case MmaInputSmemSwizzle::B64:
+          case MmaInputSmemSwizzle::B32: {
+            Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
+                in_tv, ldst, for_loops_);
+            Val* offset = SimplifyingIrBuilder::mulExpr(
+                index, dataTypeSize(in_tv->dtype()));
+            Val* smem_index =
+                IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), offset);
+            in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
+          } break;
+          default:
+            NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+        }
+
         auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
         auto as_type = ArrayType{
             std::make_shared<DataType>(DataType::UInt32),
@@ -1709,25 +1966,46 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           "We only support 2D inputs stmatrix");
       NVF_ERROR(
           ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-              ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
+              ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
+              ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
+              ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
           "We support stmatrix only when tiling information is passed via fusion managed cache");
+      int64_t ldst_m_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+      int64_t ldst_n_tile =
+          ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
       TensorView* out_tv = ldst->out()->as<TensorView>();
+      MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+      switch (swizzle) {
+        case MmaInputSmemSwizzle::None: {
+          int64_t m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+          int64_t n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+          out = hardCodedSharedMemoryIndexForLdStMatrix(
+              out_tv,
+              for_loops_[for_loops_.size() - 3],
+              ldst_m_tile,
+              ldst_n_tile,
+              m,
+              n);
+        } break;
+        case MmaInputSmemSwizzle::B128:
+        case MmaInputSmemSwizzle::B64:
+        case MmaInputSmemSwizzle::B32: {
+          Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
+              out_tv, ldst, for_loops_);
+          Val* offset = SimplifyingIrBuilder::mulExpr(
+              index, dataTypeSize(out_tv->dtype()));
+          Val* smem_index =
+              IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
+          out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
+        } break;
+        default:
+          NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+      }
 
-      Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
-          out_tv, ldst, for_loops_);
-      Val* offset =
-          SimplifyingIrBuilder::mulExpr(index, dataTypeSize(out_tv->dtype()));
-      Val* smem_index =
-          IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
-      out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
-
-      auto ldst_m_tile =
-          ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
-      auto ldst_n_tile =
-          ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
       auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
       auto as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),

@@ -6473,6 +6473,9 @@ TEST_P(LdStMatrixTest, Shmoo) {
   int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+  fusion.manage("ldst_matrix_m_smem", cta_m);
+  fusion.manage(
+      "ldst_matrix_n_smem", getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
   // ===========================================================================
   // Create cache intermediate TensorViews
@@ -6618,7 +6621,8 @@ TEST_P(LdStMatrixTest, Shmoo) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
-// MmaInputSmemSwizzle::None fails regardless of ldmatrix or stmatrix is enabled
+// TODO MmaInputSmemSwizzle::None relies on hard-coded indexing, so it is
+// disabled.
 INSTANTIATE_TEST_SUITE_P(
     ,
     LdStMatrixTest,
