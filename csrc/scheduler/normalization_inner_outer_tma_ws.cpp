@@ -48,7 +48,11 @@ void getHeuristics(
   const int64_t vect_factor = (int64_t)max_allowed_vect_factor;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   const int64_t gdimy = sm_count;
-
+  // bdimx: number of threads for inner dim.
+  // bdimy: number of independent warp groups for outer dim.
+  // iter_unroll: unroll for outer dim
+  // n_stages: circular buffer stages.
+  int64_t bdimx, bdimy, iter_unroll, n_stages;
   bool is_circular_buffer_regs_cached = true;
   bool is_non_circular_buffer_gmem_to_regs = true;
 
@@ -64,22 +68,21 @@ void getHeuristics(
   //     [n_computation_warps]
   auto is_enough_smem =
       [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
+        int64_t smem_size = 0;
         //  circular buffered smem size
-        int64_t buffer_size =
-            circular_buffered_smem_size * iter_unroll * n_stages;
+        smem_size += circular_buffered_smem_size * iter_unroll * n_stages;
         // non-circular buffered
         if (!is_non_circular_buffer_gmem_to_regs) {
-          buffer_size += non_circular_buffered_smem_size;
+          smem_size += non_circular_buffered_smem_size;
         }
         // mbarrier size
-        int64_t mbarrier_size = 16 * n_stages;
+        smem_size += roundUpToMultiple(16 * n_stages, 128);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        int64_t reduction_workspace_size = roundUpToMultiple(
+        smem_size += roundUpToMultiple(
             iter_unroll * bdimx * bdimy * computation_dtype_size, 128);
-        return (int64_t)dev_prop->sharedMemPerBlockOptin >=
-            buffer_size + mbarrier_size + reduction_workspace_size;
+        return (int64_t)dev_prop->sharedMemPerBlockOptin >= smem_size;
       };
 
   // Check register usage,  it is calculated as:
@@ -162,33 +165,36 @@ void getHeuristics(
     // roundUpToMultiple(reg_count, regs_granularity); total usage should be
     // less than max available
     std::cout << "bdimx " << bdimx << ", bdimy " << bdimy
-              << " ,iter_unroll: " << iter_unroll << ", reg_count " << reg_count
-              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
+              << " ,iter_unroll: " << iter_unroll << " ,n_stages: " << n_stages
+              << ", reg_count " << reg_count
+              << ", compute_branch_regs: " << compute_branch_regs
+              << ", is_enough_smem "
+              << is_enough_smem(iter_unroll, n_stages, bdimx, bdimy)
+              << std::endl;
     return reg_count <= compute_branch_regs;
   };
-  // bdimx: number of threads for inner dim.
-  int64_t bdimx = std::max(int64_t(128), hp_threads_per_block_min);
-  // bdimy: number of independent warp groups for outer dim.
-  int64_t bdimy = 1;
-  // iter_unroll: unroll for outer dim, these rows are grouped together in TMA
-  // load and reduction.
-  int64_t iter_unroll = 1;
-  // n_stages: circular buffer stages.
-  int64_t n_stages = 1;
+
+  auto reset_paras = [&]() {
+    bdimx = std::max(int64_t(128), hp_threads_per_block_min);
+    bdimy = 1;
+    iter_unroll = 1;
+    n_stages = 1;
+  };
+  reset_paras();
+
   NVF_ERROR(
       is_enough_smem(iter_unroll, n_stages, bdimx, bdimy),
       "Not enough shared memory for TMA warp specialized.");
   // Try to update paras in each loop and break if no update is made.
   const int64_t max_bdimx = std::min((int64_t)256, hp_threads_per_block_max);
-  const int64_t max_bdimy = std::min(3L, hp_threads_per_block_max / 128L);
-  const int64_t iter_unroll_max = inner_dim_numel <= 2048
-      ? 16L / (int64_t)computation_dtype_size
-      : 8L / (int64_t)computation_dtype_size;
+  int64_t target_stages = 2;
+  int64_t target_bdimy = 2;
+  int64_t target_iter_unroll = 2;
   auto set_heuristics_paras = [&]() {
     while (1) {
       bool is_updated = false;
-      // increase circular buffer stages
-      if (is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
+      if (n_stages * 2 <= target_stages &&
+          is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
         is_updated = true;
         n_stages *= 2;
       }
@@ -196,8 +202,9 @@ void getHeuristics(
       // increase bdimy when bdimx is not increased
       // multiple independent computation groups only supports bdimx == 128
       // disable this option for now as runtime is not ready yet.
-      if (bdimy * 2 <= max_bdimy &&
-          is_enough_regs(iter_unroll, bdimx, bdimy + 1) &&
+      if (bdimx == kWarpSpecializationPaddedThreads &&
+          bdimy * 2 <= target_bdimy &&
+          is_enough_regs(iter_unroll, bdimx, bdimy * 2) &&
           is_enough_smem(iter_unroll, n_stages, bdimx, bdimy * 2)) {
         is_updated = true;
         bdimy *= 2;
@@ -205,7 +212,7 @@ void getHeuristics(
       // increase iter_unroll
       // iter_unroll should be divisible by outer_dim_numel due to limitation of
       // 1D TMA predicate.
-      if (iter_unroll * 2 <= iter_unroll_max &&
+      if (iter_unroll * 2 <= target_iter_unroll &&
           is_enough_regs(iter_unroll * 2, bdimx, bdimy) &&
           is_enough_smem(iter_unroll * 2, n_stages, bdimx, bdimy) &&
           outer_dim_numel % (iter_unroll * 2) == 0) {
@@ -232,10 +239,13 @@ void getHeuristics(
     }
   };
   // Try start with [is_circular_buffer_regs_cached = true]
+  is_circular_buffer_regs_cached = true;
   set_heuristics_paras();
   if (bdimy == 1 && iter_unroll == 1) {
     std::cout << "\n======= retry with is_circular_buffer_regs_cached = false "
               << std::endl;
+    target_iter_unroll = 1;
+    reset_paras();
     is_circular_buffer_regs_cached = false;
     set_heuristics_paras();
   }
@@ -247,6 +257,9 @@ void getHeuristics(
 
   // Ensure n_stages divisible by bdimy, which ensures each computation warp
   // group handles a different circular buffer stage with different mbarrier.
+  while (is_enough_smem(iter_unroll, n_stages * 2, bdimx, bdimy)) {
+    n_stages *= 2;
+  }
   if (n_stages % bdimy != 0) {
     n_stages -= (n_stages % bdimy);
   }
@@ -611,7 +624,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 
-  // parallelization propagation
+  // parallelization propagation, don't created unrolled loops for inputs and
+  // outputs to save register usage.
   const auto& selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   const auto& unroll_vectorizable_cached_tvs =
@@ -624,7 +638,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       group_inner_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
-      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()},
+      /*skip_input_output_unroll=*/true);
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
   // boundaryNodesSet, the transformation from one outer reduction can't

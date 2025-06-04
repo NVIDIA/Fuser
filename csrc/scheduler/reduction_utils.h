@@ -81,6 +81,7 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 //                                   or vectorizable.
 //
 //   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
+//   skip_input_output_unroll: If true, skips unrolling inputs and outputs.
 NVF_API void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -88,7 +89,8 @@ NVF_API void propagateParallelization(
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
-    const std::vector<TensorView*>& selected_tvs = {});
+    const std::vector<TensorView*>& selected_tvs = {},
+    const bool skip_input_output_unroll = false);
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
