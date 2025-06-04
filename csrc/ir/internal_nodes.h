@@ -2828,7 +2828,6 @@ class NVF_API ArgsortOp : public Expr {
 
   ArgsortOp(
       IrBuilderPasskey,
-      BinaryOpType reduction_op_type,
       Val* out,
       Val* in,
       int64_t dim,
