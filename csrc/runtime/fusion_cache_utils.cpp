@@ -272,6 +272,7 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
     const KernelArgumentHolder& args,
     const std::unordered_set<size_t>& scalar_inputs_to_record) {
+  FUSER_PERF_SCOPE("InputsIdLookup::lookupId");
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_

@@ -140,6 +140,7 @@ int64_t getUnrollFactor(
     int64_t vectorization_bytes,
     bool divisible_split,
     std::vector<TensorView*> vectorizable_io_tvs) {
+  FUSER_PERF_SCOPE("getUnrollFactor");
   // only consider vectorizable inputs,
   // needs to check if it's already in the list to avoid duplication since a tv
   // may be both input and output, e.g. NVFuserTest.FusionIssue2372_CUDA
@@ -251,6 +252,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
               TensorDomain::noBroadcasts(largest_out->getLoopDomain())))
           .empty() ||
       n_elems == 0) {
+    FUSER_PERF_SCOPE("compute zero sized params");
     auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
         HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {
       return std::make_unique<std::vector<TensorView*>>();
@@ -363,6 +365,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // separate function.
     //
     // How much would this transfer cost if it was done as a 1-D schedule
+    FUSER_PERF_SCOPE("breakpoint computation");
     int64_t transfer_size_1d = 1;
 
     for (const auto i : arange(ref_loop.size())) {
