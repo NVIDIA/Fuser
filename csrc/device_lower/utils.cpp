@@ -834,7 +834,8 @@ AllocPosInfo getAllocPosInfo(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }

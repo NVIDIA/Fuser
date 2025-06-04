@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      "Missing mapping from operation string to nvfuser function in serde "
+      "deserialization: ",
       buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),

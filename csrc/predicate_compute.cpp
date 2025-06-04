@@ -768,7 +768,8 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     if (auto split = dynamic_cast<Split*>(id_def)) {
       GpuLower::current()->validate(
           split->isDivisible(),
-          "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+          "Loop domains between circular buffer and 1D TMA load requires "
+          "divisible split, got: ",
           split->toString());
     }
   }
