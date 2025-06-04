@@ -121,6 +121,8 @@ void getHeuristics(
           (compute_branch_regs - reg_per_thread) * computation_threads /
               kWarpSpecializationPaddedThreads;
     }
+    compute_branch_regs = std::min(
+        compute_branch_regs, scheduler_utils::max_registers_per_thread);
     return std::make_pair(tma_branch_regs, compute_branch_regs);
   };
   auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx, int64_t bdimy) {
@@ -137,8 +139,18 @@ void getHeuristics(
     }
     // regs for partial outer reduction results.
     reg_count += round_up_reg_count(regs_buffer_size, bdimx);
-    // regs for indexing, etc.
-    constexpr int64_t register_overhead_ws_tma = 40l;
+
+    // [register_overhead_ws_tma] is empirical value.
+    // It represents registers for indexing, grouped reduction, unrolling, etc.
+    // Tested with FP16 RMSNorm backward on B200.
+    // - Hidden size 3072: prefer unroll = 2; unroll = 4 causes excessive
+    //                     register spills.
+    // - Hidden size 4096: prefer unroll = 2; unroll = 1 yields poor
+    //                     performance.
+    // The overhead value should prevent unroll = 4 for size 3072 and enforce
+    // unroll = 2 for size 4096. It should fall within the derived range of
+    // (100, 120], based on buffer sizes and register sharing.
+    constexpr int64_t register_overhead_ws_tma = 120l;
     reg_count += register_overhead_ws_tma;
     int64_t available_regs = getRegPerThreadGivenThreadsPerSM(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
