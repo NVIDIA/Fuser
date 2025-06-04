@@ -2268,4 +2268,14 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
+TensorView* argsort(
+    TensorView* inp,
+    int64_t dim,
+    bool descending = false,
+    bool stable = false) {
+  Val* out = ops::newValLike(inp, inp->getDataType().value());
+  IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
+  return out;
+}
+
 } // namespace nvfuser

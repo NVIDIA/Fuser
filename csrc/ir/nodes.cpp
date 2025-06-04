@@ -5578,11 +5578,12 @@ ArgsortOp::ArgsortOp(
 
 std::string ArgsortOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString()
-                          << " = argsort( " << in()->toString()
-                          << ", dim = " << dim()
-                          << ", descending = " << (isDescending() ? "true" : "false")
-                          << ", stable = " << (isStable() ? "true" : "false") << " )\n";
+  indent(ss, indent_size) << out()->toString() << " = argsort( "
+                          << in()->toString() << ", dim = " << dim()
+                          << ", descending = "
+                          << (isDescending() ? "true" : "false")
+                          << ", stable = " << (isStable() ? "true" : "false")
+                          << " )\n";
   return ss.str();
 }
 
@@ -5604,8 +5605,8 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
       "ArgsortOp expects tensor input but got ",
       in.type().name());
 
-  auto result = at::argsort(
-      in.as<at::Tensor>(), dim(), isDescending(), isStable());
+  auto result =
+      at::argsort(in.as<at::Tensor>(), dim(), isDescending(), isStable());
 
   return {result};
 }
