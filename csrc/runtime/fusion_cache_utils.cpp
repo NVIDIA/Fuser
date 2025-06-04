@@ -7,7 +7,7 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
-#include <fusion_profiler.h>
+#include <instrumentation.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
