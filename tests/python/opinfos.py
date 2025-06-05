@@ -1049,11 +1049,15 @@ index_select_opinfo = OpInfo(
 shape_ops.append(index_select_opinfo)
 
 
+# we needed a reference because argsort requires kwargs.
+def argsort_ref(a, dim, descending, stable):
+    return torch.argsort(a, dim=dim, descending=descending, stable=stable)
+
 argsort_opinfo = OpInfo(
     lambda fd: fd.ops.argsort,
     "argsort",
     sample_input_generator=argsort_generator,
-    reference=torch.argsort,
+    reference=argsort_ref,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
         ArgumentType.Constant,

@@ -5605,8 +5605,10 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
       "ArgsortOp expects tensor input but got ",
       in.type().name());
 
+  // at::argsort signature is:
+  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool descending)
   auto result =
-      at::argsort(in.as<at::Tensor>(), dim(), isDescending(), isStable());
+      at::argsort(in.as<at::Tensor>(), isStable(), dim(), isDescending());
 
   return {result};
 }
