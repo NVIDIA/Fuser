@@ -411,7 +411,43 @@ TEST_P(CommunicationTest, ReduceScatter) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    // testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    //
+    // UCC triggered the following segfault in CI:
+    //
+    // clang-format off
+    // 00:00:18 [1,0]<stdout>:[ RUN      ] CommunicationTest.Gather/UCC
+    // 00:00:18 [1,1]<stderr>:[7859fcd3f8f9:338  :0:338] Caught signal 11 (Segmentation fault: address not mapped to object at address 0x55b7566aaf90)
+    // 00:00:18 [1,1]<stderr>:==== backtrace (tid:    338) ====
+    // 00:00:18 [1,1]<stderr>: 0  /opt/hpcx/ucx/lib/libucs.so.0(ucs_handle_error+0x2e4) [0x7f558fbc8654]
+    // 00:00:18 [1,1]<stderr>: 1  /opt/hpcx/ucx/lib/libucs.so.0(+0x3684c) [0x7f558fbc884c]
+    // 00:00:18 [1,1]<stderr>: 2  /opt/hpcx/ucx/lib/libucs.so.0(+0x36a88) [0x7f558fbc8a88]
+    // 00:00:18 [1,1]<stderr>: 3  /usr/lib/x86_64-linux-gnu/libc.so.6(+0x45330) [0x7f558fc47330]
+    // 00:00:18 [1,1]<stderr>: 4  /opt/hpcx/ucc/lib/ucc/libucc_tl_ucp.so(+0x2ece8) [0x7f5443fa5ce8]
+    // 00:00:18 [1,1]<stderr>: 5  /opt/hpcx/ucc/lib/ucc/libucc_tl_ucp.so(ucc_tl_ucp_allreduce_knomial_progress+0x573) [0x7f5443fa7123]
+    // 00:00:18 [1,1]<stderr>: 6  /opt/hpcx/ucc/lib/ucc/libucc_tl_ucp.so(ucc_tl_ucp_allreduce_knomial_start+0x1bd) [0x7f5443fa57fd]
+    // 00:00:18 [1,1]<stderr>: 7  /opt/hpcx/ucc/lib/ucc/libucc_tl_ucp.so(ucc_tl_ucp_service_allreduce+0x267) [0x7f5443f88357]
+    // 00:00:18 [1,1]<stderr>: 8  /opt/hpcx/ucc/lib/libucc.so.1(ucc_service_allreduce+0x107) [0x7f558fb69ee7]
+    // 00:00:18 [1,1]<stderr>: 9  /opt/hpcx/ucc/lib/libucc.so.1(ucc_team_create_test_single+0x8f5) [0x7f558fb66455]
+    // 00:00:18 [1,1]<stderr>:10  /usr/local/lib/python3.12/dist-packages/torch/lib/libtorch_cuda.so(+0xd9a498) [0x7f5591a05498]
+    // 00:00:18 [1,1]<stderr>:11  /usr/local/lib/python3.12/dist-packages/torch/lib/libtorch_cuda.so(_ZN4c10d15ProcessGroupUCC8initCommEN3c106DeviceE+0x388) [0x7f5591a0c248]
+    // 00:00:18 [1,1]<stderr>:12  /usr/local/lib/python3.12/dist-packages/torch/lib/libtorch_cuda.so(_ZN4c10d15ProcessGroupUCC6gatherERSt6vectorIS1_IN2at6TensorESaIS3_EESaIS5_EERS5_RKNS_13GatherOptionsE+0x73) [0x7f5591a15463]
+    // 00:00:18 [1,1]<stderr>:13  bin/test_multidevice(+0x6b81e5) [0x55b4f38871e5]
+    // 00:00:18 [1,1]<stderr>:14  bin/test_multidevice(+0x6b9ba6) [0x55b4f3888ba6]
+    // 00:00:18 [1,1]<stderr>:15  bin/test_multidevice(+0xa84aec) [0x55b4f3c53aec]
+    // 00:00:18 [1,1]<stderr>:16  bin/test_multidevice(+0xb90d51) [0x55b4f3d5fd51]
+    // 00:00:18 [1,1]<stderr>:17  bin/test_multidevice(+0xb77f5a) [0x55b4f3d46f5a]
+    // 00:00:18 [1,1]<stderr>:18  bin/test_multidevice(+0xb78512) [0x55b4f3d47512]
+    // 00:00:18 [1,1]<stderr>:19  bin/test_multidevice(+0xb78b51) [0x55b4f3d47b51]
+    // 00:00:18 [1,1]<stderr>:20  bin/test_multidevice(+0xb866fa) [0x55b4f3d556fa]
+    // 00:00:18 [1,1]<stderr>:21  bin/test_multidevice(+0xb78d4a) [0x55b4f3d47d4a]
+    // 00:00:18 [1,1]<stderr>:22  bin/test_multidevice(+0x192edb) [0x55b4f3361edb]
+    // 00:00:18 [1,1]<stderr>:23  /usr/lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7f558fc2c1ca]
+    // 00:00:18 [1,1]<stderr>:24  /usr/lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7f558fc2c28b]
+    // 00:00:18 [1,1]<stderr>:25  bin/test_multidevice(+0x19cae5) [0x55b4f336bae5]
+    // 00:00:18 [1,1]<stderr>:=================================
+    // clang-format on
+    testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 using P2PCommunicationTest = MultiDeviceTest;
