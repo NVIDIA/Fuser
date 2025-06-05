@@ -1067,13 +1067,15 @@ void sharedMemoryConsumerVectorization(
     // vectorization factor set for io tvs.
     NVF_ERROR(
         tv->axis(vect_axis_pos)->extent()->isConst(),
-        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        "Extent of the innermost axis of smem consumers should be constant. "
+        "Got: ",
         tv->toString());
     auto innermost_extent =
         tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
-        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        "Extent of the innermost axis of smem consumers should be equal to the "
+        "vectorization factor of fuion inputs and outputs. Got: ",
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);

@@ -77,8 +77,8 @@ def test_column_parallel_linear(multidevice_test):
             self.inp = self.define_tensor([-1, -1, e])
             self.weight = self.define_tensor([d * e, e])
             self.bias = self.define_tensor([d * e])
-            self.out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(self.out)
+            out = self.ops.linear(self.inp, self.weight, self.bias)
+            self.add_output(out)
 
         def multidevice_schedule(self):
             for t in [self.inp, self.weight, self.bias]:
@@ -125,8 +125,8 @@ def test_row_parallel_linear(multidevice_test):
         def definition(self):
             self.inp = self.define_tensor([-1, -1, d * e])
             self.weight = self.define_tensor([e, d * e])
-            self.out = self.ops.linear(self.inp, self.weight, None)
-            self.add_output(self.out)
+            out = self.ops.linear(self.inp, self.weight, None)
+            self.add_output(out)
 
         def multidevice_schedule(self):
             for t in [self.inp, self.weight]:
@@ -148,6 +148,45 @@ def test_row_parallel_linear(multidevice_test):
     (out,), _ = fd.execute([inp, weight])
 
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, None)
+    # rtol is the same as the default for fp32. atol is slightly increased.
+    torch.testing.assert_close(out.cpu(), unsharded_out, rtol=1.3e-6, atol=1e-3)
+
+
+@pytest.mark.mpi
+def test_row_parallel_linear_with_bias(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    e = 5
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor([-1, -1, d * e])
+            self.weight = self.define_tensor([e, d * e])
+            self.bias = self.define_tensor([e])
+            out = self.ops.linear(self.inp, self.weight, self.bias)
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.split(t, -1, d, False)
+                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    b, s = 2, 3
+    unsharded_inp = torch.randn(b, s, d * e)
+    unsharded_weight = torch.randn(e, d * e)
+    bias = torch.randn(e)
+
+    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+
+    fd = Model()
+    (out,), _ = fd.execute([inp, weight, bias.cuda()])
+
+    unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(out.cpu(), unsharded_out, rtol=1.3e-6, atol=1e-3)
 
@@ -180,7 +219,7 @@ def test_linear_reduce_scatter(multidevice_test):
 
     # set b=1 as a temporary fix for the test to pass.
     # TODO: set b>1 once reduce scatter is fixed.
-    b, s = 1, 1024
+    b, s = 2, 1024
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
 

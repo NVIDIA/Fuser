@@ -73,7 +73,8 @@ void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
     Split* split = dynamic_cast<Split*>(expr);
     NVF_ERROR(
         split != nullptr,
-        "Expected all transform exprs to be a split between allocation and loop domain during sharding propagation.");
+        "Expected all transform exprs to be a split between allocation and "
+        "loop domain during sharding propagation.");
     const auto [contiguity, split_i] =
         allocation_to_contiguity.erase(split->in());
     auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
