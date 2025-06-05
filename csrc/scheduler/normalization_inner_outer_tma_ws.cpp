@@ -7,6 +7,7 @@
 // clang-format on
 #include <ops/arith.h>
 #include <options.h>
+#include <scheduler/normalization_inner_outer_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -658,16 +659,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       // Heuristic ensures the iteration dim is divisible by the unroll
       // factor. Here, we only need to further confirm all the iteration
       // domains are contiguous.
-      auto can_vectorize = [](TensorView* redu_tv, TensorView* bcast_tv) {
-        const auto& alloc_dom_1 = redu_tv->getMaybeAllocationDomain();
-        const auto& alloc_dom_2 = bcast_tv->getMaybeAllocationDomain();
-        if (alloc_dom_1.size() != alloc_dom_2.size()) {
-          return false;
-        }
-        const auto& contiguity = bcast_tv->domain()->contiguity();
-        for (int i = 0; i < (int)alloc_dom_1.size(); i++) {
-          if (alloc_dom_1[i]->isReduction()) {
-            break;
+      auto can_vectorize = [](TensorView* input_tv) {
+        const auto& contiguity = input_tv->domain()->contiguity();
+        const auto& logical_domain = input_tv->getLogicalDomain();
+        for (auto i : c10::irange(logical_domain.size())) {
+          if (logical_domain.at(i)->isBroadcast()) {
+            continue;
           }
           if (!contiguity[i].has_value() || !contiguity[i].value()) {
             return false;
@@ -675,26 +672,23 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
         return true;
       };
+      int64_t last_iter_dim = tma_inline_pos;
       for (auto cached_tv : cached_inputs) {
-        if (cached_tv->hasBroadcast() &&
-            is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
-          if (can_vectorize(inner_reference_tv, cached_tv)) {
-            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
-          } else {
-            cached_tv->axis(2)->parallelize(ParallelType::Unroll);
-          }
+        if (!cached_tv->hasBroadcast() ||
+            !is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
+          continue;
         }
-        // Unroll the consumers to prevent inlineMost from inlining them
-        // to the right of the vectorized axis, which can cause expression
-        // sort errors.
-        // TODO: Revise inlineMost to handle this automatically.
-        // TODO: Ideally, we only need to unroll the consumers that are
-        // used in the for-loop before and after the iteration grouped
-        // reduction, we will leave this for heuristic tuning since unroll all
-        // consumers may lead to better performance if register usage is not a
-        // concern.
-        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-          consumer->axis(2)->parallelize(ParallelType::Unroll);
+        if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv)),
+            last_iter_dim) {
+          cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
+        } else {
+          cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
+        }
+        const auto& grouped_reduction_persistent_tvs =
+            inner_outer_utils::getGroupedReductionPersistentTvs(
+                fusion, cached_tv, reduction_tvs);
+        for (auto gp_tv : grouped_reduction_persistent_tvs) {
+          tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
       }
     }
