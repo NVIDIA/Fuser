@@ -161,7 +161,7 @@ void canonicalizeLoopDomain(TensorView* tv) {
            std::views::reverse) {
     auto* split = dynamic_cast<Split*>(transform);
     NVF_ERROR(
-        split == nullptr,
+        split != nullptr,
         "Only splits are expected so far, but found: ",
         transform);
 
