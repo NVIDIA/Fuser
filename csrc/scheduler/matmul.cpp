@@ -99,7 +99,8 @@ void Common::translatePatterns() {
         NVF_ERROR(
             !found_reduction ||
                 !pattern.output->axis((int64_t)dim)->isReduction(),
-            "Mul+Sum patterns can only be translated on Hopper if the reduction dim is innermost");
+            "Mul+Sum patterns can only be translated on Hopper if the "
+            "reduction dim is innermost");
       }
     }
 
