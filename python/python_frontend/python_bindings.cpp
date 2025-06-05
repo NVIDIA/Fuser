@@ -3645,7 +3645,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new ArgsortOpRecord(
-            {fd->recordingState(arg)},
+            {fd->recordingState(arg())},
             {fd->recordingState(output())},
             dim,
             descending,
@@ -3658,7 +3658,6 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("stable") = false,
       py::return_value_policy::reference);
 
-  nvf_ops.def(
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
