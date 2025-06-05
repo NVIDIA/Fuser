@@ -435,13 +435,6 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
 
-  int64_t tile_m = tile_sizes.at(0);
-  int64_t tile_n = tile_sizes.at(1);
-
-  if (getM(macro) % tile_m || getN(macro) % tile_n) {
-    GTEST_SKIP() << "skipping test as output is not divisible by tile size";
-  }
-
   auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
   auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
   fusion.addInput(tv0);
@@ -492,12 +485,6 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
 
-  // This is a temporary way to pass this information
-  // to the custom index generator for stmatrix.
-  // TODO: remove the need for fusion managed cache.
-  fusion.manage("ldst_matrix_m_tile", tile_m);
-  fusion.manage("ldst_matrix_n_tile", tile_n);
-
   tv0->merge(1);
   tv0->merge(1);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
@@ -531,14 +518,18 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
     tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
   }
 
+  MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  int64_t smem_tile_n = getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  constexpr int64_t ldst_tile_m = 16;
+  int64_t ldst_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
+
   AbstractTensor stmatrix_abstract =
-      mma_utils::scheduleLdStMatrixSharedMemory(tv3, tile_m, tile_n);
+      mma_utils::scheduleLdStMatrixSharedMemory(tv3, smem_tile_n, ldst_tile_n);
   std::vector<IterDomain*> stmatrix = stmatrix_abstract.as<IterDomain*>();
   stmatrix.at(stmatrix.size() - 2)->parallelize(ParallelType::TIDx);
   stmatrix.at(stmatrix.size() - 1)->parallelize(ParallelType::Vectorize);
   tv3->setAlternateLoopDomain(stmatrix);
 
-  MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv3->getLoopDomain());
@@ -549,7 +540,7 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
-  mma_utils::scheduleLdStMatrixForMmaOutput(tv3, tile_m, tile_n);
+  mma_utils::scheduleLdStMatrixForMmaOutput(tv3, ldst_tile_m, ldst_tile_n);
   tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);
@@ -591,10 +582,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(DataType::Half),
         testing::Values(MmaLayout::TN),
         testing::Values(MmaInputSmemSwizzle::None),
-        testing::Values(
-            // M, N
-            std::vector<int64_t>{16, 8},
-            std::vector<int64_t>{16, 16})));
+        testing::Values(std::vector<int64_t>{16, 16})));
 
 auto mmaHopperRSParamsGenerator() {
   // A very simple PRNG:

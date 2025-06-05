@@ -249,21 +249,22 @@ AbstractTensor scheduleLdStMatrixBase(
   // The TMA box is (64, 64).
   // The LdStMatrix.x4 tile is (16, 16).
   // The core matrix for wgmma and LdStMatrix is (8, 8).
+  
+  DataType dtype = tv->getDataType().value();
+  int64_t smem_tile_n = getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  int64_t ldst_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
 
   AbstractTensor abstract_tensor(tv->getLoopDomain());
   // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
 
   // Split by TMA shared memory box
-  DataType dtype = tv->getDataType().value();
-  int64_t smem_box_size = getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
-  abstract_tensor.split(-1, smem_box_size);
+  abstract_tensor.split(-1, smem_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
 
   // Split by (16, 16) matrix for LdStMatrix.x4
-  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   abstract_tensor.split(-2, 16);
-  abstract_tensor.split(-1, ldst_matrix_tile_n);
+  abstract_tensor.split(-1, ldst_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
 
@@ -433,10 +434,6 @@ TEST_P(HopperLdStMatrixTutorial, SetShmoo) {
   constexpr int64_t warp_n = 256;
   int64_t cta_m = warp_m * cta_multiple_m;
   int64_t cta_n = warp_n * cta_multiple_n;
-  constexpr int64_t ldst_matrix_tile_m = 16;
-  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
-  fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
-  fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
 
   // ===========================================================================
   // Create cache intermediate TensorViews

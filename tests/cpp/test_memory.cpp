@@ -2916,9 +2916,6 @@ TEST_P(StMatrixTest, Regular) {
     GTEST_SKIP() << "Fractional tiling is not supported/tested";
   }
 
-  fusion.manage("ldst_matrix_m_tile", tile_m);
-  fusion.manage("ldst_matrix_n_tile", tile_n);
-
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, dtype);
   fusion.addInput(tv0);
   // tv0 (global) -> tv1 (registers)
@@ -2935,8 +2932,10 @@ TEST_P(StMatrixTest, Regular) {
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
+  int64_t smem_tile_n =
+      getBytesFromSwizzle(MmaInputSmemSwizzle::None) / dataTypeSize(dtype);
   AbstractTensor stmatrix_abstract =
-      mma_utils::scheduleLdStMatrixSharedMemory(tv2, tile_m, tile_n);
+      mma_utils::scheduleLdStMatrixSharedMemory(tv2, smem_tile_n, tile_n);
   std::vector<IterDomain*> stmatrix_domain =
       stmatrix_abstract.as<IterDomain*>();
   stmatrix_domain.at(stmatrix_domain.size() - 2)

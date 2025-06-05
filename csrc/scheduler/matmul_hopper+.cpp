@@ -764,10 +764,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
 }
 
 void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
-  constexpr int64_t ldst_matrix_tile_m = 16;
-  constexpr int64_t ldst_matrix_tile_n = 16;
-  fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
-  fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+  constexpr int64_t ldst_tile_m = 16;
 
   // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
   std::vector<TensorView*> tma_load_epilogue_inputs;
@@ -809,11 +806,17 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
 
+      // Derive shared memory and ldmatrix size from swizzle
+      int64_t smem_tile_n =
+          getBytesFromSwizzle(swizzle_type) / dataTypeSize(c_cache->dtype());
+      int64_t ldst_tile_n =
+          (swizzle_type == MmaInputSmemSwizzle::None) ? 8 : 16;
+
       // reg_tv is the consumer for ldmatrix. Set alternate loop domain to
       // generate shared memory address for ldmatrix.
       AbstractTensor reg_tv_ldmatrix_abstract =
           mma_utils::scheduleLdStMatrixSharedMemory(
-              reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+              reg_tv, smem_tile_n, ldst_tile_n);
       std::vector<IterDomain*> reg_tv_ldmatrix =
           reg_tv_ldmatrix_abstract.as<IterDomain*>();
 
@@ -834,7 +837,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
 
       // Apply LdStMatrix scheduling to the wgmma loop domain
       mma_utils::scheduleLdStMatrixForMmaOutput(
-          reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+          reg_tv, ldst_tile_m, ldst_tile_n);
 
       // Vectorize last iterDomain because LdMatrix loads all eight values with
       // a single LdMatrix.x4 operation
@@ -897,12 +900,19 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
       transformLikeMmaOutputWithoutK(tv);
     }
 
+    // Determine swizzle for TMA Store
+    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
+    // Derive shared memory and ldmatrix size from swizzle
+    int64_t smem_tile_n =
+        getBytesFromSwizzle(swizzle) / dataTypeSize(d_smem->dtype());
+    int64_t ldst_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
+
     if (store_with_stmatrix) {
       // d_smem is the consumer for stmatrix. Set alternate loop domain to
       // generate shared memory address for stmatrix.
       AbstractTensor d_smem_stmatrix_abstract =
           mma_utils::scheduleLdStMatrixSharedMemory(
-              d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+              d_smem, smem_tile_n, ldst_tile_n);
       std::vector<IterDomain*> d_smem_stmatrix =
           d_smem_stmatrix_abstract.as<IterDomain*>();
 
@@ -930,9 +940,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
               .propagateParallelType());
     }
 
-    // Determine swizzle for TMA Store
-    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
-
     // First, create loop domain that matches wgmma register accumulator using
     // original loop domain.
     const AbstractTensor s =
@@ -949,7 +956,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
     if (store_with_stmatrix) {
       // Apply LdStMatrix scheduling to the wgmma loop domain
       mma_utils::scheduleLdStMatrixForMmaOutput(
-          d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+          d_smem, ldst_tile_m, ldst_tile_n);
     }
     d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 

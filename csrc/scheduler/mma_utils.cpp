@@ -1357,7 +1357,7 @@ void scheduleLdStMatrixForMmaOutput(
 // applying mma allocation to loop domain.
 AbstractTensor scheduleLdStMatrixSharedMemory(
     TensorView* tv,
-    int64_t ldst_tile_m,
+    int64_t smem_tile_n,
     int64_t ldst_tile_n) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
@@ -1371,12 +1371,12 @@ AbstractTensor scheduleLdStMatrixSharedMemory(
   // (GM, GN, cta_m * cta_n, warp_m, warp_n)
 
   // Split by TMA shared memory box
-  abstract_tensor.split(-1, 64);
+  abstract_tensor.split(-1, smem_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
 
   // Split by (16, 16) matrix for LdStMatrix.x4
-  abstract_tensor.split(-2, ldst_tile_m);
+  abstract_tensor.split(-2, 16);
   abstract_tensor.split(-1, ldst_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
@@ -1410,9 +1410,25 @@ AbstractTensor scheduleLdStMatrixSharedMemory(
   abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
   // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
 
-  abstract_tensor.merge(-4, -3);
-  abstract_tensor.merge(-3, -2);
-  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+  if (ldst_tile_n == 8) {
+    // When MmaInputSmemSwizzle::None, the fusion uses ldstmatrix.x2.
+    // mo * niio * mi = 64, so split inner-most dimension by 4 and move the
+    // remainder to TIDx axis.
+
+    // (no(32), nio(1), mo(4), niio(1), mi(16), niii(8))
+    abstract_tensor.split(-1, 4);
+    // (no(32), nio(1), mo(4), niio(1), mi(16), niiio(2), niiii(4))
+    abstract_tensor.reorder({{-3, -2}, {-2, -3}});
+    // (no(32), nio(1), mo(4), niio(1), niiio(2), mi(16), niiii(4))
+    abstract_tensor.merge(-5, -4);
+    abstract_tensor.merge(-4, -3);
+    abstract_tensor.merge(-3, -2);
+    // (no(32), nio(1), (mo * niio * niiio * mi)(128), niiii(4))
+  } else {
+    abstract_tensor.merge(-4, -3);
+    abstract_tensor.merge(-3, -2);
+    // (no(4), nio(4), (mo * niio * mi)(128), niii(8))
+  }
 
   // Merge no and nio to create a single serial IterDomain
   // This ^^^ is an artifact of matmul scheduling functions.

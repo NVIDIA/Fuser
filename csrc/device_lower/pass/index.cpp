@@ -1674,10 +1674,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         NVF_ERROR(
             in_tv->getLogicalDomain().size() >= 2,
             "We only support 2D inputs ldmatrix");
-        NVF_ERROR(
-            ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-                ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
-            "We support ldmatrix only when tiling information is passed via fusion managed cache");
+
         Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
             in_tv, ldst, for_loops_);
         Val* offset =
@@ -1686,11 +1683,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             IrBuilder::addExpr(IrBuilder::baseAddressExpr(in_tv), offset);
         in = IrBuilder::create<kir::TensorIndex>(in_tv, smem_index);
 
-        auto ldst_m_tile =
-            ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
-        auto ldst_n_tile =
-            ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
-        auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
+        MmaInputSmemSwizzle swizzle = getSwizzle(in_tv);
+        constexpr int64_t ldst_tile_m = 16;
+        int64_t ldst_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
+        auto num_regs = (ldst_tile_m) / 8 * (ldst_tile_n) / 8;
         auto as_type = ArrayType{
             std::make_shared<DataType>(DataType::UInt32),
             static_cast<size_t>(num_regs)};
@@ -1707,10 +1703,6 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       NVF_ERROR(
           ldst->out()->as<TensorView>()->getLogicalDomain().size() >= 2,
           "We only support 2D inputs stmatrix");
-      NVF_ERROR(
-          ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
-              ldst->fusion()->hasManaged("ldst_matrix_n_tile"),
-          "We support stmatrix only when tiling information is passed via fusion managed cache");
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
@@ -1724,11 +1716,10 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           IrBuilder::addExpr(IrBuilder::baseAddressExpr(out_tv), offset);
       out = IrBuilder::create<kir::TensorIndex>(out_tv, smem_index);
 
-      auto ldst_m_tile =
-          ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
-      auto ldst_n_tile =
-          ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
-      auto num_regs = (ldst_m_tile) / 8 * (ldst_n_tile) / 8;
+      MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+      constexpr int64_t ldst_tile_m = 16;
+      int64_t ldst_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
+      auto num_regs = (ldst_tile_m) / 8 * (ldst_tile_n) / 8;
       auto as_type = ArrayType{
           std::make_shared<DataType>(DataType::UInt32),
           static_cast<size_t>(num_regs)};
