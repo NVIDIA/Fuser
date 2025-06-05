@@ -500,11 +500,6 @@ std::vector<Expr*> convertSingleOpToCommunication(
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
   NVF_ERROR(
-      HostIrLower::canLower(c),
-      "Lowering expression ",
-      c->toString(),
-      " to communication is not supported");
-  NVF_ERROR(
       isCommunicationLayoutCompliant(c),
       "Resharding on an inner axis is not lowerable ",
       c->toString());
