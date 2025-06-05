@@ -65,8 +65,8 @@ void UnrollPass::dispatch(Expr* expr) {
 
   // Predicate MBarrierWaitParity is required for 1D TMA.
   if (one_dim_tma_predicate_added_ && expr->isA<kir::MBarrierWaitParity>() &&
-      for_loops_.back()->circularBufferLoopStage() ==
-          CircularBufferLoopStage::ComputeWarp) {
+      ir_utils::containsCircularBufferStage(
+          for_loops_, CircularBufferLoopStage::ComputeWarp)) {
     auto pred = IrBuilder::create<kir::Predicate>(
         PredicateType::OneDimTmaWaitParity, expr);
     auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);

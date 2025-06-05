@@ -68,7 +68,8 @@ void KernelArgumentHolder::push(PolymorphicValue val) {
 void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
   NVF_ERROR(
       tensor.has_value(),
-      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
+      "KernelArgumentHolder doesn't support empty optional values, it's "
+      "expected that when pushed they exist.");
   arguments_.emplace_back(PolymorphicValue(tensor.value()));
 }
 
@@ -286,7 +287,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     std::vector<std::byte> buffer;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
       NVF_THROW(
-          "Don't send tensor metadata to this function directly, use tensorToBytes.");
+          "Don't send tensor metadata to this function directly, use "
+          "tensorToBytes.");
     } else {
       const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {

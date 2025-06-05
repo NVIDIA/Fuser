@@ -26,7 +26,8 @@ void State::setInlineDefRecord(const RecordFunctor* record) {
 const RecordFunctor* State::inlineDefRecord() const {
   NVF_CHECK(
       inlineDef(),
-      "Attempting to query the inline definition Record State that is not inline defined!");
+      "Attempting to query the inline definition Record State that is not "
+      "inline defined!");
   NVF_CHECK(inline_def_record_.value(), "Inline definition Record is Null!");
   return inline_def_record_.value();
 }
@@ -50,7 +51,8 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
   if (state.inlineDef()) {
     NVF_CHECK(
         state.inlineDefRecord()->inlineDef(),
-        "The State Object's definition record is not set with an inline definition!");
+        "The State Object's definition record is not set with an inline "
+        "definition!");
     state.inlineDefRecord()->print(os);
   } else {
     if (state.stype == serde::StateType::Scalar) {
@@ -139,7 +141,8 @@ void FusionState::buildFusionIr(Fusion* fusion) {
       record->print(ss);
 
       NVF_THROW(
-          "\nDetected exception while building Fusion Ir. The failing RecordFunctor is: ",
+          "\nDetected exception while building Fusion Ir. The failing "
+          "RecordFunctor is: ",
           ss.str(),
           "\nNvFuser error message is: ",
           e.what());

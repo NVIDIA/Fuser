@@ -85,7 +85,8 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       mutation->toString(),
       " (",
       mutation->toInlineString(),
-      "), which is not allowed as it would result in a recursive definition of ",
+      "), which is not allowed as it would result in a recursive definition "
+      "of ",
       mutation->toString());
 
   mutations_[val] = mutation;

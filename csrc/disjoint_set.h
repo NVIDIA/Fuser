@@ -422,7 +422,8 @@ class DisjointSets {
         entry_it != disjointSetMap().end(),
         "Strict mapping failed on element: ",
         abstractToString(entry0),
-        " either an error occurred, or non strict mapping should have been used.");
+        " either an error occurred, or non strict mapping should have been "
+        "used.");
     return entry_it->second->has(entry1);
   }
 

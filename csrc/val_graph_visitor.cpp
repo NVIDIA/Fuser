@@ -26,7 +26,8 @@ bool ValGraphVisitor::traverse() {
   // cycle.
   if (starting_groups.empty()) {
     std::stringstream ss;
-    ss << "Unsupported graph: No terminating input found, likely a cyclic graph: ";
+    ss << "Unsupported graph: No terminating input found, likely a cyclic "
+          "graph: ";
     ss << graph().toString();
     error_message_ = ss.str();
     return false;
@@ -169,7 +170,8 @@ bool ValGraphVisitor::traverse() {
 
   if (!to_visit_vals.empty()) {
     std::stringstream ss;
-    ss << "The graph has an infinite loop. The following Vals should be visited but are never ready:";
+    ss << "The graph has an infinite loop. The following Vals should be "
+          "visited but are never ready:";
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
@@ -189,7 +191,8 @@ bool ValGraphVisitor::traverse() {
 
   if (!to_visit_exprs.empty()) {
     std::stringstream ss;
-    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    ss << "The graph has an infinite loop. The following Exprs should be "
+          "visited but are never ready:";
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
@@ -209,7 +212,8 @@ bool ValGraphVisitor::traverse() {
   // not be visited, which should be fine.
   if (visited_exprs.size() != graph().disjointExprSets().size()) {
     std::stringstream ss;
-    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    ss << "The graph has an infinite loop. The following Exprs should be "
+          "visited but are never ready:";
     for (const ExprGroup& eg : graph().disjointExprSets().disjointSets()) {
       if (!visited_exprs.has(eg)) {
         ss << " " << nvfuser::toString(eg);

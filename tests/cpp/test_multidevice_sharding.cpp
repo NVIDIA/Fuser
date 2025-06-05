@@ -111,18 +111,13 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     MultiDeviceReductionTest,
     testing::Combine(testing::Bool(), testing::Values(0, 1)),
-    [](const testing::TestParamInfo<std::tuple<bool, int>>& info)
-        -> std::string {
-      // Not sure why the following doesn't work:
-      //   auto [creates_concrete_tensor, sharded_dim] = info.param;
-      bool creates_concrete_tensor;
-      int sharded_dim;
-      std::tie(creates_concrete_tensor, sharded_dim) = info.param;
+    ([](const testing::TestParamInfo<std::tuple<bool, int>>& info) {
+      auto [creates_concrete_tensor, sharded_dim] = info.param;
       std::ostringstream os;
       os << (creates_concrete_tensor ? "concrete" : "symbolic")
          << "_sharded_along_dim_" << sharded_dim;
       return os.str();
-    });
+    }));
 
 TEST_F(MultiDeviceTest, Reduction) {
   auto fusion = std::make_unique<Fusion>();

@@ -173,9 +173,9 @@ void serialize() {
   if (rename_ec) {
     try {
       fs::remove(tmp_file_path);
-      std::cout
-          << "Removed temporary file because we could not replace common workspace. Exception:\t"
-          << rename_ec.message() << std::endl;
+      std::cout << "Removed temporary file because we could not replace common "
+                   "workspace. Exception:\t"
+                << rename_ec.message() << std::endl;
     } catch (const std::exception& e) {
       std::cout << "Failed to delete temporary file. Exception:\t" << e.what()
                 << std::endl;
@@ -351,17 +351,17 @@ FusionCache* FusionCache::get(
         // The saved workspace can become out-of-date between nvfuser updates.
         // Send warning and delete the incompatible workspace.
         // A new workspace will be saved upon program exit.
-        std::cout
-            << "Warning: Failed to deserialize common workspace.\n"
-            << "A new workspace will be saved upon program exit after deleting incompatible workspace."
-            << std::endl;
+        std::cout << "Warning: Failed to deserialize common workspace.\n"
+                  << "A new workspace will be saved upon program exit after "
+                     "deleting incompatible workspace."
+                  << std::endl;
 
         // Hide exception message because it should be resolved by saving a new
         // workspace.
         if (!isOptionDisabled(DisableOption::ParallelSerde)) {
-          std::cout
-              << "Use NVFUSER_DISABLE=parallel_serde to print exception message."
-              << std::endl;
+          std::cout << "Use NVFUSER_DISABLE=parallel_serde to print exception "
+                       "message."
+                    << std::endl;
         } else {
           std::cout << deserialize_exception.what() << std::endl;
         }
@@ -861,7 +861,8 @@ void FusionCache::deserialize(std::string filename) {
               rec, trie_ptr, fb_child_trie_node->fusion_id()));
       NVF_CHECK(
           status.second,
-          "Fusion-Cache Deserialization: Failed to add child to the current TrieNode.");
+          "Fusion-Cache Deserialization: Failed to add child to the current "
+          "TrieNode.");
 
       // Add child TrieNode to BFS queue
       queue.emplace_back(

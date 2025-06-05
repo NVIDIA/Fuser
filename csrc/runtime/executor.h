@@ -153,7 +153,8 @@ class KernelExecutor : public ExecutorAbstract {
   float getKernelOccupancy() const {
     NVF_ERROR(
         kernel_occupancy_ > 0,
-        "Occupancy unknown, should run with dump occupancy or perf_debug_verbose");
+        "Occupancy unknown, should run with dump occupancy or "
+        "perf_debug_verbose");
     return kernel_occupancy_;
   }
 

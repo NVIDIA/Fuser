@@ -8,7 +8,9 @@
 
 #include <ir/allocation_utils.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <linked_hash_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser {
 
@@ -160,6 +162,66 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
       "transforms. This is most often caused by forgetting to concretize "
       "a fusion with dynamic reshapes.");
   return layout;
+}
+
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain != required.allocation_domain) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<Layout> mapInLayoutToOutRoot(
+    const std::optional<Layout>& in_layout,
+    TensorView* in,
+    TensorView* out) {
+  if (!in_layout.has_value()) {
+    return std::nullopt;
+  }
+
+  if (!ir_utils::computePermutation(
+           in->getLogicalDomain(), in_layout->allocation_domain)
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an logical permutation. As
+    // an extension, we could map in_alloc to in_logical and apply the inverse
+    // mapping to out_root.
+    return std::nullopt;
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
+
+  Layout out_layout;
+  for (auto&& [in_alloc_id, contiguity] :
+       zip(in_layout->allocation_domain, in_layout->contiguity)) {
+    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
+    if (out_root_id == nullptr) {
+      // This can happen when in_alloc_id is of type reduction or squeezed out.
+      continue;
+    }
+    out_layout.allocation_domain.push_back(out_root_id);
+    out_layout.contiguity.push_back(contiguity);
+  }
+  return out_layout;
 }
 
 } // namespace nvfuser

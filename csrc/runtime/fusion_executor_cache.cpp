@@ -315,7 +315,8 @@ void FusionExecutorCache::disableLaunchParamCache() {
         if (auto ke = dynamic_cast<KernelExecutor*>(executor.get())) {
           NVF_CHECK(
               ke->compiledKernel(),
-              "Tried to disable parameter cache of uninitialized CompiledKernel.");
+              "Tried to disable parameter cache of uninitialized "
+              "CompiledKernel.");
           ke->compiledKernel()->disableLaunchParamCache();
         }
       }

@@ -960,7 +960,8 @@ struct std::hash<dynamic_type::DynamicType<Containers, Ts...>> {
   static_assert(
       !dynamic_type::has_cross_type_equality<
           dynamic_type::DynamicType<Containers, Ts...>>,
-      "Hash function of DynamicType can not be automatically defined while there are cross-type equality.");
+      "Hash function of DynamicType can not be automatically defined while "
+      "there are cross-type equality.");
   using DT = dynamic_type::DynamicType<Containers, Ts...>;
   std::size_t operator()(DT const& dt) const noexcept {
     return std::hash<typename DT::VariantType>{}(dt.value);

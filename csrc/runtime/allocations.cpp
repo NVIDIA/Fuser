@@ -284,7 +284,8 @@ KernelArgumentHolder allocateOutputs(
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(
-          "Unexpected allocation path, internal logic around allocations must be incorrect.");
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
   }
   return out_tensors;

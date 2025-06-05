@@ -50,6 +50,7 @@ enum RecordType: int {
     IndexSelectOp,
     IndexPutAccumulateOp,
     SelectOp,
+    ScatterOp,
     GatherOp,
     TakeAlongAxisOp,
     Unary_TV,

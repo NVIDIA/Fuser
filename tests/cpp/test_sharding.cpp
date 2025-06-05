@@ -275,7 +275,8 @@ TEST_F(ShardingTest, ResidualAdd) {
   NVF_CHECK(expected_sharded_axis != -1, "tv0 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv1, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
+      "Expected tv1 to be sharded like tv0 due to backpropagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, PropagateParallelTypeOnce) {
@@ -310,7 +311,8 @@ TEST_F(ShardingTest, PropagateParallelTypeOnce) {
   NVF_CHECK(expected_sharded_axis != -1, "tv0 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv2, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv2 to be sharded like tv0 due to forward propagation of shardings.");
+      "Expected tv2 to be sharded like tv0 due to forward propagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
@@ -353,10 +355,12 @@ TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
   NVF_CHECK(expected_sharded_axis != -1, "tv2 should have a sharded axis.");
   NVF_CHECK(
       getShardedLogicalAxis(tv3, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv3 to be sharded like tv2 due to backpropagation of shardings.");
+      "Expected tv3 to be sharded like tv2 due to backpropagation of "
+      "shardings.");
   NVF_CHECK(
       getShardedLogicalAxis(tv4, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv4 to be sharded like tv2 due to forward propagation of shardings.");
+      "Expected tv4 to be sharded like tv2 due to forward propagation of "
+      "shardings.");
 }
 
 TEST_F(ShardingTest, ShardedNonDivisibleReshape) {

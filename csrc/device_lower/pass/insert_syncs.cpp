@@ -634,7 +634,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       auto write_out_tv = ir_utils::getTvOutput(last_write);
       NVF_ERROR(
           write_out_tv != nullptr,
-          "Error in RAW sync insertion, expecting a TV expr, but didn't find one.");
+          "Error in RAW sync insertion, expecting a TV expr, but didn't find "
+          "one.");
       if (write_out_tv->getComputeAtPosition() == 0) {
         continue;
       }
@@ -1217,7 +1218,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     NVF_ERROR(
         warp_specialized_async_exprs_to_protect_.empty() ||
             !warp_specialized_async_inputs_in_current_scope_.empty(),
-        "Expected TMA loads in AsyncWarp for WgMma operations were detected in ComputeWarp.");
+        "Expected TMA loads in AsyncWarp for WgMma operations were detected in "
+        "ComputeWarp.");
 
     // short-circuit: no wgmma expressions to protect in computeWarp.
     if (warp_specialized_async_exprs_to_protect_.empty()) {

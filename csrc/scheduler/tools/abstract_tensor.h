@@ -849,7 +849,8 @@ class AbstractTensorWithInfo {
       } else {
         NVF_CHECK(
             size == new_size,
-            "Can not unzip an AbstractTensor with different sizes in its domains.");
+            "Can not unzip an AbstractTensor with different sizes in its "
+            "domains.");
       }
     }
 

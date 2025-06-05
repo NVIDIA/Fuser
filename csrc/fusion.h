@@ -534,7 +534,8 @@ std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
   // will be unreadable.
   static_assert(
       std::is_convertible_v<decltype(cloned_data), T>,
-      "IrCloner::clone returns a data type that is not compatible with the original managed data type. "
+      "IrCloner::clone returns a data type that is not compatible with the "
+      "original managed data type. "
       "Likely you will need to check IrCloner::clone for your data type.");
   // Convert the result of the clone back to T before assigning to std::any.
   // This ensures the type of the std::any does not change over the clone of

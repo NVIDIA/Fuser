@@ -334,7 +334,8 @@ void PrecomputedValues::validate() {
     NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and execution.\n",
+        "\nSomething unexpected changed between the compilation and "
+        "execution.\n",
         values_[it.first],
         " != ",
         it.second);

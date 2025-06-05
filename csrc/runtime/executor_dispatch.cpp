@@ -51,7 +51,8 @@ void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
   }
   if (dynamic_cast<KernelExecutor*>(executor) != nullptr) {
     NVF_THROW(
-        "KernelExecutor needs more information to be provided for compilation.");
+        "KernelExecutor needs more information to be provided for "
+        "compilation.");
   }
   NVF_THROW("Unsupported Executor detected.");
 }

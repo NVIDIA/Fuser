@@ -1173,7 +1173,8 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
         grouped_wop, indexed_outputs, indexed_inputs, grouped_wop->initVals());
   } else {
     NVF_THROW(
-        "Only grid welford is supported. Validation should have caught non-grid welford grouping.");
+        "Only grid welford is supported. Validation should have caught "
+        "non-grid welford grouping.");
   }
 }
 
@@ -2155,7 +2156,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
                 ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
                 ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
                 ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
-            "We support stmatrix only when tiling information is passed via fusion managed cache");
+            "We support stmatrix only when tiling information is passed via "
+            "fusion managed cache");
         auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
         auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
         auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
@@ -2200,7 +2202,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
               ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
               ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
               ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
-          "We support stmatrix only when tiling information is passed via fusion managed cache");
+          "We support stmatrix only when tiling information is passed via "
+          "fusion managed cache");
       auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
       auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
       auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
@@ -2534,7 +2537,8 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   }
   NVF_ERROR(
       mma_groups.size() == 2,
-      "Expecting 3 IDs in the loop domain of mma output to be parallelized on Mma,",
+      "Expecting 3 IDs in the loop domain of mma output to be parallelized on "
+      "Mma,",
       " among which one must be the innermost of producer's allocation domain");
 
   // Get which group in mma_groups is projected to a concrete ID in the logical
@@ -2555,13 +2559,15 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
     if (is_projected_to_concrete(g)) {
       NVF_ERROR(
           selected == nullptr,
-          "Expecting exactly one group in mma output loop domain to be projected to a concrete ID in the logical domain of tv");
+          "Expecting exactly one group in mma output loop domain to be "
+          "projected to a concrete ID in the logical domain of tv");
       selected = std::move(g);
     }
   }
   NVF_ERROR(
       selected != nullptr,
-      "No group in mma output loop domain is projected to a concrete ID in the logical domain of tv");
+      "No group in mma output loop domain is projected to a concrete ID in the "
+      "logical domain of tv");
 
   // At this point, we can just create the following schedule:
   //      selected

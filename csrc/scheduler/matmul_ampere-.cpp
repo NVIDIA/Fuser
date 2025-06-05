@@ -48,7 +48,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
       (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      "At least 2D input (excluding consecutive reduction domains starting "
+      "from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
   mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
   mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
@@ -454,12 +455,14 @@ void AmpereMinus::validate() const {
 
   NVF_CHECK(
       params_->tiling_strategy == MatmulParams::TilingStrategy::OneTilePerCTA,
-      "Ampere & Turing matmul scheduler does not support scheduling persistent CTAs");
+      "Ampere & Turing matmul scheduler does not support scheduling persistent "
+      "CTAs");
 
   NVF_CHECK(
       params_->buffering_loop_level ==
           MatmulParams::BufferingLoopLevel::CTATiles,
-      "Ampere & Turing matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+      "Ampere & Turing matmul scheduler only supports cooperatively buffering "
+      "at the CTA level (no ping-pong)");
 
   NVF_CHECK(
       params_->circular_buffering_strategy ==
@@ -1034,13 +1037,15 @@ void AmpereMinus::scheduleOutputTensor(TensorView* c) {
   const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
   NVF_ERROR(
       tile_size_m == gemm_tile.cta_tile.m,
-      "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
+      "Actual tile size at axis(-2) in output tensor is different from CTA "
+      "tile size! Expected: ",
       gemm_tile.cta_tile.m,
       ", actual: ",
       tile_size_m);
   NVF_ERROR(
       tile_size_n == gemm_tile.cta_tile.n,
-      "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
+      "Actual tile size at axis(-1) in output tensor is different from CTA "
+      "tile size! Expected: ",
       gemm_tile.cta_tile.n,
       ", actual: ",
       tile_size_n);
@@ -1331,7 +1336,8 @@ void AmpereMinus::setOperandSmemLoadAndCacheOps(
         " which has data type ",
         operand->dtype(),
         ". Size must be 4, 8, or 16 bytes. ",
-        "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+        "MatmulParams::async_gmem_load_operands should be set to false in this "
+        "case.");
     cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
   }
 

@@ -210,6 +210,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/finalize_multidevice_domains.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_gather.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_repeat_forward.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
@@ -310,6 +311,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
+    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
 endif()
 

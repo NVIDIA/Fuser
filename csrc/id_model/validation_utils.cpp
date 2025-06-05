@@ -37,7 +37,8 @@ bool exprsMap(
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>() ||
           first->isA<Swizzle>(),
-      "Merge, split, resize and swizzle are the only expressions supported here, but found:\n",
+      "Merge, split, resize and swizzle are the only expressions supported "
+      "here, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(

@@ -79,7 +79,8 @@ Vector define_vector_fn(
           int_value,
           " at index ",
           idx,
-          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
           {self.recordingState(out())},
@@ -331,7 +332,8 @@ Tensor slice_fn(
 
   NVF_CHECK(
       arg.dims == new_start.size,
-      "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+      "Number of tensor dimensions does not match slice dimensions! "
+      "Tensor-dims: ",
       arg.dims,
       " Slice-dims: ",
       new_start.size);
@@ -360,7 +362,8 @@ std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+      "compute_contiguity: Sizes and strides must have the same number of "
+      "dimensions");
   // Not a broadcast means neither the stride == 0 (size can be non-zero)
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
@@ -914,7 +917,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def_property_readonly(
       "index",
       [](Tensor& self) { return self.index; },
-      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
+      "Returns the index of the tensor as in "
+      "FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
@@ -1232,12 +1236,14 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
             NVF_CHECK(
                 stride_order.empty() || output.dims == stride_order.size(),
-                "stride_order needs to be either empty or the same length of Tensor `output`");
+                "stride_order needs to be either empty or the same length of "
+                "Tensor `output`");
             int64_t duplicate_check = 0;
             for (const auto& v : stride_order) {
               NVF_CHECK(
                   v >= 0 && v < (int64_t)stride_order.size(),
-                  "stride_order elements need to be within [0, stride_order.size())");
+                  "stride_order elements need to be within [0, "
+                  "stride_order.size())");
               duplicate_check |= 1 << v;
             }
             NVF_CHECK(
@@ -1399,7 +1405,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(
-            "Deprecating define_constant functions in favor of define_scalar for constants.");
+            "Deprecating define_constant functions in favor of define_scalar "
+            "for constants.");
         Scalar out = self.defineScalar();
         self.defineRecord(
             new ScalarRecord({self.recordingState(out())}, value, dtype));
@@ -1612,7 +1619,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == stride_order.size(),
-            "Operator stride_order expects `stride_order` argument to have the same length as input!");
+            "Operator stride_order expects `stride_order` argument to have the "
+            "same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new DimsOpRecord<serde::RecordType::StrideOrderOp>(
@@ -2972,6 +2980,52 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Tensor src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg1.dims == index.dims && arg1.dims == src.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            ", ",
+            index.dims,
+            " and ",
+            src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
@@ -3122,7 +3176,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == dims.size(),
-            "Operator permute expects `dims` argument to have the same length as input!");
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(

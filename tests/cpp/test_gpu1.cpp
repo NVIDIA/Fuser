@@ -131,7 +131,8 @@ TEST_F(NVFuserTest, FusionDispatch_CUDA) {
   ss3 << static_cast<Statement*>(f);
   NVF_CHECK(
       ss1.str().compare(ss2.str()) == 0 && ss1.str().compare(ss3.str()) == 0,
-      "Error with dispatch system where results differ by passing Val* vs Val* vs Statement*.");
+      "Error with dispatch system where results differ by passing Val* vs Val* "
+      "vs Statement*.");
 }
 
 TEST_F(NVFuserTest, FusionClear_CUDA) {

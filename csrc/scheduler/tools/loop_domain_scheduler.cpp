@@ -434,7 +434,8 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
       }
     }
     NVF_THROW(
-        "Trying to update the current loop domain but could not find a valid path from the reference: ",
+        "Trying to update the current loop domain but could not find a valid "
+        "path from the reference: ",
         tv->toString(),
         ". ",
         ss.str());

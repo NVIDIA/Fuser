@@ -2216,7 +2216,8 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
     bool is_grid_reduciton) {
   NVF_CHECK(
       is_grid_reduciton ^ (gdimy == 1),
-      "Grid reduction should have gdimy > 1, block reduction should have gdimy == 1.");
+      "Grid reduction should have gdimy > 1, block reduction should have gdimy "
+      "== 1.");
   int iter_dim = vect * bdimx * gdimx;
   int redu_dim = unroll * bdimy * gdimy * serial;
 

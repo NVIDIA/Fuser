@@ -743,7 +743,8 @@ TensorView* slice(
 
   NVF_CHECK(
       ndims == static_cast<int64_t>(ranges.size()),
-      "The range vector must have the same number of Slice descriptors. Given: ",
+      "The range vector must have the same number of Slice descriptors. "
+      "Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -976,7 +977,8 @@ TensorView* broadcast(
   NVF_CHECK(
       nBCastDims - n_broadcasts ==
           TensorDomain::noReductions(inp->getLogicalDomain()).size(),
-      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
+      "Invalid broadcast, number of false entries in is_broadcast_dim expected "
+      "to be ",
       TensorDomain::noReductions(inp->getLogicalDomain()).size(),
       " but received ",
       nBCastDims - n_broadcasts);
@@ -1125,7 +1127,8 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 
   NVF_CHECK(
       inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
+      "Invalid expand_as, dimensions of inp is higher than dimensions of "
+      "other, expected other to be at least ",
       inp_domain.size(),
       " but received ",
       other_domain.size());
@@ -1146,7 +1149,8 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
     if (!inp_id->isBroadcast()) {
       NVF_ERROR(
           !other_id->isBroadcast(),
-          "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
+          "Cannot expand as a tensor if other has broadcast dimensions that "
+          "don't map to broadcast dimensions in the input.");
       if (!inp_id->isConstInt() && other_id->isConstInt()) {
         out_id_builder.extent(
             ops::promoteSize(inp_id->extent(), other_id->extent()));
