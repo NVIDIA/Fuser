@@ -17,8 +17,10 @@
 
 namespace nvfuser {
 
+using testing::ContainerEq;
 using testing::Each;
 using testing::IsTrue;
+using testing::Optional;
 using testing::Property;
 using testing::SizeIs;
 
@@ -148,6 +150,25 @@ TEST_F(ReplayTest, IgnoreSplitOnReduction) {
       ElementsAre(
           Property(&IterDomain::isIteration, IsTrue()),
           Property(&IterDomain::isIteration, IsTrue())));
+}
+
+TEST_F(ReplayTest, LoopAndAllocation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = set(in);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  in->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  in->outer_split(0, d);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  TransformReplay::selfReplay(in->domain(), out->domain());
+  EXPECT_THAT(out->getLoopDomain(), SizeIs(2));
+  EXPECT_THAT(out->getLoopDomain(), ContainerEq(out->getAllocationDomain()));
+  EXPECT_THAT(out->getContiguity(), Each(Optional(IsTrue())));
 }
 
 } // namespace nvfuser

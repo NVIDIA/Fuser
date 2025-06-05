@@ -260,7 +260,6 @@ void TransformReplay::selfReplay(
 
   NVF_ERROR_EQ(new_self_logical.size(), self_logical.size());
 
-  // Map for replay
   IterDomainMap axis_map;
   for (auto&& [id, new_id] : zip(self_logical, new_self_logical)) {
     // Note: we don't want to check for equal `isRFactorProduct`, since we
@@ -282,8 +281,39 @@ void TransformReplay::selfReplay(
     axis_map[id] = new_id;
   }
 
+  const std::vector<IterDomain*>& self_loop = self->loop();
+  ReplaySelf replay(self_loop, axis_map);
+
+  // Replay loop.
+  if (self_loop != self->logical()) {
+    std::vector<IterDomain*> new_loop;
+    if (ignore_reductions) {
+      for (auto* id : new_self->logical()) {
+        if (id->isReduction()) {
+          new_loop.push_back(id);
+        }
+      }
+    }
+
+    for (IterDomain* loop_id : self_loop) {
+      if (ignore_reductions && loop_id->isReduction()) {
+        continue;
+      }
+
+      auto it = replay.getReplay().find(loop_id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          loop_id);
+      it->second->parallelize(loop_id->getParallelType());
+      new_loop.push_back(it->second);
+    }
+
+    new_self->setLoopDomain(new_loop);
+  }
+
+  // Replay allocation.
   if (self->hasAllocation()) {
-    // Replay producer dimensions.
     const std::vector<IterDomain*>& self_allocation = self->allocation();
     const std::vector<std::optional<bool>>& self_contiguity =
         self->contiguity();
@@ -306,7 +336,6 @@ void TransformReplay::selfReplay(
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    ReplaySelf replay(self_allocation, axis_map);
     for (auto&& [alloc_id, contiguity] :
          zip(self_allocation, self_contiguity)) {
       if (ignore_reductions && alloc_id->isReduction()) {
@@ -327,35 +356,6 @@ void TransformReplay::selfReplay(
     }
 
     new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
-  }
-
-  const std::vector<IterDomain*>& self_loop = self->loop();
-  if (self_loop != self->logical()) {
-    std::vector<IterDomain*> new_loop;
-    if (ignore_reductions) {
-      for (auto* id : new_self->logical()) {
-        if (id->isReduction()) {
-          new_loop.push_back(id);
-        }
-      }
-    }
-
-    ReplaySelf replay(self_loop, axis_map);
-    for (IterDomain* loop_id : self_loop) {
-      if (ignore_reductions && loop_id->isReduction()) {
-        continue;
-      }
-
-      auto it = replay.getReplay().find(loop_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          loop_id);
-      it->second->parallelize(loop_id->getParallelType());
-      new_loop.push_back(it->second);
-    }
-
-    new_self->setLoopDomain(new_loop);
   }
 }
 
