@@ -3184,7 +3184,7 @@ struct ArgsortOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::Sort,
-        serde::CreateSortDirect(builder, dim_, descending_, stable_).Union()};
+        serde::CreateSort(builder, dim_, descending_, stable_).Union()};
   }
 
  private:

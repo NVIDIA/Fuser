@@ -3645,10 +3645,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new ArgsortOpRecord(
-            {
-                fd->recordingState(arg()),
-                fd->recordingState(index()),
-            },
+            {fd->recordingState(arg)},
             {fd->recordingState(output())},
             dim,
             descending,
