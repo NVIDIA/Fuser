@@ -35,8 +35,6 @@ LdMatrix, StMatrix, TMA, and WGMMA
 
 namespace nvfuser {
 
-using HopperLdStMatrixTutorial = HopperBase;
-
 /* -->
 
 # LdMatrix and StMatrix Support in NVFuser
@@ -241,7 +239,9 @@ TensorView with a ldmatrix or stmatrix definition. The layout is based on the
 register accumulation layout for wgmma and the hard-coded index supported by
 the indexing pass. <!-- */ //-->\
 ```cpp
-AbstractTensor scheduleLdStMatrix(TensorView* tv) {
+AbstractTensor scheduleLdStMatrixBase(
+    TensorView* tv,
+    MmaInputSmemSwizzle swizzle) {
   // Assume the input TensorView is block tiled. e.g., The last two iterDomains
   // are the warp tile except for k dimension.
   // The CTA tile is (128, 256).
@@ -254,15 +254,90 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
 
   // Split by TMA shared memory box
-  abstract_tensor.split(-1, 64);
+  DataType dtype = tv->getDataType().value();
+  int64_t smem_box_size = getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+  abstract_tensor.split(-1, smem_box_size);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
 
   // Split by (16, 16) matrix for LdStMatrix.x4
+  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   abstract_tensor.split(-2, 16);
-  abstract_tensor.split(-1, 16);
+  abstract_tensor.split(-1, ldst_matrix_tile_n);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
   // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+
+  return abstract_tensor;
+}
+
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    const AbstractTensor& base_tensor) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  // Initial Abstract Tensor
+  AbstractTensor abstract_tensor(base_tensor);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+  // Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.
+
+  // For shared memory addressing, each thread specifies a row for each (8, 8)
+  // matrix. e.g., For stmatrix.x4, 32 threads move a (16, 16) matrix.
+
+  // Inside the tile box [16, 16], we can think of it as 4 8x8 tiles:
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T0   *  T2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T1   *  T3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+
+  // Split inner-dimension by 8 to traverse the rows of the (8, 8) matrices.
+  abstract_tensor.split(-1, 8);
+  // (no(4), mo(4), nio(4), mi(16), niio(2), niii(8))
+
+  // The tile is stored in row-major order, so issue four stmatrix.x4
+  // operations along the M dimension for a 128 thread warp group.
+  // Also, traverse along 16 rows first before moving along column dimension.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
+  // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
+
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+
+  // Merge no and nio to create a single serial IterDomain
+  // This ^^^ is an artifact of matmul scheduling functions.
+  abstract_tensor.merge(-4, -3);
+  // (no * nio)(16), (niio * mo * mi)(128), niii(8))
+
+  return abstract_tensor;
+}
+
+AbstractTensor scheduleLdStMatrixRegisters(const AbstractTensor& base_tensor) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  // Initial Abstract Tensor
+  AbstractTensor abstract_tensor(base_tensor);
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+  // Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.
 
   // Split (16, 16) matrix into four (8, 8) sub-matrices
   abstract_tensor.split(-2, 8);
@@ -287,8 +362,7 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // *       *       *
   // *****************
   abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
-  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4),
-  // niio(2), mio(2), niiii(2))
+  // (no(4), mo(4), nio(4), mii(8), niiio(4), niio(2), mio(2), niiii(2))
 
   // For an (16, 16) matrix, each register will hold 8 values. The LdStMatrix
   // instruction will load or store these values with a single instruction. We
@@ -296,8 +370,7 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // iterDomains together and then applying ParallelType::Vectorize.
   abstract_tensor.merge(-2, -1);
   abstract_tensor.merge(-2, -1);
-  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4), (niio
-  // * mio * niiii)(8))
+  // (no(4), mo(4), nio(4), mii(8), niiio(4), (niio * mio * niiii)(8))
 
   // Reorder iterDomains so the serial IterDomain for (CTA_N / TMA_N) and
   // (TMA_N and LDST_N) are adjacent.
@@ -307,18 +380,25 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // (64, 16) tile. Merge mio, miii, and niiio iterDomains together.
   abstract_tensor.merge(-4, -3);
   abstract_tensor.merge(-3, -2);
-  // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), (mo * mii * niiio)(128), (niio
-  // * mio * niiii)(8))
+  // (no(4), nio(4), (mo * mii * niiio)(128), (niio * mio * niiii)(8))
 
-  // Hard-coded shared memory index expects a single serial IterDomain
+  // Merge no and nio to create a single serial IterDomain
+  // This ^^^ is an artifact of matmul scheduling functions.
   abstract_tensor.merge(-4, -3);
+  // (no * nio)(16), (mo * mii * niiio)(128), (niio * mio * niiii)(8))
+
   return abstract_tensor;
 }
 
 // This test is an example of loading and storing a Tensor using TMA, LdMatrix,
 // and StMatrix.
-TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
+using LdStMatrixParams = std::tuple<MmaInputSmemSwizzle, int, int>;
+using HopperLdStMatrixTutorial = NVFuserFixtureParamTest<LdStMatrixParams>;
+TEST_P(HopperLdStMatrixTutorial, SetShmoo) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
+
+  auto& [swizzle, cta_multiple_m, cta_multiple_n] = GetParam();
 
   // Fusion Definition
   Fusion fusion;
@@ -332,16 +412,17 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   // ===========================================================================
 
   // Constants
-  constexpr int64_t cta_m = 128;
-  constexpr int64_t cta_n = 256;
   constexpr int64_t warp_m = 64;
   constexpr int64_t warp_n = 256;
+  int64_t cta_m = warp_m * cta_multiple_m;
+  int64_t cta_n = warp_n * cta_multiple_n;
   constexpr int64_t ldst_matrix_tile_m = 16;
-  constexpr int64_t ldst_matrix_tile_n = 16;
+  int64_t ldst_matrix_tile_n = (swizzle == MmaInputSmemSwizzle::None) ? 8 : 16;
   fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion.manage("ldst_matrix_m_smem", warp_m);
-  fusion.manage("ldst_matrix_n_smem", warp_n);
+  fusion.manage("ldst_matrix_m_smem", cta_m);
+  fusion.manage(
+      "ldst_matrix_n_smem", getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
   // ===========================================================================
   // Create cache intermediate TensorViews
@@ -352,7 +433,6 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0_smem->setMemoryType(MemoryType::Shared);
 
-  // TODO Add ldmatrix support
   // The definition for tv0_reg is ldmatrix, which moves data from shared memory
   // to registers.
   TensorView* tv0_reg = tv0_smem->cacheAfter();
@@ -397,14 +477,10 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   // Schedule shared memory tensors using TMA Load and Store
 
   // Schedule output from TMA Load
-  MmaInputSmemSwizzle input_swizzle =
-      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, input_swizzle);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, swizzle);
 
   // Schedule global memory output from TMA Store
-  MmaInputSmemSwizzle output_swizzle =
-      mma_utils::tmaSwizzleSharedMemory(tv1_smem);
-  mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1, swizzle);
 
   // ===========================================================================
   // Schedule register tensors using LdMatrix and StMatrix
@@ -417,15 +493,24 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   // assertion in indexing pass.
 
   // Move data from tv0_reg to tv1_smem using StMatrix
+  AbstractTensor tv1_smem_base_tensor =
+      scheduleLdStMatrixBase(tv1_smem, swizzle);
   AbstractTensor tv1_smem_abstract_tensor =
-      scheduleLdStMatrix(tv1_smem);
+      scheduleLdStMatrixRegisters(tv1_smem_base_tensor);
   // Create tma store allocation domain with swizzle
-  if (output_swizzle != MmaInputSmemSwizzle::None) {
-    mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
-  }
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, swizzle);
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
+
+  // tv1_smem is the consumer for stmatrix. tv0_reg is the consumer.
+  std::vector<IterDomain*> tv1_smem_stmatrix =
+      scheduleLdStMatrixSharedMemory(tv1_smem_base_tensor).as<IterDomain*>();
+  tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 2)
+      ->parallelize(ParallelType::TIDx);
+  tv1_smem_stmatrix.at(tv1_smem_stmatrix.size() - 1)
+      ->parallelize(ParallelType::Vectorize);
+  tv1_smem->setAlternateLoopDomain(tv1_smem_stmatrix);
 
   // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
   // Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per
@@ -437,12 +522,22 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
 
   // ===========================================================================
 
-  // Move data from tv0_reg to tv1_smem using LdMatrix
+  // Move data from tv0_smem to tv0_reg using LdMatrix
+  AbstractTensor tv0_reg_base_tensor = scheduleLdStMatrixBase(tv0_reg, swizzle);
   AbstractTensor tv0_reg_abstract_tensor =
-      scheduleLdStMatrix(tv0_reg);
+      scheduleLdStMatrixRegisters(tv0_reg_base_tensor);
   tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
   // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
   // niiio)(128), (niio * mio * niiii)(8))
+
+  std::vector<IterDomain*> tv0_reg_ldmatrix =
+      scheduleLdStMatrixSharedMemory(tv0_reg_base_tensor).as<IterDomain*>();
+  tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 2)
+      ->parallelize(ParallelType::TIDx);
+  tv0_reg_ldmatrix.at(tv0_reg_ldmatrix.size() - 1)
+      ->parallelize(ParallelType::Vectorize);
+  tv0_reg->setAlternateLoopDomain(tv0_reg_ldmatrix);
+  // tv0_reg is the consumer for ldmatrix and tv0_smem is the producer.
 
   // Set allocation domain according to loop domain
   tv0_reg->setAllocationDomain(
@@ -472,7 +567,27 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   ASSERT_TRUE(kernel != nullptr);
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
-} /*
+}
+// TODO MmaInputSmemSwizzle::None relies on hard-coded indexing, so it is
+// disabled.
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HopperLdStMatrixTutorial,
+    ::testing::Combine(
+        ::testing::Values(
+            MmaInputSmemSwizzle::B32,
+            MmaInputSmemSwizzle::B64,
+            MmaInputSmemSwizzle::B128),
+        ::testing::Values(1, 2),
+        ::testing::Values(1, 2)),
+    [](const testing::TestParamInfo<LdStMatrixParams>& info) {
+      std::stringstream ss;
+      int64_t cta_m = 64 * std::get<1>(info.param);
+      int64_t cta_n = 256 * std::get<2>(info.param);
+      ss << "swizzle_" << toString(std::get<0>(info.param)) << "_cta_m_"
+         << cta_m << "_cta_n_" << cta_n;
+      return sanitizeTestName(ss.str());
+    }); /*
 ```
 <!--*/
 } // namespace nvfuser
