@@ -3173,8 +3173,8 @@ struct ArgsortOpRecord : RecordFunctor {
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", dim=" << dim_
-       << ", descending=" << (descending_ ? "true" : "false")
-       << ", stable=" << (stable_ ? "true" : "false");
+       << ", descending=" << (descending_ ? "True" : "False")
+       << ", stable=" << (stable_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
