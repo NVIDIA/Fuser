@@ -678,8 +678,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
             !is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
           continue;
         }
-        if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv)),
-            last_iter_dim) {
+        if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
