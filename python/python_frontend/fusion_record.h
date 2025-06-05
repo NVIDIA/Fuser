@@ -3156,10 +3156,10 @@ struct ArgsortOpRecord : RecordFunctor {
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto other_argsort = dynamic_cast<const ArgsortOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) && 
-               dim_ == other_argsort->dim_ &&
-               descending_ == other_argsort->descending_ &&
-               stable_ == other_argsort->stable_;
+      result = RecordFunctor::operator==(other) &&
+          dim_ == other_argsort->dim_ &&
+          descending_ == other_argsort->descending_ &&
+          stable_ == other_argsort->stable_;
     }
     return result;
   }

@@ -5606,7 +5606,8 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
       in.type().name());
 
   // at::argsort signature is:
-  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool descending)
+  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool
+  // descending)
   auto result =
       at::argsort(in.as<at::Tensor>(), isStable(), dim(), isDescending());
 
