@@ -919,7 +919,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   }
 }
 
-void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
+void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
 
