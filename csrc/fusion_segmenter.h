@@ -738,7 +738,7 @@ class SegmentCandidateFinder {
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
-  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+  std::unordered_map<Expr*, std::unordered_set<Expr*>>
       privatized_upcast_ops_;
 
   //! Note:

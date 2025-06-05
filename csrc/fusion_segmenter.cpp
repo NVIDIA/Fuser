@@ -3953,10 +3953,10 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
   }
 
-  privatizeSqueeze();
-  privatizeUpcast();
+  // privatizeSqueeze();
+  // privatizeUpcast();
 
-  // privatizeOps();
+  privatizeOps();
   findSegments();
 }
 
@@ -4359,9 +4359,14 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         continue;
       }
 
-      if (!is_upcast_op(maybe_upcast_squeeze_out_tv->definition()) ||
-          !maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>()) {
-        continue;
+      if (std::is_same<T, UnaryOp>::value) {
+        if (!is_upcast_op(maybe_upcast_squeeze_out_tv->definition())) {
+          continue;
+        }
+      } else {
+        if (!maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>()) {
+          continue;
+        }
       }
 
       // Check if there's multiple uses of the upcast/squeeze output
@@ -4392,12 +4397,8 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
       expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
 
-      if (std::is_same<T, UnaryOp>::value) {
-        auto upcast_op =
-            maybe_upcast_squeeze_out_tv->definition()->as<UnaryOp>();
-        privatized_upcast_ops_[upcast_op].insert(
-            out_tv_clone->definition()->as<UnaryOp>());
-      }
+      auto upcast_op = maybe_upcast_squeeze_out_tv->definition();
+      privatized_upcast_ops_[upcast_op].insert(out_tv_clone->definition());
 
       privatized = true;
     }
@@ -4409,8 +4410,9 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
 void SegmentCandidateFinder::privatizeOps() {
   bool changed = true;
   while (changed) {
-    changed = privatizeUpCastOrSqueezeOp<SqueezeOp>() ||
-        privatizeUpCastOrSqueezeOp<UnaryOp>();
+    auto privatized_squeeze = privatizeUpCastOrSqueezeOp<SqueezeOp>();
+    auto privatized_upcast = privatizeUpCastOrSqueezeOp<UnaryOp>();
+    changed = privatized_squeeze || privatized_upcast;
   }
   return;
 }
@@ -4468,21 +4470,33 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
     }
   };
 
+  std::vector<Expr*> upcasts_or_squeezes;
+  std::copy_if(
+      group->exprs().begin(),
+      group->exprs().end(),
+      std::back_inserter(upcasts_or_squeezes),
+      [](Expr* expr) {
+        return ir_utils::isTvOp(expr) &&
+            (expr->isA<UnaryOp>() || expr->isA<SqueezeOp>());
+      });
+
+  bool reverted_privatized_op = true;    
+
   for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
-    std::vector<UnaryOp*> upcast_in_group;
+    std::vector<Expr*> upcast_in_group;
     Val* upcast_val_to_keep = nullptr;
-    for (auto uop : ir_utils::filterByType<UnaryOp>(group->exprs())) {
+    for (auto uop : upcasts_or_squeezes) {
       if (uop != original_upcast && !clones.count(uop)) {
         continue;
       }
 
       upcast_in_group.push_back(uop);
 
-      auto upcast_tv = uop->out();
+      auto upcast_tv = uop->output(0);
 
       // Prefer the original upcast if found
       if (upcast_val_to_keep == nullptr ||
-          upcast_tv == original_upcast->out()) {
+          upcast_tv == original_upcast->output(0)) {
         upcast_val_to_keep = upcast_tv;
       }
     }
@@ -4492,7 +4506,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
     }
 
     for (auto uop : upcast_in_group) {
-      Val* upcast_val_to_replace = uop->out();
+      Val* upcast_val_to_replace = uop->output(0);
       if (upcast_val_to_replace == upcast_val_to_keep) {
         // Keep this uop as is since its output replaces the other
         // upcast outputs
