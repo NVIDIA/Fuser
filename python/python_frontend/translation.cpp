@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <translation_names.h>
 #include <utils.h>
 
 #include <vector>
@@ -511,7 +512,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
         argument_states,
         {fd_->recordingState(map_val_to_fd_index_.at(result))},
-        "ops." + getString(e->as<ExprType>()),
+        "ops." + python::toString(e->as<ExprType>()),
         record_type,
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
@@ -718,7 +719,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new ReductionOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
         {fd_->recordingState(output())},
-        "ops." + getString(rop),
+        "ops." + python::toString(rop),
         getSerdeType(rop),
         getFunction<
             TensorView*,
