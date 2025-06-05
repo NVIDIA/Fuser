@@ -569,8 +569,8 @@ class SegmentCandidateFinder {
   // than post-upcast tensors. Replicated upcast ops will be reverted
   // when they are grouped into the same segment. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
-  void privatizeUpcast();
-  void privatizeSqueeze();
+  // void privatizeUpcast();
+  // void privatizeSqueeze();
 
   template <typename T>
   typename std::enable_if<
@@ -578,12 +578,12 @@ class SegmentCandidateFinder {
       bool>::type
   privatizeUpCastOrSqueezeOp();
 
-  void privatizeOps();
+  void privatizeUpCastAndSqueeze();
 
   void findSegments();
 
   // Revert privatized upcast ops when not necessary
-  void revertPrivatizedUpcast(SegmentedGroup* group);
+  void revertPrivatizedUpcastAndSqueeze(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -739,7 +739,7 @@ class SegmentCandidateFinder {
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
   std::unordered_map<Expr*, std::unordered_set<Expr*>>
-      privatized_upcast_ops_;
+      privatized_ops_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for

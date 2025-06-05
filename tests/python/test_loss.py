@@ -23,20 +23,6 @@ from nvfuser.testing.utils import (
 
 
 def nvfuser_fusion_id0(fd: FusionDefinition, inputs) -> None:
-    # T0 = fd.define_tensor(
-    #     shape=[1, 4096, 152064],
-    #     contiguity=[None, True, True],
-    #     dtype=DataType.BFloat16,
-    #     is_cpu=False,
-    #     stride_order=[2, 1, 0],
-    # )
-    # T1 = fd.define_tensor(
-    #     shape=[1, 4096],
-    #     contiguity=[None, True],
-    #     dtype=DataType.Int,
-    #     is_cpu=False,
-    #     stride_order=[1, 0],
-    # )
     T0 = fd.from_pytorch(inputs[0])
     T1 = fd.from_pytorch(inputs[1])
     T2 = fd.ops.cast(T0, dtype=DataType.Float)
@@ -67,9 +53,6 @@ def nvfuser_fusion_id0(fd: FusionDefinition, inputs) -> None:
     V43 = fd.ops.shape(T27)
     S44 = fd.ops.at(V43, index=-1)
     T47 = fd.ops.broadcast_in_dim(T42, shape=[S44, 1], broadcast_dims=[0])
-    # T0_ = fd.ops.segment_set(T0)
-    # T0_ = fd.ops.cast(T0_, dtype=DataType.Float)
-    # T24_ = fd.ops.reshape(T0_, new_shape=[4096, 152064])
     T48 = fd.ops.sub(T24, T47)
     T49 = fd.ops.exp(T48)
     T50 = fd.ops.sum(T49, dims=[1], keepdim=False, dtype=DataType.Null)
