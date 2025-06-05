@@ -46,8 +46,8 @@ def define_linear_backward(config: LinearConfig, fd: FusionDefinition) -> None:
 
     grad_x = fd.ops.matmul(grad, w)
 
-    grad_flat_t = fd.ops.reshape(grad_flat, [-1, e_out]) if config.has_batch else grad
-    grad_flat_t = fd.ops.permute(grad_flat_t, [1, 0])
+    grad_flat = fd.ops.reshape(grad, [-1, e_out]) if config.has_batch else grad
+    grad_flat_t = fd.ops.permute(grad_flat, [1, 0])
 
     x_flat = fd.ops.reshape(x, [-1, e_in]) if config.has_batch else x
 
