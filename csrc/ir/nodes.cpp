@@ -5581,8 +5581,8 @@ std::string ArgsortOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString() << " = argsort( "
                           << in()->toString() << ", dim = " << dim()
                           << ", descending = "
-                          << (isDescending() ? "true" : "false")
-                          << ", stable = " << (isStable() ? "true" : "false")
+                          << (isDescending() ? "True" : "False")
+                          << ", stable = " << (isStable() ? "True" : "False")
                           << " )\n";
   return ss.str();
 }
