@@ -117,4 +117,34 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
 }
 
+TEST_F(IndexPut, IndexShuffle) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t seq = 1024;
+  int64_t hidden = 1024;
+
+  std::vector<int64_t> src_shape({seq, hidden});
+  std::vector<int64_t> index_shape({seq});
+
+  auto tv_src = makeSymbolicTensor(src_shape);
+  fusion.addInput(tv_src);
+  auto tv_index = makeSymbolicTensor(index_shape, DataType::Int);
+  fusion.addInput(tv_index);
+  // TODO: this should be an inplace. handle it when we have codegen support
+  auto out = indexShuffle(tv_src, 0, tv_index);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t_src = at::randn(src_shape, options);
+  auto t_index = at::randint(0, seq, index_shape, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
+
+  testValidate(&fusion, outputs, {t_src, t_index}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
