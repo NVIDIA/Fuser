@@ -445,8 +445,9 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
 
-  // FIXME: make sure Expr is a communication and getCommunicationInfo always
-  // return a valid information.
+  // TODO(#4552): the caller should make sure Expr is a communication so
+  // getCommunicationInfo always returns a valid CommunicationInfo. Retry after
+  // #4552 is merged.
   auto communication_info = getCommunicationInfo(expr);
   if (!communication_info.has_value()) {
     return true;
