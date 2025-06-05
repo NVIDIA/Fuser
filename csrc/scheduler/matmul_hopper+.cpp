@@ -1022,6 +1022,14 @@ void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   }
 }
 
+void HopperPlus::scheduleEpilogue() {
+  if (params_->use_smem_epilogue) {
+    scheduleEpilogueWithSmemEpilogue();
+  } else {
+    scheduleEpilogueWithoutSmemEpilogue();
+  }
+}
+
 void Hopper::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
