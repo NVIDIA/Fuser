@@ -135,7 +135,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 }
 
 // Canonicalizes tv's loop domain for simplicity and working around schedulers'
-// limitations. Many schedulers panic when they see the input fusion segment
+// limitations. Many schedulers panic when seeing the input fusion segment
 // contains non-DID loop splits. For example, an rFactor tensor may look like
 // the following:
 //
