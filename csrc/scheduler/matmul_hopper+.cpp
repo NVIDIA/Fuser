@@ -142,6 +142,11 @@ void HopperPlus::validate() const {
   }
 
   NVF_CHECK(
+      params_->cluster_dims.z == 1,
+      "Cluster dims must have 1 in Z dimension but found ",
+      params_->cluster_dims.z);
+
+  NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across "
@@ -154,13 +159,13 @@ void HopperPlus::validate() const {
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected m dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.n % params_->tile_sizes.warp_tile.n == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected n dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.k % params_->tile_sizes.warp_tile.k == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected k dimension for cta_tile to be divisible by warp_tile.");
   } else if (isPingPong()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
@@ -414,11 +419,6 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     // then apply it (with "forwarding") to each TV instead. We already cache
     // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
     // scheduling is the next step in this modernization.
-
-    NVF_CHECK(
-        params_->cluster_dims.z == 1,
-        "Cluster dims must have 1 in Z dimension but found ",
-        params_->cluster_dims.z);
 
     // TODO: It might be more natural to just have a "CGA tile" as part of
     // params_->tile_sizes and infer cluster_dims from that
