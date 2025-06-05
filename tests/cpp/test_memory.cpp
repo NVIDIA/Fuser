@@ -2941,6 +2941,9 @@ TEST_P(StMatrixTest, Regular) {
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
 
+  // TODO Set alternate loop domain here once idModel support
+  // MmaInputSmemSwizzle::None
+
   for (auto tv : {tv1, tv2}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv->getLoopDomain());

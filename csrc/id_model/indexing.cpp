@@ -76,6 +76,31 @@ void TensorIndexer::buildLoopIndexMap() {
 
       loop_index_map_[loop_group] = loop_index;
     }
+
+    if (!tv_output->getAlternateLoopDomain().has_value()) {
+      continue;
+    }
+
+    const std::vector<IterDomain*>& alternate_loop_domain =
+        tv_output->getAlternateLoopDomain().value();
+    const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
+    NVF_ERROR(alternate_loop_domain.size() == loop_domain.size());
+    for (auto&& [alt_loop_id, loop_id] :
+         zip(alternate_loop_domain, loop_domain)) {
+      const ValGroup& alt_loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(alt_loop_id);
+      if (loop_index_map_.find(alt_loop_group) != loop_index_map_.end()) {
+        // Index already assigned for alternate loop iterDomain
+        continue;
+      }
+      // Map alternate loop iterDomain to the index variable for the original
+      // loop iterDomain.
+      const ValGroup& loop_group =
+          id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
+      auto loop_index_iter = loop_index_map_.find(loop_group);
+      NVF_ERROR(loop_index_iter != loop_index_map_.end());
+      loop_index_map_[alt_loop_group] = loop_index_iter->second;
+    }
   }
 }
 
@@ -251,9 +276,11 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_ids = getLoopIds(expr, id_model_);
-  const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
+    const std::vector<ForLoop*>& for_loops,
+    bool use_alternate_loop_domain) const {
+  const auto loop_ids = getLoopIds(expr, id_model_, use_alternate_loop_domain);
+  const ExprPath<ExprGroup> traversal_path =
+      getIndexingPath(expr, index_ids, use_alternate_loop_domain);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
       getInitialIndexMap(loop_ids, for_loops);
 
@@ -785,7 +812,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
 ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
     const Expr* expr,
-    const std::vector<IterDomain*>& index_ids) const {
+    const std::vector<IterDomain*>& index_ids,
+    bool use_alternate_loop_domain) const {
   // Exclude broadcast IDs as their indices should always be zero
   // and they may not be reachable from the loop domain
   std::vector<IterDomain*> non_broadcast_index_ids;
@@ -798,7 +826,7 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
   return IndexingTraversal::getExprsBetween(
       expr,
       traversalGraph(),
-      getLoopIds(expr, id_model_),
+      getLoopIds(expr, id_model_, use_alternate_loop_domain),
       non_broadcast_index_ids);
 }
 
@@ -888,6 +916,40 @@ void TensorIndexer::ensureStaticIndexing(
   }
 }
 
+namespace {
+
+// Use alternate loop domain for the shared memory tensor for ldmatrix and
+// stmatrix.
+bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
+  // short-circuit: not (ldmatrix or stmatrix)
+  if (!ir_utils::isLdMatrixOp(expr) && !ir_utils::isStMatrixOp(expr)) {
+    return false;
+  }
+  // short-circuit: only the shared memory TensorView uses alternate loop
+  // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
+  // output TensorView.
+  if (tv->getMemoryType() != MemoryType::Shared) {
+    return false;
+  }
+
+  TensorView* output_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(output_tv != nullptr);
+
+  // alternate_loop_domain is optional for ldmatrix.
+  if (ir_utils::isLdMatrixOp(expr)) {
+    return output_tv->getAlternateLoopDomain().has_value();
+  }
+
+  NVF_ERROR(
+      output_tv->getAlternateLoopDomain().has_value(),
+      "Expected the alternate loop domain to be defined for the output "
+      "TensorView of ",
+      expr->toString());
+  return true;
+}
+
+} // namespace
+
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
         TensorView* tv,
@@ -903,7 +965,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
       indexed_ids.push_back(id);
     }
   }
-  auto index_info = computeIndex(expr, indexed_ids, for_loops);
+  auto index_info = computeIndex(
+      expr, indexed_ids, for_loops, isSharedMemoryTvForLdStMatrix(tv, expr));
   for (const auto& [indexed_id, index] : override_index) {
     index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
   }
