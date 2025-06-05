@@ -3183,8 +3183,8 @@ struct ArgsortOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::ArgsortParams,
-        serde::CreateArgsortParams(builder, dim_, descending_, stable_).Union()};
+        serde::RecordData::Sort,
+        serde::CreateSortDirect(builder, dim_, descending_, stable_).Union()};
   }
 
  private:
