@@ -445,6 +445,64 @@ TEST_P(LowerCollectiveTest, ReduceScatter) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  const auto d = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {1});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  in->setDeviceMesh(mesh);
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  in->setAllocationDomain(in->getLoopDomain(), true);
+
+  out->setDeviceMesh(mesh);
+  out->outer_split(1, d);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 2, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  at::Tensor unsharded_out_tensor = unsharded_in_tensor.sum(1);
+  EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const std::vector<SegmentedGroup*>& groups =
+      runtime->fusionSegments()->groups();
+  EXPECT_THAT(
+      groups,
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::Reduction),
+          HeuristicIs(SchedulerType::Communication)));
+  for (auto* group : groups) {
+    if (group->schedulerType() == SchedulerType::Communication) {
+      EXPECT_EQ(group->inputs().at(0)->as<TensorView>()->nDims(), 3)
+          << "This TV is the output of the local reduction and the input of "
+             "the ReduceScatter. Its loop domain should contain three "
+             "elements: in no particular order, [i{2d}, iDIDx{d}, r{3}]. "
+             "nvFuser used to add an extra split and thus [i{d}, i{2}, "
+             "iDIDx{d}, r{3}] as the loop domain. This is in "
+             "theory valid but unnecessarily complicated and in practice "
+             "caused some schedulers to fail. "
+             "Many schedulers panic when they see the input fusion segment "
+             "contains non-DID loop splits.";
+    }
+  }
+}
+
+TEST_P(LowerCollectiveTest, ReduceScatter_LogicalSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
   const auto num_devices = communicator_->size();
   TensorView* in = makeContigTensor(3);
   TensorView* out = sum(in, {0});
@@ -671,7 +729,7 @@ TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerCollectiveTest,
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
