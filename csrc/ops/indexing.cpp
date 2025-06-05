@@ -291,7 +291,7 @@ TensorView* indexShuffle(
   //     idx_dom.size() == 1,
   //     "index tensor should be 1D for index shuffle");
   std::vector<IterDomain*> original_index_domain =
-      TensorDomain::noReductions(index_tv->getLogicalDomain());
+      TensorDomain::noReductions(index->getLogicalDomain());
   auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
 
   NVF_CHECK(!src_dom.empty(), "index shuffle can not be applied to 0d tensor.");
@@ -305,22 +305,22 @@ TensorView* indexShuffle(
     // Broadcast index to src's rank.
     NVF_CHECK(
         original_index_domain.size() == 1,
-        "index_tv must be a 1d tensor");
-    index_tv =
-        ops::maybeBroadcastIndexTv(index_tv->as<TensorView>(), dim, n_dims);
+        "index must be a 1d tensor");
+    index =
+        ops::maybeBroadcastIndexTv(index->as<TensorView>(), dim, n_dims);
   } else {
     // TODO: assert index is broadcast at the right place
   }
 
   // The shape of output tensor is same as src tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : arange(self_dom.size())) {
+  for (const auto i : arange(src_dom.size())) {
     out_domain.push_back(
-        IterDomainBuilder(self_dom[i])
+        IterDomainBuilder(src_dom[i])
             .iter_type(
-                self_dom[i]->getIterType() == IterType::Iteration
+                src_dom[i]->getIterType() == IterType::Iteration
                     ? IterType::GatherScatter
-                    : self_dom[i]->getIterType())
+                    : src_dom[i]->getIterType())
             .build());
   }
 
