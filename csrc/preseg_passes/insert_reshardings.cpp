@@ -17,6 +17,10 @@
 #include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
+#include <ops/composite.h>
+#include <ops/utils.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 namespace {
@@ -181,6 +185,49 @@ void canonicalizeLoopDomain(TensorView* tv) {
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
+void decomposeRowParallelLinearWithBias(Fusion* fusion) {
+  for (Expr* e : fusion->exprs()) {
+    auto* linear_op = dynamic_cast<LinearOp*>(e);
+    if (linear_op == nullptr) {
+      continue;
+    }
+
+    if (!linear_op->hasBias()) {
+      continue;
+    }
+
+    TensorView* out = linear_op->out();
+    if (std::none_of(
+            out->getLoopDomain().begin(),
+            out->getLoopDomain().end(),
+            [](IterDomain* id) {
+              return id->isReduction() && id->isParallelized();
+            })) {
+      continue;
+    }
+
+    auto* without_bias = linear(linear_op->inA(), linear_op->inB());
+    TransformReplay::selfReplay(out->domain(), without_bias->domain());
+
+    TensorView* broadcasted_bias = [&]() {
+      const int64_t rank_after_broadcast = std::ssize(
+          TensorDomain::noReductions(without_bias->getLogicalDomain()));
+      NVF_ERROR(
+          rank_after_broadcast > 0,
+          "without_bias is expected to be at least 1D: ",
+          without_bias);
+      std::vector<bool> is_broadcast_dim(rank_after_broadcast, true);
+      is_broadcast_dim.back() = false;
+      return broadcast(linear_op->bias(), is_broadcast_dim);
+    }();
+
+    TensorView* new_out = add(without_bias, broadcasted_bias);
+    TransformReplay::selfReplay(
+        out->domain(), new_out->domain(), /*ignore_reductions=*/true);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(out, new_out);
+  }
+}
+
 // If a TensorView has a reduction dimension that's DID-split, we R-factor the
 // TensorView into a local reduction followed by an allreduce.
 //
@@ -280,6 +327,8 @@ void rFactorLoopSplits(Fusion* fusion) {
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
+  decomposeRowParallelLinearWithBias(fusion);
+
   rFactorLoopSplits(fusion);
 
   // shouldReshardAfter selects whether insertReshardingSetsAfter or

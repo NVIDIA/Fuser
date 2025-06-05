@@ -517,7 +517,8 @@ int64_t TransposeDomainMap::getInnerLeafDim(
       // it and support with mapping it to out.
       NVF_ERROR(
           !merge->inner()->extent()->isOneInt(),
-          "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+          "merge with size-1 dimension is supposed to be translated to squeeze "
+          "by reshape");
       if (merge->inner() == mapped_id) {
         mapped_id = merge->out();
       }

@@ -45,7 +45,8 @@ void ReplayTransformations::handle(Split* s) {
   // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
       loop_ids_.find(mapped) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   // Replay the split onto mapped
   NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
@@ -164,7 +165,8 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   NVF_ERROR(
       loop_ids_.find(mapped_x) != loop_ids_.end() &&
           loop_ids_.find(mapped_y) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
@@ -209,7 +211,8 @@ void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
   NVF_ERROR(
       loop_ids_.find(mapped_x) != loop_ids_.end() &&
           loop_ids_.find(mapped_y) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   auto outs = std::make_pair(mapped_x, mapped_y);
 
@@ -247,7 +250,8 @@ void ReplayTransformations::handle(Resize* exp) {
   // Make sure this ID is a loop ID (meaning it has no uses we generated)
   NVF_ERROR(
       loop_ids_.find(mapped) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop node.");
+      "Transform traversal failed, modified a node but it was not a loop "
+      "node.");
 
   auto out = mapped;
 
@@ -354,13 +358,14 @@ void ReplayTransformations::runReplay() {
       [](std::pair<IterDomain*, size_t> entry) { return entry.first; });
 }
 
-#define ERROR_ON_FAILURE(cond)                                                                                          \
-  do {                                                                                                                  \
-    if (error_on_failure_) {                                                                                            \
-      NVF_ERROR(                                                                                                        \
-          (cond),                                                                                                       \
-          "Error during best effort replay, a transformation was called that conflicts with an root-to-logical call."); \
-    }                                                                                                                   \
+#define ERROR_ON_FAILURE(cond)                                                 \
+  do {                                                                         \
+    if (error_on_failure_) {                                                   \
+      NVF_ERROR(                                                               \
+          (cond),                                                              \
+          "Error during best effort replay, a transformation was called that " \
+          "conflicts with an root-to-logical call.");                          \
+    }                                                                          \
   } while (false)
 
 BestEffortReplay::BestEffortReplay(
@@ -450,7 +455,8 @@ BestEffortReplay::BestEffortReplay(
   }
 
   std::string err_str(
-      "Error during replay, a transformation was called that conflicts with an rfactor call.");
+      "Error during replay, a transformation was called that conflicts with an "
+      "rfactor call.");
 
   bool any_target_expr_contains_broadcast_id = false;
 

@@ -572,7 +572,8 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env "
+            "variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -582,7 +583,8 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but "
+          "received ",
           val,
           ", ignoring the option");
     }
@@ -1028,10 +1030,12 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
         return token;
       }
     }
-    debug()
-        << "Didn't find requested external source code. Will use generated code!\n"
-        << "Number of source code files should equal the number of fusion segments.\n"
-        << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
+    debug() << "Didn't find requested external source code. Will use generated "
+               "code!\n"
+            << "Number of source code files should equal the number of fusion "
+               "segments.\n"
+            << "External source code filenames should be delineated with "
+               "commas, e.g.: file1.cu,file2.cu.\n";
     return "";
   };
 
@@ -1301,7 +1305,8 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
 
   if (!kernel_summary.dynamic_lmem_allocations.empty()) {
     std::stringstream ss;
-    ss << "Allocations must be based on constant integers for local memory. However, found: ";
+    ss << "Allocations must be based on constant integers for local memory. "
+          "However, found: ";
     for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
       ss << alloc->buffer()->toString() << ", ";
     }
@@ -1426,7 +1431,8 @@ float RtcKernel::run(
   for (const auto& input : args) {
     NVF_ERROR(
         input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
-        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+        "Only CUDA tensors are supported for direct nvRTC launches at this "
+        "time.");
     auto input_tensor = input.as<at::Tensor>();
     data.emplace_back(tensorToBytes(
         input_tensor,
@@ -1512,7 +1518,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",
