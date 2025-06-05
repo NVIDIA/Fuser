@@ -162,10 +162,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const LaunchParams& lparams) {
     CudaKernelGenerator codegen(kernel);
     codegen.lparams_ = lparams;
-    codegen.has_warp_specialized_ =
-        kernel->summary().circular_buffer_info.hasWarpSpecialized();
-    codegen.warp_specialized_on_ =
-        kernel->summary().circular_buffer_info.getWarpSpecializedOn();
+    const auto& cbi = kernel->summary().circular_buffer_info;
+    codegen.has_warp_specialized_ = cbi.hasWarpSpecialized();
+    codegen.warp_specialized_on_ = cbi.getWarpSpecializedOn();
+    codegen.has_independent_compute_warp_groups_ =
+        cbi.hasIndependentComputeWarpGroups();
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -427,6 +428,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                            << kernel_summary.largest_smem_data_type << ")";
           if (has_parallel_welford) {
             smem_buf_size_ss << " * 3";
+          }
+          if (kernel_summary.num_grouped_iterations > 1) {
+            smem_buf_size_ss << " * " << kernel_summary.num_grouped_iterations;
           }
           if (kernel_summary.all_block_reductions_are_warp_reduction) {
             smem_buf_size_ss << " / 32";
@@ -1369,7 +1373,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
     return;
   }
-
+  int64_t getComputeThreadsTIDx() {
+    return warp_specialized_on_ == ParallelType::TIDx
+        ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
+        : lparams_.bdimx();
+  }
   void genWarpReduction(
       const kir::TensorIndex* output,
       const kir::TensorIndex* input,
@@ -3000,6 +3008,37 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
   }
+  std::string genSmemOffset() {
+    std::stringstream offset_ss;
+    offset_ss << genVariableName(
+        NamedScalar::getParallelIndex(warp_specialized_on_));
+    offset_ss << " * " << getComputeThreadsTIDx();
+    if (kernel_->summary().num_grouped_iterations > 1) {
+      offset_ss << " * " << kernel_->summary().num_grouped_iterations;
+    }
+    if (kernel_->summary().all_block_reductions_are_warp_reduction) {
+      offset_ss << " / 32";
+    }
+    return offset_ss.str();
+  }
+
+  std::string genBarrierId(bool is_computation_warp_groups) {
+    std::stringstream ss;
+    if (is_computation_warp_groups && has_independent_compute_warp_groups_) {
+      ss << next_barrier_id_ << " + "
+         << genInline(NamedScalar::getParallelIndex(warp_specialized_on_));
+      NVF_ERROR(
+          warp_specialized_on_ == ParallelType::TIDy,
+          "Independent compute warp groups only supported for TIDy.");
+      int64_t n_compute_groups = lparams_.bdimy() - 1;
+      next_barrier_id_ += n_compute_groups;
+    } else {
+      ss << "(uint32_t)" << next_barrier_id_;
+      next_barrier_id_++;
+    }
+    return ss.str();
+  }
+
   void genGroupedWarpReduction(
       const int num_grouped_iterations,
       kir::TensorIndex* output,
@@ -3011,16 +3050,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    if (has_independent_compute_warp_groups_) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
 
     ArgumentBuilder template_args;
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(
-        warp_specialized_on_ == ParallelType::TIDx
-            ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
-            : lparams_.bdimx());
+    template_args.arg(getComputeThreadsTIDx());
+    if (has_independent_compute_warp_groups_) {
+      func_args.arg(genBarrierId(true));
+    }
     indent() << genCall(
                     "warp::iterGroupedStaticWarpAllReduce",
                     template_args,
@@ -3670,7 +3715,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append("]");
     sync_call_args.arg(sync_segment_size);
     sync_call_args.arg(genComputeBlockDim());
-
+    if (has_independent_compute_warp_groups_) {
+      sync_call_args.arg(genBarrierId(/*is_computation_warp_groups=*/false));
+    }
     auto sync_call =
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
 
@@ -3874,8 +3921,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   LaunchParams lparams_;
   //! Whether the kernel has warp specialization
   bool has_warp_specialized_ = false;
+  //! Whether the kernel has independent compute warp groups
+  bool has_independent_compute_warp_groups_ = false;
   //! Warp specialized on parallel type
   ParallelType warp_specialized_on_ = ParallelType::Serial;
+  //! Track barrier ids used in the kernel
+  //! 0 is system reserved, start from 1
+  int64_t next_barrier_id_ = 1;
 };
 
 } // namespace
