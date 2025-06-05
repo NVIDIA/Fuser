@@ -281,6 +281,12 @@ void TransformReplay::selfReplay(
     axis_map[id] = new_id;
   }
 
+  // We create one ReplaySelf instance to replay loop and allocation. This way,
+  // loop and allocation share the same transforms if they are split the same
+  // way.
+  //
+  // We use `self_loop` as the target domain because loop post-dominates
+  // allocation.
   const std::vector<IterDomain*>& self_loop = self->loop();
   ReplaySelf replay(self_loop, axis_map);
 
