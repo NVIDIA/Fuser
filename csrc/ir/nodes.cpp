@@ -5405,7 +5405,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     }
     bwd_inputs.push_back(in_tensor);
   }
-  const auto dropout_p = inputs.at(8).as<double>();
+  const auto dropout_p = inputs.at(6).as<double>();
   const auto is_causal = inputs.at(7).as<bool>();
   const auto philox_seed = inputs.at(8).as<at::Tensor>();
   const auto philox_offset = inputs.at(9).as<at::Tensor>();
