@@ -34,6 +34,9 @@ namespace schedule_matmul {
 
 namespace {
 
+constexpr int64_t hardcoded_smem_vectorize_factor = 4;
+constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
     std::vector<MatmulDimRole>& roles,
@@ -134,17 +137,20 @@ void HopperPlus::validate() const {
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
         params_->splitk_factor == 1,
-        "Hopper+ matmul scheduler does not support scheduling persistent split-K kernels");
+        "Hopper+ matmul scheduler does not support scheduling persistent "
+        "split-K kernels");
   }
 
   NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
-      "Hopper+ matmul scheduler does not support distributing stages across SMs a la stream-K");
+      "Hopper+ matmul scheduler does not support distributing stages across "
+      "SMs a la stream-K");
 
   NVF_CHECK(
       isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
+      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
@@ -158,7 +164,8 @@ void HopperPlus::validate() const {
   } else if (isPingPong()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
-        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul Kernels");
+        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
+        "Kernels");
   }
 }
 
@@ -645,6 +652,7 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
 
 void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -670,7 +678,6 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
-    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     if (tmem_vectorize_factor < getN(params_->mma_macro)) {
       d->split(-1, tmem_vectorize_factor);
     }
@@ -763,16 +770,13 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
+void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
   fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
   fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
-
-  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
-  std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -926,6 +930,117 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
   }
 }
 
+void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+  const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+
+  std::vector<TensorView*> tmem_ld_tvs =
+      !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
+
+  // Propagate to (not including) the splitk output if there is a splitk
+  // else this is just mma_results_
+  std::vector<TensorView*> register_tvs;
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    bool is_2d_epilogue_input =
+        TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
+    if (is_2d_epilogue_input && params_->async_gmem_load_operands) {
+      // Schedule TMA load into shared memory for epilogue input
+      c_cache->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      c_cache->setMemoryType(MemoryType::Shared);
+      blockTileTensors({c_cache});
+      parallelizeBlocks({c_cache});
+      transformLikeMmaOutputWithoutK(c_cache);
+      c_cache->setAllocationDomain(c_cache->getLoopDomain(), true);
+      for (int64_t i = -5; i <= -1; i++) {
+        c_cache->axis(i)->parallelize(ParallelType::Bulk);
+      }
+
+      // Schedule smem->register load for epilogue input
+      TensorView* reg_tv = cacheAfter(c_cache);
+      register_tvs.push_back(reg_tv);
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+      transformLikeMmaOutputWithoutK(reg_tv);
+    }
+    // Propagate changes to the cache_after tensor
+    propagate_to.push_back(c);
+  }
+
+  // TMem load is scheduled separately, so don't propagate to it.
+  propagate_to.insert(
+      propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
+
+  // The chain of operations storing data to global memory:
+  //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
+  // We schedule d_smem and propagate it back.
+  for (Val* dv : fusion_->outputs()) {
+    TensorView* d = dv->as<TensorView>();
+    NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+    TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
+    dc->setMemoryType(MemoryType::Local);
+    d_smem->setMemoryType(MemoryType::Shared);
+
+    // We schedule the epilogue like:
+    // (v = tmem_vectorize_factor, vv = smem_vectorize_factor
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
+    blockTileTensors({d, d_smem});
+    parallelizeBlocks({d, d_smem});
+    for (auto tv : {d, d_smem}) {
+      transformLikeMmaOutputWithoutK(tv);
+      tv->axis(-2)->parallelize(ParallelType::TIDx);
+      if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+        tv->split(-1, tmem_vectorize_factor);
+      }
+    }
+    if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
+      d_smem->split(-1, hardcoded_smem_vectorize_factor);
+    }
+
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d_smem,
+        -1,
+        propagate_to,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+
+    d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+    d_smem->setAllocationDomain(d_smem->getLoopDomain(), true);
+
+    // Schedule global memory output; Output from TMA Store
+    d->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    for (int64_t i = -5; i <= -1; i++) {
+      d->axis(i)->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  // Schedule TMem load as:
+  // (v = tmem_vectorize_factor)
+  // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
+  blockTileTensors(tmem_ld_tvs);
+  parallelizeBlocks(tmem_ld_tvs);
+  for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
+    transformLikeMmaOutputWithoutK(tmem_ld_tv);
+    tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+      tmem_ld_tv->split(-1, tmem_vectorize_factor);
+    }
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+}
+
+void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
+  if (isHopper(params_->mma_macro)) {
+    scheduleEpilogueWithSmemEpilogueHopper();
+  } else {
+    scheduleEpilogueWithSmemEpilogueBlackwell();
+  }
+}
+
 void HopperPlus::scheduleEpilogue() {
   if (params_->use_smem_epilogue) {
     scheduleEpilogueWithSmemEpilogue();
@@ -949,8 +1064,6 @@ void HopperPlus::scheduleSplitKSumHopper() {
     splitk_sum->axis(-1)->parallelize(ParallelType::Vectorize);
   }
 }
-
-constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
 
 // Schedule TMem load tv and splitk_sum tv as follows:
 //   v = vectorization factor for TMem load
@@ -1028,7 +1141,8 @@ void HopperPlus::setUpCircularBuffering() {
                 params_->circular_buffer_options.smem_circular_buffer_stage,
         "smem_circular_buffer_prefetch_gap is ",
         params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
-        " but is expected to be positive and not greater than number of stages: ",
+        " but is expected to be positive and not greater than number of "
+        "stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
     CircularBufferType cb_type;

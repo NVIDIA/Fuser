@@ -17,6 +17,11 @@
 
 namespace nvfuser {
 
+using testing::Each;
+using testing::IsTrue;
+using testing::Property;
+using testing::SizeIs;
+
 using ReplayTest = NVFuserTest;
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
@@ -96,6 +101,53 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       /*dim=*/-1);
 
   EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
+}
+
+TEST_F(ReplayTest, ReplaySplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = sum(in, {0});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  out->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  out->outer_split(0, d);
+
+  TensorView* new_out = sum(in, {0});
+  TransformReplay::selfReplay(
+      out->domain(), new_out->domain(), /*ignore_reductions=*/false);
+  fusion.replaceOutput(out, new_out);
+
+  std::vector<IterDomain*> out_loop =
+      fusion.outputs().at(0)->as<TensorView>()->getLoopDomain();
+  EXPECT_THAT(out_loop, SizeIs(2));
+  EXPECT_THAT(out_loop, Each(Property(&IterDomain::isReduction, IsTrue())));
+}
+
+TEST_F(ReplayTest, IgnoreSplitOnReduction) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* x = sum(in, {0});
+  TensorView* out = set(x);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  constexpr int d = 2;
+  x->setDeviceMesh(DeviceMesh::createForNumDevices(d));
+  x->outer_split(0, d);
+  x->outer_split(2, d);
+
+  TransformReplay::selfReplay(
+      x->domain(), out->domain(), /*ignore_reductions=*/true);
+
+  EXPECT_THAT(
+      out->getLoopDomain(),
+      ElementsAre(
+          Property(&IterDomain::isIteration, IsTrue()),
+          Property(&IterDomain::isIteration, IsTrue())));
 }
 
 } // namespace nvfuser

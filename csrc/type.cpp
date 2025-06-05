@@ -1291,9 +1291,12 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::Index:
       NVF_THROW(
           "Index is determined at compile time,",
-          " to convert from an aten type you need to have the compiled information. ",
-          "This information is passed to GpuLower at compile time, and then copied to kerned.",
-          "There's also this information in FusionExecutorCache and the Registry system.");
+          " to convert from an aten type you need to have the compiled "
+          "information. ",
+          "This information is passed to GpuLower at compile time, and then "
+          "copied to kerned.",
+          "There's also this information in FusionExecutorCache and the "
+          "Registry system.");
     case DataType::Char:
       return at::ScalarType::Char;
     case DataType::Short:

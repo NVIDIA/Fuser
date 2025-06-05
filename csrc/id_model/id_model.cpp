@@ -1218,8 +1218,10 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const ValGroups& new_groups = new_graph.toGroups(*stale_group);
     NVF_ERROR(
         new_groups.size() == 1,
-        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
-        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
+        "\nUpdate map assumes that new graph is equivalent to old graph plus "
+        "extra mappings.\n",
+        "i.e. all mappings in new_graph should exist in the graph stale_map "
+        "was produced on.\n",
         "old:",
         nvfuser::toString(stale_group),
         "new: ",
@@ -1367,7 +1369,8 @@ Val* IdModel::getLoopIndexVariable(
     CircularBufferLoopStage circular_buffer_loop_stage) const {
   NVF_ERROR(
       !loop_index_variable_map_.empty(),
-      "Loop index variables not generated. IdModel::allocateIndexVariables may have not been callled.");
+      "Loop index variables not generated. IdModel::allocateIndexVariables may "
+      "have not been callled.");
 
   // Check if this loop was modified by circular buffer pass.
   bool is_circular_buffer_iterdomain =

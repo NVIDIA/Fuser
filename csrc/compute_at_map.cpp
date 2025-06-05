@@ -99,7 +99,8 @@ bool IterDomainGraph::exprsMap(
 
   NVF_ERROR(
       first->isA<Merge>() || first->isA<Split>() || first->isA<Resize>(),
-      "Merge, split and resize are the only expressions supported through root to logical operations in compute at map, but found:\n",
+      "Merge, split and resize are the only expressions supported through root "
+      "to logical operations in compute at map, but found:\n",
       first->toString());
 
   auto first_ids = ir_utils::filterByType<IterDomain>(
@@ -212,7 +213,8 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
                         .vector();
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
-      "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
+      "This should be unreachable, if transformation expressions match, their "
+      "number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
       "\nand\n",
       second->toString());
@@ -389,7 +391,8 @@ void IterDomainGraph::build(Fusion* fusion) {
               c_tv->getMaybeRootDomain().size() ==
                   first_output_tv->getMaybeRootDomain().size(),
               "Multiple outputs with mismatched dimensions is not supported. ",
-              "Only supported case is welford op where all outputs tvs have identical domains.");
+              "Only supported case is welford op where all outputs tvs have "
+              "identical domains.");
           // p->f, c->c
           std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
           for (const auto i :
@@ -622,11 +625,13 @@ void IterDomainGraph::build(Fusion* fusion) {
               expr->isA<Swizzle>(),
           "Wasn't expecting the expression type of:\n",
           expr->toString(),
-          "\nto be an expression defined in an root to logical transformation.");
+          "\nto be an expression defined in an root to logical "
+          "transformation.");
       for (auto logical_inp_id : logical_inp_ids) {
         NVF_ERROR(
             logical_id_uses.find(logical_inp_id) == logical_id_uses.end(),
-            "Was expecting iter domains to only have one active transformation but found id ",
+            "Was expecting iter domains to only have one active transformation "
+            "but found id ",
             logical_inp_id->toString(),
             " used in\n",
             logical_id_uses.at(logical_inp_id),
@@ -1633,7 +1638,8 @@ const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>& ComputeAtMap::
   NVF_ERROR(
       idExistsInMap(id),
       id->toString(),
-      " has not been processed in this Compute At Map, yet the disjoint set for it was requested.");
+      " has not been processed in this Compute At Map, yet the disjoint set "
+      "for it was requested.");
   return getIdSets(mode).disjointSetMap().at(id);
 }
 
@@ -1682,7 +1688,8 @@ ComputeAtMap::getInputDisjointSetsOf(IterDomain* of_id, bool stop_at_logical) {
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
     NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
-        "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_definitions_ wasn't correctly generated, missing the "
+        "disjoint set:\n",
         currently_visiting->toString());
 
     // If there's no definition, we've found an input.
@@ -1745,7 +1752,8 @@ ComputeAtMap::getAllDisjointSetProducers(
     auto defs_it = unique_exact_definitions_.find(currently_visiting);
     NVF_ERROR(
         defs_it != unique_exact_definitions_.end(),
-        "unique_exact_definitions_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_definitions_ wasn't correctly generated, missing the "
+        "disjoint set:\n",
         currently_visiting->toString());
 
     // Traverse producers of current disjoint set and collect unique exact
@@ -1793,7 +1801,8 @@ ComputeAtMap::getAllDisjointSetConsumers(
     auto uses_it = unique_exact_uses_.find(currently_visiting);
     NVF_ERROR(
         uses_it != unique_exact_uses_.end(),
-        "unique_exact_uses_ wasn't correctly generated, missing the disjoint set:\n",
+        "unique_exact_uses_ wasn't correctly generated, missing the disjoint "
+        "set:\n",
         currently_visiting->toString());
 
     // Traverse consumers of current disjoint set and collect unique exact

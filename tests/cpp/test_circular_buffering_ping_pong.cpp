@@ -29,6 +29,7 @@ using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto [stage_slice_position] = GetParam();
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -38,8 +39,19 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   constexpr int64_t circular_loop = 12;
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  const int64_t dim0 =
-      rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+  int64_t dim0 = rows_per_stage;
+  // Make dim0 non-divisible to test predicate
+  if (stage_slice_position == 2) {
+    // only not divisible by [circular_loop]
+    dim0 *= (compute_warp_groups * sm_count * (circular_loop + 1));
+  } else if (stage_slice_position == 3) {
+    // may not divisible by [circular_loop], [sm_count], and
+    // [compute_warp_groups]
+    dim0 *= (compute_warp_groups * sm_count * circular_loop + 1);
+  } else {
+    dim0 *= (compute_warp_groups * sm_count * circular_loop);
+  }
+
   constexpr int64_t dim1 = 128;
   constexpr int64_t stages = 6;
 
@@ -84,7 +96,6 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   inlineSelectedAt({tv1}, tv2, /*reference_pos=*/2);
   inlineSelectedAt({tv2}, tv2, /*reference_pos=*/3);
 
-  auto [stage_slice_position] = GetParam();
   tv1->circularBuffer(
       stages,
       stages - 1,
@@ -405,6 +416,27 @@ TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
   ke.compile(fusion.get(), {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+
+  // Validate loop mappings for sibling tma loads tv2 and tv3
+  IdModel id_model(fusion.get(), /*build_graphs=*/true);
+  const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  NVF_ERROR(tv2->nDims() == tv3->nDims());
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{0, stage_slice_position},
+          [&](int64_t pos) {
+            return loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected all sibling iterDomains to the left of stage_slice_position to "
+      "belong to the same ValGroup in LOOP map.");
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{stage_slice_position, tv2->nDims()},
+          [&](int64_t pos) {
+            return !loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected all sibling iterDomains to the right of and including the "
+      "stage_slice_position not to belong to the same ValGroup in LOOP map.");
 }
 // Stage_Split_Position 2 does not work currently with multiple TMA loads.
 // TODO: Enable after supporting multi-role specialization.
