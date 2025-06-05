@@ -33,6 +33,10 @@ class LinkedHashMap {
   LinkedHashMap(LinkedHashMap&&) = default;
   LinkedHashMap& operator=(LinkedHashMap&&) = default;
 
+  bool contains(const K& key) const {
+    return key_to_index_.count(key) > 0;
+  }
+
   // Returns the value associated with `key` and the list iterator following the
   // removed element.
   std::pair<V, iterator> erase(const K& key);
@@ -49,8 +53,10 @@ class LinkedHashMap {
   const_iterator end() const {
     return order_.end();
   }
-  size_t size() const {
-    return key_to_index_.size();
+
+  int64_t size() const {
+    NVF_ERROR_EQ(order_.size(), key_to_index_.size());
+    return std::ssize(order_);
   }
 
  private:

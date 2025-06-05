@@ -36,7 +36,8 @@ struct OneDimTmaPredicateInfo {
 
   // Ensure it is valid before use
   bool isSet() const {
-    return combined_pred_val && inline_pred_val && !loop_indices_circular_to_predicate.empty();
+    return combined_pred_val && inline_pred_val &&
+        !loop_indices_circular_to_predicate.empty();
   }
 };
 class PredicateCompute {

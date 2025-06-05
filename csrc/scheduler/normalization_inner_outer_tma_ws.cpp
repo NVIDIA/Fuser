@@ -281,6 +281,7 @@ void getHeuristics(
     set_heuristics_paras();
   }
   int64_t inner_batch = ceilDiv(after_vect, bdimx);
+  std::cout << "bdimx= " << bdimx << ", after_vect " << after_vect << ", inner_batch " << inner_batch << std::endl;
 
   // The inner reduction part of the kernel also does a partial outer reduction
   // and stores the partial results in tmp gmem and then reloaded to finish the
@@ -514,10 +515,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   }
   NVF_ERROR(
       !inner_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
+      "schedulePersistentKernelInnerOuter is called but no inner reduction is "
+      "found.");
   NVF_ERROR(
       !outer_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
+      "schedulePersistentKernelInnerOuter is called but no outer reduction is "
+      "found.");
 
   // schedule inner reduction, only schedule the first inner reduction tv,
   // then will be propagated to other inner reduction tvs.
@@ -707,7 +710,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       NVF_ERROR(
           rparams->vectorization_factor_tmp_gmem_write <=
               rparams->unroll_factor_inner_reduction,
-          "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
+          "vectorization factor of temp gmem write should be smaller than that "
+          "of inner reduction.")
       if (rparams->vectorization_factor_tmp_gmem_write <
           rparams->unroll_factor_inner_reduction) {
         tv->split(-1, rparams->vectorization_factor_tmp_gmem_write);

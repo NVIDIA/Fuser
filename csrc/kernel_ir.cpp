@@ -1100,8 +1100,10 @@ GridReduction::GridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == num_reduction_op_attr,
-      "The num_reduction_op_attr does not match the number of attributes ReductionOp has."
-      "If you changed ReductionOp, please change num_reduction_op_attr accordingly.");
+      "The num_reduction_op_attr does not match the number of attributes "
+      "ReductionOp has."
+      "If you changed ReductionOp, please change num_reduction_op_attr "
+      "accordingly.");
   addAttribute(reduction_buffer);
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
@@ -1181,8 +1183,10 @@ GroupedGridReduction::GroupedGridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedReductionOpAttr(),
-      "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
-      "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
+      "The numGroupedReductionOpAttr() does not match the number of attributes "
+      "GroupedReductionOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedReductionOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
@@ -1384,8 +1388,10 @@ GroupedGridWelford::GroupedGridWelford(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedWelfordOpAttr(),
-      "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
-      "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
+      "The numGroupedWelfordOpAttr() does not match the number of attributes "
+      "GroupedWelfordOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedWelfordOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);

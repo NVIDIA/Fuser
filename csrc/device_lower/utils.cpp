@@ -728,6 +728,35 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -800,19 +829,14 @@ AllocPosInfo getAllocPosInfo(
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
-  int64_t compute_pos = tv->getComputeAtPosition();
-  // For warp specialized circular buffers its stage_slice_position controls the
-  // buffer size for each stage.
-  const auto& circular_buffer_type = tv->circularBufferOptions().type;
-  if (std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    const auto& warp_specialized =
-        std::get<WarpSpecialized>(circular_buffer_type);
-    if (warp_specialized.stage_slice_position.has_value()) {
-      compute_pos = warp_specialized.stage_slice_position.value();
-    }
-  }
+
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == compute_pos) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -823,7 +847,8 @@ AllocPosInfo getAllocPosInfo(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }

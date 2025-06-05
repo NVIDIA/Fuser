@@ -119,13 +119,20 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
   if (rparams->tma_warp_specialized) {
+    auto option = rparams->circular_buffer_options;
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
     // Reduction: [Persistent, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
-    auto outer_i = inner_reduce_axis;
-    reduction_tv->split(
-        outer_i++, rparams->batches_per_block_inner_reduction, false);
-    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
-    reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+    // auto outer_i = inner_reduce_axis;
+    // reduction_tv->split(
+    //     outer_i++, rparams->batches_per_block_inner_reduction, false);
+    // reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
+    // reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+    int64_t compute_bdimx =
+        (ws_pt == ParallelType::TIDx && option.isEnable()
+             ? rparams->lparams.bdimx() - kWarpSpecializationPaddedThreads
+             : rparams->lparams.bdimx());
+    inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
 
     // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
     if (rparams->unroll_factor_iter_dom > 1) {
@@ -134,8 +141,6 @@ TensorView* scheduleReductionTV(
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
     if (rparams->computation_warp_groups > 1) {
-      auto option = rparams->circular_buffer_options;
-      auto ws_pt = std::get<WarpSpecialized>(option.type).on;
       NVF_ERROR(
           ws_pt == ParallelType::TIDy,
           "Warp specialization only supports TIDy, got ",
@@ -1085,13 +1090,15 @@ void sharedMemoryConsumerVectorization(
     // vectorization factor set for io tvs.
     NVF_ERROR(
         tv->axis(vect_axis_pos)->extent()->isConst(),
-        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        "Extent of the innermost axis of smem consumers should be constant. "
+        "Got: ",
         tv->toString());
     auto innermost_extent =
         tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
-        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        "Extent of the innermost axis of smem consumers should be equal to the "
+        "vectorization factor of fuion inputs and outputs. Got: ",
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);
