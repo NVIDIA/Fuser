@@ -29,6 +29,7 @@ using PingPongCircularBuffering =
     NVFuserFixtureParamTest<PingPongCircularBufferingParams>;
 TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  auto [stage_slice_position] = GetParam();
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -38,8 +39,19 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   constexpr int64_t circular_loop = 12;
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  const int64_t dim0 =
-      rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+  int64_t dim0 = rows_per_stage;
+  // Make dim0 non-divisible to test predicate
+  if (stage_slice_position == 2) {
+    // only not divisible by [circular_loop]
+    dim0 *= (compute_warp_groups * sm_count * (circular_loop + 1));
+  } else if (stage_slice_position == 3) {
+    // may not divisible by [circular_loop], [sm_count], and
+    // [compute_warp_groups]
+    dim0 *= (compute_warp_groups * sm_count * circular_loop + 1);
+  } else {
+    dim0 *= (compute_warp_groups * sm_count * circular_loop);
+  }
+
   constexpr int64_t dim1 = 128;
   constexpr int64_t stages = 6;
 
@@ -62,7 +74,9 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
     // [I, 2, 132, 4]
     tv->axis(0)->parallelize(ParallelType::Serial);
     tv->axis(2)->parallelize(ParallelType::BIDx);
-    tv->axis(3)->parallelize(ParallelType::Unroll);
+    // Axis 3 cannot use ParallelType::Unroll, so explicitly set it to
+    // ParallelType::Serial here
+    tv->axis(3)->parallelize(ParallelType::Serial);
   }
 
   tv1->axis(1)->parallelize(ParallelType::Serial);
@@ -82,7 +96,6 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   inlineSelectedAt({tv1}, tv2, /*reference_pos=*/2);
   inlineSelectedAt({tv2}, tv2, /*reference_pos=*/3);
 
-  auto [stage_slice_position] = GetParam();
   tv1->circularBuffer(
       stages,
       stages - 1,
@@ -125,6 +138,23 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
   auto out_ref = t0 + t0;
   auto cg_outputs = ke.run({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, {out_ref}, __LINE__, __FILE__);
+
+  // Check shared memory size is allocated based on stage_slice_position
+  int64_t size_per_row = dim1 * sizeof(float);
+  int64_t rows_per_sync = 0;
+  if (stage_slice_position == 2) {
+    rows_per_sync = rows_per_stage * compute_warp_groups;
+  } else if (stage_slice_position == 3) {
+    rows_per_sync = rows_per_stage;
+  } else if (stage_slice_position == 4) {
+    rows_per_sync = 1;
+  }
+  int64_t smem_buffer_size = size_per_row * stages * rows_per_sync;
+  int64_t smem_barrier_size = 128;
+  EXPECT_EQ(ke.lastLaunchParams().smem(), smem_buffer_size + smem_barrier_size)
+      << "Shared memory size error, expected "
+      << smem_buffer_size + smem_barrier_size << ", got "
+      << ke.lastLaunchParams().smem();
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -289,5 +319,138 @@ TEST_F(PingPongCircularBuffering, ProducerConsumerDifferentError) {
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
+using PingPongSiblingLoadsParams = std::tuple<bool, int>;
+using SiblingPingPongCircularBuffering =
+    NVFuserFixtureParamTest<PingPongSiblingLoadsParams>;
+TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  auto [use_id_model, stage_slice_position] = GetParam();
+  if (use_id_model) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  } else {
+    GTEST_SKIP() << "Fails without setting allocateIndexVariables via IdModel";
+  }
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t rows_per_stage = 4;
+  constexpr int64_t compute_warp_groups = 2;
+  constexpr int64_t inner_split = 3;
+  constexpr int64_t circular_loop = 12;
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const int64_t dim0 =
+      rows_per_stage * compute_warp_groups * sm_count * circular_loop;
+  constexpr int64_t dim1 = 128;
+  constexpr int64_t stages = 6;
+
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  TensorView* tv1 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  TensorView* tv6 = add(tv0, tv1);
+  fusion->addOutput(tv6);
+
+  // Create Cache Tensors
+  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  TensorView* tv3 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  TensorView* tv4 = tv2->cacheAfter();
+  TensorView* tv5 = tv2->cacheAfter();
+  TensorView* tv7 = tv6->cacheBefore();
+
+  // Move first level cache to shared memory
+  tv2->setMemoryType(MemoryType::Shared);
+  tv3->setMemoryType(MemoryType::Shared);
+
+  for (TensorView* tv : {tv2, tv3, tv4, tv5, tv6, tv7}) {
+    tv->split(0, rows_per_stage);
+    tv->split(0, sm_count);
+    tv->split(0, compute_warp_groups);
+    tv->split(0, inner_split);
+    // [I, 3, 2, 132, 4]
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(ParallelType::BIDy);
+    tv->axis(4)->parallelize(ParallelType::Unroll);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    if (tv == tv2 || tv == tv3) {
+      tv->axis(2)->parallelize(ParallelType::Serial);
+      tv->axis(5)->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  // Reorder Axes
+  // [I, 3, 2, 132, 4] --> [132, I, 3, 2, 4]
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map[0] = 1;
+  reorder_map[1] = 2;
+  reorder_map[2] = 3;
+  reorder_map[3] = 0;
+  for (TensorView* tv : {tv2, tv3, tv4, tv5, tv6, tv7}) {
+    tv->reorder(reorder_map);
+  }
+
+  // Inline Step
+  for (TensorView* tv : {tv2, tv3}) {
+    inlineSelectedAt({tv}, tv, 3);
+  }
+
+  for (TensorView* tv : {tv4, tv5, tv6, tv7}) {
+    inlineSelectedAt({tv}, tv, 4);
+  }
+
+  for (auto tv : {tv2, tv3}) {
+    tv->circularBuffer(
+        stages,
+        stages - 1,
+        WarpSpecialized(ParallelType::TIDy, stage_slice_position));
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+  at::Tensor t2 = t0 + t1;
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+
+  // Validate loop mappings for sibling tma loads tv2 and tv3
+  IdModel id_model(fusion.get(), /*build_graphs=*/true);
+  const ValGraph& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
+  NVF_ERROR(tv2->nDims() == tv3->nDims());
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{0, stage_slice_position},
+          [&](int64_t pos) {
+            return loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected all sibling iterDomains to the left of stage_slice_position to "
+      "belong to the same ValGroup in LOOP map.");
+  NVF_ERROR(
+      std::ranges::all_of(
+          std::ranges::iota_view{stage_slice_position, tv2->nDims()},
+          [&](int64_t pos) {
+            return !loop_graph.toGroup(tv2->axis(pos))->has(tv3->axis(pos));
+          }),
+      "Expected all sibling iterDomains to the right of and including the "
+      "stage_slice_position not to belong to the same ValGroup in LOOP map.");
+}
+// Stage_Split_Position 2 does not work currently with multiple TMA loads.
+// TODO: Enable after supporting multi-role specialization.
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    SiblingPingPongCircularBuffering,
+    ::testing::Combine(testing::Bool(), testing::Range(3, 5)),
+    [](const testing::TestParamInfo<PingPongSiblingLoadsParams>& info) {
+      std::stringstream ss;
+      ss << "IdModel_" << std::get<0>(info.param);
+      ss << "_stage_slice_position_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 } // namespace nvfuser

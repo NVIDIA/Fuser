@@ -30,69 +30,12 @@ NVF_API bool distributedEnabled() {
 #endif
 }
 
-namespace {
-
-// Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
-int64_t allocationIndex(TensorView* tv, IterDomain* id) {
-  int64_t index = 0;
-  for (auto* loop_id : tv->getLoopDomain()) {
-    if (loop_id == id) {
-      return index;
-    }
-    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
-      index++;
-    }
-  }
-  return -1;
-}
-
-} // namespace
-
 bool isTvContiguous(const TensorView* tv) {
   // Reduction and broadcast axis do not have a contiguity value.
   return std::all_of(
       tv->getContiguity().begin(),
       tv->getContiguity().end(),
       [](std::optional<bool> c) { return c.value_or(true); });
-}
-
-std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
-    TensorView* producer,
-    TensorView* consumer) {
-  std::vector<IterDomain*> shard_additions;
-  std::vector<IterDomain*> shard_deletions;
-  auto rootmap =
-      PairwiseLogicalDomainMap(producer, consumer).mapBroadcast(false);
-  const auto c2p_map = rootmap.mapConsumerToProducer();
-
-  for (IterDomain* out_root : consumer->getMaybeRootDomain()) {
-    IterDomain* in_root = c2p_map.at(out_root);
-    // Ignore sharded broadcast domains and
-    // sharded reductions on the consumer
-    // ex. DIDx(i0) -> r(i0) or DIDx(i0) -> r(DIDx(i0))
-    // since they don't affect allocation.
-    if (in_root->isDeviceDim() && !in_root->isBroadcast() &&
-        !out_root->isDeviceDim() && !out_root->isReduction()) {
-      shard_deletions.push_back(in_root);
-    } else if (
-        !in_root->isDeviceDim() && out_root->isDeviceDim() &&
-        !out_root->isBroadcast()) {
-      shard_additions.push_back(out_root);
-    } else if (in_root->isDeviceDim() && out_root->isDeviceDim()) {
-      NVF_ERROR(
-          in_root->getParallelType() == out_root->getParallelType(),
-          " resharding ",
-          in_root->toString(),
-          " to ",
-          out_root->toString(),
-          " which is not supported");
-    }
-  }
-  return std::make_pair(shard_additions, shard_deletions);
 }
 
 bool isSharded(const TensorView* tv) {
@@ -124,17 +67,17 @@ bool isSharded(const TensorView* tv) {
   return is_sharded;
 }
 
-namespace {
-
-// Collect device-parallel IterDomains in `domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
+  const std::unordered_set<ParallelType>& parallel_types =
+      deviceAndStreamParallelTypes();
+
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
-  parallel_type_to_id.reserve(kParallelTypeDIDs.size());
+  parallel_type_to_id.reserve(parallel_types.size());
+
   for (IterDomain* id : domain) {
     const ParallelType parallel_type = id->getParallelType();
-    if (!isParallelTypeDeviceDim(parallel_type)) {
+    if (parallel_types.count(parallel_type) == 0) {
       continue;
     }
 
@@ -154,6 +97,8 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
   }
   return parallel_type_to_id;
 }
+
+namespace {
 
 std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
     const std::vector<IterDomain*>& domain) {
@@ -177,7 +122,7 @@ int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
+      mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
   if (alloc_id == nullptr) {
     return -1;
@@ -237,11 +182,13 @@ int64_t getShardedLogicalAxis(
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and therefore bailed out: ",
+          "Failed to attribute the sharding to a single tensor axis and "
+          "therefore bailed out: ",
           merge);
     } else {
       NVF_THROW(
-          "Unexpected transforms from logical to a DID-parallel allocation IterDomain: ",
+          "Unexpected transforms from logical to a DID-parallel allocation "
+          "IterDomain: ",
           def);
     }
   }
@@ -500,9 +447,9 @@ bool haveDifferentShardings(
   // Create indices for producer logical IDs and consumer root IDs. As an
   // optimization, we create indices only for those that DIDs depend on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
@@ -610,30 +557,6 @@ bool isResharding(const Expr* expr) {
     }
   }
 
-  return false;
-}
-
-bool isInnerResharding(Expr* expr) {
-  NVF_ERROR(
-      ir_utils::isTvOp(expr),
-      "Non-tv op is not supported : ",
-      expr->toString());
-
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto [shard_additions, shard_deletions] =
-          getShardingChanges(input, output);
-      NVF_ERROR(
-          shard_additions.size() + shard_deletions.size() <= 1,
-          "Resharding expr can only support one axis")
-      if ((!shard_deletions.empty() &&
-           allocationIndex(input, shard_deletions.at(0)) > 0) ||
-          (!shard_additions.empty() &&
-           allocationIndex(output, shard_additions.at(0)) > 0)) {
-        return true;
-      }
-    }
-  }
   return false;
 }
 

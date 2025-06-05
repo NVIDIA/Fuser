@@ -654,9 +654,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     if (loop_exact_resolved_intersection.size() > 1) {
       // Ambiguous promotion. This should not happen.
       std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
+      err_msg << "Invalid multiple broadcast resolution within shared loops "
+                 "detected, group:\n  "
+              << iel_group->toString() << "\nIs being broadcasted to:";
       for (const ValGroup& entry : loop_exact_resolved_intersection) {
         err_msg << "\n  " << entry->toString();
       }
@@ -683,9 +683,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     if (promoted_iel_groups.size() > 1) {
       std::stringstream err_msg;
-      err_msg
-          << "Invalid multiple broadcast resolution within shared loops detected, group:\n  "
-          << iel_group->toString() << "\nIs being broadcasted to:";
+      err_msg << "Invalid multiple broadcast resolution within shared loops "
+                 "detected, group:\n  "
+              << iel_group->toString() << "\nIs being broadcasted to:";
       for (const ValGroup& entry : promoted_iel_groups) {
         err_msg << "\n  " << entry->toString();
       }

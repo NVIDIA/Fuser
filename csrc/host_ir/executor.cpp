@@ -48,7 +48,8 @@ bool HostIrExecutor::supported(Fusion* fusion) {
   if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
     NVF_ERROR(
         std::all_of(exprs.begin(), exprs.end(), isResharding),
-        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
+        "Could not execute fusion as all expressions in a host IR container "
+        "must be communication based at this point.");
     return true;
   }
   return false;
@@ -246,6 +247,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   expr_evaluator_ = ExpressionEvaluator();
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  expr_evaluator_.bind("rank", communicator_->deviceId());
   // process input values, converting IValue to PolymorphicValue
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
@@ -426,7 +428,8 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     }
     if (use_preallocated_outputs) {
       TORCH_WARN(
-          "FusionExecutorCache does not support with preallocated outputs, so we are copying the outputs in expr ",
+          "FusionExecutorCache does not support with preallocated outputs, so "
+          "we are copying the outputs in expr ",
           post_ir);
       auto tmp_outputs = fec_.at(hu).runFusionWithInputs(input_args);
       for (auto output_idx : c10::irange(tmp_outputs.size())) {
@@ -696,7 +699,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (expr_evaluator_.isKnown(out_tv)) {
     auto out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    out_tensor.copy_(t);
+    out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
     // copy data if yes. For example,
