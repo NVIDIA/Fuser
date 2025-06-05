@@ -1056,6 +1056,7 @@ def argsort_ref(a, dim, descending, stable):
 argsort_opinfo = OpInfo(
     lambda fd: fd.ops.argsort,
     "argsort",
+    # TODO: complex dtypes are not supported by aten fallback
     dtypes=(int_float_dtypes),
     sample_input_generator=argsort_generator,
     reference=argsort_ref,
