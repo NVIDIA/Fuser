@@ -2273,7 +2273,7 @@ TensorView* argsort(
     int64_t dim,
     bool descending,
     bool stable) {
-  Val* out = ops::newValLike(inp, inp->getDataType().value());
+  Val* out = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
   return out->as<TensorView>();
 }
