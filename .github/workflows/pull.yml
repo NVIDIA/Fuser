@@ -161,4 +161,18 @@ jobs:
           else
             echo "✅ No large files detected."
           fi
+      - name: Check for files that match .gitignore but are tracked
+        run: |
+          # List tracked files that should be ignored
+          violating_files=$(git ls-files --cached --ignored --exclude-standard)
+
+          if [ -n "$violating_files" ]; then
+            echo "❌ The following files are committed but should be ignored by .gitignore:"
+            echo "$violating_files"
+            echo "Please remove them from version control:"
+            echo "  git rm --cached <file>"
+            exit 1
+          else
+            echo "✅ No ignored files are tracked. All good!"
+          fi
       # - name: more sanity checks in case needed in the future
