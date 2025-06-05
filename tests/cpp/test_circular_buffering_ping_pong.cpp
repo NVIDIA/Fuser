@@ -329,8 +329,6 @@ TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
   auto [use_id_model, stage_slice_position] = GetParam();
   if (use_id_model) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-  } else {
-    GTEST_SKIP() << "Fails without setting allocateIndexVariables via IdModel";
   }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
