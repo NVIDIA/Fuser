@@ -327,8 +327,6 @@ void fillOptimalHopperTileSizes(
         // to smem constraint
         const int64_t smem_bytes =
             at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
-        const int64_t max_stages =
-            ((smem_bytes - epilogue_bytes) / bytes_per_stage);
         int64_t min_stages = 3L;
 
         // There might be fewer than min_stages stages needed to compute the
@@ -366,7 +364,8 @@ void fillOptimalHopperTileSizes(
               new_best = true;
             }
           } else {
-            // best_stages is already at least 10. From here prefer fewer but larger stages
+            // best_stages is already at least 10. From here prefer fewer but
+            // larger stages
             new_best = stages_per_sm >= 10 && stages_per_sm < best_stages;
           }
         }
