@@ -41,6 +41,54 @@ namespace {
       },                                                                       \
       DOCSTRING);
 
+#define NVFUSER_DIRECT_BINDING_REDUCTION_OP(NAME, OP_NAME, DOCSTRING)   \
+  ops.def(                                                              \
+      NAME,                                                             \
+      [](TensorView* arg, PrimDataType dtype) -> TensorView* {          \
+        std::vector<int64_t> dims(arg->nDims());                        \
+        std::iota(dims.begin(), dims.end(), 0);                         \
+        return static_cast<TensorView* (*)(TensorView*,                 \
+                                           const std::vector<int64_t>&, \
+                                           bool,                        \
+                                           DataType)>(OP_NAME)(         \
+            arg, dims, /*keep_dim=*/false, dtype);                      \
+      },                                                                \
+      py::arg("arg"),                                                   \
+      py::arg("dtype") = DataType::Null,                                \
+      py::return_value_policy::reference);                              \
+  ops.def(                                                              \
+      NAME,                                                             \
+      [](TensorView* arg, int dim, bool keep_dim, PrimDataType dtype)   \
+          -> TensorView* {                                              \
+        return static_cast<TensorView* (*)(TensorView*,                 \
+                                           const std::vector<int64_t>&, \
+                                           bool,                        \
+                                           DataType)>(OP_NAME)(         \
+            arg, {dim}, keep_dim, dtype);                               \
+      },                                                                \
+      py::arg("arg"),                                                   \
+      py::arg("dim"),                                                   \
+      py::arg("keep_dim") = false,                                      \
+      py::arg("dtype") = DataType::Null,                                \
+      py::return_value_policy::reference);                              \
+  ops.def(                                                              \
+      NAME,                                                             \
+      [](TensorView* arg,                                               \
+         const std::vector<int64_t>& dims,                              \
+         bool keep_dim,                                                 \
+         PrimDataType dtype) -> TensorView* {                           \
+        return static_cast<TensorView* (*)(TensorView*,                 \
+                                           const std::vector<int64_t>&, \
+                                           bool,                        \
+                                           DataType)>(OP_NAME)(         \
+            arg, dims, keep_dim, dtype);                                \
+      },                                                                \
+      py::arg("arg"),                                                   \
+      py::arg("dims"),                                                  \
+      py::arg("keep_dim") = false,                                      \
+      py::arg("dtype") = DataType::Null,                                \
+      py::return_value_policy::reference);
+
 void bindUnaryOps(py::module_& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP(
       "abs",
@@ -1253,6 +1301,101 @@ Val or TensorView
 )")
 };
 
+void bindReductionOps(py::module_& ops) {
+  NVFUSER_DIRECT_BINDING_REDUCTION_OP(
+      "max",
+      max,
+      R"(
+Reduce a tensor by computing the maximum value along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dim : int, optional
+    Dimension to reduce over. If not specified, reduces over all dimensions.
+keep_dim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+dtype : PrimDataType, optional
+    This argument is not used for max.
+
+Returns
+-------
+TensorView
+    A new tensor containing the maximum values along the specified dimensions.
+)")
+  NVFUSER_DIRECT_BINDING_REDUCTION_OP(
+      "min",
+      min,
+      R"(
+Reduce a tensor by computing the minimum value along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dim : int, optional
+    Dimension to reduce over. If not specified, reduces over all dimensions.
+keep_dim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+dtype : PrimDataType, optional
+    This argument is not used for min.
+
+Returns
+-------
+TensorView
+    A new tensor containing the minimum values along the specified dimensions.
+)")
+  NVFUSER_DIRECT_BINDING_REDUCTION_OP(
+      "prod",
+      prod,
+      R"(
+Reduce a tensor by computing the product of elements along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dim : int, optional
+    Dimension to reduce over. If not specified, reduces over all dimensions.
+keep_dim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+dtype : PrimDataType, optional
+    The data type to cast the arg to before computation. If the dtype argument
+    is None, use the input data type if it is floating point. Otherwise, it is
+    DataType::Int for boolean or integral input.
+
+Returns
+-------
+TensorView
+    A new tensor containing the product of elements along the specified dimensions.
+)")
+  NVFUSER_DIRECT_BINDING_REDUCTION_OP(
+      "sum",
+      sum,
+      R"(
+Reduce a tensor by computing the sum of elements along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dim : int, optional
+    Dimension to reduce over. If not specified, reduces over all dimensions.
+keep_dim : bool, optional
+    Whether to keep the reduced dimensions with size 1. Default is False.
+dtype : PrimDataType, optional
+    The data type to cast the arg to before computation. If the dtype argument
+    is None, use the input data type if it is floating point. Otherwise, it is
+    DataType::Int for boolean or integral input.
+
+Returns
+-------
+TensorView
+    A new tensor containing the sum of elements along the specified dimensions.
+)")
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1260,6 +1403,7 @@ void bindOperations(py::module& nvfuser) {
       "ops", "This submodule contains all operations for NvFuser.");
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
+  bindReductionOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

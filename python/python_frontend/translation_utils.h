@@ -290,18 +290,6 @@ std::function<ResultType(ArgTypes...)> getFunction(const ReductionOp* rop) {
   }
 }
 
-// Get string name for UnaryOp
-std::string getString(const UnaryOp* uop);
-
-// Get string name for BinaryOp
-std::string getString(const BinaryOp* bop);
-
-// Get string name for TernaryOp
-std::string getString(const TernaryOp* bop);
-
-// Get string name for ReductionOp
-std::string getString(const ReductionOp* rop);
-
 // Get serde record type for ReductionOp
 serde::RecordType getSerdeType(const ReductionOp* rop);
 
