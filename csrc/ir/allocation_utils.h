@@ -27,6 +27,8 @@ struct Layout {
 
   std::string toString(int indent_size = 0) const;
 
+  // Returns a new Layout that has the same allocation domain but `true`
+  // contiguity.
   Layout contiguous() const;
 };
 

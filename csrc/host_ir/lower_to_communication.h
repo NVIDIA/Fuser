@@ -36,7 +36,13 @@ bool isCommunicationLayoutCompliant(Expr* expr);
 // raise an error.
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
-// Always returns canonicalized.
+// Given the input/output TensorView of a communication, returns its layout
+// required by the communication backend (e.g. NCCL or UCC). `sharded_id` is the
+// sharded IterDomain stored in a CommunicationInfo. We don't distinguish
+// between input and output because the requirements so far are the same. But
+// this may change in the future. The returned layout is guaranteed to be
+// canonicalized, i.e., the allocation domain is a permutation of the logical
+// domain.
 Layout getCommunicationLayout(
     TensorView* tv,
     const CommunicationType type,

@@ -45,13 +45,17 @@ void makeCommunicationLayoutCompliant(
 
   Layout c_layout =
       getCommunicationLayout(output, communication_info.type, c_sharded_id);
-  if (output->hasAllocation()) {
-    if (!isCompliantWith(*canonicalizeLayout(output), c_layout)) {
-      TensorView* output_copy = set(output);
-      TransformReplay::selfReplay(
-          output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
-    }
+  // When the output doesn't have a specified allocation, we can override it
+  // with the communication layout. The same doesn't apply to the input because
+  // (1) a fusion input with empty allocation is considered to have the
+  // major-to-minor stride order, and (2) there was a bug in the reduction
+  // scheduler.
+  if (output->hasAllocation() &&
+      !isCompliantWith(*canonicalizeLayout(output), c_layout)) {
+    TensorView* output_copy = set(output);
+    TransformReplay::selfReplay(
+        output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
   }
   output->setAllocationDomain(c_layout.allocation_domain, c_layout.contiguity);
 }

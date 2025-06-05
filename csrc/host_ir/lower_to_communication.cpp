@@ -407,7 +407,7 @@ Layout getCommunicationLayout(
     TensorView* tv,
     const CommunicationType type,
     IterDomain* sharded_id) {
-  Layout layout = canonicalizeLayout(tv)->contiguous();
+  const Layout layout = canonicalizeLayout(tv)->contiguous();
   const int64_t sharded_id_pos =
       posInDomain(layout.allocation_domain, sharded_id);
   NVF_ERROR(
@@ -417,6 +417,9 @@ Layout getCommunicationLayout(
       ") not found in the allocation domain of the tensor view: ",
       tv);
 
+  // Reduction axis in reduce/allreduce does not have to be outermost in
+  // allocation domain. Nonetheless, `tv` still needs to be contiguous and
+  // therefore .contiguous() at the beginning of this function.
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce) {
     return layout;
