@@ -531,6 +531,11 @@ ValGraph& IdModel::buildAlmostExactGraph() {
         {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
     almost_exact_graph.setUnmappable(
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    if (tv->getAlternateLoopDomain().has_value()) {
+      almost_exact_graph.setUnmappable(
+          {tv->getAlternateLoopDomain().value().begin(),
+           tv->getAlternateLoopDomain().value().end()});
+    }
   }
 
   // Maps iter domain pairs returned by calling that return mappings from
@@ -631,7 +636,7 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-      // If the loop domain is not generated from the logial domain
+      // If the loop domain is not generated from the logical domain
       // with not extra IDs, broadcast forwarding is not
       // supported. As such, permissive mappings are not generated.
       if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
@@ -851,6 +856,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
          ir_utils::filterByType<TensorView>(expr->inputs())) {
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
+      const auto& alternate_producer_domain =
+          producer_tv->getAlternateLoopDomain();
 
       // Broadcast forwarding is not applied when the loop domain is
       // not fully derived from the logical domain. In that case, the
@@ -883,6 +890,14 @@ StatefulInliningInfo buildStatefulInliningInfo(
               producer_tv->getLoopDomain().begin(),
               producer_tv->getLoopDomain().begin() +
                   producer_tv->getComputePosition(consumer_tv));
+        }
+        // NOTE The alternate producer loop domain is not fully-derived.
+        if (alternate_producer_domain.has_value()) {
+          VectorOfUniqueEntries<IterDomain*> alternate_producer_ca_deps(
+              alternate_producer_domain.value().begin(),
+              alternate_producer_domain.value().begin() +
+                  producer_tv->getComputePosition(consumer_tv));
+          all_producer_ca_deps.pushBack(alternate_producer_ca_deps);
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
