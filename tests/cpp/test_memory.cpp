@@ -1853,8 +1853,10 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
         ke.run({t0_misaligned});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "globalAddress, which specifies the starting address of the memory region described, "
-          "must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.")));
+          "globalAddress, which specifies the starting address of the memory "
+          "region described, "
+          "must be 32 byte aligned when interleave is "
+          "CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.")));
 }
 
 TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
@@ -1910,7 +1912,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
         ke.run({t0_misaligned});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, "
+          "globalStrides array, which specifies tensor stride of each of the "
+          "lower tensorRank - 1 dimensions in bytes, "
           "must be a multiple of 16 and less than 2^40.")));
 }
 
@@ -2209,8 +2212,9 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         KernelExecutor ke;
         ke.compile(&fusion, {t0}, {}, matmul_cparams);
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "TMA domain must be a view of the allocation domain of the gmem tensor")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("TMA domain must be a view of the allocation "
+                               "domain of the gmem tensor")));
 }
 
 // Tests for the examples in doc/dev/tma.md

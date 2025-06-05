@@ -2251,7 +2251,8 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_THROW(
-          "IterDomain ValGroup should be concrete in at least two of A, B, output.",
+          "IterDomain ValGroup should be concrete in at least two of A, B, "
+          "output.",
           " concrete_flags: ",
           concrete_flags);
     }
@@ -2379,7 +2380,8 @@ std::vector<ValGroup> canonicalDimOrdering(
   // See https://github.com/NVIDIA/Fuser/pull/2303#discussion_r1626587836
   NVF_ERROR(
       n_inside_m,
-      "Currently N must be the innermost dimension. This constraint will be lifted in the future");
+      "Currently N must be the innermost dimension. This constraint will be "
+      "lifted in the future");
 
   // Insert the reverse-ordered groups in order
   std::vector<ValGroup> ordering;
@@ -2457,7 +2459,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
       (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      "At least 2D input (excluding consecutive reduction domains starting "
+      "from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
   mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
   mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);

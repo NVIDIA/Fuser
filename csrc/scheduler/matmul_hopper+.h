@@ -183,6 +183,8 @@ class HopperPlus : public Common {
   void scheduleEpilogueWithoutSmemEpilogueHopper();
   void scheduleEpilogueWithoutSmemEpilogueBlackwell();
   void scheduleEpilogueWithoutSmemEpilogue();
+  void scheduleEpilogueWithSmemEpilogueHopper();
+  void scheduleEpilogueWithSmemEpilogueBlackwell();
   void scheduleEpilogueWithSmemEpilogue();
   void scheduleEpilogue();
 

@@ -115,7 +115,8 @@ KernelArgumentHolder scheduleCompileAndRun(
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -342,7 +343,8 @@ TEST_P(HopperRS, SingleTile) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -481,7 +483,8 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -737,7 +740,8 @@ TEST_P(HopperSS, SingleTile) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -856,7 +860,8 @@ TEST_P(HopperSS, SingleTileTransposed) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -930,7 +935,8 @@ const char* skipIfSwizzleNotCompatibleWithTiling(
   const char* skip_reason =
       "This test stores smem inputs on the inner dimension densely, "
       "which is not compatible with this macro and swizzle mode "
-      "because TensorCore instructions span multiple swizzle patterns unevenly.";
+      "because TensorCore instructions span multiple swizzle patterns "
+      "unevenly.";
 
   {
     // Check if need to skip due to unsupported memory layout for A
@@ -1039,7 +1045,8 @@ TEST_P(HopperSS, MultipleTile) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -1245,7 +1252,8 @@ TEST_P(Blackwell1CTAM128SS, SingleTile) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -1374,7 +1382,8 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
