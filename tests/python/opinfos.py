@@ -13,6 +13,7 @@ from opinfo_fusion_definitions import (
     vector_api_test_fd_fn,
 )
 from opinfo_input_generators import (
+    argsort_generator,
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
@@ -1046,6 +1047,21 @@ index_select_opinfo = OpInfo(
     ),
 )
 shape_ops.append(index_select_opinfo)
+
+
+argsort_opinfo = OpInfo(
+    lambda fd: fd.ops.argsort,
+    "argsort",
+    sample_input_generator=argsort_generator,
+    reference=torch.argsort,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(argsort_opinfo)
 
 
 def index_put_accumulate_ref(
