@@ -286,8 +286,8 @@ class IndexShuffleOp : public Expr {
   IndexShuffleOp(
       IrBuilderPasskey,
       Val* out,
-      int64_t dim,
       Val* index,
+      int64_t dim,
       Val* src);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE

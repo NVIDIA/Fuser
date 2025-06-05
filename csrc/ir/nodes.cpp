@@ -333,8 +333,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
 IndexShuffleOp::IndexShuffleOp(
     IrBuilderPasskey passkey,
     Val* out,
-    int64_t dim,
     Val* index,
+    int64_t dim,
     Val* src)
     : Expr(passkey) {
   addInput(index);
