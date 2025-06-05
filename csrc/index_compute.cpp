@@ -1739,13 +1739,18 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
 std::vector<Val*> Index::getConsumerAllocationIndices(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
-    const IndexFromIdGraph& index_from_id_graph) {
+    const IndexFromIdGraph& index_from_id_graph,
+    const std::unordered_map<int, Val*>& override_index) {
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   auto indexing = index_from_id_graph.index;
 
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : arange(alloc_dom.size())) {
+  for (const auto i : arange((int)alloc_dom.size())) {
+    if (override_index.count(i)) {
+      alloc_inds[i] = nullptr;
+      continue;
+    }
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
@@ -1898,7 +1903,7 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   // if we need to override index, we need to generate the index from each
   // allocation axis firstly.
   auto alloc_inds =
-      getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph);
+      getConsumerAllocationIndices(consumer_tv, loops, index_from_id_graph, override_index);
 
   // Global striding
   auto vectorize_shift =
@@ -1908,8 +1913,10 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   for (const auto i : arange(alloc_inds.size())) {
     auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
+      NVF_ERROR(alloc_inds[i] == nullptr);
       alloc_inds[i] = override_it->second;
     }
+    NVF_ERROR(alloc_inds[i] != nullptr);
     if (alloc_inds[i]->isZeroInt()) {
       continue;
     } else {
@@ -2326,7 +2333,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer, override_index) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {

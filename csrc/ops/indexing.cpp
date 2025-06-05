@@ -154,10 +154,6 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   for (auto idx_domain_ptr : idx_domain) {
     out_domain.push_back(
         IterDomainBuilder(idx_domain_ptr)
-            .iter_type(
-                idx_domain_ptr->getIterType() == IterType::Iteration
-                    ? IterType::GatherScatter
-                    : idx_domain_ptr->getIterType())
             .build());
   }
 
@@ -189,20 +185,37 @@ TensorView* scatterOp(
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
+  std::vector<IterDomain*> root_domain;
   std::vector<IterDomain*> out_domain;
-  for (const auto i : arange(self_dom.size())) {
-    out_domain.push_back(
+  std::vector<IterDomain*> no_loop_ids;
+  std::vector<IterDomain*> out_loop_domain;
+  for (const auto i : arange((int64_t)self_dom.size())) {
+    auto id = 
         IterDomainBuilder(self_dom[i])
             .iter_type(
+                // I think this should be the right thing to do, but our indexing isn't really working yet.
+                // 
+                // (i == dim && self_dom[i]->getIterType() == IterType::Iteration)
                 self_dom[i]->getIterType() == IterType::Iteration
                     ? IterType::GatherScatter
                     : self_dom[i]->getIterType())
-            .build());
+            .build();
+    out_domain.push_back(id);
+    root_domain.push_back(id);
+    if (i == dim) {
+      // pushing loop domain at `dim() + 1`
+      auto loop_id = IterDomainBuilder(idx_dom[dim]).build();
+      root_domain.push_back(loop_id);
+      no_loop_ids.push_back(id);
+      out_loop_domain.push_back(loop_id);
+    } else {
+      out_loop_domain.push_back(id);
+    }
   }
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          root_domain, out_domain, out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true), std::vector<IterDomain*>(), no_loop_ids),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);

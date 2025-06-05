@@ -440,6 +440,9 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
+bool isScatterSelfTv(const TensorView* tv);
+bool isScatterIndexTv(const TensorView* tv);
+
 bool isGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
@@ -749,7 +752,7 @@ inline bool isMemorySharedAcross(
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.
-bool hasRootToLoopLinearTransformations(const TensorView* tv);
+bool hasRootToLoopLinearTransformations(const TensorView* tv, const std::unordered_map<int, Val*>& override_index = {});
 
 //! In addition to the above hasRootToLoopLinearTransformations, it
 //! also checks the loop domain has any extra domain

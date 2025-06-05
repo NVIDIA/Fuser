@@ -781,6 +781,29 @@ bool isIndexSelectLookupTv(const TensorView* tv) {
   return false;
 }
 
+bool isScatterSelfTv(const TensorView* tv) {
+  for (auto expr : tv->uses()) {
+    if (expr->isA<ScatterOp>()) {
+      auto idx_sel = expr->as<ScatterOp>();
+      if (idx_sel->selfTv() == tv) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+bool isScatterIndexTv(const TensorView* tv) {
+  for (auto expr : tv->uses()) {
+    if (expr->isA<ScatterOp>()) {
+      auto idx_sel = expr->as<ScatterOp>();
+      if (idx_sel->indexTv() == tv) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool isIndexSelectIndicesTv(const TensorView* tv) {
   for (auto expr : tv->uses()) {
     if (expr->isA<IndexSelectOp>()) {
@@ -1343,7 +1366,7 @@ bool hasUniformSiblings(Expr* expr) {
   return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
 }
 
-bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+bool hasRootToLoopLinearTransformations(const TensorView* tv, const std::unordered_map<int, Val*>& override_index) {
   auto root = tv->getMaybeRootDomain();
   auto loop = tv->getLoopDomain();
   std::vector<Val*> loop_val(loop.begin(), loop.end());
@@ -1352,11 +1375,16 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv) {
   std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
   auto alloc = tv->getMaybeAllocationDomain();
   auto logical = tv->getLogicalDomain();
-  bool all_alloc_id_on_path = std::all_of(
-      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
-  bool all_logical_id_on_path =
-      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
-        return all_ids_set.count(v);
+
+  bool all_alloc_id_on_path = std::ranges::all_of(
+      nvfuser::views::enumerate_view(alloc), [&](const auto& enumerator) {
+        const auto& [index, v] = enumerator;
+        return override_index.count(index) || all_ids_set.count(v);
+      });
+  bool all_logical_id_on_path = std::ranges::all_of(
+      nvfuser::views::enumerate_view(logical), [&](const auto& enumerator) {
+        const auto& [index, v] = enumerator;
+        return override_index.count(index) || all_ids_set.count(v);
       });
   return all_alloc_id_on_path && all_logical_id_on_path;
 }
