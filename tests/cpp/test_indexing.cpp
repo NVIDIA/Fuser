@@ -27,7 +27,6 @@
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
-#include <string.h>
 #include <algorithm>
 #include <utility>
 
@@ -216,37 +215,6 @@ class IndexValidator : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) override {
-    if (expr->isA<kir::Asm>()) {
-      kir::Asm* asm_expr = expr->as<kir::Asm>();
-      const char* ldmatrix = R"(ldmatrix)";
-      bool ldmatrix_match =
-          strstr(asm_expr->utility().c_str(), ldmatrix) != nullptr;
-
-      if (!ldmatrix_match) {
-        kir::IrVisitor::dispatch(expr);
-        return;
-      }
-
-      get_ref_.setForLoops(for_loops_);
-
-      auto out_ti = expr->output(0)->as<kir::TensorIndex>();
-      for (auto inp : expr->inputs()) {
-        if (inp->isA<kir::TensorIndex>()) {
-          validate(inp->as<kir::TensorIndex>(), out_ti);
-        }
-      }
-      for (auto out : expr->outputs()) {
-        if (out->isA<kir::TensorIndex>()) {
-          validate(out->as<kir::TensorIndex>());
-        }
-      }
-
-      get_ref_.clearForLoops();
-      get_ref_.clearCircularBufferInfo();
-
-      return;
-    }
-
     if (!ir_utils::isTvOp(expr)) {
       kir::IrVisitor::dispatch(expr);
       return;
