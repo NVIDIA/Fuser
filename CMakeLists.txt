@@ -293,6 +293,29 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
+set(BUILD_LLVM ON)
+if(BUILD_LLVM)
+  # Add LLVM JIT related dependencies
+  set(LLVM_DIR "/usr/lib/llvm-18/lib/cmake/llvm")
+  find_package(LLVM REQUIRED CONFIG)
+  llvm_map_components_to_libnames(LLVM_LIBS
+    support
+    core
+    orcjit
+    executionengine
+    irreader
+    nativecodegen
+    Target
+    Analysis 
+    JITLink
+    Demangle
+  )
+  # Add LLVM JIT related sources
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/host_ir/lower_to_llvm.cpp
+  )
+endif()
+
 # We don't link CUPTI for MSVC
 if(NOT MSVC)
   list(APPEND NVFUSER_SRCS
@@ -379,6 +402,9 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
+if(BUILD_LLVM)
+  target_link_libraries(codegen_internal PUBLIC ${LLVM_LIBS})
+endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
@@ -834,7 +860,17 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_stream_lowering.cpp
   )
+  if(BUILD_LLVM)
+  list(APPEND HOSTIR_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_llvm_lowering.cpp
+  )
+  endif()
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
+  if(BUILD_LLVM)
+    target_include_directories(test_host_ir PRIVATE ${LLVM_INCLUDE_DIRS})
+    target_compile_definitions(test_host_ir PRIVATE ${LLVM_DEFINITIONS})
+    target_link_libraries(test_host_ir PUBLIC ${LLVM_LIBS})
+  endif()
   list(APPEND TEST_BINARIES test_host_ir)
 
   if(BUILD_PYTHON)
