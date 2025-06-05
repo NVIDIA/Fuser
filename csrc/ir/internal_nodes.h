@@ -280,6 +280,41 @@ class ScatterOp : public Expr {
   }
 };
 
+class IndexShuffleOp : public Expr {
+ public:
+  using Expr::Expr;
+  IndexShuffleOp(
+      IrBuilderPasskey,
+      Val* out,
+      int64_t dim,
+      Val* index,
+      Val* src);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "IndexShuffleOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  TensorView* indexTv() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* srcTv() const {
+    return input(1)->as<TensorView>();
+  }
+
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+};
+
 class IotaOp : public Expr {
  public:
   using Expr::Expr;

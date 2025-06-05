@@ -330,6 +330,44 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
 
+IndexShuffleOp::IndexShuffleOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    int64_t dim,
+    Val* index,
+    Val* src)
+    : Expr(passkey) {
+  addInput(index);
+  addInput(src);
+  addOutput(out);
+  addDataAttribute(dim);
+}
+
+std::string IndexShuffleOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = index_shuffle(";
+  ss << "src = " << srcTv()->toString() << ", dim = " << dim()
+     << ", index = " << indexTv()->toString() << " )\n";
+  return ss.str();
+}
+
+std::string IndexShuffleOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "IndexShuffle op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> IndexShuffleOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& index = inputs.at(0).as<at::Tensor>();
+  const auto& src = inputs.at(1).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::scatter(src, dimension, index, src)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexShuffleOp)
+
 IotaOp::IotaOp(
     IrBuilderPasskey passkey,
     Val* out,
