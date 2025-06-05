@@ -782,7 +782,10 @@ std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
       exprs.begin(),
       exprs.end(),
       std::back_inserter(async_warp_exprs),
-      [](Expr* e) { return ir_utils::isCpAsyncBulkLoad(e); });
+      [](Expr* e) {
+        return ir_utils::isCpAsyncBulkLoad(e) &&
+            e->output(0)->as<TensorView>()->isCircularBuffered();
+      });
 
   // short-circuit: no async operations detected.
   if (async_warp_exprs.empty()) {
