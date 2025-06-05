@@ -133,7 +133,7 @@ TEST_F(IndexPut, IndexShuffle) {
   auto tv_index = makeSymbolicTensor(index_shape, DataType::Int);
   fusion.addInput(tv_index);
   // TODO: this should be an inplace. handle it when we have codegen support
-  auto out = indexShuffle(tv_src, 0, tv_index);
+  auto out = indexShuffle(tv_index, 0, tv_src);
   fusion.addOutput(out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
