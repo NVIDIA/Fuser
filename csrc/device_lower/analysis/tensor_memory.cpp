@@ -461,7 +461,8 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     GpuLower::current()->validate(
         inner_extent_is_multiple_of_32,
         "Invalid data access pattern in TMem load/store: ",
-        "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
+        "TMem load/store must be warp-collective, but the innermost extent is "
+        "not a multiple of 32.");
 
     // For each outer parallel type that has extent > 1, its stride must be a
     // multiple of 32.
@@ -499,7 +500,8 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
           id_graph, warp, lane_allocation_valgroups);
       if (stride == nullptr) {
         reason_32x32b =
-            "Not 32x32b because warps are not linearly accessing the lane allocation.";
+            "Not 32x32b because warps are not linearly accessing the lane "
+            "allocation.";
         fail_reasons.push_back(std::move(reason_32x32b));
       } else {
         GpuLower::current()->validate(

@@ -843,8 +843,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
       // expression.
       NVF_ERROR(
           mbarrier_arrive_tx_ == nullptr,
-          "There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load expression. ",
-          "A mbarrier_arrive_tx_ for another cpAsyncBulk load expression should not be active.");
+          "There is a single mbarrier_arrive_tx_ for each cpAsyncBulk load "
+          "expression. ",
+          "A mbarrier_arrive_tx_ for another cpAsyncBulk load expression "
+          "should not be active.");
       mbarrier_arrive_tx_ = createRawMbarrierArriveExpectTx(ldst);
       // Register mbarrier object to be used with the cloned LoadStoreOp
       NVF_ERROR(mbarrier_arrive_tx_->mbarrier()->isA<kir::TensorIndex>());
@@ -1326,7 +1328,8 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
       // warp-specialized mbarrier inval
       NVF_ERROR(
           inspector.loop_position_.at(cb_loop) > inner_most_ws_position,
-          "Warp Specialization cannot be nested in Pipeline circular buffering!");
+          "Warp Specialization cannot be nested in Pipeline circular "
+          "buffering!");
       pipeline_info[cb_loop] = cb_exprs;
     }
 
@@ -1387,11 +1390,13 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     NVF_ERROR(loop->step()->isOneInt(), "Unsupported loop: ", loop->toString());
     NVF_ERROR(
         !loop->vectorize(),
-        "Vectorized loop should not be the allocation loop for circular-buffered tensor: ",
+        "Vectorized loop should not be the allocation loop for "
+        "circular-buffered tensor: ",
         loop->toString());
     NVF_ERROR(
         !loop->vectorize_shift(),
-        "Vectorize shift loop should not be the allocation loop for circular-buffered tensor: ",
+        "Vectorize shift loop should not be the allocation loop for "
+        "circular-buffered tensor: ",
         loop->toString());
   }
 
@@ -1530,7 +1535,8 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     NVF_ERROR(
         std::all_of(
             it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
-        "In order to use warp specialization, all buffers must be loaded by TMA");
+        "In order to use warp specialization, all buffers must be loaded by "
+        "TMA");
     int64_t insertion_position =
         GpuLower::current()
             ->circularBufferInfo()

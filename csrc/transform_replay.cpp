@@ -52,7 +52,8 @@ class ReplaySelf : public ReplayTransformations {
     // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     NVF_ERROR(s->outer()->isRFactorProduct() == s->inner()->isRFactorProduct());
 
@@ -139,7 +140,8 @@ class ReplaySelf : public ReplayTransformations {
 
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     // When the original output is an rfactor, make the replayed
     // output domain also an rfactor
@@ -627,7 +629,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
 
   NVF_ERROR(
       !opt.replay_allocation,
-      "replayAllocation is not implemented yet for TransformReplay::replayPasC");
+      "replayAllocation is not implemented yet for "
+      "TransformReplay::replayPasC");
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       producer->container(),
@@ -877,7 +880,8 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
       consumer->definition()->isA<LoadStoreOp>() && !consumer->hasRoot(),
       "TransformReplay::replayCasP currently replays allocation only for Set. "
       "Other ops (e.g. `consumer = broadcast(producer)`) can break. "
-      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 for details.");
+      "See https://github.com/NVIDIA/Fuser/pull/1291#discussion_r1391999007 "
+      "for details.");
 
   TensorDomain* replayed = IrBuilder::createInContainer<TensorDomain>(
       consumer->container(),
@@ -1172,7 +1176,8 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
@@ -1204,7 +1209,8 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
     if (debug_print) {
@@ -1233,7 +1239,8 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         to,
         " to ",
         replay,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay);
     if (debug_print) {
       debug() << "  replayed: " << to << " @ " << pos << std::endl;
@@ -1270,7 +1277,8 @@ void MostInlinedTransformPropagator::propagateC2P(
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
       debug() << "  replayed: " << to << std::endl;
@@ -1302,7 +1310,8 @@ void MostInlinedTransformPropagator::propagateP2C(
         to,
         " to ",
         replay.first,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay.first);
     if (debug_print) {
       debug() << "  replayed: " << to << std::endl;
@@ -1330,7 +1339,8 @@ void MostInlinedTransformPropagator::propagateSibling(
         to,
         " to ",
         replay,
-        " but that would invalidate previously compute at position or max producer position.");
+        " but that would invalidate previously compute at position or max "
+        "producer position.");
     to->setDomain(replay);
     if (debug_print) {
       debug() << "  replayed: " << to << std::endl;
