@@ -317,18 +317,11 @@ void TransformReplay::selfReplay(
           it != replay.getReplay().end(),
           "failed to replay IterDomain: ",
           alloc_id);
-      // The possibility of a mismatch is when one of the IDs are symbolic. We
-      // need to ensure that new_contiguity is consistent with new_alloc_domain,
-      // otherwise the later setAllocationDomain would fail checks.
-      if (it->second->isBroadcast() == contiguity.has_value()) {
-        // whether we resolve to true or false shouldn't matter since it's going
-        // to be concretized as a broadcast dimension
-        new_contiguity.push_back(
-            it->second->isBroadcast() ? std::nullopt
-                                      : std::make_optional(true));
-      } else {
-        new_contiguity.push_back(contiguity);
-      }
+      NVF_ERROR_EQ(
+          it->second->isBroadcast(),
+          !contiguity.has_value(),
+          "Contiguity should be nullopt iff broadcast.");
+      new_contiguity.push_back(contiguity);
       it->second->parallelize(alloc_id->getParallelType());
       new_alloc_domain.push_back(it->second);
     }

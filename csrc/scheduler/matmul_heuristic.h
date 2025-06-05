@@ -301,6 +301,9 @@ class MatmulParams : public HeuristicParams {
   //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
+  //!
+  //! Note that this is done at the CGA tile level in case cluster_dims is
+  //! something other than {1, 1, 1}
   std::pair<int, int> grid_traversal_factor = {1, 1};
 
   //! Unswizzle MMA results in shared memory to get
@@ -323,6 +326,23 @@ class MatmulParams : public HeuristicParams {
 
   //! This is the CGA size on Hopper+ devices. This parameter is ignored on
   //! Ampere and Turing.
+  //! Note that this indicates the actual dimension of the cluster in XYZ grid
+  //! coordinates as opposed to MNK.
+  //!
+  //! When cta_order == ColumnMajor, M is parallelized BIDx and N is
+  //! parallelized BIDy. In that case, the cluster dimension X will apply to the
+  //! M dimension and Y will apply to N. If cluster_dims = {2, 4, 1} in that
+  //! case and the cta_tile is {128, 256, 64} then the "CGA tile" would be {256,
+  //! 1024, 64}.
+  //!
+  //! If however cta_order were RowMajor and cluster_dims = {2, 4, 1}, the
+  //! parallelization of M and N is swapped so the CGA tile would become {512,
+  //! 512, 64}. This example shows that it is important to manage the cluster
+  //! dims in conjunction with the CTA tile and CTA order. Also note that "grid
+  //! swizzling" via setting grid_traversal_factor is done at the CGA tile
+  //! level.
+  //!
+  //! The Z dimension must currently be 1.
   struct ClusterDims {
     int64_t x = 1;
     int64_t y = 1;
