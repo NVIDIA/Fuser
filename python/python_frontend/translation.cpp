@@ -1132,6 +1132,20 @@ class FusionTranslator : public OptInConstDispatch {
         sop->dim()));
   }
 
+  // Map ArgsortOp to python frontend
+  void handle(const ArgsortOp* argsortop) final {
+    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ArgsortOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(argsortop->in()))},
+        {fd_->recordingState(output())},
+        argsortop->dim(),
+        argsortop->isDescending(),
+        argsortop->isStable()));
+  }
+
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();
