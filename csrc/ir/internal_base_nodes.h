@@ -284,7 +284,8 @@ class IterDomain : public Val {
     // Currently only restricted to TIDx to generate warp reduce
     NVF_CHECK(
         parallel_type_ == ParallelType::TIDx,
-        "padToMultipleOfWarp : warp padding only supported on TIDx parallel dimension");
+        "padToMultipleOfWarp : warp padding only supported on TIDx parallel "
+        "dimension");
     is_padded_dimension_ = true;
     if (maybe_to_size.has_value()) {
       if (maybe_to_size.value() > 0) {

@@ -54,6 +54,11 @@ class LinkedHashMap {
     return order_.end();
   }
 
+  int64_t size() const {
+    NVF_ERROR_EQ(order_.size(), key_to_index_.size());
+    return std::ssize(order_);
+  }
+
  private:
   std::list<value_type> order_;
   std::unordered_map<K, iterator> key_to_index_;

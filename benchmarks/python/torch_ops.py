@@ -86,3 +86,17 @@ def softmax(inputs: list):
 def embedding(inputs: list):
     indices, embedding_table = inputs
     return F.embedding(indices, embedding_table)
+
+
+# deepseek v3 moe scatter
+# commit e815299
+# https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L599-L607
+def scatter_reduce(inputs: list):
+    bmm_out: torch.Tensor  # [seq*top_k, hidden]
+    idxs: torch.Tensor  # [seq*top_k]
+    topk_weight: torch.Tensor  # [seq , top_k]]
+    bmm_out, idxs, topk_weight = inputs
+    out = bmm_out.index_put([idxs], bmm_out)  # [seq*top_k, hidden]
+    out = out.reshape(*topk_weight.shape, -1)  # [seq, top_k, hidden]
+    out = out * topk_weight.unsqueeze(-1)  # [seq, top_k, hidden]
+    return out.sum(dim=1)  # [seq, hidden]

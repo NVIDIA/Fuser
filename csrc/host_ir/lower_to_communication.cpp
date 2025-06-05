@@ -302,8 +302,8 @@ bool isLocalSizeOne(IterDomain* id) {
 } // namespace
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
-  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
-  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+  auto* producer = expr->inputs().at(0)->as<TensorView>();
+  auto* consumer = expr->outputs().at(0)->as<TensorView>();
   bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
@@ -321,9 +321,9 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
 
   // This ignores device dimensions on reduction axis.
   auto producer_pt_to_did =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
   auto consumer_pt_to_did =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
 
   for (ParallelType pt : kParallelTypeDIDs) {
     IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
@@ -376,7 +376,8 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       auto c_it = p2c_map.find(p_logical_id);
       NVF_ERROR(
           c_it != p2c_map.end(),
-          "Cannot find the mapped consumer logical ID for the producer logical ID ",
+          "Cannot find the mapped consumer logical ID for the producer logical "
+          "ID ",
           p_logical_id->toString());
       if (!c_it->second->isReduction()) {
         continue;
@@ -513,8 +514,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
     if (is_output_sharded) {
       NVF_ERROR(
           same_mesh,
-          "ReduceScatter operation must have the same sender and receiver device mesh. "
-          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
+          "ReduceScatter operation must have the same sender and receiver "
+          "device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot "
+          "another device mesh");
       lowerToReduceScatter(
           input_tv, output_tv, op_type, params, comms, my_device_idx);
     } else {

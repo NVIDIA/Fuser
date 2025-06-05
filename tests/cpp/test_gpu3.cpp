@@ -1715,7 +1715,8 @@ TEST_F(NVFuserTest, FusionRAWSyncInsertionPlace4_CUDA) {
           number_of_writes_ == 2,
           "FusionRAWSyncInsertionPlace4 test fail:",
           "only 1 sync after the 2 shared mem writes is needed in this test,"
-          "either a redundant sync has been inserted or the block sync is not inserted at the right place");
+          "either a redundant sync has been inserted or the block sync is not "
+          "inserted at the right place");
     }
 
    private:
@@ -2204,7 +2205,8 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
                  gwop->welford_op()->inputs())) {
           NVF_CHECK(
               inp_ti->view() != alias_tv,
-              "Invalid alias found between GridWelford input and output. Out tv: ",
+              "Invalid alias found between GridWelford input and output. Out "
+              "tv: ",
               out_tv->toString(),
               ", In tv: ",
               alias_tv->toString());
@@ -3661,7 +3663,9 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
     ASSERT_THAT(
         [&]() { matched_add(a, c); },
         ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-            "When trying to propagate constant tensor sizes through the graph a conflict was found with 2 different sizes across dimensions that are expected to match.")));
+            "When trying to propagate constant tensor sizes through the graph "
+            "a conflict was found with 2 different sizes across dimensions "
+            "that are expected to match.")));
     GTEST_SKIP() << "skipping tests on pre-AMPERE GPUs";
   }
 }
@@ -5723,8 +5727,9 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
           [&]() {
             ke.compile(&fusion, {t_large}, LaunchParams(), compile_opts);
           },
-          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-              "Compilation with int32 is requested but int64 is required for the arguments")));
+          testing::ThrowsMessage<nvfuser::nvfError>(
+              testing::HasSubstr("Compilation with int32 is requested but "
+                                 "int64 is required for the arguments")));
     }
   }
 
@@ -5938,7 +5943,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteBroadcastedSoftmaxInput_CUDA) {
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "Tv15 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+          "Tv15 should be predicted by ParallelType::BIDx with a "
+          "broadcast_ld_indices_map!");
       break;
     }
   }
@@ -6002,7 +6008,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWrite_CUDA) {
             thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
         NVF_CHECK(
             predicted,
-            "Tv8 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+            "Tv8 should be predicted by ParallelType::BIDx with a "
+            "broadcast_ld_indices_map!");
         break;
       }
     }
@@ -6083,8 +6090,9 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
             scheduleAndRun(
                 &fusion, SchedulerType::Reduction, {t0, t1, t2}, false);
           },
-          testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-              "Producer is required to be in Global Memory based on parallelization strategy.")));
+          testing::ThrowsMessage<nvfuser::nvfError>(
+              testing::HasSubstr("Producer is required to be in Global Memory "
+                                 "based on parallelization strategy.")));
     } else {
       FusionExecutorCache executor_cache(std::move(fusion_ptr));
       auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
@@ -6156,7 +6164,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonOutput_CUDA) {
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a "
+          "broadcast_ld_indices_map!");
     }
   }
 
@@ -6219,7 +6228,8 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteNonNeighbor_CUDA) {
           thread_pred.broadcast_ld_indices_map.count(ParallelType::BIDx);
       NVF_CHECK(
           predicted,
-          "TV5 and TV6 should be predicted by ParallelType::BIDx with a broadcast_ld_indices_map!");
+          "TV5 and TV6 should be predicted by ParallelType::BIDx with a "
+          "broadcast_ld_indices_map!");
     }
   }
 
@@ -8226,7 +8236,8 @@ TEST_F(NVFuserTest, ReplayRFactorMergeBcast) {
       if (auto merge = dynamic_cast<Merge*>(expr)) {
         if (merge->outer()->isBroadcast() && merge->inner()->isBroadcast()) {
           EXPECT_TRUE(merge->out()->isBroadcast())
-              << "Merge of two broadcast IDs should generate a new broadcast ID: "
+              << "Merge of two broadcast IDs should generate a new broadcast "
+                 "ID: "
               << merge->toString();
         }
       }
@@ -8316,7 +8327,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
     auto broadcast_domain = tv->getLogicalDomain().at(0);
     ASSERT_TRUE(broadcast_domain->isBroadcast());
     EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
-        << "Non-concretized broadcast should be moved to the innermost position: "
+        << "Non-concretized broadcast should be moved to the innermost "
+           "position: "
         << tv->toString();
   }
 
@@ -8375,7 +8387,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
       EXPECT_EQ(
           tv->getLoopDomain().at(tv->getLoopDomain().size() - 2 + i),
           broadcast_domain)
-          << "Non-concretized broadcast should be moved to the innermost position: "
+          << "Non-concretized broadcast should be moved to the innermost "
+             "position: "
           << tv->toString();
     }
   }
@@ -8434,7 +8447,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
     auto broadcast_domain = tv->getLogicalDomain().at(0);
     ASSERT_TRUE(broadcast_domain->isBroadcast());
     EXPECT_EQ(tv->getLoopDomain().back(), broadcast_domain)
-        << "Non-concretized broadcast should be moved to the innermost position: "
+        << "Non-concretized broadcast should be moved to the innermost "
+           "position: "
         << tv->toString();
   }
 
@@ -8653,7 +8667,8 @@ TEST_F(NVFuserTest, RAWSync) {
   EXPECT_THAT(
       [&]() { GpuLower(&fusion).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
+          "Producer is required to be in Global, Shared or Tensor Memory based "
+          "on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
 // Test `DistributedTransformerTest.Backward/__bfloat` has bool type tensor

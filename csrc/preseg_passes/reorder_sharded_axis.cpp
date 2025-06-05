@@ -65,13 +65,6 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
 
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-
-    if (!(expr->isA<LoadStoreOp>() &&
-          (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) &&
-        !expr->isA<ReductionOp>()) {
-      continue;
-    }
-
     if (!isResharding(expr)) {
       continue;
     }

@@ -53,9 +53,9 @@ bool haveDifferentShardings(
 // Returns a set that contains DIDs and Stream.
 std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
 
-// Collect device-parallel IterDomains in `domain` and return them as a
-// ParallelType-to-IterDomain map.
-std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
+// Collect device and stream parallelized IterDomains in `domain` and return
+// them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
+std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain);
 
 // Shards all tensors in tvs like reference.
