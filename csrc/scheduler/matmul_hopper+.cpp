@@ -400,8 +400,8 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
         // dims. This is important since we need single dims to bind to. For
         // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
         // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
-        int64_t outer_mnk_pos = 0; // 0 in the example above
-        int64_t almost_outer_mnk_pos = 0; // 2 in the example above
+        int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+        int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
         while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
           outer_mnk_pos++;
         }
