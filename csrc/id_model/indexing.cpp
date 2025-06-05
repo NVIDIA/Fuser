@@ -938,8 +938,17 @@ bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
   TensorView* output_tv = ir_utils::getTvOutput(expr);
   NVF_ERROR(output_tv != nullptr);
 
-  // alternate_loop_domain is optional for now.
-  return output_tv->getAlternateLoopDomain().has_value();
+  // alternate_loop_domain is optional for ldmatrix.
+  if (ir_utils::isLdMatrixOp(expr)) {
+    return output_tv->getAlternateLoopDomain().has_value();
+  }
+
+  NVF_ERROR(
+      output_tv->getAlternateLoopDomain().has_value(),
+      "Expected the alternate loop domain to be defined for the output "
+      "TensorView of ",
+      expr->toString());
+  return true;
 }
 
 } // namespace

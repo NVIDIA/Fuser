@@ -1343,6 +1343,75 @@ void scheduleLdStMatrixForMmaOutput(
   }
 }
 
+// Apply to the TensorView after block tiling and parallelization, but before
+// applying mma allocation to loop domain.
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    TensorView* tv,
+    int64_t ldst_tile_m,
+    int64_t ldst_tile_n) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  AbstractTensor abstract_tensor(tv->getLoopDomain());
+  // (GM, GN, cta_m * cta_n, warp_m, warp_n)
+
+  // Split by TMA shared memory box
+  abstract_tensor.split(-1, 64);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
+
+  // Split by (16, 16) matrix for LdStMatrix.x4
+  abstract_tensor.split(-2, ldst_tile_m);
+  abstract_tensor.split(-1, ldst_tile_n);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+  // Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.
+
+  // For shared memory addressing, each thread specifies a row for each (8, 8)
+  // matrix. e.g., For stmatrix.x4, 32 threads move a (16, 16) matrix.
+
+  // Inside the tile box [16, 16], we can think of it as 4 8x8 tiles:
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T0   *  T2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T1   *  T3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+
+  // Split inner-dimension by 8 to traverse the rows of the (8, 8) matrices.
+  abstract_tensor.split(-1, 8);
+  // (no(4), mo(4), nio(4), mi(16), niio(2), niii(8))
+
+  // The tile is stored in row-major order, so issue four stmatrix.x4
+  // operations along the M dimension for a 128 thread warp group.
+  // Also, traverse along 16 rows first before moving along column dimension.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
+  // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
+
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+
+  // Merge no and nio to create a single serial IterDomain
+  // This ^^^ is an artifact of matmul scheduling functions.
+  abstract_tensor.merge(-4, -3);
+  // (no * nio)(16), (niio * mo * mi)(128), niii(8))
+
+  return abstract_tensor;
+}
+
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
   const std::vector<MatmulPattern> patterns = findMatmulPatterns(fusion);
   if (patterns.size() != 1) {
