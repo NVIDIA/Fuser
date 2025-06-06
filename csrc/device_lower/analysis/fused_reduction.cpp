@@ -68,8 +68,21 @@ class FusionInspector : private IterVisitor {
     // depend on this reduction. Only consider when out is on register as that
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
+    constexpr int64_t kThreadsPerWarp = 32L;
+    // Use staticWarpAllReduceTIDX if possible, only tested for circular
+    // buffered cases.
+    auto is_static_warp_reduction = [&]() {
+      for (auto ld : out->getLoopDomain()) {
+        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction() &&
+            ld->extent()->isConst() &&
+            ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+          return true;
+        }
+      }
+      return false;
+    };
     if (out->getMemoryType() == MemoryType::Local &&
-        (out->domain()->hasGridReduction() ||
+        (is_static_warp_reduction() || out->domain()->hasGridReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
@@ -77,6 +90,7 @@ class FusionInspector : private IterVisitor {
                return id->getParallelType() == ParallelType::Group;
              }))) {
       reduction_dep_[out].insert(rop);
+      std::cout << "Fused ReductionOp: " << rop->toString() << std::endl;
     }
   }
   void handle(WelfordOp* wop) final {

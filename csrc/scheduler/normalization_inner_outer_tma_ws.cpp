@@ -227,12 +227,12 @@ void getHeuristics(
 
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
-  if (bdimy == 1 || iter_unroll == 1) {
+  if (bdimy == 1) {
     std::cout << "Falling back to is_circular_buffer_regs_cached=False."
               << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
-        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/2);
+        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
   }
 
   // If still can't achieve multiple computation warp groups, further disable
@@ -630,7 +630,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       group_inner_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
-      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()},
+      /*skip_input_output_unroll=*/true);
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
