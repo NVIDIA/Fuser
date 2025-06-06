@@ -160,6 +160,7 @@ void getHeuristics(
         get_register_sharing(available_regs, bdimx * bdimy);
     std::cout << "bdimy: " << bdimy << ", bdimx: " << bdimx
               << ", iter_unroll: " << iter_unroll
+              << ", n_stages: " << n_stages
               << ", reg_count: " << reg_count
               << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
@@ -209,7 +210,7 @@ void getHeuristics(
       // ping-pong is not used. Only happened when hidden size is very large,
       // using ping-pong leads to register spills.
       if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
-          !is_enough_regs(iter_unroll, bdimx, bdimy) &&
+          (!is_enough_regs(iter_unroll, bdimx, bdimy) || after_vect % bdimx != 0) &&
           is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
         is_updated = true;
         bdimx += 128;
@@ -245,8 +246,8 @@ void getHeuristics(
     update_heuristics(
         /*target_stages=*/4, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
   }
-  // Without ping-pong
-  if (bdimy == 1) {
+  // If can't circular buffering, reduce smem usage
+  if (n_stages == 1 || bdimy == 1) {
     std::cout << "Falling back 3 to target_bdimy=1." << std::endl;
     is_non_circular_buffer_gmem_to_regs = true;
     update_heuristics(
