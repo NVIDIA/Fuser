@@ -48,9 +48,11 @@ class dependency_graph{
   codegenType op; // Codegen type for the shape inference
   std::vector<Val*> input_vals; // Vals that defined the current Val
   llvm::Value* llvm_val; // LLVM Value for the current Val
+  bool is_left_val; // Whether the current Val is the left Val of the output of Split operation or input of Merge operation
   dependency_graph(){
     op = codegenType::Merge;
     llvm_val = nullptr;
+    is_left_val = false;
   }
 };
 
@@ -90,7 +92,6 @@ std::vector<Val*> domain2vals(const std::vector<IterDomain*>& domain);
 
 // Helper function to cast vals to iter domains
 std::vector<IterDomain*> vals2domain(const std::vector<Val*>& domain);
-
 
 /*
 
