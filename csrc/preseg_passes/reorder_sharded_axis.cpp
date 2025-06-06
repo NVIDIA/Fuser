@@ -51,6 +51,12 @@ void makeCommunicationLayoutCompliant(
   // major-to-minor stride order, and (2) there was a bug in the reduction
   // scheduler.
   if (output->hasAllocation() &&
+      // Unlike for input, `c_layout` is the actual and `output` is the
+      // required. This is because `c_layout` is guaranteed by `p_layout` and
+      // the UCC/NCCL call, and `output` is specified by the user. For example,
+      // when `c_layout` and `output` have the same allocation order,
+      // `c_layout` is contiguous, `output` is non-contiguous, we don't need an
+      // extra copy -- a contiguous tensor can be used as non-contiguous.
       !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
     TensorView* output_copy = set(output);
     TransformReplay::selfReplay(
