@@ -5615,7 +5615,8 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  // TODO use legacy launch to avoid CGA tile
+  mparams.cluster_dims = {1, 1, 1};
   mparams.promote_prologue_smem_reuse = true;
   mparams.grid_traversal_factor = {16, 8};
 

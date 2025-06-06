@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/analysis/circular_buffer.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
@@ -152,10 +153,6 @@ void HopperPlus::validate() const {
       "Hopper+ matmul scheduler does not support distributing stages across "
       "SMs a la stream-K");
 
-  NVF_CHECK(
-      isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
-      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
@@ -215,6 +212,34 @@ void HopperPlus::run() {
   // mma_result is scheduled, since everything in the main loop will need to
   // be rotated
   setUpCircularBuffering();
+}
+
+void HopperPlus::schedulePingPong(
+    TensorView* tv,
+    std::vector<MatmulDimRole>& outer_dim_roles) const {
+  NVF_ERROR(tv != nullptr);
+
+  // Split inner-most non-K dimension by number of compute warp groups
+  int64_t Mo_pos = findFirstRole(outer_dim_roles, MatmulDimRole::M);
+  int64_t No_pos = findFirstRole(outer_dim_roles, MatmulDimRole::N);
+
+  constexpr int64_t num_compute_warp_groups = 2;
+  NVF_ERROR(std::max(Mo_pos, No_pos) >= 0);
+  if (Mo_pos < No_pos) {
+    // split: [M, N/2, 2]
+    tv->split(No_pos, num_compute_warp_groups);
+    if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+      tv->axis(No_pos + 1)->parallelize(ParallelType::TIDy);
+    }
+    outer_dim_roles.insert(outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+  } else {
+    // split: [N, M/2, 2]
+    tv->split(Mo_pos, num_compute_warp_groups);
+    if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+      tv->axis(Mo_pos + 1)->parallelize(ParallelType::TIDy);
+    }
+    outer_dim_roles.insert(outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+  }
 }
 
 std::vector<MatmulDimRole> HopperPlus::reorderBlockTileTraversal(
@@ -424,6 +449,11 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
     merged_roles = mma_utils::makeTile(
         tv, params_->tile_sizes.cta_tile, orig_merged_roles);
+
+    if (isPingPong()) {
+      schedulePingPong(tv, merged_roles);
+    }
+
     reorderBlockTileTraversal(tv, merged_roles);
   }
 
@@ -1156,16 +1186,15 @@ void Blackwell::scheduleSplitKSum() {
 
 void HopperPlus::setUpInlining() {
   // auto inline for all tensors except register tensors
-  std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
-  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
+  std::unordered_set<TensorView*> smem_loads;
+  if (isPingPong()) {
+    smem_loads.insert(acw_smems_.begin(), acw_smems_.end());
+    smem_loads.insert(bcw_smems_.begin(), bcw_smems_.end());
+  }
+  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
 
-  // if auto inline, will inline to position-7, leads to performance
-  // regression
   for (TensorView* mma_result : mma_results_) {
-    inlineSelectedAt(
-        smem_loads_and_mma_inputs,
-        mma_result,
-        num_device_dims_ + 6 + num_splitk_dims_);
+    inlineSelectedAt(smem_loads, mma_result, num_device_and_batch_dims_ + 2);
   }
 }
 
@@ -1222,10 +1251,18 @@ void HopperPlus::setUpCircularBuffering() {
         } else {
           constexpr int64_t num_registers_async_warp = 40;
           constexpr int64_t num_registers_compute_warp = 232;
-          cb_type = (CircularBufferType)WarpSpecialized(
-              ParallelType::TIDy,
-              std::make_pair(
-                  num_registers_async_warp, num_registers_compute_warp));
+          if (isPingPong()) {
+            cb_type = (CircularBufferType)WarpSpecialized(
+                ParallelType::TIDy,
+                std::make_pair(
+                    num_registers_async_warp, num_registers_compute_warp),
+                /*stage_slice_position=*/4);
+          } else {
+            cb_type = (CircularBufferType)WarpSpecialized(
+                ParallelType::TIDy,
+                std::make_pair(
+                    num_registers_async_warp, num_registers_compute_warp));
+          }
         }
         break;
       }
