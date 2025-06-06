@@ -104,10 +104,22 @@ bool isStMatrixOp(const Expr* expr);
 bool isCpAsyncOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
-//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+//!  a cp.async.bulk or cp.async.bulk.tensor
 bool isCpAsyncBulkLoad(const Expr* expr);
 bool isCpAsyncBulkStore(const Expr* expr);
 bool isCpAsyncBulk(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk.tensor intrinsic.
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr);
+bool isCpAsyncBulkTensorTileStore(const Expr* expr);
+bool isCpAsyncBulkTensorTile(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk intrinsic.
+bool isCpAsyncBulk1DLoad(const Expr* expr);
+bool isCpAsyncBulk1DStore(const Expr* expr);
+bool isCpAsyncBulk1D(const Expr* expr);
 
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
@@ -164,6 +176,15 @@ bool isTMAOrMMASmemTv(TensorView* tv);
 //! an input of an MmaOp, or the smem tv of TMA load/store.
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
 
+//! Get the stage_slice_position if it is defined in the WarpSpecialized
+//! circular buffer options struct.
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -354,6 +375,9 @@ struct IterDomainDependencySorter {
 // Check if all the inputs of the given MmaOp is guarded by mbarrier
 bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
+// Check if the given ForLoop is a warp specialized loop by checking
+// the circular buffer type of the loop domain.
+bool isWarpSpecializedLoop(ForLoop* loop);
 } // namespace lower_utils
 
 } // namespace nvfuser

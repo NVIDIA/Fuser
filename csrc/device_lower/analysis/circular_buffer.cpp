@@ -180,6 +180,16 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       ". Consumer memory type: ",
       c_mem_type);
 
+  // Due to limitation in predicate, 1D TMA load can only be safely used with
+  // WarpSpecialized
+  if (tv->circularBufferOptions().isEnable() &&
+      !std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    NVF_ERROR(
+        tv->definition() && !ir_utils::isCpAsyncBulk1D(tv->definition()),
+        "1D TMA load can only be used with WarpSpecialized circular buffer: ",
+        tv->definition()->toString());
+  }
   // Ensure that the warp-specialized circular buffer loop is the outer-most
   // for-loop if register sharing is enabled.
   if (std::holds_alternative<WarpSpecialized>(
@@ -246,6 +256,48 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
+// NvFuser permits launching multiple TMA loads with a thread parallel axis.
+// However, we cannot use the warp specialized axis for this. In the AsyncWarp,
+// the warp specialized axis is the padded size. If you try to use that axis to
+// launch TMA loads, you get incorrect results.
+//
+// For example, take a CTA with (TIDx = 128, TIDy = 2, TIDz = 1) and use
+// TIDy as the warp specialized axis. A user can unintentionally thread
+// parallelize the TMA load with `inlineMost`. See PingPongCircularBuffering.
+// ProducerWarpSpecializedError.
+//
+// if (TIDy >= 2) {
+//   Issue TMA-Load with ParallelType::TIDy.
+//   It expects ParallelType::TIDy to be [0, 1], but it runs with [2].
+// } else {
+//   Run a computation with ParallelType::TIDy.
+//   ParallelType::TDimY is in range [0, 1].
+// }
+void checkWarpSpecializedAxis(const TensorView* tv) {
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type)) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  // Broadcast axis are not materialized in a TensorView, so it can be thread
+  // parallelized.
+  auto ws_id_producer_iter = std::find_if(
+      producer_loop.begin(),
+      producer_loop.end(),
+      [&warp_specialized](IterDomain* id) {
+        return !id->isBroadcast() &&
+            id->getParallelType() == warp_specialized.on;
+      });
+  NVF_ERROR(
+      ws_id_producer_iter == producer_loop.end(),
+      "The warp specialized thread axis cannot appear in the AsyncWarp ",
+      "TensorView: ",
+      tv->toString());
+}
+
 // If compute warp groups are independent, then the mbarrier waits for 128
 // threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
@@ -256,7 +308,7 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
   const auto& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
 
   const auto& warp_specialized =
       std::get<WarpSpecialized>(tv->circularBufferOptions().type);
@@ -297,6 +349,28 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
   return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
 }
 
+// All the iterDomains to the left of the slice position in the producer and
+// consumer must belong to same iterDomain.
+void checkTraversalIterDomains(const TensorView* tv, int64_t slice_position) {
+  NVF_ERROR(GpuLower::hasCurrent() && GpuLower::current()->hasIdModel());
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::BROADCAST);
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
+  const std::vector<IterDomain*>& producer_loop = tv->domain()->loop();
+  for (int64_t idx : arange(slice_position)) {
+    IterDomain* producer_id = producer_loop.at(idx);
+    NVF_ERROR(
+        idx < consumer->nDims(),
+        "The corresponding consumer axis does not exist.");
+    IterDomain* consumer_id = consumer_loop.at(idx);
+    NVF_ERROR(
+        exact_graph.toGroup(producer_id) == exact_graph.toGroup(consumer_id),
+        "All iterDomains of the producer and consumer TensorViews to the left ",
+        "of the stage_slice_position must be in the same Broadcast ValGroup.");
+  }
+}
+
 void validateStageSlicePosition(const TensorView* tv) {
   if (!std::holds_alternative<WarpSpecialized>(
           tv->circularBufferOptions().type)) {
@@ -325,6 +399,8 @@ void validateStageSlicePosition(const TensorView* tv) {
       is_slice_after_bulk,
       "Detected an iterDomain with ParallelType::Bulk to the left of stage ",
       "slice position.");
+
+  checkTraversalIterDomains(tv, slice_position);
 }
 
 } // namespace
@@ -429,6 +505,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   if (GpuLower::hasCurrent()) {
     circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
   }
+  checkWarpSpecializedAxis(circular_buffer_tv);
   validateStageSlicePosition(circular_buffer_tv);
 
   // short-circuit: insertion position is only for warp specialization.
@@ -458,7 +535,8 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
 
   NVF_ERROR(
       inner_most_circular_buffer_position < circular_buffer_tv->nDims(),
-      "Expected inner_most_circular_buffer_position <= number of tensor dimensions ",
+      "Expected inner_most_circular_buffer_position <= number of tensor "
+      "dimensions ",
       "but got ",
       inner_most_circular_buffer_position,
       " and ",
@@ -467,7 +545,8 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
-      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position ",
+      "Expected outer_most_circular_buffer_position <= "
+      "inner_most_circular_buffer_position ",
       "but got ",
       outer_most_circular_buffer_position,
       " and ",
@@ -506,21 +585,32 @@ int64_t getForLoopIndex(
 Val* CircularBufferInfo::getLinearIndex(
     TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& loops) const {
-  int64_t inner_loop_index =
+  int64_t compute_at_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/true);
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
-  bool is_warp_specialized = std::holds_alternative<WarpSpecialized>(
-      circular_buffer_tv->circularBufferOptions().type);
+  const auto& circular_buffer_type =
+      circular_buffer_tv->circularBufferOptions().type;
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   if (!is_warp_specialized) {
-    return loops[inner_loop_index]->indexOrStartIfTrivial();
+    return loops[compute_at_loop_index]->indexOrStartIfTrivial();
   }
 
   // The inner-most and outer-most for loops can be different.
   // Get outer-most for-loop index.
   int64_t outer_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
+
+  // The inner_loop_index is the for-loop where the mbarrier arrive and wait
+  // operations are inserted in circular buffering pass. Use
+  // stage_slice_position if available. Otherwise, the default value is the
+  // first serial for-loop to the left of compute_at_position.
+  auto warp_specialized = std::get<WarpSpecialized>(circular_buffer_type);
+  int64_t inner_loop_index = (warp_specialized.stage_slice_position.has_value())
+      ? warp_specialized.stage_slice_position.value() - 1
+      : compute_at_loop_index;
 
   // Calculate insertion position.
   int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
@@ -680,6 +770,72 @@ IterDomain* getCircularBufferAxis(const TensorView* tv) {
     return nullptr;
   }
   return tv->axis(cb_axis);
+}
+
+std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps;
+
+  // Gather all async operations.
+  // TODO Add support for blackwell MmaOp
+  std::vector<Expr*> async_warp_exprs;
+  std::copy_if(
+      exprs.begin(),
+      exprs.end(),
+      std::back_inserter(async_warp_exprs),
+      [](Expr* e) {
+        return ir_utils::isCpAsyncBulkLoad(e) &&
+            e->output(0)->as<TensorView>()->isCircularBuffered();
+      });
+
+  // short-circuit: no async operations detected.
+  if (async_warp_exprs.empty()) {
+    return async_warps;
+  }
+
+  // TODO Divide into operations into separate AsyncWarps for multi-role
+  // specialization. The current assumption is a single AsyncWarp with same
+  // stage_slice_position.
+
+  // Get TensorViews for async warps.
+  std::vector<TensorView*> async_warp_tvs;
+  std::transform(
+      async_warp_exprs.begin(),
+      async_warp_exprs.end(),
+      std::back_inserter(async_warp_tvs),
+      [](Expr* e) {
+        auto output_tvs =
+            ir_utils::filterByType<TensorView>(e->outputs()).vector();
+        NVF_ERROR(output_tvs.size() == 1);
+        return output_tvs.front();
+      });
+  NVF_ERROR(!async_warp_tvs.empty());
+
+  // Check that all operations in the same warp have the same
+  // stage_slice_position.
+  std::vector<int64_t> stage_slice_positions;
+  std::transform(
+      async_warp_tvs.begin(),
+      async_warp_tvs.end(),
+      std::back_inserter(stage_slice_positions),
+      [](TensorView* tv) {
+        std::optional<int64_t> opt_stage_slice_position =
+            ir_utils::getStageSlicePosition(tv);
+        return opt_stage_slice_position.value_or(-1);
+      });
+  NVF_ERROR(
+      stage_slice_positions.size() == 1 ||
+      std::all_of(
+          stage_slice_positions.begin() + 1,
+          stage_slice_positions.end(),
+          [&](int64_t v) { return v == stage_slice_positions.front(); }));
+
+  TensorView* async_warp_tv = async_warp_tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+  int64_t stage_slice_position = stage_slice_positions.front();
+
+  async_warps.emplace_back(
+      async_warp_exprs, async_warp_tvs, stage_slice_position);
+  return async_warps;
 }
 
 } // namespace nvfuser

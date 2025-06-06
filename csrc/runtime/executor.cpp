@@ -215,7 +215,8 @@ void KernelExecutor::compile(
     NVF_ERROR(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
-        "Compilation with int32 is requested but int64 is required for the arguments");
+        "Compilation with int32 is requested but int64 is required for the "
+        "arguments");
   } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -390,7 +391,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
                 "Cannot validate parallelization scheme, "
-                "this may be due to mixed broadcast axes that are parallelized.");
+                "this may be due to mixed broadcast axes that are "
+                "parallelized.");
           }
         } else if (!expr_eval.precomputedValues()) {
           expr_eval.bind(extent, launch_constraints.getDim(p_type));
@@ -456,18 +458,42 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     NVF_CHECK(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
-        "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
+        "can't have welford and iter grouped reductions at the same time! "
+        "Should be handled by grouped welford!");
+
+    // For block reduction, each thread has a smem slot per reduction
+    // When warp specialization is used, remove padded threads
+    // For warp reduction, each warp has a smem slot per reduction
+    int64_t n_compute_threads_or_warps = launch_params.nThreads();
+    if (kernel_summary.circular_buffer_info.hasWarpSpecialized()) {
+      n_compute_threads_or_warps -= kWarpSpecializationPaddedThreads;
+    }
+    if (kernel_summary.all_block_reductions_are_warp_reduction) {
+      n_compute_threads_or_warps /= 32;
+    }
 
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * launch_params.bdimx() *
-        launch_params.bdimy() * launch_params.bdimz();
+        grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+    }
+
+    // StackBasedSharedMemAllocator start from address 0 without considering the
+    // shared memory reserved for reduction and broadcast workspace which is
+    // only known at runtime. To avoid mis-alignment for TMA tensors, here we
+    // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
+    // codegen.
+    reduction_broadcast_workspace =
+        roundUpToMultiple(reduction_broadcast_workspace, 128);
+
+    if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+      debug() << "reduction_broadcast_workspace shared memory bytes: "
+              << reduction_broadcast_workspace << std::endl;
     }
   }
 
@@ -570,7 +596,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",
@@ -1159,7 +1186,8 @@ KernelArgumentHolder KernelExecutor::run(
   if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
     NVF_ERROR(
         has_tma_ || has_rng_,
-        "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+        "No TMA or RNG found in the kernel, but detected an argument size "
+        "mismatch.");
     // If args don't match one of two things is happening. We need to add TMA
     // related args or RNG related args. Resolve these scenarios.
     if (has_tma_) {

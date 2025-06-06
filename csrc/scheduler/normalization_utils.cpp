@@ -717,7 +717,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
           fusion->inputs().begin(),
           fusion->inputs().end(),
           [](Val* inp) { return inp->isA<TensorView>(); }),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 }
 
 namespace {
@@ -792,13 +793,13 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   }
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead =
-      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+      scheduler_utils::getReductionSmemWorkspace(fusion, reduction_tvs);
 
   smem_overhead += sharedMemoryRoundUpOverhead(
       runtime_info, persistent_buffer_info, project_to_inputs);
 
   int64_t available_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+      (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
 
   available_persistent_buffer_size =
       std::max(available_persistent_buffer_size, available_shared_memory_size);
@@ -1492,7 +1493,8 @@ TensorView* scheduleReductionGeneral(
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   return reduction_scheduler_utils::scheduleReductionTV(

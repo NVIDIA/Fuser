@@ -29,6 +29,7 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
+#include <python_utils.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
@@ -78,7 +79,8 @@ Vector define_vector_fn(
           int_value,
           " at index ",
           idx,
-          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
           {self.recordingState(out())},
@@ -278,18 +280,6 @@ Tensor random_dist_op_fn(
   return output;
 }
 
-struct DimInfo {
-  int64_t index;
-  int64_t size;
-  int64_t stride;
-  int64_t stride_order;
-  std::optional<bool> contiguity = std::nullopt;
-
-  bool isBroadcast() {
-    return stride == 0 || size == 1;
-  }
-};
-
 template <class ShapeType>
 Tensor slice_fn(
     FusionDefinition::Operators& self,
@@ -342,7 +332,8 @@ Tensor slice_fn(
 
   NVF_CHECK(
       arg.dims == new_start.size,
-      "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+      "Number of tensor dimensions does not match slice dimensions! "
+      "Tensor-dims: ",
       arg.dims,
       " Slice-dims: ",
       new_start.size);
@@ -371,7 +362,8 @@ std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+      "compute_contiguity: Sizes and strides must have the same number of "
+      "dimensions");
   // Not a broadcast means neither the stride == 0 (size can be non-zero)
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
@@ -410,133 +402,6 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
-// [ Note stride order and contiguity vector ]
-//
-// for n-d tensor. we should have stride_order and contiguity both be a size n
-// vector.
-//
-// `stride order` vector corresponds to the order for each logical domain in
-//     physical memory; For any 0 <= i < n , we know the dimension i has the
-//     stride_order[i]-th smallest stride.
-//     An exception to this are implicit broadcast dimensions, i.e. dimensions
-//     with `stride == 0`, where we would maintain their semantical position
-// `contiguity` vector to whether or not indexing could be collaped
-//     corresponding to each physical domain;
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 2, 2, 2]
-//   strides = [8, 4, 2, 1]
-// Obviously the stride order as: [3, 2, 1, 0] for row-major order, i.e. stride
-// in descending order and contiguity flag will be [True, True, True, True]
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 1, 3, 1, 4]
-//   strides = [24, 4, 8, 4, 2]
-// Note that there are a few explicit broadcast dimensions, dimensions with size
-// == 1 and stride != 0. The stride for explicit broadcast dimensions
-// participates in stride order computation. The reason is that, frameworks
-// could assign meaningful stride to an explicit broadcast dimensions to hint
-// memory format, which could be used to deduce the desired output memory
-// format. We use stable sort to break tie when two dimension has equal stride,
-// i.e. try to preserve their semantical order. Hence, we would compute stride
-// order as: [4, 2, 3, 1, 0]. In the context of index, collapsing, how we
-// resolve that shouldn't matter. With sorted sizes & strides:
-//   sorted_size    = [2, 3, 1, 1, 4]
-//   sorted_strides = [24, 8, 4, 4, 2]
-// Here, we compute contiguity as: [True, True, None, None, False]
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 2, 2, 2]
-//   strides = [8, 4, 0, 2]
-// The stride of implicit broadcast dimensions, dimensions with stride == 0,
-// does not participate in stride order computation and preserves their
-// semantical position in stride order. The logic behind this is so that we
-// would not unnecessarily introduce permutated alloc_domain for a naive
-// unsqueeze/expanded operation when it doesn't improve indexing. For the given
-// example, computed stride_order would be: [3, 2, 1, 0] and contiguity would
-// be: [True, True, None, False]
-//
-// This function returns a pair of <contiguity, stride_order>
-std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
-computeTensorDescriptor(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides) {
-  NVF_CHECK(
-      sizes.size() == strides.size(),
-      "compute_tensor_descriptor: "
-      "Sizes and strides must have the same number of dimensions");
-  std::vector<DimInfo> non_broadcast_dim_info_vec;
-  std::vector<DimInfo> stride_zero_dims;
-  for (auto i : arange(sizes.size())) {
-    // NOTE: not supporting negative stride yet, but we can probably allow it on
-    // broadcast dims
-    NVF_CHECK(
-        strides[i] >= 0,
-        "negative stride on tensor is not supported: strides[",
-        i,
-        "]=",
-        strides[i]);
-    DimInfo dim_info{(int64_t)i, sizes[i], strides[i]};
-    if (strides[i] != 0) {
-      non_broadcast_dim_info_vec.push_back(dim_info);
-    } else {
-      stride_zero_dims.push_back(dim_info);
-    }
-  }
-  // sort non-broadcast dimensions by stride
-  std::stable_sort(
-      non_broadcast_dim_info_vec.begin(),
-      non_broadcast_dim_info_vec.end(),
-      [](const auto& l, const auto& r) { return l.stride > r.stride; });
-
-  // combine dimensions while preserving the semantical position of broadcast
-  // dimensions
-  for (const auto& dim_info : stride_zero_dims) {
-    non_broadcast_dim_info_vec.insert(
-        non_broadcast_dim_info_vec.begin() + dim_info.index, dim_info);
-  }
-
-  // Dimensions are marked contiguous by inspecting the current dimension and
-  // one to the right towards the inner dimension while skipping over broadcast
-  // dimensions.
-  // The innermost dimension, that is not broadcasted, does not have any
-  // dimension to it's right and needs to have stride equal to 1 in order to be
-  // marked contiguous.
-  for (int64_t i = 0; i < (int64_t)sizes.size();) {
-    non_broadcast_dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-    if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
-      auto l = i++;
-      int64_t expected = 1;
-      for (; i < (int64_t)sizes.size(); i++) {
-        non_broadcast_dim_info_vec[i].stride_order =
-            (int64_t)sizes.size() - 1 - i;
-        if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
-          expected = non_broadcast_dim_info_vec[i].stride *
-              non_broadcast_dim_info_vec[i].size;
-          break;
-        }
-      }
-      non_broadcast_dim_info_vec[l].contiguity =
-          (non_broadcast_dim_info_vec[l].stride == expected);
-    } else {
-      i++;
-    }
-  }
-
-  std::vector<int64_t> stride_order_vec(sizes.size(), -1);
-  for (const auto& dim_info : non_broadcast_dim_info_vec) {
-    stride_order_vec[dim_info.index] = dim_info.stride_order;
-  }
-  std::vector<std::optional<bool>> contiguity_vec;
-  std::transform(
-      non_broadcast_dim_info_vec.begin(),
-      non_broadcast_dim_info_vec.end(),
-      std::back_inserter(contiguity_vec),
-      [](const DimInfo& val) { return val.contiguity; });
-
-  return std::make_pair(contiguity_vec, stride_order_vec);
-}
-
 // Copy definition from a FusionDefinion's pre-scheduled CPP fusion to a blank
 // FusionDefinition. Primarily for testing purposes to check that the
 // translation from CPP fusion is correct.
@@ -548,18 +413,6 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
 }
 
 namespace {
-void verifyShape(const std::vector<int64_t>& shape) {
-  for (size_t i = 0; i < shape.size(); ++i) {
-    NVF_CHECK(
-        shape[i] >= -1,
-        "The value ",
-        shape[i],
-        " at index ",
-        i,
-        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-  }
-}
-
 void defineHeuristicParamBindings(py::module& nvfuser) {
   py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
   launch_parameters.def(
@@ -929,7 +782,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
       nvfuser, "SchedulerHyperParameters");
-  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t, bool>());
   hyperparameters.def_property(
       "vectorize_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -964,7 +817,15 @@ void initNvFuserPythonBindings(PyObject* module) {
          int64_t threads_per_block_max_) {
         self.threads_per_block_max = threads_per_block_max_;
       });
-
+  hyperparameters.def_property(
+      "is_warp_specialized",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.is_warp_specialized;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t is_warp_specialized_) {
+        self.is_warp_specialized = is_warp_specialized_;
+      });
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
@@ -1056,7 +917,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def_property_readonly(
       "index",
       [](Tensor& self) { return self.index; },
-      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
+      "Returns the index of the tensor as in "
+      "FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
@@ -1374,12 +1236,14 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
             NVF_CHECK(
                 stride_order.empty() || output.dims == stride_order.size(),
-                "stride_order needs to be either empty or the same length of Tensor `output`");
+                "stride_order needs to be either empty or the same length of "
+                "Tensor `output`");
             int64_t duplicate_check = 0;
             for (const auto& v : stride_order) {
               NVF_CHECK(
                   v >= 0 && v < (int64_t)stride_order.size(),
-                  "stride_order elements need to be within [0, stride_order.size())");
+                  "stride_order elements need to be within [0, "
+                  "stride_order.size())");
               duplicate_check |= 1 << v;
             }
             NVF_CHECK(
@@ -1451,29 +1315,11 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
 
             verifyShape(shape);
-
-            const auto rank = static_cast<int64_t>(shape.size());
-            std::vector<std::optional<bool>> contiguity_vec(rank);
-            // This duplicates some code around
-            // https://github.com/NVIDIA/Fuser/blob/b60f2341bbe2ec276b1fe60f4f25a4a5b093faa9/csrc/python_frontend/fusion_record.h#L1370.
-            // Alternatively, I can extend TensorRecord to allow contiguity as
-            // a boolean. If you think it's worth doing, I'm happy to pursue it
-            // in a separate PR.
-            for (const auto index : arange(rank)) {
-              const auto contig_index =
-                  stride_order.empty() ? index : rank - 1 - stride_order[index];
-              if (shape[index] == 1) {
-                contiguity_vec[contig_index] = std::nullopt;
-              } else {
-                contiguity_vec[contig_index] = contiguity;
-              }
-            }
-
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 shape,
-                contiguity_vec,
+                getContiguityVec(shape, stride_order, contiguity),
                 dtype,
                 is_cpu,
                 stride_order));
@@ -1503,44 +1349,18 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "The number of sizes does not match the number of strides.",
                 sizes.size(),
                 strides.size());
-
-            // TensorViewBuilder assumes any dim with a compile time constant
-            // size == 1 is a "maybe broadcast" axis, symbolic sizes are
-            // identified by -1, and size == 0 is not supported.
-
-            // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> dim_sizes;
-            dim_sizes.reserve(sizes.size());
-            for (const auto i : arange(sizes.size())) {
-              NVF_ERROR(
-                  sizes[i] >= 0,
-                  "Size of ",
-                  sizes[i],
-                  " is not supported in nvFuser. Expected size >= 0.");
-              if (static_sizes) {
-                dim_sizes.push_back(sizes[i]);
-              } else { // Symbolic defined tensor for dynamic shape usage
-                if (sizes[i] == 1) {
-                  dim_sizes.push_back(1);
-                } else {
-                  dim_sizes.push_back(-1);
-                }
-              }
-            }
-
             Tensor out = self.defineTensor(sizes.size());
             std::vector<std::optional<bool>> contiguity;
             std::vector<int64_t> stride_order;
             std::tie(contiguity, stride_order) =
-                computeTensorDescriptor(sizes, strides),
-                                 self.defineRecord(new TensorRecord(
-                                     {self.recordingState(out())},
-                                     std::move(dim_sizes),
-                                     contiguity,
-                                     dtype,
-                                     is_cpu,
-                                     stride_order));
-
+                computeTensorDescriptor(sizes, strides);
+            self.defineRecord(new TensorRecord(
+                {self.recordingState(out())},
+                getTensorViewBuilderSizes(sizes, static_sizes),
+                contiguity,
+                dtype,
+                is_cpu,
+                stride_order));
             return out;
           },
           py::arg("sizes"),
@@ -1585,7 +1405,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(
-            "Deprecating define_constant functions in favor of define_scalar for constants.");
+            "Deprecating define_constant functions in favor of define_scalar "
+            "for constants.");
         Scalar out = self.defineScalar();
         self.defineRecord(
             new ScalarRecord({self.recordingState(out())}, value, dtype));
@@ -1798,7 +1619,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == stride_order.size(),
-            "Operator stride_order expects `stride_order` argument to have the same length as input!");
+            "Operator stride_order expects `stride_order` argument to have the "
+            "same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new DimsOpRecord<serde::RecordType::StrideOrderOp>(
@@ -3158,6 +2980,52 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Tensor src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg1.dims == index.dims && arg1.dims == src.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            ", ",
+            index.dims,
+            " and ",
+            src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
@@ -3308,7 +3176,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == dims.size(),
-            "Operator permute expects `dims` argument to have the same length as input!");
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(

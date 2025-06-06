@@ -62,7 +62,8 @@ std::vector<int64_t> normalizeNew2Old(
           new2old.begin(),
           new2old.end(),
           [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
-      "New2Old axes are not within the number of dimensions of the provided domain.\t",
+      "New2Old axes are not within the number of dimensions of the provided "
+      "domain.\t",
       new2old);
 
   // Going to use sets, to see if any duplicate values are in the map.
@@ -109,7 +110,8 @@ std::vector<int64_t> normalizeOld2New(
             return entry.first < 0 || entry.first >= ndims ||
                 entry.second < 0 || entry.second >= ndims;
           }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
+      "Reorder axes are not within the number of dimensions of the provided "
+      "domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
@@ -1641,6 +1643,48 @@ ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
               tv->getLogicalDomain(), contiguity));
 
   return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
+  NVF_ERROR(
+      reshape_out_tv->definition() != nullptr &&
+          reshape_out_tv->definition()->isA<ViewOp>(),
+      "Not a reshape output: ",
+      reshape_out_tv->toString());
+
+  auto all_reshape_exprs = DependencyCheck::getAllExprsBetween(
+      {reshape_out_tv->getRootDomain().begin(),
+       reshape_out_tv->getRootDomain().end()},
+      {reshape_out_tv->getLogicalDomain().begin(),
+       reshape_out_tv->getLogicalDomain().end()});
+
+  std::vector<IterDomain*> reshaped_root_ids;
+  std::vector<IterDomain*> reshaped_logical_ids;
+  for (auto expr : all_reshape_exprs) {
+    std::ranges::copy(
+        expr->inputs() | std::views::filter([&](Val* inp) {
+          return inp->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getRootDomain(), inp->as<IterDomain>()) !=
+              reshape_out_tv->getRootDomain().end();
+        }) | std::views::transform([](Val* inp) {
+          return inp->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_root_ids));
+    std::ranges::copy(
+        expr->outputs() | std::views::filter([&](Val* out) {
+          return out->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getLogicalDomain(), out->as<IterDomain>()) !=
+              reshape_out_tv->getLogicalDomain().end();
+        }) | std::views::transform([](Val* out) {
+          return out->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_logical_ids));
+  }
+
+  return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
 }
 
 } // namespace nvfuser::ir_utils

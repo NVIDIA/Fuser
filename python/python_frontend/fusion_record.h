@@ -15,6 +15,7 @@
 #include <options.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/fusion_state.h>
+#include <python_utils.h>
 #include <serde/fusion_cache_generated.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
@@ -421,19 +422,22 @@ struct SliceOpRecord : RecordFunctor {
       Val* stride_idx = stride.at(idx);
       NVF_CHECK(
           !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
-          "Slice operation start_indices must be greater than or equal to 0. Start Indices: ",
+          "Slice operation start_indices must be greater than or equal to 0. "
+          "Start Indices: ",
           start_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           !start_idx->isConstInt() || !end_idx->isConstInt() ||
               end_idx->evaluate().as<int64_t>() >=
                   start_idx->evaluate().as<int64_t>(),
-          "Slice operation end_indices must be greater than or equal to start_indices. Start Indices: ",
+          "Slice operation end_indices must be greater than or equal to "
+          "start_indices. Start Indices: ",
           start_idx->evaluate().as<int64_t>(),
           " End Indices: ",
           end_idx->evaluate().as<int64_t>());
       NVF_CHECK(
           stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
-          "nvFuser Limitation: All slice operation strides must be of const size 1.");
+          "nvFuser Limitation: All slice operation strides must be of const "
+          "size 1.");
       vec_slice.push_back({start_idx, end_idx, stride_idx});
     }
     auto output = slice(arg, vec_slice, manual_normalization_);
@@ -1225,29 +1229,7 @@ struct TensorRecord : RecordFunctor {
         stride_order_(std::move(_stride_order)),
         dtype_(_dtype),
         is_cpu_(_is_cpu) {
-    if (!stride_order_.empty()) {
-      int64_t rank = (int64_t)stride_order_.size();
-      std::unordered_set<int64_t> order_set;
-      for (auto& order : stride_order_) {
-        order_set.insert(order);
-        if (order < 0) {
-          NVF_CHECK(
-              order >= -rank,
-              "define_tensor stride_order argument is out of range, expects >= -" +
-                  std::to_string(rank) + ", but got: " + std::to_string(order));
-          order += rank;
-        } else {
-          NVF_CHECK(
-              order < rank,
-              "define_tensor stride_order argument is out of range, expects < " +
-                  std::to_string(rank) + ", but got: " + std::to_string(order));
-        }
-      }
-      NVF_CHECK(
-          order_set.size() == stride_order_.size(),
-          "define_tensor got duplicated stride_order entries: " +
-              toDelimitedString(stride_order_));
-    }
+    normalizeStrideOrder(stride_order_);
   }
   ~TensorRecord() override = default;
   RecordFunctor* clone() final {
@@ -1324,38 +1306,14 @@ struct TensorRecord : RecordFunctor {
   }
 
   void operator()(FusionState& fd) final {
-    auto rank = shape_.size();
-    std::vector<bool> is_expand(rank);
-
-    for (const auto index : arange(rank)) {
-      // since contiguity_ vector is given to the corresponding order in alloc
-      // domain, while is_expand is given to root domain, we need to map it
-      // correctly with `contig_index` and `index`.
-      //
-      // stride_order[i] indicates that:
-      //   `logical_domain[i]` (and therefore `root_domain[i]` for input) maps
-      //   to `alloc_domain[rank - 1 - stride_order_[i]]`
-      //
-      // Hence `index` on root domain would be corresponding to the contiguity
-      // index `contig_index = rank - 1 - stride_order[index]`
-      const auto contig_index = stride_order_.empty()
-          ? index
-          : rank - 1 - static_cast<size_t>(stride_order_[index]);
-      const bool is_broadcast = !contiguity_[contig_index].has_value();
-      const bool has_non_broadcast_size = (shape_[index] != 1);
-      // A root dimension is expand dimension if:
-      //   The dimension is marked a broadcast; and
-      //   The dimension has an expanded extent.
-      is_expand[index] = is_broadcast && has_non_broadcast_size;
-    }
-
-    auto tv = TensorViewBuilder()
-                  .contiguity(contiguity_)
-                  .shape(shape_)
-                  .dtype(dtype_)
-                  .expanded(std::move(is_expand))
-                  .strideOrder(stride_order_)
-                  .build();
+    TensorView* tv =
+        TensorViewBuilder()
+            .contiguity(contiguity_)
+            .shape(shape_)
+            .dtype(dtype_)
+            .expanded(getExpanded(shape_, contiguity_, stride_order_))
+            .strideOrder(stride_order_)
+            .build();
 
     if (shape_.empty() && is_cpu_) {
       tv->setCpuScalar(true);
@@ -1843,6 +1801,59 @@ struct SelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
+struct ScatterOpRecord : RecordFunctor {
+  ScatterOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.scatter",
+            serde::RecordType::ScatterOp),
+        dim_(dim) {}
+  ~ScatterOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScatterOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg4 = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+
+    Val* output = scatter(arg1, dim_, arg3, arg4);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const ScatterOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_;
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Dimension,
+        serde::CreateDimension(builder, dim_).Union()};
+  }
+
+ private:
+  //! Dimension to select.
+  int64_t dim_;
+};
+
 struct GatherOpRecord : RecordFunctor {
   GatherOpRecord(
       std::vector<State> _args,
@@ -2022,12 +2033,14 @@ struct ScalarRecord : RecordFunctor {
       if (value_.is<bool>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Bool,
-            "A ScalarRecord for Bool inline definition not have a matching data type!");
+            "A ScalarRecord for Bool inline definition not have a matching "
+            "data type!");
         os << ((bool)value_ ? "True" : "False");
       } else if (value_.is<double>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Double,
-            "A ScalarRecord for Double inline definition not have a matching data type!");
+            "A ScalarRecord for Double inline definition not have a matching "
+            "data type!");
         if (std::isinf(value_.as<double>())) {
           if (std::signbit(value_.as<double>())) {
             os << "float(\"-inf\")";
@@ -2042,7 +2055,8 @@ struct ScalarRecord : RecordFunctor {
       } else if (value_.is<int64_t>()) {
         NVF_CHECK(
             dtype_ == PrimDataType::Int,
-            "A ScalarRecord for Int inline definition not have a matching data type!");
+            "A ScalarRecord for Int inline definition not have a matching data "
+            "type!");
         os << value_;
       } else {
         NVF_THROW("A ScalarRecord with an unsupported inline definition type!");

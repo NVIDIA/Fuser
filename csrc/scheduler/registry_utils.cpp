@@ -330,7 +330,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_outs.begin(),
               def_outs.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "This function does not support outputs of transformations with mismatching rfactor flags. ",
+          "This function does not support outputs of transformations with "
+          "mismatching rfactor flags. ",
           "If one output is rfactor all should be rfactor.");
 
       // If outputs are rfactor all the inputs should be as well. It doesn't
@@ -342,7 +343,8 @@ bool requiresForwardViewReplay(Fusion* fusion, ComputeAtMap& ca_map) {
               def_inps.begin(),
               def_inps.end(),
               [](IterDomain* id) { return id->isRFactorProduct(); }),
-          "Inputs producing an logical domain, should be marked as rfactor but found:\n  ",
+          "Inputs producing an logical domain, should be marked as rfactor but "
+          "found:\n  ",
           rfactor_def->toString());
 
       // Check which definition in the unique exact definition set this
@@ -490,7 +492,8 @@ bool reductionInterferingView(
           id);
       NVF_ERROR(
           find_it != reduction_reference->getLogicalDomain().end(),
-          "Issue with view analysis on reduction like schedule, with reference: ",
+          "Issue with view analysis on reduction like schedule, with "
+          "reference: ",
           reduction_reference->toString());
       auto logical_pos = std::distance(
           reduction_reference->getLogicalDomain().begin(), find_it);
@@ -1021,6 +1024,104 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
 
     if (has_resize && has_index_op) {
       return true;
+    }
+  }
+
+  return false;
+}
+
+namespace {
+
+// Return true when there's a producer-consumer relationship among a
+// given list of vals
+bool hasProducerConsumerRelationship(const std::vector<Val*>& vals) {
+  std::unordered_set<Val*> val_set(vals.begin(), vals.end());
+  std::unordered_set<Val*> visited;
+  std::deque<Val*> stack;
+  for (Val* v : vals) {
+    // The stack does not contain `vals` directly, but their
+    // producers. If we ever encounter a member of val_set, we
+    // return true
+    const std::vector<Val*> producers = ir_utils::producerValsOf(v);
+    stack.insert(stack.end(), producers.begin(), producers.end());
+  }
+
+  while (!stack.empty()) {
+    Val* current = stack.back();
+    stack.pop_back();
+    if (visited.count(current)) {
+      continue;
+    }
+
+    if (val_set.count(current)) {
+      return true;
+    }
+
+    const std::vector<Val*> producers = ir_utils::producerValsOf(current);
+    stack.insert(stack.end(), producers.begin(), producers.end());
+    visited.insert(current);
+  }
+
+  return false;
+}
+
+} // namespace
+
+bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
+  // Do some quick filtering before creating an Exact graph
+  auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+
+  // At least there must be multiple reshape ops
+  if (reshape_ops.size() < 2) {
+    return false;
+  }
+
+  // There must be a depedent reshape pair
+  std::vector<Val*> reshape_outputs;
+  reshape_outputs.reserve(reshape_ops.size());
+  std::ranges::transform(
+      reshape_ops, std::back_inserter(reshape_outputs), [](ViewOp* reshape) {
+        return reshape->out();
+      });
+  if (!hasProducerConsumerRelationship(reshape_outputs)) {
+    return false;
+  }
+
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
+      reshape_ids;
+
+  auto getReshapeIds = [&reshape_ids](ViewOp* reshape) {
+    auto reshape_out_tv = reshape->out();
+    auto it = reshape_ids.find(reshape_out_tv);
+    if (it == reshape_ids.end()) {
+      it = reshape_ids
+               .emplace(
+                   reshape->out(),
+                   ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
+               .first;
+    }
+    return it->second;
+  };
+
+  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
+    auto reshape_i = reshape_ops.at(i);
+    const ValGroups inp_groups_i =
+        exact_graph.toGroups(getReshapeIds(reshape_i).first);
+
+    for (const auto j : arange(i + 1, std::ssize(reshape_ops))) {
+      auto reshape_j = reshape_ops.at(j);
+      const ValGroups out_groups_j =
+          exact_graph.toGroups(getReshapeIds(reshape_j).second);
+
+      if (inp_groups_i.hasIntersect(out_groups_j)) {
+        return true;
+      }
     }
   }
 

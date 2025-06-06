@@ -144,8 +144,7 @@ void getHeuristics(
     int64_t max_blocks_per_sm_regs = scheduler_utils::safeDiv(
         threads_per_sm / warp_size, allocated_warps_per_block);
     // check shared memory limitation on blocks per sm
-    int64_t max_blocks_per_sm_smem =
-        (int64_t)dev_prop->sharedMemPerMultiprocessor /
+    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin /
         (smem_overhead + smem_buffer_size);
     return std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   };
@@ -577,10 +576,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   }
   NVF_ERROR(
       !inner_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
+      "schedulePersistentKernelInnerOuter is called but no inner reduction is "
+      "found.");
   NVF_ERROR(
       !outer_reduction_tvs.empty(),
-      "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
+      "schedulePersistentKernelInnerOuter is called but no outer reduction is "
+      "found.");
 
   // schedule inner reduction, only schedule the first inner reduction tv,
   // then will be propagated to other inner reduction tvs.
@@ -674,7 +675,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       NVF_ERROR(
           rparams->vectorization_factor_tmp_gmem_write <=
               rparams->unroll_factor_inner_reduction,
-          "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
+          "vectorization factor of temp gmem write should be smaller than that "
+          "of inner reduction.")
       if (rparams->vectorization_factor_tmp_gmem_write <
           rparams->unroll_factor_inner_reduction) {
         tv->split(-1, rparams->vectorization_factor_tmp_gmem_write);

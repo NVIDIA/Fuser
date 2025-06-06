@@ -103,6 +103,15 @@ int64_t computeSharedMemory(
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
+      // First byte may not equal to last byte of the previous buffer since
+      // shared memory is forced to align at 128 Bytes. See PR-3023.
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+      if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+        debug() << "buffer: " << smem_alloc->buffer()->toString()
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << ", size: " << size_bytes
+                << std::endl;
+      }
     }
   }
   return total;
@@ -275,7 +284,8 @@ KernelArgumentHolder allocateOutputs(
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(
-          "Unexpected allocation path, internal logic around allocations must be incorrect.");
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
   }
   return out_tensors;

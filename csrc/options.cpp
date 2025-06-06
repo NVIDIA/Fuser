@@ -144,6 +144,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
+      {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
       {"transform_propagator", DebugDumpOption::TransformPropagator}};
@@ -228,7 +229,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+        "fmad is disabled for nvrtc, which could negatively affect "
+        "performance. Try removing `fma` from env variable NVFUSER_DISABLE for "
+        "optimal performance.");
   }
 
   return options;

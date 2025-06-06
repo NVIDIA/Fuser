@@ -715,7 +715,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 2, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Ampere_16_8_16;
   mma_ops[0]->setMacro(macro);
@@ -1022,7 +1023,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       2 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 2, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 2, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Ampere_16_8_16;
   mma_ops[0]->setMacro(macro);
@@ -1403,7 +1405,8 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Ampere_16_8_16;
   mma_ops.front()->setMacro(macro);
@@ -1547,7 +1550,8 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Ampere_16_8_16;
   mma_ops.front()->setMacro(macro);
@@ -1728,7 +1732,8 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Ampere_16_8_16;
   mma_ops.front()->setMacro(macro);
@@ -1887,7 +1892,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   MmaMacro macro = MmaMacro::Turing_16_8_16;
   mma_ops.front()->setMacro(macro);
@@ -2581,8 +2587,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
         (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
     if (!mparams.use_smem_epilogue) {
-      GTEST_SKIP()
-          << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+      GTEST_SKIP() << "Test conducted without utilizing shared memory epilogue "
+                      "due to the device's constrained shared memory capacity.";
     }
 
     // Check that smem is allocated as expected.
@@ -2721,12 +2727,12 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
       (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
   if (!mparams.use_smem_epilogue) {
-    GTEST_SKIP()
-        << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    GTEST_SKIP() << "Test conducted without utilizing shared memory epilogue "
+                    "due to the device's constrained shared memory capacity.";
   }
   if (!mparams.promote_prologue_smem_reuse) {
-    GTEST_SKIP()
-        << "Test conducted with shared memory epilogue but without promoting prologue smem re-use.";
+    GTEST_SKIP() << "Test conducted with shared memory epilogue but without "
+                    "promoting prologue smem re-use.";
   }
 }
 
@@ -2820,8 +2826,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
       (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
   if (!mparams.use_smem_epilogue) {
-    GTEST_SKIP()
-        << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    GTEST_SKIP() << "Test conducted without utilizing shared memory epilogue "
+                    "due to the device's constrained shared memory capacity.";
   }
 }
 
@@ -2916,8 +2922,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
       (cg_outputs[0].as<at::Tensor>() - tref).abs().max());
 
   if (!mparams.use_smem_epilogue) {
-    GTEST_SKIP()
-        << "Test conducted without utilizing shared memory epilogue due to the device's constrained shared memory capacity.";
+    GTEST_SKIP() << "Test conducted without utilizing shared memory epilogue "
+                    "due to the device's constrained shared memory capacity.";
   }
 }
 
@@ -2966,9 +2972,9 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
                 true,
                 true);
         if (!mparams.use_smem_epilogue) {
-          std::cout
-              << "Skipping smem epilogue due to shared memory constraints on this device"
-              << std::endl;
+          std::cout << "Skipping smem epilogue due to shared memory "
+                       "constraints on this device"
+                    << std::endl;
           continue;
         }
         mparams.promote_prologue_smem_reuse = true;
@@ -3725,7 +3731,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
@@ -4610,6 +4617,55 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   NVF_CHECK(at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
 }
 
+TEST_P(MLPBenchmarkTest, BatchGEMM) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t Batch = 3, M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, -1}, dtype); // Batch, M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1, -1}, dtype); // Batch, K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({Batch, M, K}, options);
+  auto t1 = at::randn({Batch, K, N}, options);
+  auto out_ref = at::matmul(t0, t1);
+
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
+  // TODO Fix std::get variant error in expression evaluator because of linear
+  // index
+  // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     MLPBenchmarkTest,
@@ -4920,7 +4976,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
       1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      "Invalid number of MmaOp instances in fusion definition, expected 1, "
+      "got ",
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 

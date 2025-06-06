@@ -194,6 +194,38 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+
 bool isLdStTMem(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::LdTMem ||
@@ -696,6 +728,35 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -769,8 +830,13 @@ AllocPosInfo getAllocPosInfo(
 
   bool outer_alloc_found = false;
 
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -781,7 +847,8 @@ AllocPosInfo getAllocPosInfo(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -2054,6 +2121,13 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
 } // namespace lower_utils
 
 } // namespace nvfuser

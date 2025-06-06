@@ -7,18 +7,15 @@
 // clang-format on
 
 #include <host_ir/container.h>
-#include <host_ir/lower.h>
 #include <host_ir/lower_to_communication.h>
-#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
+#include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <ops/utils.h>
 
 namespace nvfuser {
 
@@ -54,17 +51,24 @@ void lowerToScatter(
     TensorView* output_tv,
     const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
-  // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
       receiver_mesh.rank() == 1,
       "Gather only supported on a 1D mesh. Given ",
       receiver_mesh);
-  auto root = input_tv->getDeviceMesh().at(0);
+
+  // Find a common device between input and receiver meshes to be the root
+  auto it = std::ranges::find_if(
+      input_tv->getDeviceMesh().vector(),
+      [&receiver_mesh](DeviceIdxType device) {
+        return receiver_mesh.has(device);
+      });
+  NVF_ERROR(
+      it != input_tv->getDeviceMesh().vector().end(),
+      "No common device found between input and receiver meshes");
+  DeviceIdxType root = *it;
+
   Team team = receiver_mesh.vector();
-  if (!receiver_mesh.has(root)) {
-    team.push_back(root);
-  }
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Scatter,
       output_tv,
@@ -72,7 +76,6 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -105,7 +108,6 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -126,7 +128,6 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -151,7 +152,6 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -193,7 +193,6 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          /*scatter_axis=*/-1,
           params.communicator_backend));
     }
   } else {
@@ -242,7 +241,6 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        /*scatter_axis=*/-1,
         params.communicator_backend));
   }
 }
@@ -263,7 +261,6 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      /*scatter_axis=*/-1,
       params.communicator_backend));
 }
 
@@ -276,15 +273,6 @@ void lowerToReduceScatter(
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
-  auto reduction_axis = output_tv->getReductionAxis().value();
-  auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
-  // The output tensor is sharded on scattered_axis and needs to be mapped
-  // back onto the input. The input has an reduced axis, so the scattered axis
-  // is adjusted to account for this. Ex: [DIDx(i0), i1] -> [r0, DIDx(i1)] The
-  // scattered_axis is axis=0 on the output and maps to axis=1 on the input.
-  if (reduction_axis <= scattered_axis) {
-    scattered_axis++;
-  }
 
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::ReduceScatter,
@@ -293,189 +281,202 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      scattered_axis,
       params.communicator_backend));
 }
 
-std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(
-    Expr* expr,
-    const HostIrLowerParams& params) {
+IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
+  std::vector<IterDomain*> logical_ids =
+      getInputsInTargetDomain(loop_id, tv->getLogicalDomain());
   NVF_ERROR(
-      (expr->isOneOf<MatmulOp, LinearOp>()),
-      "Expect a MatmulOp or a LinearOp, but got",
-      expr);
-  TensorView* tva = nullptr;
-  TensorView* tvb = nullptr;
-  TensorView* tv_bias = nullptr;
-  TensorView* tv_out = nullptr;
-  if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
-    tva = matmul->inA();
-    tvb = matmul->inB();
-    tv_out = matmul->out();
-  } else {
-    auto* linear = expr->as<LinearOp>();
-    tva = linear->inA()->as<TensorView>();
-    tvb = linear->inB()->as<TensorView>();
-    tv_bias = (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
-    tv_out = linear->out()->as<TensorView>();
-    NVF_ERROR(
-        !(linear->has_bias() && isSharded(tv_bias)),
-        "The bias ",
-        tv_bias,
-        " is expected to not be sharded");
-  }
+      logical_ids.size() == 1,
+      "Expected exactly one logical ID producing the device dimension ",
+      loop_id);
+  return logical_ids.at(0);
+}
 
-  NVF_ERROR(
-      !isSharded(tvb), "The B operand ", tvb, " is expected to not be sharded");
-  NVF_ERROR(
-      !isSharded(tv_out),
-      "The output ",
-      tv_out,
-      " is expected to not be sharded");
-  NVF_ERROR(
-      tv_out->axis(0)->getParallelType() == ParallelType::Stream,
-      "The output ",
-      tv_out,
-      " is expected to be stream-parallelized on axis 0");
-  const int64_t sharded_axis_index =
-      getShardedLogicalAxis(tva, ParallelType::DIDx);
-  IterDomain* stream_axis = tva->axis(0);
-  NVF_ERROR(
-      stream_axis->getParallelType() == ParallelType::Serial &&
-          sharded_axis_index == 1,
-      "The operand A ",
-      tva,
-      " is expected to be sharded on the dimension 1");
-
-  auto hic = FusionGuard::getCurFusion()->as<hir::HostIrContainer>();
-
-  auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
-  hir::Stream* original_stream = get_current_stream->stream();
-
-  TensorView* tva_allgathered =
-      ops::newValLike(tva, tva->dtype())->as<TensorView>();
-  tva_allgathered->axis(sharded_axis_index)->parallelize(ParallelType::Serial);
-  tva_allgathered->setMemoryType(MemoryType::Global);
-  auto* allocate_tva_allgathered =
-      IrBuilder::create<kir::Allocate>(tva_allgathered, MemoryType::Global);
-
-  tv_out->setMemoryType(MemoryType::Global);
-  auto* allocate_tv_out =
-      IrBuilder::create<kir::Allocate>(tv_out, MemoryType::Global);
-
-  auto* j =
-      IrBuilder::create<Val>(DataType::Index); // running index of the for-loop
-  auto* start = hic->zeroVal();
-  auto* stop = stream_axis->extent();
-  auto* step = hic->oneVal();
-  auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
-      stream_axis,
-      /*index=*/j,
-      start,
-      stop,
-      step,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-
-  auto* number_of_streams =
-      IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
-  auto* stream_index = mod(j, number_of_streams);
-  auto* stream = IrBuilder::create<hir::Stream>(stream_index);
-  auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
-  auto* initial_sync_stream =
-      IrBuilder::create<hir::Synchronize>(original_stream);
-
-  // the initial sync of the streams with the user's stream is done in a
-  // separate for-loop for performance reasons with comms/compute overlap
-  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
-  for (Expr* expr : loop_body_initial_sync) {
-    for_loop_initial_sync->body().push_back(expr);
-  }
-
-  auto* for_loop = IrBuilder::create<ForLoop>(
-      stream_axis,
-      /*index=*/j,
-      start,
-      stop,
-      step,
-      /*vectorize=*/false,
-      /*vectorize_shift=*/nullptr,
-      /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable,
-      /*circular_buffer_loop_stage_depth=*/0);
-
-  TensorView* tva_j = select(tva, 0, j);
-  TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
-  TensorView* tv_out_j = select(tv_out, 0, j);
-
-  NVF_ERROR(
-      tva->hasDeviceMesh(),
-      "The matmul's input ",
-      tva,
-      "is expected to have a DeviceMesh");
-  for (auto tv : {tva_j, tva_allgathered_j, tv_out_j}) {
-    tv->setDeviceMesh(tva->getDeviceMesh());
-  }
-
-  auto* communication = IrBuilder::create<Communication>(
-      CommunicationType::Allgather,
-      /*out=*/tva_allgathered_j,
-      /*in=*/tva_j,
-      /*team=*/tva->getDeviceMesh().vector(),
-      /*root=*/-1,
-      /*red_op=*/RedOpType::UNUSED,
-      /*scattered_axis=*/-1,
-      params.communicator_backend);
-  auto* wait = IrBuilder::create<hir::Wait>(communication);
-
-  Expr* compute = nullptr;
-  if (expr->isA<MatmulOp>()) {
-    compute = IrBuilder::create<MatmulOp>(tv_out_j, tva_allgathered_j, tvb);
-  } else {
-    compute =
-        IrBuilder::create<LinearOp>(tv_out_j, tva_allgathered_j, tvb, tv_bias);
-  }
-
-  auto* set_back_original_stream =
-      IrBuilder::create<hir::SetCurrentStream>(original_stream);
-  auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
-
-  std::vector<Expr*> loop_body = {
-      set_stream,
-      tva_j->definition(),
-      tva_allgathered_j->definition(),
-      communication,
-      wait,
-      tv_out_j->definition(),
-      compute,
-      set_back_original_stream,
-      sync_stream};
-  for (Expr* expr : loop_body) {
-    for_loop->body().push_back(expr);
-  }
-
-  return {
-      get_current_stream,
-      allocate_tva_allgathered,
-      allocate_tv_out,
-      for_loop_initial_sync,
-      for_loop};
+bool isLocalSizeOne(IterDomain* id) {
+  return id->isParallelized() || id->isBroadcast() || id->isReduction();
 }
 
 } // namespace
+
+bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
+  NVF_ERROR(
+      std::find(
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end(),
+          sharded_id) != tv->getLogicalDomain().end(),
+      "The sharded ID ",
+      sharded_id->toString(),
+      " is not in the logical domain ",
+      tv->getLogicalDomain());
+
+  if (isLocalSizeOne(sharded_id)) {
+    // Parallelized dimension, broadcast, and reduction do not affect
+    // allocation.
+    return true;
+  }
+
+  // This sharded logical ID may not be directly present in allocation domain.
+  // This indicates allocation domain has DID transformations.
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  if (!layout.has_value()) {
+    return false;
+  }
+
+  const std::vector<IterDomain*>& allocation_domain = layout->allocation_domain;
+
+  NVF_ERROR(
+      std::is_permutation(
+          allocation_domain.begin(),
+          allocation_domain.end(),
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end()),
+      "The allocation domain returned by canonicalizeLayout",
+      allocation_domain,
+      " should be a permutation of the logical domain ",
+      tv->getLogicalDomain());
+
+  // Check if sharded_id appears at the front.
+  for (IterDomain* id : allocation_domain) {
+    if (id == sharded_id) {
+      return true;
+    }
+    if (!isLocalSizeOne(id)) {
+      return false;
+    }
+  }
+  NVF_THROW(
+      "Should never reach here - sharded_id must be found in allocation "
+      "domain");
+}
+
+std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
+  auto* producer = expr->inputs().at(0)->as<TensorView>();
+  auto* consumer = expr->outputs().at(0)->as<TensorView>();
+  bool has_sharding_change = false;
+  std::optional<CommunicationInfo> communication_info = std::nullopt;
+
+  auto create_communication_info = [&](CommunicationType type,
+                                       IterDomain* p_sharded_id,
+                                       IterDomain* c_sharded_id) {
+    NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
+    has_sharding_change = true;
+    communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
+  };
+
+  const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
+  const auto p2c_map = pairwise_map.mapProducerToConsumer();
+  const auto c2p_map = pairwise_map.mapConsumerToProducer();
+
+  // This ignores device dimensions on reduction axis.
+  auto producer_pt_to_did =
+      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
+  auto consumer_pt_to_did =
+      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
+
+  for (ParallelType pt : kParallelTypeDIDs) {
+    IterDomain* p_loop_did = getOrDefault(producer_pt_to_did, pt);
+    IterDomain* c_loop_did = getOrDefault(consumer_pt_to_did, pt);
+
+    if (p_loop_did == nullptr && c_loop_did == nullptr) {
+      // Not sharded on this parallel type
+      continue;
+    }
+
+    const DeviceMesh& producer_mesh = producer->getDeviceMesh();
+    const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
+    const bool p_sharded = p_loop_did != nullptr && producer_mesh.size() > 1;
+    const bool c_sharded = c_loop_did != nullptr && consumer_mesh.size() > 1;
+    const bool same_mesh = producer_mesh == consumer_mesh;
+
+    if (expr->isA<LoadStoreOp>()) {
+      if (p_sharded && !c_sharded) {
+        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        CommunicationType type = same_mesh ? CommunicationType::Allgather
+                                           : CommunicationType::Gather;
+        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        continue;
+      }
+      if (!p_sharded && c_sharded) {
+        // Scatter
+        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+        create_communication_info(
+            CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
+        continue;
+      }
+    } else if (expr->isA<ReductionOp>()) {
+      if (!p_sharded) {
+        // Not a reduction based communication.
+        continue;
+      }
+
+      if (!c_sharded) {
+        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        CommunicationType type = same_mesh ? CommunicationType::Allreduce
+                                           : CommunicationType::Reduce;
+        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        continue;
+      }
+
+      // Check if the p_logical_ids is reduced in the output.
+      IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+      IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+
+      auto c_it = p2c_map.find(p_logical_id);
+      NVF_ERROR(
+          c_it != p2c_map.end(),
+          "Cannot find the mapped consumer logical ID for the producer logical "
+          "ID ",
+          p_logical_id->toString());
+      if (!c_it->second->isReduction()) {
+        continue;
+      }
+      create_communication_info(
+          CommunicationType::ReduceScatter,
+          c2p_map.at(c_logical_id),
+          c_logical_id);
+    } else {
+      NVF_THROW("Unsupported expression: ", expr->toString());
+    }
+  }
+  return communication_info;
+}
+
+bool isCommunicationLayoutCompliant(Expr* expr) {
+  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
+  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+
+  auto communication_info = getCommunicationInfo(expr);
+  if (!communication_info.has_value()) {
+    return true;
+  }
+
+  if (!isTvContiguous(producer) || !isTvContiguous(consumer)) {
+    return false;
+  }
+
+  if (communication_info->type == CommunicationType::Reduce ||
+      communication_info->type == CommunicationType::Allreduce) {
+    // Reduction axis in reduce/allreduce does not have to be outermost in
+    // allocation domain.
+    return true;
+  }
+
+  // Check if the gather/scatter axis is outermost in memory layout.
+  if (!isAllocationOrderCompliant(producer, communication_info->p_sharded_id) ||
+      !isAllocationOrderCompliant(consumer, communication_info->c_sharded_id)) {
+    return false;
+  }
+
+  return true;
+}
 
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
     const HostIrLowerParams& params) {
   FusionGuard fg(c->fusion());
-
-  if (c->isOneOf<MatmulOp, LinearOp>()) {
-    return lowerToCollectiveBasedPipelinedGemmComm(c, params);
-  }
 
   std::vector<Expr*> comms;
   NVF_ERROR(
@@ -504,7 +505,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
       c->toString(),
       " to communication is not supported");
   NVF_ERROR(
-      !isInnerResharding(c),
+      isCommunicationLayoutCompliant(c),
       "Resharding on an inner axis is not lowerable ",
       c->toString());
   bool is_reduction = c->isA<ReductionOp>();
@@ -518,8 +519,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
     if (is_output_sharded) {
       NVF_ERROR(
           same_mesh,
-          "ReduceScatter operation must have the same sender and receiver device mesh. "
-          "Insert a Set operation before or after the reduction to reshard ot another device mesh");
+          "ReduceScatter operation must have the same sender and receiver "
+          "device mesh. "
+          "Insert a Set operation before or after the reduction to reshard ot "
+          "another device mesh");
       lowerToReduceScatter(
           input_tv, output_tv, op_type, params, comms, my_device_idx);
     } else {

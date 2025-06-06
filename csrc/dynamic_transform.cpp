@@ -457,13 +457,15 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
       } else {
         NVF_CHECK(
             out_size == in_size,
-            "Mismatch in sizes when concretizing expand. Expanded or Iteration domain ",
+            "Mismatch in sizes when concretizing expand. Expanded or Iteration "
+            "domain ",
             inp_id->toString(),
             " has possibly expanded extent ",
             in_size,
             " which is incompatible with expansion to size ",
             out_size,
-            ". Note that already-expanded axes may not themselves be expanded.");
+            ". Note that already-expanded axes may not themselves be "
+            "expanded.");
         expand_axes.push_back(false);
       }
     }
@@ -629,7 +631,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
       : info_(info) {
     NVF_ERROR(
         fusion == info->fusion(),
-        "Invalid DynamicTransformInitialInfo. The associated Fusion is different from the given Fusion");
+        "Invalid DynamicTransformInitialInfo. The associated Fusion is "
+        "different from the given Fusion");
     FusionGuard fg(fusion);
     concretize();
   }
@@ -796,6 +799,13 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
     TensorView* incomplete_out_tv,
     const AnalyzeViewResult& view_analysis) {
   TensorView* concrete_reshape_out_tv = reshape(inp_tv, view_analysis);
+  // Inherit the mesh from the original output TV instead of the input TV.  If
+  // the original output TV doesn't have a mesh, it's subject to sharding
+  // propagation so we should assign the new output TV an empty mesh.
+  // Otherwise, the original output TV has a user-specified sharding, which
+  // TransformReplay::selfReplay will clone (cf. #3950), and we should assign
+  // the output TV the same mesh.
+  concrete_reshape_out_tv->setDeviceMesh(incomplete_out_tv->getDeviceMesh());
 
   // Extent expressions often change when concretizing a reshape. Here we
   // replace these in all downstream expressions so that the Fusion looks just
@@ -834,7 +844,9 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
       "Concretized reshape logical size does not match symbolic logical size");
 
   TransformReplay::selfReplay(
-      incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
+      incomplete_out_tv->domain(),
+      concrete_reshape_out_tv->domain(),
+      /*ignore_reductions=*/true);
 
   for (auto&& [old_id, new_id] : zip(old_logical, new_logical)) {
     Val* old_extent = old_id->extent();
@@ -913,7 +925,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
     auto inp_tv = view_op->in()->as<TensorView>();
 
     TensorView* concrete_reshape_out_tv = nullptr;
-
     if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
       concrete_reshape_out_tv = concretizeNonEmptyReshape(
           inp_tv, incomplete_out_tv, std::get<AnalyzeViewResult>(view_info));
@@ -1100,7 +1111,8 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
         NVF_CHECK(
             updated_id == inp_id || !updated_id->isSymbolic(),
-            "Mutated IterDomains between root and logical should not be symbolic");
+            "Mutated IterDomains between root and logical should not be "
+            "symbolic");
         if (i == 0) {
           // ops::promoteIterType will favor Symbolic if it encounters it
           // alongside Broadcast. This is preferable at fusion definition, but

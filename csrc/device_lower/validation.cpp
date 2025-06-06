@@ -304,7 +304,8 @@ class VectorizeValidator : public OptInDispatch {
 
     NVF_CHECK(
         validator.is_valid,
-        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+        "Invalid vectorized pattern found, vectorization iter domains must be "
+        "descendants of inner-most dimension.",
         "Issue found in, ",
         tv,
         "\n");
@@ -658,7 +659,8 @@ class VectorizeValidator : public OptInDispatch {
       }
       NVF_ERROR(
           producer_tv == nullptr,
-          "Vectorization validation only support op with a single TensorView input");
+          "Vectorization validation only support op with a single TensorView "
+          "input");
       producer_tv = input->as<TensorView>();
       auto producer_word_size_it =
           GpuLower::current()->vectorizedAccesses().find(producer_tv);
@@ -750,7 +752,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         // the vectorize dim.
         NVF_ERROR(
             i >= tv->getMaxComputePosition(),
-            "IterDomains to the left of the compute at point cannot be vectorized: ",
+            "IterDomains to the left of the compute at point cannot be "
+            "vectorized: ",
             tv,
             "\n");
         has_vectorize_dim = true;
@@ -952,12 +955,14 @@ void validateMmaTensors(MmaOp* mma) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Local ||
                 tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting register or shared memory input for Hopper mma input A");
+            "Only supporting register or shared memory input for Hopper mma "
+            "input A");
       } else if (mma->isBlackwell()) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Tensor ||
                 tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting tensor or shared memory input for Blackwell mma input A");
+            "Only supporting tensor or shared memory input for Blackwell mma "
+            "input A");
       } else {
         NVF_THROW("Should not reach here");
       }
@@ -1161,7 +1166,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
             tv->definition()->isA<GroupedReductionOp>() ||
             tv->definition()->isA<WelfordOp>() ||
             tv->definition()->isA<GroupedWelfordOp>(),
-        "Invalid use of ParallelType::Group. Only ReductionOp, GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
+        "Invalid use of ParallelType::Group. Only ReductionOp, "
+        "GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
         tv->definition()->toString());
 
     // Convert ReductionOp to GroupedReductionOp
@@ -1260,6 +1266,32 @@ void validateReductions(Fusion* fusion) {
             !in_id->isBroadcast() || in_id->hasExpandedExtent(),
             "Reductions of unexpanded broadcast domains should be ",
             "converted to squeeze before lowering.");
+      }
+    }
+  }
+}
+
+//! Validate f split output domain is loaded with 1D TMA, the split must be
+//! divisible
+void validate1dTmaLoad(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
+      continue;
+    }
+    NVF_ERROR(
+        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        "Expect TMA load of inner-most dimension, but got: ",
+        tv->toString());
+    const auto all_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+        {tv->axis(-1)});
+    for (auto expr : all_exprs) {
+      if (auto split = dynamic_cast<Split*>(expr)) {
+        GpuLower::current()->validate(
+            split->isDivisible(),
+            "If split output domain is loaded with 1D TMA, the split must be "
+            "divisible, got: ",
+            split->toString());
       }
     }
   }

@@ -14,8 +14,13 @@
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
+#include <ops/arith.h>
+#include <ops/composite.h>
+#include <ops/utils.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 namespace {
@@ -27,20 +32,6 @@ namespace {
 // multi-output expressions if they don't require resharding.
 bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1 && expr->outputs().size() == 1;
-}
-
-std::unordered_set<ParallelType> getParallelTypesForResharding() {
-  // Consider a reshard case:
-  // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
-  // This is decomposed into:
-  // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
-  // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
-  // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
-  // when sharding using input as the reference.
-  std::unordered_set<ParallelType> parallel_types{
-      kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
-  parallel_types.insert(ParallelType::Serial);
-  return parallel_types;
 }
 
 void insertReshardingSetsBefore(Fusion* fusion) {
@@ -85,7 +76,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
 
-    shardAllLike(output, new_inputs, getParallelTypesForResharding());
+    shardAllLike(output, new_inputs, allParallelTypes());
   }
 }
 
@@ -124,10 +115,116 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
-      shardAllLike(output, {new_output});
+      shardAllLike(output, {new_output}, deviceAndStreamParallelTypes());
 
-      shardAllLike(input, {output}, getParallelTypesForResharding());
+      // Consider a reshard case:
+      //
+      //   input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
+      //
+      // This is decomposed into:
+      //
+      //   input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
+      //   new_output [i0, DIDx(i1)]
+      //
+      // ParallelType::Serial is required here so the output is sharded as
+      // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
+      // input as the reference.
+      shardAllLike(input, {output}, allParallelTypes());
     }
+  }
+}
+
+// Canonicalizes tv's loop domain for simplicity and working around schedulers'
+// limitations. Many schedulers panic when seeing the input fusion segment
+// contains non-DID loop splits. For example, an rFactor tensor may look like
+// the following:
+//
+//                            r{k}
+//                            /  \.
+// [i{m}         i{n}    iDIDx{d}  r{k/d}]
+//               /  \.
+//            i{d} i{n/d}
+//
+// The split of i{n} is unnecessary because i{d} and i{n/d} are both
+// ParallelType::Serial. This function replaces the two with i{n} in the loop
+// domain.
+void canonicalizeLoopDomain(TensorView* tv) {
+  LinkedHashMap<IterDomain*, std::monostate> loop;
+  for (IterDomain* id : tv->getLoopDomain()) {
+    loop.pushBack(id, std::monostate());
+  }
+
+  for (Expr* transform :
+       DependencyCheck::getAllExprsBetween(
+           {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()}) |
+           std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(
+        split != nullptr,
+        "Only splits are expected so far, but found: ",
+        transform);
+
+    if (split->outer()->isParallelized() || split->inner()->isParallelized()) {
+      continue;
+    }
+
+    if (!loop.contains(split->outer()) || !loop.contains(split->inner())) {
+      continue;
+    }
+
+    loop.erase(split->outer());
+    const auto inner_i = loop.erase(split->inner()).second;
+    // `inner_i` is picked arbitrarily as the insertion point. Given `in`,
+    // `outer` and `inner` are all serial, `in`'s position in the loop domain
+    // doesn't matter.
+    loop.insert(inner_i, split->in(), std::monostate());
+  }
+
+  auto new_loop = std::views::keys(loop);
+  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+void decomposeRowParallelLinearWithBias(Fusion* fusion) {
+  for (Expr* e : fusion->exprs()) {
+    auto* linear_op = dynamic_cast<LinearOp*>(e);
+    if (linear_op == nullptr) {
+      continue;
+    }
+
+    if (!linear_op->hasBias()) {
+      continue;
+    }
+
+    TensorView* out = linear_op->out();
+    if (std::none_of(
+            out->getLoopDomain().begin(),
+            out->getLoopDomain().end(),
+            [](IterDomain* id) {
+              return id->isReduction() && id->isParallelized();
+            })) {
+      continue;
+    }
+
+    auto* without_bias = linear(linear_op->inA(), linear_op->inB());
+    TransformReplay::selfReplay(out->domain(), without_bias->domain());
+
+    TensorView* broadcasted_bias = [&]() {
+      const int64_t rank_after_broadcast = std::ssize(
+          TensorDomain::noReductions(without_bias->getLogicalDomain()));
+      NVF_ERROR(
+          rank_after_broadcast > 0,
+          "without_bias is expected to be at least 1D: ",
+          without_bias);
+      std::vector<bool> is_broadcast_dim(rank_after_broadcast, true);
+      is_broadcast_dim.back() = false;
+      return broadcast(linear_op->bias(), is_broadcast_dim);
+    }();
+
+    TensorView* new_out = add(without_bias, broadcasted_bias);
+    TransformReplay::selfReplay(
+        out->domain(), new_out->domain(), /*ignore_reductions=*/true);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(out, new_out);
   }
 }
 
@@ -221,6 +318,8 @@ void rFactorLoopSplits(Fusion* fusion) {
           loop_id->parallelize(ParallelType::Serial);
         }
       }
+
+      canonicalizeLoopDomain(local);
     }
   }
 }
@@ -228,6 +327,8 @@ void rFactorLoopSplits(Fusion* fusion) {
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
+  decomposeRowParallelLinearWithBias(fusion);
+
   rFactorLoopSplits(fusion);
 
   // shouldReshardAfter selects whether insertReshardingSetsAfter or

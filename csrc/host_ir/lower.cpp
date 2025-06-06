@@ -18,8 +18,8 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -35,7 +35,7 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     return false;
   }
   if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
-    if (!ignore_inner_resharding && isInnerResharding(expr)) {
+    if (!ignore_inner_resharding && !isCommunicationLayoutCompliant(expr)) {
       return false;
     }
     auto in = reduction->in()->as<TensorView>();
@@ -57,32 +57,10 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
     return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
   } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    if (!ignore_inner_resharding && isInnerResharding(expr)) {
+    if (!ignore_inner_resharding && !isCommunicationLayoutCompliant(expr)) {
       return false;
     }
     return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
-  } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
-    // For now we only support out = matmul(a,b) when b, out are fully
-    // replicated, a is sharded on axis 1, and out i stream-parallelized on axis
-    // 0.
-    return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
-        matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
-        getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&
-        matmul->out()->axis(0)->getParallelType() == ParallelType::Stream;
-  } else if (auto* linear = dynamic_cast<LinearOp*>(expr)) {
-    // For now we only support out = linear(a, b, bias) when b, bias, and out
-    // are fully replicated, a is sharded on axis 1, and out i
-    // stream-parallelized on axis 0.
-    auto* a = linear->inA()->as<TensorView>();
-    auto* b = linear->inB()->as<TensorView>();
-    auto* bias =
-        (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
-    auto* out = linear->out()->as<TensorView>();
-    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
-        !isSharded(out) &&
-        a->axis(0)->getParallelType() == ParallelType::Serial &&
-        getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
-        out->axis(0)->getParallelType() == ParallelType::Stream;
   }
   return false;
 }
@@ -140,9 +118,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   preseg_passes::OptimizationPass<
       preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::MakeReshardingContiguousPass>::runPass(fusion.get());
+      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either

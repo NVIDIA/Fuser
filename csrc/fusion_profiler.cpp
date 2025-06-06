@@ -377,7 +377,8 @@ uint32_t SegmentProfiler::segmentId() const {
 auto FusionProfile::toTuple(const FusionProfile& prof, size_t seg_id) {
   NVF_CHECK(
       !prof.kernel_profiles.empty(),
-      "Cannot convert FusionProfile to a tuple containing CUPTI gathered stats!");
+      "Cannot convert FusionProfile to a tuple containing CUPTI gathered "
+      "stats!");
   NVF_CHECK(
       seg_id < prof.kernel_profiles.size(),
       "Invalid seg_id for FusionProfile. Segments: ",
@@ -653,7 +654,8 @@ void FusionProfiler::createSegments(size_t num) {
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
   NVF_CHECK(
       get()->segments_.size() > idx,
-      "FusionProfiler: You are attempting to access non-existent segments! Segments: ",
+      "FusionProfiler: You are attempting to access non-existent segments! "
+      "Segments: ",
       get()->segments_.size(),
       " Idx: ",
       idx);
@@ -663,6 +665,10 @@ SegmentProfiler& FusionProfiler::segment(size_t idx) {
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
   FusionProfiler* fp = get();
   fp->cupti_disabled_ = cupti_disable;
+  NVF_CHECK(
+      fp->state_ != ProfilerState::Running,
+      "FusionProfiler has already Started! Stop the profiler before starting "
+      "again.");
   reset();
   if (!fp->cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(
@@ -823,7 +829,8 @@ const FusionProfile& FusionProfiler::profile() {
   NVF_CHECK_EQ(
       state(),
       ProfilerState::Processed,
-      "The FusionProfile struct data is not valid because it has not been processed!");
+      "The FusionProfile struct data is not valid because it has not been "
+      "processed!");
   return get()->profile_;
 }
 
@@ -840,7 +847,8 @@ void FusionProfiler::recordAsyncCorrIdActivity(
   FusionProfiler* fp = get();
   NVF_CHECK(
       fp->corrid_2_segid_.count(corr_id) == 0,
-      "Segment Correlation Activity asociated with this correlation id already exists! ",
+      "Segment Correlation Activity asociated with this correlation id already "
+      "exists! ",
       corr_id);
   fp->corrid_2_segid_[corr_id] = seg_id;
 }

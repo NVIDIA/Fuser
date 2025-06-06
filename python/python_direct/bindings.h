@@ -17,4 +17,13 @@ void initNvFuserPythonBindings(PyObject* module);
 // Add bindings for Fusion IR
 void bindFusionIr(py::module& nvfuser);
 
+// Add bindings for Enums
+void bindEnums(py::module& nvfuser);
+
+// Add bindings for Fusion and FusionExecutorCache
+void bindRuntime(py::module& nvfuser);
+
+// Add bindings for CPP Fusion Operations
+void bindOperations(py::module& nvfuser);
+
 } // namespace nvfuser::python

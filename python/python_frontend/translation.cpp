@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <translation_names.h>
 #include <utils.h>
 
 #include <vector>
@@ -511,7 +512,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
         argument_states,
         {fd_->recordingState(map_val_to_fd_index_.at(result))},
-        "ops." + getString(e->as<ExprType>()),
+        "ops." + python::toString(e->as<ExprType>()),
         record_type,
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
@@ -718,7 +719,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new ReductionOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
         {fd_->recordingState(output())},
-        "ops." + getString(rop),
+        "ops." + python::toString(rop),
         getSerdeType(rop),
         getFunction<
             TensorView*,
@@ -1113,6 +1114,20 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new SelectOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(sop->lookupTv())),
          fd_->recordingState(map_val_to_fd_index_.at(sop->input(1)))},
+        {fd_->recordingState(output())},
+        sop->dim()));
+  }
+
+  // Map ScatterOp to python frontend
+  void handle(const ScatterOp* sop) final {
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ScatterOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->selfTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->indexTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->srcTv()))},
         {fd_->recordingState(output())},
         sop->dim()));
   }
