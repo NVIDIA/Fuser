@@ -176,7 +176,7 @@ void lowerToBroadcastOrSendRecv(
       receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
-    // we create as many Broadcast as that will be handled in parallel
+    // we create as many SendRecvs as that will be handled in parallel
     NVF_ERROR(
         sender_mesh.size() == receiver_mesh.size(),
         "the receiver and sender meshes have different sizes: ",
@@ -440,6 +440,15 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       NVF_THROW("Unsupported expression: ", expr->toString());
     }
   }
+
+  if (!communication_info.has_value()) {
+    if (isLoopSharded(producer) && isSharded(consumer)) {
+      create_communication_info(CommunicationType::SendRecv, nullptr, nullptr);
+    } else {
+      NVF_ERROR(!isSharded(producer)&&)
+    }
+  }
+
   return communication_info;
 }
 
