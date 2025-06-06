@@ -176,7 +176,7 @@ void lowerToBroadcastOrSendRecv(
       receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
-    // we create as many Broadcast as that will be handled in parallel
+    // we create as many SendRecvs as that will be handled in parallel
     NVF_ERROR(
         sender_mesh.size() == receiver_mesh.size(),
         "the receiver and sender meshes have different sizes: ",
@@ -352,6 +352,13 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
 }
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
+  NVF_ERROR(
+      expr->isA<LoadStoreOp>() || expr->isA<ReductionOp>(),
+      "getCommunicationInfo should only be called when `expr` is known to be a "
+      "communication. So `expr` should be either a LoadStoreOp or a "
+      "ReductionOp. Given: ",
+      expr->toString());
+
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
   bool has_sharding_change = false;
@@ -396,16 +403,20 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
         create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
-        continue;
       }
       if (!p_sharded && c_sharded) {
-        // Scatter
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         create_communication_info(
             CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
-        continue;
       }
-    } else if (expr->isA<ReductionOp>()) {
+      if (p_sharded && c_sharded) {
+        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+        create_communication_info(
+            CommunicationType::SendRecv, p_logical_id, c_logical_id);
+      }
+    } else {
+      NVF_ERROR(expr->isA<ReductionOp>());
       if (!p_sharded) {
         // Not a reduction based communication.
         continue;
@@ -436,9 +447,11 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
           CommunicationType::ReduceScatter,
           c2p_map.at(c_logical_id),
           c_logical_id);
-    } else {
-      NVF_THROW("Unsupported expression: ", expr->toString());
     }
+  }
+
+  if (!communication_info.has_value()) {
+    create_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
   }
   return communication_info;
 }

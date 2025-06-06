@@ -10,6 +10,7 @@
 #include <device_lower/utils.h>
 #include <fusion.h>
 #include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -335,6 +336,17 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
   // insertReshardingSetsBefore is used.
   insertReshardingSetsAfter(fusion);
   insertReshardingSetsBefore(fusion);
+
+  // Validate
+  for (Expr* e : fusion->exprs()) {
+    if (isResharding(e)) {
+      NVF_ERROR(
+          getCommunicationInfo(e).has_value(),
+          "After decomposition, any resharding expression is expected to be a "
+          "lowerable communication: ",
+          e);
+    }
+  }
 }
 
 } // namespace nvfuser::preseg_passes
