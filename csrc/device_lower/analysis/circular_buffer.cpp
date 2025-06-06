@@ -435,7 +435,43 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
 
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
+  initializePingPongTracking(tv, cb_axis);
+
   setCircularBufferInsertionPosition(tv, cb_axis);
+}
+
+void CircularBufferInfo::initializePingPongTracking(
+    const TensorView* tv,
+    IterDomain* cb_axis) {
+  NVF_ERROR(tv != nullptr);
+  NVF_ERROR(cb_axis != nullptr);
+
+  // short-circuit: already tracking
+  if (ping_pong_mbarriers_.contains(cb_axis)) {
+    return;
+  }
+
+  // short-circuit: cooperative computation
+  if (!hasIndependentWarpGroups(tv)) {
+    return;
+  }
+
+  // short-circuit: only applied for hopper matmul
+  if (!hasHopperMatmulConsumer(tv)) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+  IterDomain* ws_id =
+      findWarpSpecializedIterDomain(consumer, warp_specialized.on);
+  NVF_ERROR(ws_id->extent()->isConst());
+  int num_warp_groups = ws_id->extent()->value().as<int64_t>();
+  ping_pong_mbarriers_.emplace(
+      cb_axis,
+      std::make_shared<HopperPingPongMbarriers>(
+          num_warp_groups, warp_specialized.on));
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -496,6 +532,21 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
       "CircularBufferOptions is not found.");
 
   return maybe_it->second;
+}
+
+HopperPingPongMbarriers* CircularBufferInfo::getPingPongMbarriersFor(
+    IterDomain* circular_buffer_axis) {
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
+
+  auto maybe_it = ping_pong_mbarriers_.find(circular_buffer_axis);
+
+  NVF_ERROR(
+      maybe_it != ping_pong_mbarriers_.end(),
+      "HopperPingPongMbarriers is not found.");
+
+  return maybe_it->second.get();
 }
 
 int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
