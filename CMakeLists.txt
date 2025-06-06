@@ -311,6 +311,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
+    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
 endif()
 
@@ -654,6 +655,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
