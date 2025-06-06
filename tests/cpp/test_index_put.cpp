@@ -139,15 +139,17 @@ TEST_F(IndexPut, IndexShuffle) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t_src = at::randn(src_shape, options);
-  auto t_index = at::randint(0, seq, index_shape, options_i);
+  // argsort to get unique indices
+  auto t_index = at::rand(index_shape).argsort();
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
 
-  // auto ref = at::index_select(t_src, 0, t_index);
   auto ref = t_src.scatter(0, t_index.unsqueeze(-1).expand_as(t_src),t_src);
+  testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
+
+  // TODO: remove this after codegen for indexShuffle is added
   EXPECT_TRUE(ref.allclose(outputs[0].as<at::Tensor>()));
-  // testValidate(&fusion, outputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
