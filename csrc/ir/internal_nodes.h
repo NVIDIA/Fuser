@@ -283,12 +283,7 @@ class ScatterOp : public Expr {
 class IndexShuffleOp : public Expr {
  public:
   using Expr::Expr;
-  IndexShuffleOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* index,
-      int64_t dim,
-      Val* src);
+  IndexShuffleOp(IrBuilderPasskey, Val* out, Val* index, int64_t dim, Val* src);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

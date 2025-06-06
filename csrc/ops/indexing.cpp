@@ -282,10 +282,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
   return out_tensor->as<TensorView>();
 }
 
-TensorView* indexShuffle(
-    TensorView* index,
-    int64_t dim,
-    TensorView* src) {
+TensorView* indexShuffle(TensorView* index, int64_t dim, TensorView* src) {
   // auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
   // NVF_CHECK(
   //     idx_dom.size() == 1,
@@ -303,11 +300,8 @@ TensorView* indexShuffle(
 
   if (!ops::isIndexAlreadyBroadcast(original_index_domain, dim, n_dims)) {
     // Broadcast index to src's rank.
-    NVF_CHECK(
-        original_index_domain.size() == 1,
-        "index must be a 1d tensor");
-    index =
-        ops::maybeBroadcastIndexTv(index->as<TensorView>(), dim, n_dims);
+    NVF_CHECK(original_index_domain.size() == 1, "index must be a 1d tensor");
+    index = ops::maybeBroadcastIndexTv(index->as<TensorView>(), dim, n_dims);
   } else {
     // TODO: assert index is broadcast at the right place
   }

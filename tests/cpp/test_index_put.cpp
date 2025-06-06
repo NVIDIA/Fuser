@@ -144,7 +144,7 @@ TEST_F(IndexPut, IndexShuffle) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
 
-  auto ref = t_src.scatter(0, t_index.unsqueeze(-1).expand_as(t_src),t_src);
+  auto ref = t_src.scatter(0, t_index.unsqueeze(-1).expand_as(t_src), t_src);
   testValidate(&fusion, outputs, {t_src, t_index}, __LINE__, __FILE__);
 
   // TODO: remove this after codegen for indexShuffle is added
