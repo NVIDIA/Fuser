@@ -139,7 +139,7 @@ TEST_F(IndexPut, IndexShuffle) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t_src = at::randn(src_shape, options);
   // argsort to get unique indices
-  auto t_index = at::rand(index_shape).argsort();
+  auto t_index = at::rand(index_shape, options).argsort();
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
