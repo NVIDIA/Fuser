@@ -431,11 +431,13 @@ Layout getCommunicationLayout(
     return layout;
   }
 
-  for (int64_t i = 0; i < sharded_id_pos; i++) {
+  for (int64_t i : arange(sharded_id_pos)) {
     IterDomain* id = layout.allocation_domain[i];
     if (!isLocalSizeOne(id)) {
+      // We could put `sharded_id` to any position between 0 and i. I chose 0
+      // for simplicity.
       std::vector<IterDomain*> new_allocation = TensorDomain::orderedAs(
-          layout.allocation_domain, {{sharded_id_pos, i}});
+          layout.allocation_domain, {{sharded_id_pos, 0}});
       return Layout{
           new_allocation,
           TensorDomain::getContiguityFilledWith(new_allocation, true)};
