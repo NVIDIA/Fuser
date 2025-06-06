@@ -24,16 +24,16 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     int64_t runtime_id,
     int64_t group_id) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
-  if (HostIrExecutor::supported(fusion)) {
-    return std::make_unique<HostIrExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
-  }
   if (ExprEvalExecutor::supported(fusion)) {
     return std::make_unique<ExprEvalExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
   }
   if (KernelExecutor::supported(fusion)) {
     return std::make_unique<KernelExecutor>(
+        fusion_id, concrete_id, runtime_id, group_id);
+  }
+  if (HostIrExecutor::supported(fusion)) {
+    return std::make_unique<HostIrExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
   }
   NVF_THROW("No executor supports provided fusion.");
