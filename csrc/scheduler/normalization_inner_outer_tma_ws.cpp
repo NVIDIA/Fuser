@@ -158,6 +158,12 @@ void getHeuristics(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
     auto [_, compute_branch_regs] =
         get_register_sharing(available_regs, bdimx * bdimy);
+    std::cout << "bdimy: " << bdimy
+              << ", bdimx: " << bdimx
+              << ", iter_unroll: " << iter_unroll
+              << ", reg_count: " << reg_count
+              << ", compute_branch_regs: " << compute_branch_regs
+              << std::endl;
     return reg_count <= compute_branch_regs;
   };
 
@@ -219,7 +225,7 @@ void getHeuristics(
   // Initial target to achieve circular buffer with multiple computation warp
   // groups and iteration unroll.
   update_heuristics(
-      /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/2);
+      /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/4);
 
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
