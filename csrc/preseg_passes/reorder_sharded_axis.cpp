@@ -51,7 +51,7 @@ void makeCommunicationLayoutCompliant(
   // major-to-minor stride order, and (2) there was a bug in the reduction
   // scheduler.
   if (output->hasAllocation() &&
-      !isCompliantWith(*canonicalizeLayout(output), c_layout)) {
+      !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
     TensorView* output_copy = set(output);
     TransformReplay::selfReplay(
         output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
@@ -90,6 +90,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     debug() << std::endl
             << "Fusion Transforms after " << name() << ":" << std::endl;
     fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 
