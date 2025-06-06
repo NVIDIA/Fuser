@@ -313,6 +313,7 @@ if(BUILD_LLVM)
   # Add LLVM JIT related sources
   list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/host_ir/lower_to_llvm.cpp
+    ${NVFUSER_SRCS_DIR}/host_ir/host_ir_llvm_jit.cpp
   )
 endif()
 
