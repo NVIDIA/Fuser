@@ -158,12 +158,10 @@ void getHeuristics(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
     auto [_, compute_branch_regs] =
         get_register_sharing(available_regs, bdimx * bdimy);
-    std::cout << "bdimy: " << bdimy
-              << ", bdimx: " << bdimx
+    std::cout << "bdimy: " << bdimy << ", bdimx: " << bdimx
               << ", iter_unroll: " << iter_unroll
               << ", reg_count: " << reg_count
-              << ", compute_branch_regs: " << compute_branch_regs
-              << std::endl;
+              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
   };
 

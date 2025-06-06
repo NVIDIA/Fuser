@@ -3200,8 +3200,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->circularBufferLoopStage() !=
-        CircularBufferLoopStage::NotApplicable) {
+    // Don't special unroll non-mma compute loop, it may contains
+    // complex ops, e.g. reduction, unroll may lead to instruction cache miss
+    // which hurts performance.
+    auto cbls = loop->circularBufferLoopStage();
+    bool special_unroll = kernel_->summary().has_mma_op ||
+        (cbls != CircularBufferLoopStage::ComputeWarp);
+    if (cbls != CircularBufferLoopStage::NotApplicable && special_unroll) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we
