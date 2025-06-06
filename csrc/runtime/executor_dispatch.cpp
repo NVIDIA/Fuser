@@ -24,14 +24,19 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     int64_t runtime_id,
     int64_t group_id) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
+
   if (ExprEvalExecutor::supported(fusion)) {
     return std::make_unique<ExprEvalExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
   }
+
   if (KernelExecutor::supported(fusion)) {
     return std::make_unique<KernelExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
   }
+
+  // Calls HostIrExecutor::supported the last because it calls isResharding,
+  // which does expensive index calculation.
   if (HostIrExecutor::supported(fusion)) {
     return std::make_unique<HostIrExecutor>(
         fusion_id, concrete_id, runtime_id, group_id);
