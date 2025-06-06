@@ -853,6 +853,77 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   }
 }
 
+// Unlike PrivatizeUpcast, verify replicated upcast ops are
+// consolidated back as they are grouped into the same segment
+TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tvxx = broadcast(tv0, {true, false, false});
+
+  auto tv1 = segment_set(tvxx);
+
+  auto tv2 = set(tv1);
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = squeeze(tv3, {0});
+
+  auto tv5 = sum(tv4, {1});
+  fusion.addOutput(tv5);
+
+  auto tv6 = sum(tv4, {1});
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  KernelArgumentHolder outputs;
+
+  // Make sure NVFUSER_DUMP=segmented_fusion works
+  {
+    DebugDumpOptionsGuard options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
+    std::ostringstream tmp_buf;
+    DebugStreamGuard debug_stream_guard(tmp_buf);
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  // There must be two segments, one with ExprEvalExecutor and another
+  // with KernelExecutor.
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  runtime->fusionSegments()->print();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  for (const auto& executor : runtime->executors()) {
+    // Ignore the one taken care by ExprEvalExecutor
+    if (executor.get()->isA<ExprEvalExecutor>()) {
+      continue;
+    }
+    // This segment should have the two reductions. There must be only
+    // one upcast op with tv1 as its producer.
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    int64_t num_upcast_ops = 0;
+    for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+      auto uop = dynamic_cast<UnaryOp*>(expr);
+      if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      EXPECT_EQ(uop->in()->as<kir::TensorIndex>()->view()->name(), 2);
+
+      ++num_upcast_ops;
+    }
+    EXPECT_EQ(num_upcast_ops, 1);
+  }
+}
+
 TEST_F(SegmentationTest, ForwardFull) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;

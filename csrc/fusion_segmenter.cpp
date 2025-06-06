@@ -4368,6 +4368,7 @@ typename std::enable_if<
 SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+  segmented_fusion_->complete_fusion_->print();
 
   bool privatized = false;
 
@@ -4508,6 +4509,11 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
   bool reverted_privatized_op = true;
   std::unordered_set<Expr*> processed;
 
+  for (auto uos : upcasts_or_squeezes) {
+    std::cout << uos->toString() << std::endl;
+  }
+  std::cout << "finished with uos" << std::endl;
+
   auto revert_privatized_exprs =
       [group,
        &upcasts_or_squeezes,
@@ -4608,6 +4614,19 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
       };
 
   auto remaining_privatized_ops = privatized_ops_;
+  for (const auto& [expr, expr_set] : privatized_ops_) {
+    std::cout << "Key expr: " << expr->toString() << "\n";
+    std::cout << "Values:\n";
+    for (auto* privatized_expr : expr_set) {
+      if (privatized_expr == nullptr) {
+        std::cout << "privatized_expr is nullptr, skipping...\n";
+        continue;
+      }
+      std::cout << "  " << privatized_expr->toString() << "\n";
+    }
+    std::cout << "\n";
+  }
+  std::cout << "gets here" << std::endl;
   while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
     // remove exprs that have been processed.
     for (const auto& key : processed) {
@@ -5078,12 +5097,14 @@ void SegmentCandidateFinder::finalize() {
   // Finalize connections between segmented groups
   segmented_fusion_->finalize();
 
+
   // Resolve all the scalar expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveScalarsInGroup(group);
   }
 
   for (auto group : segmented_fusion_->groups()) {
+    group->print();
     revertPrivatizedUpcastAndSqueeze(group);
   }
 
