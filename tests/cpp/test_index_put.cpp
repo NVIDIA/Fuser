@@ -144,7 +144,10 @@ TEST_F(IndexPut, IndexShuffle) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_src, t_index});
 
-  testValidate(&fusion, outputs, {t_src, t_index}, __LINE__, __FILE__);
+  // auto ref = at::index_select(t_src, 0, t_index);
+  auto ref = t_src.scatter(0, t_index.unsqueeze(-1).expand_as(t_src),t_src);
+  EXPECT_TRUE(ref.allclose(outputs[0].as<at::Tensor>()));
+  // testValidate(&fusion, outputs, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

@@ -363,7 +363,7 @@ std::vector<PolymorphicValue> IndexShuffleOp::evaluate(
   const auto& index = inputs.at(0).as<at::Tensor>();
   const auto& src = inputs.at(1).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(src, dimension, index, src)};
+  return {at::scatter(src, dimension, index.expand_as(src), src)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexShuffleOp)
