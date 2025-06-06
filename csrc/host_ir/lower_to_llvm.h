@@ -26,7 +26,7 @@
 
 #include <unordered_map>
 #include <queue>
-
+#include <chrono>
 
 namespace nvfuser {
 
@@ -76,7 +76,10 @@ T ExitOnErr(llvm::Expected<T> &&E);
 inline void ExitOnErr(llvm::Error &&Err);
 
 // Print compare tensor
-void print_compare_tensor(const at::Tensor& t0, const at::Tensor& t1);
+void print_tensor_info(const at::Tensor& t);
+
+// Compare two tensors
+void compare_tensor(const at::Tensor& t0, const at::Tensor& t1);
 
 // Print all exprs between input and output domain
 void print_getExprsBetween(const std::vector<IterDomain*>& input_domain, const std::vector<IterDomain*>& output_domain);
