@@ -165,7 +165,6 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
 
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-
     if (!isResharding(expr)) {
       continue;
     }
