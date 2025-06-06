@@ -375,15 +375,9 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
   // params_->tile_sizes and infer cluster_dims from that
   bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
   if (has_cga) {
-    int64_t cm = params_->cluster_dims.x;
-    int64_t cn = params_->cluster_dims.y;
-    if (false &&
-        params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      std::swap(cm, cn);
-    }
     GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * cm,
-        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.m * params_->cluster_dims.x,
+        params_->tile_sizes.cta_tile.n * params_->cluster_dims.y,
         params_->tile_sizes.cta_tile.k};
 
     merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
