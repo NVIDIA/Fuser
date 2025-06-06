@@ -1384,14 +1384,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred,
-      std::pair<IterDomain*, IterDomain*> reduction_dims) {
+      std::pair<IterDomain*, IterDomain*> reduction_dims,
+    bool is_all_reduce) {
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     ArgumentBuilder template_args;
 
-    if (warp_specialized_on_ != ParallelType::Serial) {
+    if (warp_specialized_on_ != ParallelType::Serial && is_all_reduce) {
       if (has_independent_compute_warp_groups_) {
         func_args.arg(
             genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
@@ -1514,7 +1515,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           rop->init(),
           op_type,
           rop->predicate(),
-          reduction_ids.value());
+          reduction_ids.value(),
+        rop->isAllreduce());
     } else {
       genBlockReduction(
           output,
@@ -3176,7 +3178,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             grouped_rop->initVal(i),
             op_type,
             grouped_rop->predicate(),
-            reduction_ids.value());
+            reduction_ids.value(),grouped_rop->isAllreduce());
       } else {
         genBlockReduction(
             output,

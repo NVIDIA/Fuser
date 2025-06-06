@@ -209,6 +209,7 @@ void getHeuristics(
       // ping-pong is not used. Only happened when hidden size is very large,
       // using ping-pong leads to register spills.
       if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
+          !is_enough_regs(iter_unroll, bdimx, bdimy) &&
           is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
         is_updated = true;
         bdimx += 128;
@@ -223,26 +224,33 @@ void getHeuristics(
   // Initial target to achieve circular buffer with multiple computation warp
   // groups and iteration unroll.
   update_heuristics(
-      /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/4);
+      /*target_stages=*/4, /*target_bdimy=*/2, /*target_iter_unroll=*/4);
 
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
   if (bdimy == 1) {
-    std::cout << "Falling back to is_circular_buffer_regs_cached=False."
+    std::cout << "Falling back 1 to is_circular_buffer_regs_cached=False."
               << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
-        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
+        /*target_stages=*/4, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
   }
 
   // If still can't achieve multiple computation warp groups, further disable
   // [is_non_circular_buffer_gmem_to_regs]
   if (bdimy == 1) {
-    std::cout << "Falling back to is_non_circular_buffer_gmem_to_regs=False."
+    std::cout << "Falling back 2 to is_non_circular_buffer_gmem_to_regs=False."
               << std::endl;
     is_non_circular_buffer_gmem_to_regs = false;
     update_heuristics(
-        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
+        /*target_stages=*/4, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
+  }
+  // Without ping-pong
+  if (bdimy == 1) {
+    std::cout << "Falling back 3 to target_bdimy=1." << std::endl;
+    is_non_circular_buffer_gmem_to_regs = true;
+    update_heuristics(
+        /*target_stages=*/4, /*target_bdimy=*/1, /*target_iter_unroll=*/1);
   }
 
   // If sufficient shared memory is available, try increasing the number of
