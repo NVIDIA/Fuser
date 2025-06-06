@@ -256,6 +256,17 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
+bool hasHopperMatmulConsumer(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+  Expr* definition = consumer->definition();
+  NVF_ERROR(definition != nullptr);
+  if (auto mma = dynamic_cast<const MmaOp*>(definition)) {
+    return mma->isHopper();
+  }
+  return false;
+}
+
 // NvFuser permits launching multiple TMA loads with a thread parallel axis.
 // However, we cannot use the warp specialized axis for this. In the AsyncWarp,
 // the warp specialized axis is the padded size. If you try to use that axis to
@@ -298,6 +309,16 @@ void checkWarpSpecializedAxis(const TensorView* tv) {
       tv->toString());
 }
 
+IterDomain* findWarpSpecializedIterDomain(TensorView* tv, ParallelType ws_pt) {
+  const std::vector<IterDomain*>& loop = tv->domain()->loop();
+  auto ws_id_iter =
+      std::find_if(loop.begin(), loop.end(), [ws_pt](IterDomain* id) {
+        return id->getParallelType() == ws_pt;
+      });
+  NVF_ERROR(ws_id_iter != loop.end());
+  return *ws_id_iter;
+}
+
 // If compute warp groups are independent, then the mbarrier waits for 128
 // threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
@@ -318,18 +339,12 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   // Step 1: Get warp specialized iterDomain in consumer
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
-
-  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
-  ParallelType ws_pt = warp_specialized.on;
-  auto ws_id_iter = std::find_if(
-      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
-        return id->getParallelType() == ws_pt;
-      });
-  NVF_ERROR(ws_id_iter != consumer_loop.end());
+  IterDomain* ws_id =
+      findWarpSpecializedIterDomain(consumer, warp_specialized.on);
 
   // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
   // Step 2: Get ValGroup for warp specialized iterDomain
-  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
+  const ValGroup& val_group = exact_graph.toGroup(ws_id);
 
   // Step 3: Find corresponding producer iterDomain to warp specialized
   // iterDomain
