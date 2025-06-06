@@ -354,14 +354,14 @@ bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
-  bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
   auto create_communication_info = [&](CommunicationType type,
                                        IterDomain* p_sharded_id,
                                        IterDomain* c_sharded_id) {
-    NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
-    has_sharding_change = true;
+    NVF_ERROR(
+        !communication_info.has_value(),
+        "Expected at most one sharding change");
     communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
   };
 
