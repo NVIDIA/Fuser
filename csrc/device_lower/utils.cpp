@@ -900,7 +900,6 @@ AllocPosInfo getAllocPosInfo(
       info.alloc_for_loop = fl;
     }
   }
-
   return info;
 }
 
@@ -2121,7 +2120,7 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-bool isWarpSpecializedLoop(ForLoop* loop) {
+bool isWarpSpecializedLoop(const ForLoop* loop) {
   return std::holds_alternative<WarpSpecialized>(
       GpuLower::current()
           ->circularBufferInfo()

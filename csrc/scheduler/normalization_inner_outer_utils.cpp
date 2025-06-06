@@ -38,40 +38,6 @@ int64_t roundUpSharedMemory(
   return max_smem;
 }
 
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
-  // set reference broadcast mask using the first inner reduction tv
-  std::vector<bool> ref_broadcast_mask;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& logical = tv->getLogicalDomain();
-      ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : arange(logical.size())) {
-        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
-      }
-      break;
-    }
-  }
-  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
-
-  // find the broadcast tensor whose broadcast mask is same to the reference
-  std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
-      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
-        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
-          outer_broadcast_tvs.emplace_back(tv);
-        }
-      }
-    }
-  }
-  return outer_broadcast_tvs;
-}
-
 int64_t partialOuterReductionBufferSize(
     const std::vector<TensorView*>& reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
@@ -162,7 +128,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // outer broadcast tvs and always project to inputs.
   // Warp specialized persistent kernel always cache inputs in shared memory,
   // should project to inputs.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  const auto& outer_broadcast_tvs =
+      normalization_scheduler_utils::getOuterBroadcastTvs(
+          fusion, reduction_tvs);
   bool skip_check_buffer_size =
       !outer_broadcast_tvs.empty() || is_warp_specialized;
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
@@ -323,5 +291,49 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   return buffer_params;
 }
 
+std::vector<TensorView*> getGroupedReductionPersistentTvs(
+    Fusion* fusion,
+    TensorView* inner_bcast_tv,
+    const std::vector<TensorView*>& reduction_tvs) {
+  std::vector<TensorView*> res;
+  // Get all fusion outputs that are consumers of reduction tvs
+  const auto& reduction_to_output = DependencyCheck::getAllOutputsOf(
+      {reduction_tvs.begin(), reduction_tvs.end()});
+  std::unordered_set<TensorView*> p_of_reductions;
+  std::unordered_set<TensorView*> c_of_reductions;
+  for (auto output : reduction_to_output) {
+    auto chains_to_output =
+        DependencyCheck::getAllDependencyChains(inner_bcast_tv, output);
+    for (auto chain : chains_to_output) {
+      auto tv_chain = ir_utils::filterByType<TensorView>(chain);
+      bool is_reduction_chain =
+          std::any_of(tv_chain.begin(), tv_chain.end(), [](TensorView* tv) {
+            return tv->hasReduction();
+          });
+      if (is_reduction_chain) {
+        for (auto tv : tv_chain) {
+          // Don't include tvs pass reduction since we only want to find tvs
+          // inlined before reduction.
+          if (tv->hasReduction()) {
+            break;
+          }
+          p_of_reductions.insert(tv);
+        }
+      } else {
+        c_of_reductions.insert(tv_chain.begin(), tv_chain.end());
+      }
+    }
+  }
+  for (auto tv : p_of_reductions) {
+    // must exists in both set, not same as inner_bcast_tv, and
+    // has multiple consumers, i.e., exclude chain unary ops from
+    // inner_bcast_tv to the actual persistent tv.
+    if (c_of_reductions.count(tv) && tv != inner_bcast_tv &&
+        ir_utils::consumerTvsOf(tv).size() > 1) {
+      res.push_back(tv);
+    }
+  }
+  return res;
+}
 } // namespace inner_outer_utils
 } // namespace nvfuser

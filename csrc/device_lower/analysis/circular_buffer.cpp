@@ -236,6 +236,11 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
   return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
+bool CircularBufferInfo::isComputationWarpGroupIterDomain(IterDomain* id) {
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
+  return computation_warp_groups_loop_id_.count(concrete_loop_id);
+}
+
 CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
     const TensorView* tv) {
   NVF_ERROR(
@@ -346,6 +351,10 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   // Step 5: Use independent warp groups if warp specialized axis is to the
   // left of the stage_slice_position
+  NVF_ERROR(
+      warp_specialized.stage_slice_position.value() - 1 <= ws_id_producer_pos,
+      "stage_slice_position can't to the right of warp specialized position: ",
+      tv->toString());
   return ws_id_producer_pos < warp_specialized.stage_slice_position.value();
 }
 
@@ -417,9 +426,8 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
-
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
-
+  setComputationWarpGroups(tv);
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
 
@@ -434,13 +442,13 @@ void CircularBufferInfo::setCircularBufferOptions(
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
     // Set the warp specialized dim and ensure there is only one
+    auto old_pt = warp_specialized_on_;
     if (std::holds_alternative<WarpSpecialized>(opt.type)) {
       auto ws_pt = std::get<WarpSpecialized>(opt.type).on;
       NVF_ERROR(
-          warp_specialized_on_ == ParallelType::Serial ||
-              warp_specialized_on_ == ws_pt,
+          old_pt == ParallelType::Serial || old_pt == ws_pt,
           "Multiple warp specialization is not supported: ",
-          warp_specialized_on_,
+          old_pt,
           " and ",
           ws_pt);
       warp_specialized_on_ = ws_pt;
@@ -457,6 +465,45 @@ void CircularBufferInfo::setCircularBufferOptions(
         " by ",
         concrete_loop_id->toString());
   }
+}
+
+// Derive number of computation warp groups from loop domain of its consumer
+// For example, in normalization kernel:
+// circular buffer: Ts[BIDy, Circular(S), compute groups(S),...], ca 2
+// its consumer is: Tl[BIDy, Circular(S), compute groups(TIDy),...], ca 3
+// Look for the corresponding loop domain in its consumer and make sure it
+// is parallelized same as warp specialized dim. Then, its content represents
+// number of computation warp groups.
+
+// TODO: Another approach is we can just save `computation_warp_groups_`
+// in  `circularBufferOptions` since it is a scheduler parameter.
+void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
+  auto option = tv->circularBufferOptions();
+  auto old_val = computation_warp_groups_;
+  // -1 indicates not set yet, if set, should not change
+  int64_t new_val = (old_val == -1) ? 1 : old_val;
+  if (std::holds_alternative<WarpSpecialized>(option.type)) {
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
+    int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
+    auto consumer = ir_utils::consumerTvsOf(tv).at(0);
+    if (consumer->nDims() > next_pos &&
+        consumer->axis(next_pos)->getParallelType() == ws_pt &&
+        consumer->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->getParallelType() == ParallelType::Serial &&
+        consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
+            tv->axis(next_pos)->extent()->value().as<int64_t>()) {
+      new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
+      computation_warp_groups_loop_id_.insert(tv->axis(next_pos));
+    }
+  }
+  NVF_ERROR(
+      old_val == -1 || old_val == new_val,
+      "Different number of computation warp group is not supported: ",
+      old_val,
+      " and ",
+      new_val);
+  computation_warp_groups_ = new_val;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(
@@ -598,10 +645,10 @@ Val* CircularBufferInfo::getLinearIndex(
     return loops[compute_at_loop_index]->indexOrStartIfTrivial();
   }
 
-  // The inner-most and outer-most for loops can be different.
-  // Get outer-most for-loop index.
-  int64_t outer_loop_index =
-      getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
+// The inner-most and outer-most for loops can be different.
+// Get outer-most for-loop index.
+int64_t outer_loop_index =
+    getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
 
   // The inner_loop_index is the for-loop where the mbarrier arrive and wait
   // operations are inserted in circular buffering pass. Use
@@ -632,7 +679,16 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   // the first for-loop.
   int64_t end_loop_index = insertion_position - 1 + start_loop_index;
 
-  NVF_ERROR(end_loop_index < (int64_t)loops.size());
+  NVF_ERROR(
+      end_loop_index < (int64_t)loops.size(),
+      "Loop index out of bound, insertion_position= ",
+      insertion_position,
+      ", start_loop_index= ",
+      start_loop_index,
+      ", end_loop_index= ",
+      end_loop_index,
+      ", loops.size()= ",
+      loops.size());
   NVF_ERROR(start_loop_index <= end_loop_index);
 
   Val* index = GpuLower::current()->kernel()->zeroVal();

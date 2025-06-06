@@ -119,12 +119,18 @@ TEST_P(PingPongCircularBuffering, StageSlicePositionComputeAt) {
       const char* str_match_pointer = strstr(e.what(), error_msg);
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
+    } else if (stage_slice_position == 4) {
+      const char* error_msg =
+          R"(stage_slice_position can't to the right of warp specialized position)";
+      const char* str_match_pointer = strstr(e.what(), error_msg);
+      ASSERT_TRUE(str_match_pointer != nullptr) << e.what();
+      return;
     } else if (stage_slice_position == 5) {
       const char* error_msg =
           R"(Detected an iterDomain with ParallelType::Bulk to the left of stage slice position.)";
       const char* str_match_pointer = strstr(e.what(), error_msg);
       ASSERT_TRUE(str_match_pointer != nullptr);
-      return;
+      return;      
     } else if (stage_slice_position == 6) {
       const char* error_msg =
           R"(Slice position must be inside TensorView nDims.)";
