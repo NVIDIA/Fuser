@@ -138,6 +138,7 @@ void build_dep_graph(Expr* expr, std::unordered_map<Val*, dependency_graph>& val
       val2graph[output_value_2].op = codegenType::Split;
       val2graph[output_value_2].input_vals.push_back(output_value_1);
       val2graph[output_value_2].input_vals.push_back(expr->inputs()[0]);
+      val2graph[output_value_2].is_left_val = true;
 
       val2graph[output_value_1] = dependency_graph();
       val2graph[output_value_1].op = codegenType::Split;
@@ -148,6 +149,7 @@ void build_dep_graph(Expr* expr, std::unordered_map<Val*, dependency_graph>& val
       val2graph[output_value_1].op = codegenType::Split;
       val2graph[output_value_1].input_vals.push_back(output_value_2);
       val2graph[output_value_1].input_vals.push_back(expr->inputs()[0]);
+      val2graph[output_value_1].is_left_val = false;
 
       val2graph[output_value_2] = dependency_graph();
       val2graph[output_value_2].op = codegenType::Split;
@@ -261,39 +263,144 @@ Verify if the merge is legit by traversing the exprs between output and input do
 
 TODO: Need to implement this function
 */
-std::vector<Expr*> verify_merge_expr(std::vector<IterDomain*>& output_domain, std::vector<IterDomain*>& input_domain){
-  std::unordered_set<Expr*> visited;
-  std::queue<Expr*> q;
-  for(auto* id : output_domain){
-    if(id->definition() == nullptr){
-      continue;
-    }
-    q.push(id->definition());
+Val* findCommonAncestor(Val* left_val, Val* right_val, std::unordered_map<Val*, dependency_graph>& val2graph) {
+  if (!left_val || !right_val) {
+    return nullptr;
   }
-  std::vector<Expr*> exprs;
-  while(!q.empty()){
-    auto* current = q.front();
-    if(current == nullptr){
-      continue;
-    }
+
+  // Collect all ancestors of left_val using BFS
+  std::unordered_set<Val*> left_ancestors;
+  std::queue<Val*> q;
+  q.push(left_val);
+  left_ancestors.insert(left_val);
+
+  while (!q.empty()) {
+    Val* current = q.front();
     q.pop();
-    if(visited.find(current) != visited.end()){
-      continue;
-    }
-    visited.insert(current);
-    auto val_inputs = current->inputs();
-    for(auto* input_value : val_inputs){
-      auto* input_expr = input_value->definition();
-      if(input_expr == nullptr){
-        continue;
-      }
-      if(visited.find(input_expr) == visited.end()){
-        q.push(input_expr);
-        exprs.push_back(input_expr);
+
+    auto it = val2graph.find(current);
+    if (it != val2graph.end()) {
+      for (auto* input : it->second.input_vals) {
+        if (left_ancestors.find(input) == left_ancestors.end()) {
+          left_ancestors.insert(input);
+          q.push(input);
+        }
       }
     }
   }
-  return exprs;
+
+  // Find the first ancestor of right_val that is also an ancestor of left_val
+  std::queue<Val*> q2;
+  q2.push(right_val);
+  std::unordered_set<Val*> visited_right;
+  visited_right.insert(right_val);
+
+  while (!q2.empty()) {
+    Val* current = q2.front();
+    q2.pop();
+
+    if (left_ancestors.count(current)) {
+      return current;
+    }
+
+    auto it = val2graph.find(current);
+    if (it != val2graph.end()) {
+      for (auto* input : it->second.input_vals) {
+        if (visited_right.find(input) == visited_right.end()) {
+          visited_right.insert(input);
+          q2.push(input);
+        }
+      }
+    }
+  }
+
+  return nullptr;
+}
+
+bool verify(Val* left_val, Val* right_val, std::unordered_map<Val*, dependency_graph>& val2graph) {
+  Val* ancestor = findCommonAncestor(left_val, right_val, val2graph);
+  if (!ancestor) {
+    // If there is no common ancestor, it's not a valid merge.
+    return false;
+  }
+
+  auto traverse = [&](Val* start_node, bool is_from_left_val) -> bool {
+    Val* current = start_node;
+    std::unordered_set<Val*> visited;
+
+    while (current != ancestor) {
+      if (!current || visited.count(current)) {
+        return false; // Reached null or cycle without finding ancestor
+      }
+      visited.insert(current);
+
+      auto it = val2graph.find(current);
+      if (it == val2graph.end()) {
+        return false; // Path incomplete in val2graph
+      }
+
+      auto& dep_node = it->second;
+      if (dep_node.op == codegenType::Merge) {
+        if (dep_node.input_vals.size() != 2) {
+          return false;
+        }
+        if (is_from_left_val) {
+          current =
+              dep_node.input_vals[1]; // traverse rightmost for left_val path
+        } else {
+          current =
+              dep_node.input_vals[0]; // traverse leftmost for right_val path
+        }
+      } else if (dep_node.op == codegenType::Split) {
+        if (dep_node.input_vals.size() != 2) {
+          return false;
+        }
+        if (is_from_left_val) {
+          // for left_val, path should be on the right side, so is_left_val
+          // should be true
+          if (!dep_node.is_left_val) {
+            return false;
+          }
+        } else {
+          // for right_val, path should be on the left side, so is_left_val
+          // should be false
+          if (dep_node.is_left_val) {
+            return false;
+          }
+        }
+        // Traverse up to the original input of the split operation
+        current = dep_node.input_vals[1];
+      } else {
+        // Other op types are not expected in this verification path.
+        return false;
+      }
+    }
+    return true;
+  };
+
+  if (!traverse(left_val, true)) {
+    return false;
+  }
+  if (!traverse(right_val, false)) {
+    return false;
+  }
+
+  return true;
+}
+
+bool verify_exprs(std::vector<Expr*>& merge_exprs, std::unordered_map<Val*, dependency_graph>& val2graph){
+  std::unordered_set<Expr*> visited;
+  for(auto* expr : merge_exprs){
+    if(visited.find(expr) != visited.end()){
+      continue;
+    }
+    visited.insert(expr);
+    if(verify(expr->inputs()[0], expr->inputs()[1], val2graph)){
+      std::cerr << "Invalid merge expr: " << expr->toString() << std::endl;
+      return false;
+    }
+  }
+  return true;
 }
 
 /*
