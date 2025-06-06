@@ -210,7 +210,7 @@ void getHeuristics(
       // ping-pong is not used. Only happened when hidden size is very large,
       // using ping-pong leads to register spills.
       if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
-          (!is_enough_regs(iter_unroll, bdimx, bdimy) || after_vect % (bdimx+128) < after_vect % bdimx) &&
+          (!is_enough_regs(iter_unroll, bdimx, bdimy) || after_vect % (bdimx+128) == 0 || after_vect % (bdimx+128) > after_vect % bdimx) &&
           is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
         is_updated = true;
         bdimx += 128;
