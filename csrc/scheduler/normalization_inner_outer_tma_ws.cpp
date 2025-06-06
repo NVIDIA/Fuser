@@ -227,15 +227,19 @@ void getHeuristics(
 
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
-  if (bdimy == 1) {
+  if (bdimy == 1 || iter_unroll == 1) {
+    std::cout << "Falling back to is_circular_buffer_regs_cached=False."
+              << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
-        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
+        /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/2);
   }
 
   // If still can't achieve multiple computation warp groups, further disable
   // [is_non_circular_buffer_gmem_to_regs]
   if (bdimy == 1) {
+    std::cout << "Falling back to is_non_circular_buffer_gmem_to_regs=False."
+              << std::endl;
     is_non_circular_buffer_gmem_to_regs = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
