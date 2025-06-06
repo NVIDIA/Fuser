@@ -387,7 +387,7 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
     merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
 
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
 
     merged_roles =
         mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
@@ -475,7 +475,7 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
     merged_roles = mma_utils::makeTile(
         tv, params_->tile_sizes.cta_tile, orig_merged_roles);
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
   }
 
   return merged_roles;
