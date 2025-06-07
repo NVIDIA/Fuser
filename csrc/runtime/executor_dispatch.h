@@ -29,7 +29,7 @@ class ExecutorDispatch {
       int64_t concrete_id = -1,
       int64_t runtime_id = -1,
       int64_t group_id = -1,
-      SchedulerType scheduler_type);
+      SchedulerType scheduler_type = SchedulerType::None);
 
   static void compile(ExecutorAbstract* executor, Fusion* fusion);
 
