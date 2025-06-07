@@ -273,6 +273,10 @@ class KernelIrScanner : private IrVisitor {
     IrVisitor::handle(ite);
   }
 
+  void handle(MmaOp* mma_op) final {
+    summary_.has_mma_op = true;
+  }
+
  private:
   size_t max_smem_type_size_ = 0;
   KernelSummary summary_;

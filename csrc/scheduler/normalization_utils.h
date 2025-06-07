@@ -347,6 +347,15 @@ BufferProjectionStrategy isProjectBufferToInputs(
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size = true);
 
+// Return the broadcast tvs that are broadcast to the iteration dimensions of
+// the inner reduction tv. These tvs are reused in the loop over the iteration
+// dimension. This reuse reduced the number loads from gmem and this tensor
+// is likely the first candidate to be moved to shared memory when the register
+// space runs low.
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs);
+
 // Set memory type of persistent buffer marked in
 // rparams->smem_persistent_buffers as shared memory. Return a vector of the
 // consumers of the shared memory tensors, they are cached after the smem

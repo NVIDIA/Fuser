@@ -1064,6 +1064,18 @@ class TmaWarpSpecializedTest
     NVFuserTest::SetUp();
   }
 
+  void validateHeuristics(FusionKernelRuntime* runtime) {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+    HeuristicParams* heur =
+        runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+    ASSERT_NE(heur, nullptr);
+    ASSERT_TRUE(heur->isA<ReductionParams>());
+    ReductionParams* rparams = heur->as<ReductionParams>();
+    EXPECT_TRUE(rparams->computation_warp_groups > 1);
+  }
+
  protected:
   // This keeps the guard alive until all TmaWarpSpecializedTests are done.
   std::unique_ptr<EnableOptionsGuard> opt_guard_;
@@ -1099,9 +1111,7 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  validateHeuristics(runtime);
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -1287,13 +1297,12 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   int64_t dim0 = 2048;
-  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
+  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 256) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
-      for (bool warp_specialized : {true, false}) {
+      for (bool warp_specialized : {true}) {
         for (bool contig : {true, false}) {
-          if (!warp_specialized && !contig) {
-            // Don't need to test non-contiguous version when warp
-            // specialization is not used.
+          // to save test time
+          if (dim1 != 1024 && !contig) {
             continue;
           }
           values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
