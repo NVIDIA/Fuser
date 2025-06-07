@@ -5560,4 +5560,60 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
           .scale_grad_by_freq(scale_grad_by_freq)
           .sparse(sparse))};
 }
+
+ArgsortOp::ArgsortOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in,
+    int64_t dim,
+    bool descending,
+    bool stable)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(dim);
+  addDataAttribute(descending);
+  addDataAttribute(stable);
+}
+
+std::string ArgsortOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = argsort( "
+                          << in()->toString() << ", dim = " << dim()
+                          << ", descending = "
+                          << (isDescending() ? "True" : "False")
+                          << ", stable = " << (isStable() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string ArgsortOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ArgsortOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "ArgsortOp expects 1 input but received ",
+      inputs.size());
+
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "ArgsortOp expects tensor input but got ",
+      in.type().name());
+
+  // at::argsort signature is:
+  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool
+  // descending)
+  auto result =
+      at::argsort(in.as<at::Tensor>(), isStable(), dim(), isDescending());
+
+  return {result};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
+
 } // namespace nvfuser

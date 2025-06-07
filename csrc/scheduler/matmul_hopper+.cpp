@@ -39,7 +39,7 @@ constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
 
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
-    std::vector<MatmulDimRole>& roles,
+    const std::vector<MatmulDimRole>& roles,
     MatmulDimRole role_to_find) {
   auto role_iter =
       std::find_if(roles.begin(), roles.end(), [&](MatmulDimRole role) {
@@ -142,6 +142,11 @@ void HopperPlus::validate() const {
   }
 
   NVF_CHECK(
+      params_->cluster_dims.z == 1,
+      "Cluster dims must have 1 in Z dimension but found ",
+      params_->cluster_dims.z);
+
+  NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across "
@@ -154,13 +159,13 @@ void HopperPlus::validate() const {
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected m dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.n % params_->tile_sizes.warp_tile.n == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected n dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.k % params_->tile_sizes.warp_tile.k == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected k dimension for cta_tile to be divisible by warp_tile.");
   } else if (isPingPong()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
@@ -212,22 +217,24 @@ void HopperPlus::run() {
   setUpCircularBuffering();
 }
 
-void HopperPlus::reorderBlockTileTraversal(
+std::vector<MatmulDimRole> HopperPlus::reorderBlockTileTraversal(
     TensorView* tv,
-    std::vector<MatmulDimRole>& outer_dim_roles) {
+    const std::vector<MatmulDimRole>& outer_dim_roles) const {
   NVF_ERROR(params_->grid_traversal_factor.first >= 1);
   NVF_ERROR(params_->grid_traversal_factor.second >= 1);
 
   // short-circuit: If grid traversal factor is 1x1, we don't need to reorder.
   if (params_->grid_traversal_factor.first == 1 &&
       params_->grid_traversal_factor.second == 1) {
-    return;
+    return outer_dim_roles;
   }
 
   // Find position of outer M and N dims in schedule_.tiled
   int64_t Mo_pos = findFirstRole(outer_dim_roles, MatmulDimRole::M);
   int64_t No_pos = findFirstRole(outer_dim_roles, MatmulDimRole::N);
 
+  std::vector<MatmulDimRole> new_outer_dim_roles(
+      outer_dim_roles.begin(), outer_dim_roles.end());
   // Multi-factor grid traversal.
   // M and N roles must be present and consecutive.
   if (params_->grid_traversal_factor.first > 1 &&
@@ -289,15 +296,15 @@ void HopperPlus::reorderBlockTileTraversal(
     } else if (is_N_present) {
       // M is missing, so we skip the merge above. In this case we
       // should update the dim roles to reflect the new split axis.
-      outer_dim_roles.insert(
-          outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+      new_outer_dim_roles.insert(
+          new_outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
     } else if (is_M_present) {
       // N is missing, so we skip the merge above. In this case we
       // should update the dim roles to reflect the new split axis.
-      outer_dim_roles.insert(
-          outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+      new_outer_dim_roles.insert(
+          new_outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
     }
-    return;
+    return new_outer_dim_roles;
   }
 
   // Single factor grid traversal.
@@ -322,7 +329,7 @@ void HopperPlus::reorderBlockTileTraversal(
         } else {
           // M is missing, so we skip the merge above. In this case we
           // should update the dim roles to reflect the new split axis.
-          outer_dim_roles.insert(
+          new_outer_dim_roles.insert(
               outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
         }
       }
@@ -346,8 +353,8 @@ void HopperPlus::reorderBlockTileTraversal(
         } else {
           // N is missing, so we skip the merge above. In this case we
           // should update the dim roles to reflect the new split axis.
-          outer_dim_roles.insert(
-              outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+          new_outer_dim_roles.insert(
+              new_outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
         }
       }
       break;
@@ -355,6 +362,72 @@ void HopperPlus::reorderBlockTileTraversal(
     default:
       NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
+
+  return new_outer_dim_roles;
+}
+
+std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
+    TensorView* tv,
+    const std::vector<MatmulDimRole>& orig_merged_roles) const {
+  std::vector<MatmulDimRole> merged_roles;
+
+  // TODO: It might be more natural to just have a "CGA tile" as part of
+  // params_->tile_sizes and infer cluster_dims from that
+  bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
+  if (has_cga) {
+    int64_t cm = params_->cluster_dims.x;
+    int64_t cn = params_->cluster_dims.y;
+    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+      std::swap(cm, cn);
+    }
+    GemmTile cga_tile{
+        params_->tile_sizes.cta_tile.m * cm,
+        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.k};
+
+    merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
+
+    reorderBlockTileTraversal(tv, merged_roles);
+
+    merged_roles =
+        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+
+    // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
+    // This is important since we need single dims to bind to. For example we
+    // might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need this to be
+    // Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+    int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+    int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
+    while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+      outer_mnk_pos++;
+    }
+    std::unordered_set<MatmulDimRole> outer_roles;
+    while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+      // Find first repeated role position
+      MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+      if (outer_roles.count(role)) {
+        break;
+      }
+      almost_outer_mnk_pos++;
+      outer_roles.insert(role);
+    }
+    NVF_ERROR(
+        almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+        "Because of tiling, we expect repeated roles");
+    for (int64_t i :
+         std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+      tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+      merged_roles.erase(merged_roles.begin() + (size_t)i);
+    }
+  } else {
+    // no cga split
+
+    merged_roles = mma_utils::makeTile(
+        tv, params_->tile_sizes.cta_tile, orig_merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
+  }
+
+  return merged_roles;
 }
 
 std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
@@ -414,15 +487,16 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     // then apply it (with "forwarding") to each TV instead. We already cache
     // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
     // scheduling is the next step in this modernization.
-    mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = applyCgaAndCtaTilingWithSwizzling(tv, merged_roles);
 
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
       for (size_t i : arange(merged_roles.size())) {
         if (merged_roles[i] == MatmulDimRole::K) {
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+          // Only split the outer K dim
+          break;
         }
       }
     }
@@ -546,25 +620,25 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
   }
 }
 
-void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
-  if (isBlackwell(params_->mma_macro)) {
-    mma_result->setMemoryType(MemoryType::Tensor);
-    // So far, we only support M128 Blackwell MMA macros. For these macros,
-    // Rows of the accumulator span all 128 lanes of TMem. That is, the
-    // allocation domain should be [Mi, (DimSep), ...other]
-    // We want to move Mi to the front of the domain.
-    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    auto item = allocation_domain[allocation_domain.size() - 3];
-    allocation_domain.erase(
-        allocation_domain.begin() + allocation_domain.size() - 3);
-    allocation_domain.insert(allocation_domain.begin(), item);
-    mma_result->setAllocationDomain(allocation_domain, true);
-    mma_result->setTMemDimSepPos(1);
-  } else {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
+void Blackwell::setMmaResultAllocationDomain(TensorView* mma_result) {
+  mma_result->setMemoryType(MemoryType::Tensor);
+  // So far, we only support M128 Blackwell MMA macros. For these macros,
+  // Rows of the accumulator span all 128 lanes of TMem. That is, the
+  // allocation domain should be [Mi, (DimSep), ...other]
+  // We want to move Mi to the front of the domain.
+  std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+  auto item = allocation_domain[allocation_domain.size() - 3];
+  allocation_domain.erase(
+      allocation_domain.begin() + allocation_domain.size() - 3);
+  allocation_domain.insert(allocation_domain.begin(), item);
+  mma_result->setAllocationDomain(allocation_domain, true);
+  mma_result->setTMemDimSepPos(1);
+}
+
+void Hopper::setMmaResultAllocationDomain(TensorView* mma_result) {
+  auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+      mma_result->getLoopDomain());
+  mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
 }
 
 void HopperPlus::scheduleMmaResults() {
@@ -627,10 +701,7 @@ void HopperPlus::scheduleMmaResults() {
   }
 }
 
-std::vector<TensorView*> HopperPlus::createTMemLoad() {
-  if (!isBlackwell(params_->mma_macro)) {
-    return {};
-  }
+std::vector<TensorView*> Blackwell::createTMemLoad() {
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -641,7 +712,7 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
   return tmem_ld_tvs;
 }
 
-int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+int64_t Blackwell::getLdTMemVectorizeFactor() const {
   const int64_t n_mma = getN(params_->mma_macro);
   int64_t tmem_vectorize_factor = 1;
   while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
@@ -650,7 +721,7 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
   return tmem_vectorize_factor / 2;
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
@@ -720,7 +791,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -762,15 +833,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
-  if (isBlackwell(params_->mma_macro)) {
-    scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  } else {
-    scheduleEpilogueWithoutSmemEpilogueHopper();
-  }
-}
-
-void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
@@ -930,7 +993,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
 
@@ -1033,14 +1096,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleEpilogueWithSmemEpilogueHopper();
-  } else {
-    scheduleEpilogueWithSmemEpilogueBlackwell();
-  }
-}
-
 void HopperPlus::scheduleEpilogue() {
   if (params_->use_smem_epilogue) {
     scheduleEpilogueWithSmemEpilogue();
@@ -1049,7 +1104,7 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSumHopper() {
+void Hopper::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1072,7 +1127,7 @@ void HopperPlus::scheduleSplitKSumHopper() {
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
 // Splitk_sum tv:
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
-void HopperPlus::scheduleSplitKSumBlackwell() {
+void Blackwell::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1096,14 +1151,6 @@ void HopperPlus::scheduleSplitKSumBlackwell() {
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
-void HopperPlus::scheduleSplitKSum() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleSplitKSumHopper();
-  } else {
-    scheduleSplitKSumBlackwell();
   }
 }
 

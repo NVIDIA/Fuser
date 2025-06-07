@@ -16,37 +16,11 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <scheduler/utils.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
-
-// Returns the position of an IterDomain in given domain.
-int64_t posInDomain(
-    const std::vector<IterDomain*>& domain,
-    const IterDomain* id) {
-  auto pos = std::find(domain.begin(), domain.end(), id);
-  NVF_ERROR(
-      pos != domain.end(),
-      "Expected id ",
-      id->toString(),
-      " in domain ",
-      domain);
-  return std::distance(domain.begin(), pos);
-}
-
-// Propagates the DID transformations of ref to tv and parallelizes tv like ref.
-void transformAndParallelizeLike(TensorView* ref, TensorView* tv) {
-  auto old2new = reorderDIDToFront(ref);
-  propagateDIDTransform(
-      ref, {tv}, /*did_pos=*/old2new.size(), PropagateDirection::kForward);
-  shardAllLike(ref, {tv}, {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
-}
-
-bool isReduceOrAllreduce(CommunicationInfo communication_info) {
-  return communication_info.type == CommunicationType::Reduce ||
-      communication_info.type == CommunicationType::Allreduce;
-}
 
 void makeCommunicationLayoutCompliant(
     Expr* expr,
@@ -57,103 +31,41 @@ void makeCommunicationLayoutCompliant(
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
-  // Copy input if:
-  // 1. Input is not contiguous.
-  // 2. Input is not allocation compliant and is not a reduce/allreduce.
-  if (isTvContiguous(input) &&
-      (isReduceOrAllreduce(communication_info) ||
-       isAllocationOrderCompliant(input, p_sharded_id))) {
-    // If the input is already in the required memory layout,
-    // set its allocation explicitly to avoid changes by other passes.
-    input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
-  } else {
-    // Copy input into required memory layout.
-    // Note: If input is not a fusion input, we should ideally be able to
-    // specify allocation domain of input instead. However, some schedulers
-    // (e.g. reduction) may not support this, so creating a copy here.
-    // This cannot always be done, for example, when this input is
-    // noncontiguous.
-
+  Layout p_layout =
+      getCommunicationLayout(input, communication_info.type, p_sharded_id);
+  if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
-
-    // Find index of p_sharded_id in input_copy's logical domain.
-    // Reduction axis in input can change the position of p_sharded_id in
-    // input_copy's logical domain.
-    // This reordering is not needed for reduce/allreduce.
-    std::unordered_map<int64_t, int64_t> reorder_map;
-    if (!isReduceOrAllreduce(communication_info)) {
-      auto p2c =
-          PairwiseLogicalDomainMap(input, input_copy).mapProducerToConsumer();
-
-      IterDomain* input_copy_sharded_id = p2c.at(p_sharded_id);
-      int64_t input_copy_sharded_idx = posInDomain(
-          input_copy->getMaybeAllocationDomain(), input_copy_sharded_id);
-      reorder_map[input_copy_sharded_idx] = 0;
-    }
-
-    input_copy->setAllocationDomain(
-        TensorDomain::orderedAs(
-            input_copy->getMaybeAllocationDomain(), reorder_map),
-        true);
-
-    // New communication expression.
-    // We do not create a new output tensorview for the communication.
-    // Instead, we replace the input of the communication with the input_copy
-    // in the communication expression. This preserves the sharding annotations
-    // of the original communication output.
-    if (expr->isA<LoadStoreOp>()) {
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output, input_copy);
-    } else {
-      IrBuilder::create<ReductionOp>(
-          expr->as<ReductionOp>()->getReductionOpType(),
-          expr->as<ReductionOp>()->init(),
-          output,
-          input_copy);
-    }
-    transformAndParallelizeLike(input, input_copy);
+    TransformReplay::selfReplay(
+        input->domain(), input_copy->domain(), /*ignore_reductions=*/true);
+    ir_utils::replaceValInExprInputs(expr, input, input_copy);
+    p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
+    input = input_copy;
   }
+  input->setAllocationDomain(
+      p_layout.allocation_domain(), p_layout.contiguity());
 
-  // For reduce/allreduce, c_sharded_id is reduction axis and considered
-  // compliant.
-  if (isAllocationOrderCompliant(output, c_sharded_id)) {
-    // If the output is already in the required memory layout,
-    // set its allocation explicitly to avoid changes by other passes.
-    output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
-  } else {
-    std::optional<Layout> output_layout = canonicalizeLayout(output);
-
-    NVF_ERROR(
-        output_layout.has_value(),
-        "Cannot canonicalize layout for ",
-        output->domain()->toString(0, false));
-    int64_t output_sharded_idx =
-        posInDomain((*output_layout).allocation_domain, c_sharded_id);
-
-    // If the output has allocation domain,
-    // create a copy of the output to revert the allocation domain.
-    if (output->hasAllocation()) {
-      TensorView* output_copy = set(output);
-
-      auto p2c_map =
-          PairwiseLogicalDomainMap(output, output_copy).mapProducerToConsumer();
-      std::vector<IterDomain*> output_copy_allocation_domain;
-
-      for (IterDomain* output_id :
-           TensorDomain::noReductions((*output_layout).allocation_domain)) {
-        IterDomain* output_copy_id = p2c_map.at(output_id);
-        output_copy_allocation_domain.push_back(output_copy_id);
-      }
-
-      output_copy->setAllocationDomain(output_copy_allocation_domain, true);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
-      transformAndParallelizeLike(output, output_copy);
-    }
-
-    output->setAllocationDomain(
-        TensorDomain::orderedAs(
-            (*output_layout).allocation_domain, {{output_sharded_idx, 0}}),
-        true);
+  Layout c_layout =
+      getCommunicationLayout(output, communication_info.type, c_sharded_id);
+  // When the output doesn't have a specified allocation, we can override it
+  // with the communication layout. The same doesn't apply to the input because
+  // (1) a fusion input with empty allocation is considered to have the
+  // major-to-minor stride order, and (2) there was a bug in the reduction
+  // scheduler.
+  if (output->hasAllocation() &&
+      // Unlike for input, `c_layout` is the actual and `output` is the
+      // required. This is because `c_layout` is guaranteed by `p_layout` and
+      // the UCC/NCCL call, and `output` is specified by the user. For example,
+      // when `c_layout` and `output` have the same allocation order,
+      // `c_layout` is contiguous, `output` is non-contiguous, we don't need an
+      // extra copy -- a contiguous tensor can be used as non-contiguous.
+      !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
+    TensorView* output_copy = set(output);
+    TransformReplay::selfReplay(
+        output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
   }
+  output->setAllocationDomain(
+      c_layout.allocation_domain(), c_layout.contiguity());
 }
 
 } // namespace
@@ -169,29 +81,15 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    NVF_ERROR(
-        (expr->isA<LoadStoreOp>() &&
-         (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set)) ||
-            expr->isA<ReductionOp>(),
-        "Expected the resharding expression to be LoadStoreOp::Set or "
-        "ReductionOp, got ",
-        expr->toString());
-
-    if (isCommunicationLayoutCompliant(expr)) {
-      // Set the allocation domain explicitly to avoid changes by other passes.
-      // No reordering / copying is needed.
-      auto* input = expr->inputs().at(0)->as<TensorView>();
-      auto* output = expr->outputs().at(0)->as<TensorView>();
-      input->setAllocationDomain(input->getMaybeAllocationDomain(), true);
-      output->setAllocationDomain(output->getMaybeAllocationDomain(), true);
+    auto communication_info = getCommunicationInfo(expr);
+    // Should really be simply NVF_ERROR(communication_info.has_value());
+    //
+    // I'll try to do that after #4552 is merged. Some of the `mesh.size() > 1`
+    // check in getCommunicationInfo and convertSingleOpToCommuniation will also
+    // need to go away for this simplification.
+    if (!communication_info.has_value()) {
       continue;
     }
-
-    auto communication_info = getCommunicationInfo(expr);
-    NVF_ERROR(
-        communication_info.has_value(),
-        "Communication info not found for ",
-        expr->toString());
 
     makeCommunicationLayoutCompliant(expr, *communication_info);
   }
@@ -200,6 +98,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     debug() << std::endl
             << "Fusion Transforms after " << name() << ":" << std::endl;
     fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 
