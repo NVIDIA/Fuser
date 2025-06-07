@@ -50,6 +50,7 @@ enum RecordType: int {
     IndexSelectOp,
     IndexPutAccumulateOp,
     SelectOp,
+    ScatterOp,
     GatherOp,
     TakeAlongAxisOp,
     Unary_TV,
@@ -100,6 +101,7 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
 }
 
 // =====================================================================================
@@ -126,6 +128,7 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -343,6 +346,13 @@ table Vector {
 // Data for WelfordOpRecord
 table Welford {
   axes: [long];
+}
+
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
 }
 
 // =====================================================================================

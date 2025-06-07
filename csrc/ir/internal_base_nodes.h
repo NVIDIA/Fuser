@@ -284,7 +284,8 @@ class IterDomain : public Val {
     // Currently only restricted to TIDx to generate warp reduce
     NVF_CHECK(
         parallel_type_ == ParallelType::TIDx,
-        "padToMultipleOfWarp : warp padding only supported on TIDx parallel dimension");
+        "padToMultipleOfWarp : warp padding only supported on TIDx parallel "
+        "dimension");
     is_padded_dimension_ = true;
     if (maybe_to_size.has_value()) {
       if (maybe_to_size.value() > 0) {
@@ -716,7 +717,7 @@ class TensorDomain : public Val {
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
   static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& logical_domain,
+      const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first

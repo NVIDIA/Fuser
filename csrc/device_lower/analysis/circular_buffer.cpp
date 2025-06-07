@@ -535,7 +535,8 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
 
   NVF_ERROR(
       inner_most_circular_buffer_position < circular_buffer_tv->nDims(),
-      "Expected inner_most_circular_buffer_position <= number of tensor dimensions ",
+      "Expected inner_most_circular_buffer_position <= number of tensor "
+      "dimensions ",
       "but got ",
       inner_most_circular_buffer_position,
       " and ",
@@ -544,7 +545,8 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
-      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position ",
+      "Expected outer_most_circular_buffer_position <= "
+      "inner_most_circular_buffer_position ",
       "but got ",
       outer_most_circular_buffer_position,
       " and ",
@@ -583,7 +585,7 @@ int64_t getForLoopIndex(
 Val* CircularBufferInfo::getLinearIndex(
     TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& loops) const {
-  int64_t inner_loop_index =
+  int64_t compute_at_loop_index =
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/true);
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
@@ -593,7 +595,7 @@ Val* CircularBufferInfo::getLinearIndex(
   bool is_warp_specialized =
       std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   if (!is_warp_specialized) {
-    return loops[inner_loop_index]->indexOrStartIfTrivial();
+    return loops[compute_at_loop_index]->indexOrStartIfTrivial();
   }
 
   // The inner-most and outer-most for loops can be different.
@@ -606,9 +608,10 @@ Val* CircularBufferInfo::getLinearIndex(
   // stage_slice_position if available. Otherwise, the default value is the
   // first serial for-loop to the left of compute_at_position.
   auto warp_specialized = std::get<WarpSpecialized>(circular_buffer_type);
-  if (warp_specialized.stage_slice_position.has_value()) {
-    inner_loop_index = warp_specialized.stage_slice_position.value() - 1;
-  }
+  int64_t inner_loop_index = (warp_specialized.stage_slice_position.has_value())
+      ? warp_specialized.stage_slice_position.value() - 1
+      : compute_at_loop_index;
+
   // Calculate insertion position.
   int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
   return getLinearIndexRelativeForLoopStack(
@@ -767,6 +770,72 @@ IterDomain* getCircularBufferAxis(const TensorView* tv) {
     return nullptr;
   }
   return tv->axis(cb_axis);
+}
+
+std::vector<AsyncWarp> createAsyncWarps(const std::vector<Expr*>& exprs) {
+  std::vector<AsyncWarp> async_warps;
+
+  // Gather all async operations.
+  // TODO Add support for blackwell MmaOp
+  std::vector<Expr*> async_warp_exprs;
+  std::copy_if(
+      exprs.begin(),
+      exprs.end(),
+      std::back_inserter(async_warp_exprs),
+      [](Expr* e) {
+        return ir_utils::isCpAsyncBulkLoad(e) &&
+            e->output(0)->as<TensorView>()->isCircularBuffered();
+      });
+
+  // short-circuit: no async operations detected.
+  if (async_warp_exprs.empty()) {
+    return async_warps;
+  }
+
+  // TODO Divide into operations into separate AsyncWarps for multi-role
+  // specialization. The current assumption is a single AsyncWarp with same
+  // stage_slice_position.
+
+  // Get TensorViews for async warps.
+  std::vector<TensorView*> async_warp_tvs;
+  std::transform(
+      async_warp_exprs.begin(),
+      async_warp_exprs.end(),
+      std::back_inserter(async_warp_tvs),
+      [](Expr* e) {
+        auto output_tvs =
+            ir_utils::filterByType<TensorView>(e->outputs()).vector();
+        NVF_ERROR(output_tvs.size() == 1);
+        return output_tvs.front();
+      });
+  NVF_ERROR(!async_warp_tvs.empty());
+
+  // Check that all operations in the same warp have the same
+  // stage_slice_position.
+  std::vector<int64_t> stage_slice_positions;
+  std::transform(
+      async_warp_tvs.begin(),
+      async_warp_tvs.end(),
+      std::back_inserter(stage_slice_positions),
+      [](TensorView* tv) {
+        std::optional<int64_t> opt_stage_slice_position =
+            ir_utils::getStageSlicePosition(tv);
+        return opt_stage_slice_position.value_or(-1);
+      });
+  NVF_ERROR(
+      stage_slice_positions.size() == 1 ||
+      std::all_of(
+          stage_slice_positions.begin() + 1,
+          stage_slice_positions.end(),
+          [&](int64_t v) { return v == stage_slice_positions.front(); }));
+
+  TensorView* async_warp_tv = async_warp_tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+  int64_t stage_slice_position = stage_slice_positions.front();
+
+  async_warps.emplace_back(
+      async_warp_exprs, async_warp_tvs, stage_slice_position);
+  return async_warps;
 }
 
 } // namespace nvfuser

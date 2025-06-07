@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      "Missing mapping from operation string to nvfuser function in serde "
+      "deserialization: ",
       buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
@@ -659,6 +660,17 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(buffer->data_as_Welford()->axes()));
   };
   registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
+
+  auto deserializeArgsortRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Sort();
+    return new python_frontend::ArgsortOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->descending(),
+        data->stable());
+  };
+  registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {

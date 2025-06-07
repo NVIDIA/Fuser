@@ -114,7 +114,8 @@ void verifyShape(const std::vector<int64_t>& shape) {
         shape[i],
         " at index ",
         i,
-        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+        " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+        "static(>1).");
   }
 }
 
@@ -230,6 +231,41 @@ std::vector<int64_t> getTensorViewBuilderSizes(
     }
   }
   return dim_sizes;
+}
+
+const char* dtypeToPyString(PrimDataType t) {
+  switch (t) {
+    case DataType::Bool:
+      return "DataType.Bool";
+    case DataType::Double:
+      return "DataType.Double";
+    case DataType::Float:
+      return "DataType.Float";
+    case DataType::Half:
+      return "DataType.Half";
+    case DataType::BFloat16:
+      return "DataType.BFloat16";
+    case DataType::Float8_e4m3fn:
+      return "DataType.Float8_e4m3fn";
+    case DataType::Float8_e5m2:
+      return "DataType.Float8_e5m2";
+    case DataType::Int:
+      return "DataType.Int";
+    case DataType::Int32:
+      return "DataType.Int32";
+    case DataType::ComplexFloat:
+      return "DataType.ComplexFloat";
+    case DataType::ComplexDouble:
+      return "DataType.ComplexDouble";
+    case DataType::Null:
+      return "DataType.Null";
+    case DataType::UInt64:
+      return "DataType.UInt64";
+    default:
+      break;
+  }
+  NVF_THROW("No string found for data type.");
+  return nullptr;
 }
 
 } // namespace nvfuser

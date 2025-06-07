@@ -34,9 +34,12 @@ namespace schedule_matmul {
 
 namespace {
 
+constexpr int64_t hardcoded_smem_vectorize_factor = 4;
+constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
-    std::vector<MatmulDimRole>& roles,
+    const std::vector<MatmulDimRole>& roles,
     MatmulDimRole role_to_find) {
   auto role_iter =
       std::find_if(roles.begin(), roles.end(), [&](MatmulDimRole role) {
@@ -134,31 +137,40 @@ void HopperPlus::validate() const {
   if (params_->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     NVF_CHECK(
         params_->splitk_factor == 1,
-        "Hopper+ matmul scheduler does not support scheduling persistent split-K kernels");
+        "Hopper+ matmul scheduler does not support scheduling persistent "
+        "split-K kernels");
   }
+
+  NVF_CHECK(
+      params_->cluster_dims.z == 1,
+      "Cluster dims must have 1 in Z dimension but found ",
+      params_->cluster_dims.z);
 
   NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
-      "Hopper+ matmul scheduler does not support distributing stages across SMs a la stream-K");
+      "Hopper+ matmul scheduler does not support distributing stages across "
+      "SMs a la stream-K");
 
   NVF_CHECK(
       isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
+      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected m dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.n % params_->tile_sizes.warp_tile.n == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected n dimension for cta_tile to be divisible by warp_tile.");
     NVF_CHECK(
         params_->tile_sizes.cta_tile.k % params_->tile_sizes.warp_tile.k == 0,
-        "Expected m dimension for cta_tile to be divisble by warp_tile.");
+        "Expected k dimension for cta_tile to be divisible by warp_tile.");
   } else if (isPingPong()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile == params_->tile_sizes.warp_tile,
-        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul Kernels");
+        "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
+        "Kernels");
   }
 }
 
@@ -205,22 +217,24 @@ void HopperPlus::run() {
   setUpCircularBuffering();
 }
 
-void HopperPlus::reorderBlockTileTraversal(
+std::vector<MatmulDimRole> HopperPlus::reorderBlockTileTraversal(
     TensorView* tv,
-    std::vector<MatmulDimRole>& outer_dim_roles) {
+    const std::vector<MatmulDimRole>& outer_dim_roles) const {
   NVF_ERROR(params_->grid_traversal_factor.first >= 1);
   NVF_ERROR(params_->grid_traversal_factor.second >= 1);
 
   // short-circuit: If grid traversal factor is 1x1, we don't need to reorder.
   if (params_->grid_traversal_factor.first == 1 &&
       params_->grid_traversal_factor.second == 1) {
-    return;
+    return outer_dim_roles;
   }
 
   // Find position of outer M and N dims in schedule_.tiled
   int64_t Mo_pos = findFirstRole(outer_dim_roles, MatmulDimRole::M);
   int64_t No_pos = findFirstRole(outer_dim_roles, MatmulDimRole::N);
 
+  std::vector<MatmulDimRole> new_outer_dim_roles(
+      outer_dim_roles.begin(), outer_dim_roles.end());
   // Multi-factor grid traversal.
   // M and N roles must be present and consecutive.
   if (params_->grid_traversal_factor.first > 1 &&
@@ -282,15 +296,15 @@ void HopperPlus::reorderBlockTileTraversal(
     } else if (is_N_present) {
       // M is missing, so we skip the merge above. In this case we
       // should update the dim roles to reflect the new split axis.
-      outer_dim_roles.insert(
-          outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+      new_outer_dim_roles.insert(
+          new_outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
     } else if (is_M_present) {
       // N is missing, so we skip the merge above. In this case we
       // should update the dim roles to reflect the new split axis.
-      outer_dim_roles.insert(
-          outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+      new_outer_dim_roles.insert(
+          new_outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
     }
-    return;
+    return new_outer_dim_roles;
   }
 
   // Single factor grid traversal.
@@ -315,7 +329,7 @@ void HopperPlus::reorderBlockTileTraversal(
         } else {
           // M is missing, so we skip the merge above. In this case we
           // should update the dim roles to reflect the new split axis.
-          outer_dim_roles.insert(
+          new_outer_dim_roles.insert(
               outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
         }
       }
@@ -339,8 +353,8 @@ void HopperPlus::reorderBlockTileTraversal(
         } else {
           // N is missing, so we skip the merge above. In this case we
           // should update the dim roles to reflect the new split axis.
-          outer_dim_roles.insert(
-              outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+          new_outer_dim_roles.insert(
+              new_outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
         }
       }
       break;
@@ -348,6 +362,72 @@ void HopperPlus::reorderBlockTileTraversal(
     default:
       NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
+
+  return new_outer_dim_roles;
+}
+
+std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
+    TensorView* tv,
+    const std::vector<MatmulDimRole>& orig_merged_roles) const {
+  std::vector<MatmulDimRole> merged_roles;
+
+  // TODO: It might be more natural to just have a "CGA tile" as part of
+  // params_->tile_sizes and infer cluster_dims from that
+  bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
+  if (has_cga) {
+    int64_t cm = params_->cluster_dims.x;
+    int64_t cn = params_->cluster_dims.y;
+    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+      std::swap(cm, cn);
+    }
+    GemmTile cga_tile{
+        params_->tile_sizes.cta_tile.m * cm,
+        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.k};
+
+    merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
+
+    reorderBlockTileTraversal(tv, merged_roles);
+
+    merged_roles =
+        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+
+    // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
+    // This is important since we need single dims to bind to. For example we
+    // might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need this to be
+    // Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+    int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+    int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
+    while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+      outer_mnk_pos++;
+    }
+    std::unordered_set<MatmulDimRole> outer_roles;
+    while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+      // Find first repeated role position
+      MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+      if (outer_roles.count(role)) {
+        break;
+      }
+      almost_outer_mnk_pos++;
+      outer_roles.insert(role);
+    }
+    NVF_ERROR(
+        almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+        "Because of tiling, we expect repeated roles");
+    for (int64_t i :
+         std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+      tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+      merged_roles.erase(merged_roles.begin() + (size_t)i);
+    }
+  } else {
+    // no cga split
+
+    merged_roles = mma_utils::makeTile(
+        tv, params_->tile_sizes.cta_tile, orig_merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
+  }
+
+  return merged_roles;
 }
 
 std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
@@ -407,15 +487,16 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     // then apply it (with "forwarding") to each TV instead. We already cache
     // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
     // scheduling is the next step in this modernization.
-    mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = applyCgaAndCtaTilingWithSwizzling(tv, merged_roles);
 
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
       for (size_t i : arange(merged_roles.size())) {
         if (merged_roles[i] == MatmulDimRole::K) {
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
+          // Only split the outer K dim
+          break;
         }
       }
     }
@@ -539,25 +620,25 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
   }
 }
 
-void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
-  if (isBlackwell(params_->mma_macro)) {
-    mma_result->setMemoryType(MemoryType::Tensor);
-    // So far, we only support M128 Blackwell MMA macros. For these macros,
-    // Rows of the accumulator span all 128 lanes of TMem. That is, the
-    // allocation domain should be [Mi, (DimSep), ...other]
-    // We want to move Mi to the front of the domain.
-    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    auto item = allocation_domain[allocation_domain.size() - 3];
-    allocation_domain.erase(
-        allocation_domain.begin() + allocation_domain.size() - 3);
-    allocation_domain.insert(allocation_domain.begin(), item);
-    mma_result->setAllocationDomain(allocation_domain, true);
-    mma_result->setTMemDimSepPos(1);
-  } else {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
+void Blackwell::setMmaResultAllocationDomain(TensorView* mma_result) {
+  mma_result->setMemoryType(MemoryType::Tensor);
+  // So far, we only support M128 Blackwell MMA macros. For these macros,
+  // Rows of the accumulator span all 128 lanes of TMem. That is, the
+  // allocation domain should be [Mi, (DimSep), ...other]
+  // We want to move Mi to the front of the domain.
+  std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+  auto item = allocation_domain[allocation_domain.size() - 3];
+  allocation_domain.erase(
+      allocation_domain.begin() + allocation_domain.size() - 3);
+  allocation_domain.insert(allocation_domain.begin(), item);
+  mma_result->setAllocationDomain(allocation_domain, true);
+  mma_result->setTMemDimSepPos(1);
+}
+
+void Hopper::setMmaResultAllocationDomain(TensorView* mma_result) {
+  auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+      mma_result->getLoopDomain());
+  mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
 }
 
 void HopperPlus::scheduleMmaResults() {
@@ -620,10 +701,7 @@ void HopperPlus::scheduleMmaResults() {
   }
 }
 
-std::vector<TensorView*> HopperPlus::createTMemLoad() {
-  if (!isBlackwell(params_->mma_macro)) {
-    return {};
-  }
+std::vector<TensorView*> Blackwell::createTMemLoad() {
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -634,7 +712,7 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
   return tmem_ld_tvs;
 }
 
-int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+int64_t Blackwell::getLdTMemVectorizeFactor() const {
   const int64_t n_mma = getN(params_->mma_macro);
   int64_t tmem_vectorize_factor = 1;
   while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
@@ -643,8 +721,9 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
   return tmem_vectorize_factor / 2;
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -670,7 +749,6 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
     // vectorize the TMem load with a factor of v (tmem_vectorize_factor).
     // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
     d->axis(-2)->parallelize(ParallelType::TIDx);
-    int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
     if (tmem_vectorize_factor < getN(params_->mma_macro)) {
       d->split(-1, tmem_vectorize_factor);
     }
@@ -713,7 +791,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -755,24 +833,13 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
-  if (isBlackwell(params_->mma_macro)) {
-    scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  } else {
-    scheduleEpilogueWithoutSmemEpilogueHopper();
-  }
-}
-
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
+void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
   fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
   fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
-
-  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
-  std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -926,6 +993,109 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
   }
 }
 
+void Blackwell::scheduleEpilogueWithSmemEpilogue() {
+  const bool has_splitk = params_->splitk_factor != 1;
+  int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
+
+  std::vector<TensorView*> tmem_ld_tvs =
+      !has_splitk ? createTMemLoad() : std::vector<TensorView*>{};
+
+  // Propagate to (not including) the splitk output if there is a splitk
+  // else this is just mma_results_
+  std::vector<TensorView*> register_tvs;
+  std::vector<TensorView*> propagate_to =
+      splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+  for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    bool is_2d_epilogue_input =
+        TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
+    if (is_2d_epilogue_input && params_->async_gmem_load_operands) {
+      // Schedule TMA load into shared memory for epilogue input
+      c_cache->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      c_cache->setMemoryType(MemoryType::Shared);
+      blockTileTensors({c_cache});
+      parallelizeBlocks({c_cache});
+      transformLikeMmaOutputWithoutK(c_cache);
+      c_cache->setAllocationDomain(c_cache->getLoopDomain(), true);
+      for (int64_t i = -5; i <= -1; i++) {
+        c_cache->axis(i)->parallelize(ParallelType::Bulk);
+      }
+
+      // Schedule smem->register load for epilogue input
+      TensorView* reg_tv = cacheAfter(c_cache);
+      register_tvs.push_back(reg_tv);
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+      transformLikeMmaOutputWithoutK(reg_tv);
+    }
+    // Propagate changes to the cache_after tensor
+    propagate_to.push_back(c);
+  }
+
+  // TMem load is scheduled separately, so don't propagate to it.
+  propagate_to.insert(
+      propagate_to.end(), tmem_ld_tvs.begin(), tmem_ld_tvs.end());
+
+  // The chain of operations storing data to global memory:
+  //   dc (registers) -> d_smem -> [tma_store] -> d (gmem)
+  // We schedule d_smem and propagate it back.
+  for (Val* dv : fusion_->outputs()) {
+    TensorView* d = dv->as<TensorView>();
+    NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
+    TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
+    dc->setMemoryType(MemoryType::Local);
+    d_smem->setMemoryType(MemoryType::Shared);
+
+    // We schedule the epilogue like:
+    // (v = tmem_vectorize_factor, vv = smem_vectorize_factor
+    // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv]
+    blockTileTensors({d, d_smem});
+    parallelizeBlocks({d, d_smem});
+    for (auto tv : {d, d_smem}) {
+      transformLikeMmaOutputWithoutK(tv);
+      tv->axis(-2)->parallelize(ParallelType::TIDx);
+      if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+        tv->split(-1, tmem_vectorize_factor);
+      }
+    }
+    if (tmem_vectorize_factor > hardcoded_smem_vectorize_factor) {
+      d_smem->split(-1, hardcoded_smem_vectorize_factor);
+    }
+
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        d_smem,
+        -1,
+        propagate_to,
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType());
+
+    d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+    d_smem->setAllocationDomain(d_smem->getLoopDomain(), true);
+
+    // Schedule global memory output; Output from TMA Store
+    d->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    for (int64_t i = -5; i <= -1; i++) {
+      d->axis(i)->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  // Schedule TMem load as:
+  // (v = tmem_vectorize_factor)
+  // [..., Mo * No, Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
+  blockTileTensors(tmem_ld_tvs);
+  parallelizeBlocks(tmem_ld_tvs);
+  for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
+    transformLikeMmaOutputWithoutK(tmem_ld_tv);
+    tmem_ld_tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (tmem_vectorize_factor < getN(params_->mma_macro)) {
+      tmem_ld_tv->split(-1, tmem_vectorize_factor);
+    }
+    tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+}
+
 void HopperPlus::scheduleEpilogue() {
   if (params_->use_smem_epilogue) {
     scheduleEpilogueWithSmemEpilogue();
@@ -934,7 +1104,7 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSumHopper() {
+void Hopper::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -950,8 +1120,6 @@ void HopperPlus::scheduleSplitKSumHopper() {
   }
 }
 
-constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
-
 // Schedule TMem load tv and splitk_sum tv as follows:
 //   v = vectorization factor for TMem load
 //   vv = vectorization factor for splitk_sum, hardcoded to 4
@@ -959,7 +1127,7 @@ constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
 // Splitk_sum tv:
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
-void HopperPlus::scheduleSplitKSumBlackwell() {
+void Blackwell::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -983,14 +1151,6 @@ void HopperPlus::scheduleSplitKSumBlackwell() {
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
-void HopperPlus::scheduleSplitKSum() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleSplitKSumHopper();
-  } else {
-    scheduleSplitKSumBlackwell();
   }
 }
 
@@ -1028,7 +1188,8 @@ void HopperPlus::setUpCircularBuffering() {
                 params_->circular_buffer_options.smem_circular_buffer_stage,
         "smem_circular_buffer_prefetch_gap is ",
         params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
-        " but is expected to be positive and not greater than number of stages: ",
+        " but is expected to be positive and not greater than number of "
+        "stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
     CircularBufferType cb_type;

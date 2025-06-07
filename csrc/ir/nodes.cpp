@@ -217,7 +217,8 @@ std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   return {at::index_put(
       /*self=*/inputs.at(0).as<at::Tensor>(),
-      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      // NOTE: aten API doesn't allow the broadcast dimension
+      /*indices=*/{inputs.at(1).as<at::Tensor>().squeeze(-1)},
       /*values=*/inputs.at(2).as<at::Tensor>(),
       /*accumulate=*/true)};
 }
@@ -531,7 +532,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
         auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
         NVF_CHECK(
             *vec_type.type == inp_scalar_type,
-            "Output type must be the same as the scalar type of the complex input.");
+            "Output type must be the same as the scalar type of the complex "
+            "input.");
         NVF_CHECK(
             vec_type.size == 2,
             "Expected output to be array of size 2, found array of size ",
@@ -924,7 +926,8 @@ ArrayConstruct::ArrayConstruct(
       ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
   NVF_CHECK(
       output->getDataType() == expected_output_dtype,
-      "Output of ArrayConstruct must be an array of the same data type as the inputs");
+      "Output of ArrayConstruct must be an array of the same data type as the "
+      "inputs");
 }
 
 std::string ArrayConstruct::toString(int indent_size) const {
@@ -1041,7 +1044,8 @@ StructConstruct::StructConstruct(
   auto output_dtype = std::get<StructType>(output->dtype().type);
   NVF_ERROR(
       output_dtype.fields.size() == fields.size(),
-      "StructConstruct output must have the same number of fields as the inputs");
+      "StructConstruct output must have the same number of fields as the "
+      "inputs");
   auto it = output_dtype.fields.begin();
   for (const auto& field : fields) {
     NVF_ERROR(
@@ -1216,7 +1220,8 @@ RNGOp::RNGOp(
   if (philox_seed || philox_offset) {
     NVF_CHECK(
         philox_seed && philox_offset,
-        "If either philox_seed or philox_offset is provided, the other must be also");
+        "If either philox_seed or philox_offset is provided, the other must be "
+        "also");
     addInput(philox_seed);
     addInput(philox_offset);
   }
@@ -1288,7 +1293,8 @@ BroadcastOp::BroadcastOp(
     auto& out_dom = out_tv->getLogicalDomain();
     NVF_ERROR(
         is_broadcast_dims.size() == out_dom.size(),
-        "The dimensions of output tensor and does not match with is_broadcast_dims");
+        "The dimensions of output tensor and does not match with "
+        "is_broadcast_dims");
 
     auto out_size = is_broadcast_dims.size();
     auto num_new_broadcasts = 0;
@@ -1314,7 +1320,8 @@ BroadcastOp::BroadcastOp(
     }
     NVF_ERROR(
         out_size == in_dom.size() + num_new_broadcasts,
-        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+        "The dimensions of output tensor and does not match with "
+        "is_broadcast_dims and input tensor");
   }
 
   addDataAttribute(std::move(is_broadcast_dims));
@@ -1421,7 +1428,8 @@ SqueezeOp::SqueezeOp(
   }
   NVF_ERROR(
       in_size == out_tv->nDims() + num_removed_broadcasts,
-      "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+      "The dimensions of output tensor and does not match with is_squeeze_dims "
+      "and input tensor");
 
   addDataAttribute(std::move(is_squeeze_dims));
 }
@@ -1535,7 +1543,8 @@ ReductionOp::ReductionOp(
        out->getValType() == ValType::TensorView) ||
           (in->getValType() == ValType::TensorIndex &&
            out->getValType() == ValType::TensorIndex),
-      "Reduction operation was created that does not have tensor inputs and outputs.");
+      "Reduction operation was created that does not have tensor inputs and "
+      "outputs.");
 
   if (in->isA<TensorView>()) {
     NVF_ERROR(
@@ -1545,7 +1554,8 @@ ReductionOp::ReductionOp(
   }
   NVF_ERROR(
       init->isConstScalar(),
-      "Tried to create a reduction operation whith an initial value that isn't a constant.");
+      "Tried to create a reduction operation whith an initial value that isn't "
+      "a constant.");
 
   addOutput(out);
   addInput(in);
@@ -1800,7 +1810,8 @@ WelfordOp::WelfordOp(
   } else {
     NVF_ERROR(
         input.var() == nullptr || input.var()->isZeroInt(),
-        "Invalid var input, which must be either nullptr or scalar zero when the N input is one.");
+        "Invalid var input, which must be either nullptr or scalar zero when "
+        "the N input is one.");
   }
 
   addOutput(output.avg());
@@ -1886,7 +1897,8 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(
       !hasInit(),
-      "Evaluation for WelfordOp is not implemented for non-empty initial values.");
+      "Evaluation for WelfordOp is not implemented for non-empty initial "
+      "values.");
   const auto& in_tensor = inputs.at(0).as<at::Tensor>();
   const auto out_tv = out()->as<TensorView>();
   NVF_ERROR(
@@ -1958,7 +1970,8 @@ GroupedWelfordOp::GroupedWelfordOp(
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
              init_avg->getValType().value() == ValType::Others),
-        "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
+        "Initial avg must be a tensor or, can be a scalar if initial N is "
+        "zero.",
         " Initial avg: ",
         init_avg->toString(),
         ". Initial N: ",
@@ -1968,7 +1981,8 @@ GroupedWelfordOp::GroupedWelfordOp(
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
              init_var->getValType().value() == ValType::Others),
-        "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
+        "Initial var must be a tensor or, can be a scalar if initial N is "
+        "zero: ",
         init_var->toString());
 
     // check input
@@ -1994,7 +2008,8 @@ GroupedWelfordOp::GroupedWelfordOp(
       // input the var part must be implicitly 0
       NVF_ERROR(
           in_var->isZeroInt(),
-          "Invalid var input, which must be scalar zero when the N input is one: ",
+          "Invalid var input, which must be scalar zero when the N input is "
+          "one: ",
           in_var->toString());
     } else {
       NVF_ERROR(
@@ -2541,25 +2556,29 @@ IterDomain::IterDomain(
 
   NVF_ERROR(
       extent->dtype() == DataType::Index,
-      "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain over an extent that is not an "
+      "nvfuser_index_t but received ",
       extent->dtype(),
       " .");
 
   NVF_ERROR(
       expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
-      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain over an expanded_extent that is not an "
+      "nvfuser_index_t but received ",
       expanded_extent->dtype(),
       " .");
 
   NVF_ERROR(
       start->dtype() == DataType::Index,
-      "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain with a start that is not an "
+      "nvfuser_index_t but received ",
       start->dtype(),
       " .");
 
   NVF_ERROR(
       stop_offset_->dtype() == DataType::Index,
-      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain with a stop_offset_ that is not an "
+      "nvfuser_index_t but received ",
       stop_offset_->dtype(),
       " .");
 }
@@ -2931,7 +2950,8 @@ IterDomain* IterDomain::resize(
       NVF_CHECK(
           !iter_type_opt.has_value() ||
               iter_type_opt.value() == in->getIterType(),
-          "If IterType is specified in pad with zero expansion then it must match input");
+          "If IterType is specified in pad with zero expansion then it must "
+          "match input");
       return in;
     }
   }
@@ -3043,7 +3063,8 @@ void IterDomain::parallelize(ParallelType t) {
       t == ParallelType::Group) {
     NVF_CHECK(
         start()->isZeroInt() && extent()->isConstScalar(),
-        "Vectorization, unrolling, unswitching and grouping are only supported with start = 0 and extent as a const int, but got ",
+        "Vectorization, unrolling, unswitching and grouping are only supported "
+        "with start = 0 and extent as a const int, but got ",
         "a start of ",
         start(),
         " and extent ",
@@ -3055,7 +3076,8 @@ void IterDomain::parallelize(ParallelType t) {
     NVF_CHECK(
         getIterType() == IterType::Iteration ||
             getIterType() == IterType::GatherScatter,
-        "Grouping IterDomain of non Iteration / GatherScatter type is not allowed. ",
+        "Grouping IterDomain of non Iteration / GatherScatter type is not "
+        "allowed. ",
         getIterType());
   }
 
@@ -3085,7 +3107,8 @@ void validateContiguity(
     const std::vector<std::optional<bool>>& contiguity) {
   NVF_CHECK(
       contiguity.size() == allocation_domain.size(),
-      "Invalid contiguity information provided, incorrect size. Received vector of size ",
+      "Invalid contiguity information provided, incorrect size. Received "
+      "vector of size ",
       contiguity.size(),
       " but needed one of size ",
       allocation_domain.size());
@@ -3096,7 +3119,8 @@ void validateContiguity(
     NVF_CHECK(
         expect_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast/reduction dimension must be None. "
-        "The contiguity of a non-broadcast/reduction dimension must be true/false. alloation_domain=[",
+        "The contiguity of a non-broadcast/reduction dimension must be "
+        "true/false. alloation_domain=[",
         toDelimitedString(allocation_domain),
         "], contiguity=[",
         toDelimitedString(contiguity),
@@ -4226,34 +4250,34 @@ NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {
   if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
 
 std::optional<ParallelType> NamedScalar::getParallelIndex() const {
   if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
@@ -4275,7 +4299,8 @@ PadOp::PadOp(
       pad_widths.size() == ndims * 2,
       "Invalid size of padding width vector: ",
       pad_widths.size(),
-      ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
+      ". All dimensions, padded or not, must have width vals. Use zero for non "
+      "non-padded dimensions.");
   addOutput(out);
   addInput(inp);
   addInput(value);
@@ -4368,7 +4393,8 @@ SliceOp::SliceOp(
   size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
   NVF_ERROR(
       ndims == ranges.size(),
-      "The range vector must have the same number of Slice descriptors. Given: ",
+      "The range vector must have the same number of Slice descriptors. "
+      "Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -5061,7 +5087,8 @@ bool ForLoop::isUnrolled() const {
     // matter if unrolled or not.
     if (!iter_domain()->isBroadcast() && !vectorize()) {
       TORCH_WARN(
-          "Unroll required but not possible. Register allocation disabled. Loop index: ",
+          "Unroll required but not possible. Register allocation disabled. "
+          "Loop index: ",
           index()->toString(),
           ", ",
           toString());
@@ -5533,4 +5560,60 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
           .scale_grad_by_freq(scale_grad_by_freq)
           .sparse(sparse))};
 }
+
+ArgsortOp::ArgsortOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in,
+    int64_t dim,
+    bool descending,
+    bool stable)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(dim);
+  addDataAttribute(descending);
+  addDataAttribute(stable);
+}
+
+std::string ArgsortOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = argsort( "
+                          << in()->toString() << ", dim = " << dim()
+                          << ", descending = "
+                          << (isDescending() ? "True" : "False")
+                          << ", stable = " << (isStable() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string ArgsortOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ArgsortOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "ArgsortOp expects 1 input but received ",
+      inputs.size());
+
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "ArgsortOp expects tensor input but got ",
+      in.type().name());
+
+  // at::argsort signature is:
+  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool
+  // descending)
+  auto result =
+      at::argsort(in.as<at::Tensor>(), isStable(), dim(), isDescending());
+
+  return {result};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
+
 } // namespace nvfuser

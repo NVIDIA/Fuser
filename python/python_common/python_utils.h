@@ -146,4 +146,7 @@ std::vector<int64_t> getTensorViewBuilderSizes(
     const std::vector<int64_t>& sizes,
     bool static_sizes);
 
+// A helper function that maps PrimDataType to std::string
+NVF_API const char* dtypeToPyString(PrimDataType t);
+
 } // namespace nvfuser
