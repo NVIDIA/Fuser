@@ -54,6 +54,11 @@ class TransposeTest : public NVFuserTest {
   TransposeTest()
       : optimization_guard_(false), allocation_order_guard_(false) {}
 
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard_;
