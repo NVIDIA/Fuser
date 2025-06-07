@@ -14,6 +14,7 @@ using nvfuser_index_t = int64_t;
 
 // nvFuser headers
 #include <tests/cpp/argsort_test_helper.h>
+#include <runtime/index_utils.cu>
 #include <runtime/argsort.cu>
 
 // Standard C++ headers

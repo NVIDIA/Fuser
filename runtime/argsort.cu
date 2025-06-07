@@ -2,8 +2,6 @@
 
 #include <cub/block/block_radix_sort.cuh>
 
-#include "index_utils.cu"
-
 namespace nvfuser_runtime {
 
 // Block state constants following nvFuser conventions from fused_reduction.cu
