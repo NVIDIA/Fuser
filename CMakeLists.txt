@@ -729,6 +729,14 @@ if(BUILD_TEST)
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+
+  set(ARGSORT_TEST_KERNELS "argsort_test_kernels")
+  add_library(${ARGSORT_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/argsort_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${ARGSORT_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${ARGSORT_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${ARGSORT_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
@@ -776,6 +784,9 @@ if(BUILD_TEST)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
+
+  add_test(test_argsort ${NVFUSER_ROOT}/tests/cpp/test_argsort_device_func.cpp ${ARGSORT_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_argsort)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
@@ -972,6 +983,7 @@ endif()
 # nvfuser runtime files
 set(NVFUSER_RUNTIME_FILES)
 list(APPEND NVFUSER_RUNTIME_FILES
+  ${NVFUSER_ROOT}/runtime/argsort.cu
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
