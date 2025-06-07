@@ -409,7 +409,7 @@ Layout getCommunicationLayout(
     IterDomain* sharded_id) {
   const Layout layout = canonicalizeLayout(tv)->contiguous();
   const int64_t sharded_id_pos =
-      posInDomain(layout.allocation_domain, sharded_id);
+      posInDomain(layout.allocation_domain(), sharded_id);
   NVF_ERROR(
       sharded_id_pos >= 0,
       "Sharded ID (",
@@ -432,12 +432,12 @@ Layout getCommunicationLayout(
   }
 
   for (int64_t i : arange(sharded_id_pos)) {
-    IterDomain* id = layout.allocation_domain[i];
+    IterDomain* id = layout.allocation_domain(i);
     if (!isLocalSizeOne(id)) {
       // We could put `sharded_id` to any position between 0 and i. I chose 0
       // for simplicity.
       std::vector<IterDomain*> new_allocation = TensorDomain::orderedAs(
-          layout.allocation_domain, {{sharded_id_pos, 0}});
+          layout.allocation_domain(), {{sharded_id_pos, 0}});
       return Layout{
           new_allocation,
           TensorDomain::getContiguityFilledWith(new_allocation, true)};

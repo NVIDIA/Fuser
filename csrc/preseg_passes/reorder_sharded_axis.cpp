@@ -41,7 +41,8 @@ void makeCommunicationLayoutCompliant(
     p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
     input = input_copy;
   }
-  input->setAllocationDomain(p_layout.allocation_domain, p_layout.contiguity);
+  input->setAllocationDomain(
+      p_layout.allocation_domain(), p_layout.contiguity());
 
   Layout c_layout =
       getCommunicationLayout(output, communication_info.type, c_sharded_id);
@@ -63,7 +64,8 @@ void makeCommunicationLayoutCompliant(
         output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
   }
-  output->setAllocationDomain(c_layout.allocation_domain, c_layout.contiguity);
+  output->setAllocationDomain(
+      c_layout.allocation_domain(), c_layout.contiguity());
 }
 
 } // namespace
