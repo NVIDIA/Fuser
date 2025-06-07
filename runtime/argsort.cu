@@ -3,9 +3,6 @@
 #include <cub/block/block_radix_sort.cuh>
 #include <cuda_runtime.h>
 
-// nvFuser index type - must be defined before including index_utils.cu
-using nvfuser_index_t = int64_t;
-
 #include "index_utils.cu"
 
 namespace nvfuser_runtime {

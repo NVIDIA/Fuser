@@ -9,6 +9,9 @@
 // Warning: this file should not include any header from nvFuser or pytorch
 // (except raw headers). Compiling with nvcc requires avoiding complex headers.
 
+// Define nvfuser_index_t at global scope for runtime files
+using nvfuser_index_t = int64_t;
+
 // nvFuser headers
 #include <tests/cpp/argsort_test_helper.h>
 #include <runtime/argsort.cu>
