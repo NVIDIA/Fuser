@@ -57,4 +57,4 @@ void launch_convert_float_to_bfloat16(
     __nv_bfloat16* output_bfloat,
     int n);
 
-} // namespace nvfuser 
+} // namespace nvfuser
