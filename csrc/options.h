@@ -114,6 +114,7 @@ enum class EnableOption {
   WarnRegisterSpill, //! Enable warnings of register spill
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
+  InsertReshardingAfter,
   EndOfOption //! Placeholder for counting the number of elements
 };
 
