@@ -19,7 +19,7 @@
 #include <cuda_bf16.h>
 
 // Include the actual nvFuser runtime argsort implementation
-#include "../../runtime/argsort.cu"
+#include <runtime/argsort.cu>
 
 namespace nvfuser {
 
