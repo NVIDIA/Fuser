@@ -456,7 +456,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
-               hu->fusion_to_execute(), 1, 1, 1, 1)});
+               hu->fusion_to_execute(), 1, 1, 1, 1, SchedulerType::None)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
         ExecutorDispatch::compile(

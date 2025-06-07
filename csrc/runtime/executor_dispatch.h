@@ -16,14 +16,20 @@ namespace nvfuser {
 // ExprEvalExecutor
 class ExecutorDispatch {
  public:
-  // Iterates through executors in priority order creating the first executor
-  // that returns true when checking their "supported" method
+  // If `scheduler_type` is `SchedulerType::None`, this function Iterates
+  // through executors in priority order creating the first executor that
+  // returns true when checking their "supported" method. Otherwise, create the
+  // executor according to `scheduler_type`, which is faster.
+  //
+  // The slow path (i.e. `SchedulerType::None`) is only used by
+  // MultiDeviceExecutor at this moment.
   static std::unique_ptr<ExecutorAbstract> makeExecutor(
       Fusion* fusion,
       int64_t fusion_id = -1,
       int64_t concrete_id = -1,
       int64_t runtime_id = -1,
-      int64_t group_id = -1);
+      int64_t group_id = -1,
+      SchedulerType scheduler_type);
 
   static void compile(ExecutorAbstract* executor, Fusion* fusion);
 
