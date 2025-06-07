@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cub/block/block_radix_sort.cuh>
-#include <cuda_runtime.h>
 
 #include "index_utils.cu"
 
