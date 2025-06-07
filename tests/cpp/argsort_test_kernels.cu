@@ -9,17 +9,18 @@
 // Warning: this file should not include any header from nvFuser or pytorch
 // (except raw headers). Compiling with nvcc requires avoiding complex headers.
 
+// nvFuser headers
 #include <tests/cpp/argsort_test_helper.h>
+#include <runtime/argsort.cu>
 
+// Standard C++ headers
 #include <cassert>
 #include <cstdint>
 #include <type_traits>
 
+// CUDA headers
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
-
-// Include the actual nvFuser runtime argsort implementation
-#include <runtime/argsort.cu>
 
 namespace nvfuser {
 
