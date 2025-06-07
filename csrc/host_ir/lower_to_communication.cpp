@@ -12,6 +12,7 @@
 #include <ir/allocation_utils.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/iostream.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
@@ -300,57 +301,6 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
-bool isAllocationOrderCompliant(TensorView* tv, IterDomain* sharded_id) {
-  NVF_ERROR(
-      std::find(
-          tv->getLogicalDomain().begin(),
-          tv->getLogicalDomain().end(),
-          sharded_id) != tv->getLogicalDomain().end(),
-      "The sharded ID ",
-      sharded_id->toString(),
-      " is not in the logical domain ",
-      tv->getLogicalDomain());
-
-  if (isLocalSizeOne(sharded_id)) {
-    // Parallelized dimension, broadcast, and reduction do not affect
-    // allocation.
-    return true;
-  }
-
-  // This sharded logical ID may not be directly present in allocation domain.
-  // This indicates allocation domain has DID transformations.
-  std::optional<Layout> layout = canonicalizeLayout(tv);
-  if (!layout.has_value()) {
-    return false;
-  }
-
-  const std::vector<IterDomain*>& allocation_domain = layout->allocation_domain;
-
-  NVF_ERROR(
-      std::is_permutation(
-          allocation_domain.begin(),
-          allocation_domain.end(),
-          tv->getLogicalDomain().begin(),
-          tv->getLogicalDomain().end()),
-      "The allocation domain returned by canonicalizeLayout",
-      allocation_domain,
-      " should be a permutation of the logical domain ",
-      tv->getLogicalDomain());
-
-  // Check if sharded_id appears at the front.
-  for (IterDomain* id : allocation_domain) {
-    if (id == sharded_id) {
-      return true;
-    }
-    if (!isLocalSizeOne(id)) {
-      return false;
-    }
-  }
-  NVF_THROW(
-      "Should never reach here - sharded_id must be found in allocation "
-      "domain");
-}
-
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
@@ -443,29 +393,80 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   return communication_info;
 }
 
-bool isCommunicationLayoutCompliant(Expr* expr) {
-  TensorView* producer = expr->inputs().at(0)->as<TensorView>();
-  TensorView* consumer = expr->outputs().at(0)->as<TensorView>();
+namespace {
+int64_t posInDomain(const std::vector<IterDomain*>& domain, IterDomain* id) {
+  auto pos = std::find(domain.begin(), domain.end(), id);
+  if (pos == domain.end()) {
+    return -1;
+  }
+  return std::distance(domain.begin(), pos);
+}
+} // namespace
 
+Layout getCommunicationLayout(
+    TensorView* tv,
+    const CommunicationType type,
+    IterDomain* sharded_id) {
+  const Layout layout = canonicalizeLayout(tv)->contiguous();
+  const int64_t sharded_id_pos =
+      posInDomain(layout.allocation_domain, sharded_id);
+  NVF_ERROR(
+      sharded_id_pos >= 0,
+      "Sharded ID (",
+      sharded_id,
+      ") not found in the allocation domain of the tensor view: ",
+      tv);
+
+  // Reduction axis in reduce/allreduce does not have to be outermost in
+  // allocation domain. Nonetheless, `tv` still needs to be contiguous and
+  // therefore .contiguous() at the beginning of this function.
+  if (type == CommunicationType::Reduce ||
+      type == CommunicationType::Allreduce) {
+    return layout;
+  }
+
+  if (isLocalSizeOne(sharded_id)) {
+    // Parallelized dimension, broadcast, and reduction do not affect
+    // allocation.
+    return layout;
+  }
+
+  for (int64_t i : arange(sharded_id_pos)) {
+    IterDomain* id = layout.allocation_domain[i];
+    if (!isLocalSizeOne(id)) {
+      // We could put `sharded_id` to any position between 0 and i. I chose 0
+      // for simplicity.
+      std::vector<IterDomain*> new_allocation = TensorDomain::orderedAs(
+          layout.allocation_domain, {{sharded_id_pos, 0}});
+      return Layout{
+          new_allocation,
+          TensorDomain::getContiguityFilledWith(new_allocation, true)};
+    }
+  }
+  return layout;
+}
+
+bool isCommunicationLayoutCompliant(Expr* expr) {
+  auto* producer = expr->inputs().at(0)->as<TensorView>();
+  auto* consumer = expr->outputs().at(0)->as<TensorView>();
+
+  // TODO(#4552): the caller should make sure Expr is a communication so
+  // getCommunicationInfo always returns a valid CommunicationInfo. Retry after
+  // #4552 is merged.
   auto communication_info = getCommunicationInfo(expr);
   if (!communication_info.has_value()) {
     return true;
   }
 
-  if (!isTvContiguous(producer) || !isTvContiguous(consumer)) {
+  Layout p_layout = getCommunicationLayout(
+      producer, communication_info->type, communication_info->p_sharded_id);
+  if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
     return false;
   }
 
-  if (communication_info->type == CommunicationType::Reduce ||
-      communication_info->type == CommunicationType::Allreduce) {
-    // Reduction axis in reduce/allreduce does not have to be outermost in
-    // allocation domain.
-    return true;
-  }
-
-  // Check if the gather/scatter axis is outermost in memory layout.
-  if (!isAllocationOrderCompliant(producer, communication_info->p_sharded_id) ||
-      !isAllocationOrderCompliant(consumer, communication_info->c_sharded_id)) {
+  Layout c_layout = getCommunicationLayout(
+      consumer, communication_info->type, communication_info->c_sharded_id);
+  if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
     return false;
   }
 

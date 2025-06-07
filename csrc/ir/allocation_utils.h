@@ -26,6 +26,10 @@ struct Layout {
   int64_t size() const;
 
   std::string toString(int indent_size = 0) const;
+
+  // Returns a new Layout that has the same allocation domain but `true`
+  // contiguity.
+  Layout contiguous() const;
 };
 
 // Computes `Split`'s output contiguity. Returns the outer contiguity and then
