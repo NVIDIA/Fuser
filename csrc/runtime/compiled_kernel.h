@@ -154,6 +154,10 @@ class CompiledKernel : public NonCopyable {
 
   void createKernelId();
 
+  static std::string kernelNamespace() {
+    return "nvfuser_runtime";
+  }
+
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;

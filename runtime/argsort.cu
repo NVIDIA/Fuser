@@ -45,8 +45,10 @@ __device__ void blockArgsort(
     BlockDimT block_dim) {
   // For now, only support all dimensions participating in sort (state=0)
   static_assert(
-      isSort(BLOCK_STATE_X) && isSort(BLOCK_STATE_Y) && isSort(BLOCK_STATE_Z),
-      "For now, only all sort states are supported");
+      (isSort(BLOCK_STATE_X) || BLOCK_DIM_X == 1) &&
+          (isSort(BLOCK_STATE_Y) || BLOCK_DIM_Y == 1) &&
+          (isSort(BLOCK_STATE_Z) || BLOCK_DIM_Z == 1),
+      "For now, active TID dimensions must participate in sorting");
 
   // Create temporary buffer for CUB operations since input_data is const
   DataT temp_data[ITEMS_PER_THREAD];

@@ -134,6 +134,9 @@ struct KernelSummary {
 
   //! adjusted register usage for tma load and computation warp groups
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
 };
 
 class KernelPerformanceProfile {

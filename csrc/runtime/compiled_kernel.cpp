@@ -52,6 +52,7 @@
 
 #include <cuda_runtime.h>
 
+#include <nvfuser_resources/argsort.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -602,6 +603,10 @@ void fillCompileOptions(
       module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
   }
+
+  for (const auto& include_path : compile_params.include_paths) {
+    nvrtc_compile_driver.setOption("-I" + include_path);
+  }
 }
 
 // Dump ptxas output if register spill is detected
@@ -1121,12 +1126,23 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
 std::string _getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type,
-    std::string kernel_name) {
+    std::string kernel_name,
+    bool has_argsort = false) {
   // generating cuda code;
   std::string code = "";
   code += defineStdComplex();
-  code += std::string("namespace {\n") + defineTypes() +
-      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
+      "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
+      "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
+
+  if (has_argsort) {
+    code += nvfuser_resources::argsort_cu;
+  }
+
+  // Kernel is not in the namespace for historical reasons.
+  code += "\nusing namespace " + CompiledKernel::kernelNamespace() + ";\n\n";
+
+  code += kernel_str;
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernel_name
@@ -1179,6 +1195,13 @@ NVF_API CompiledKernel::CompiledKernel(
   lowered_->run();
   for (const auto& hook : post_lowering_hooks) {
     hook(lowered_->kernel());
+  }
+
+  // Add CUDA include path if fusion contains ArgsortOp. Note that
+  // this is a temporary measure. CUB header files need to be
+  // installed as part of the nvFuser installation.
+  if (lowered_->kernel()->summary().has_argsort) {
+    compile_params_.include_paths.push_back("/usr/local/cuda/include");
   }
 }
 
@@ -1350,7 +1373,10 @@ std::string CompiledKernel::getStructuredCode() const {
     return structured_code;
   }
   return _getStructuredCode(
-      kernelString(), kernel()->indexType(), kernelName());
+      kernelString(),
+      kernel()->indexType(),
+      kernelName(),
+      kernel()->summary().has_argsort);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {

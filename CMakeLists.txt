@@ -789,7 +789,12 @@ if(BUILD_TEST)
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
 
-  add_test(test_argsort ${NVFUSER_ROOT}/tests/cpp/test_argsort_device_func.cpp ${ARGSORT_TEST_KERNELS})
+  set(ARGSORT_TEST_SRCS)
+  list(APPEND ARGSORT_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort_device_func.cpp
+  )
+  add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_argsort)
 
   set(MULTIDEVICE_TEST_SRCS)
