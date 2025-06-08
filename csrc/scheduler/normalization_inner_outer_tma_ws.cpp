@@ -217,7 +217,7 @@ void getHeuristics(
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
-  
+
   // Set the newly added parameters for TMA warp specialized
   rparams->is_non_circular_buffer_gmem_to_regs = true;
   rparams->is_circular_buffer_regs_cached = true;
