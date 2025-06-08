@@ -37,6 +37,7 @@ int64_t roundUpSharedMemory(
   }
   return max_smem;
 }
+
 std::vector<TensorView*> getOuterBroadcastTvs(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs) {
@@ -161,7 +162,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // outer broadcast tvs and always project to inputs.
   // Warp specialized persistent kernel always cache inputs in shared memory,
   // should project to inputs.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  const auto& outer_broadcast_tvs =
+      normalization_scheduler_utils::getOuterBroadcastTvs(
+          fusion, reduction_tvs);
   bool skip_check_buffer_size =
       !outer_broadcast_tvs.empty() || is_warp_specialized;
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
