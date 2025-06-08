@@ -158,10 +158,6 @@ void getHeuristics(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
     auto [_, compute_branch_regs] =
         get_register_sharing(available_regs, bdimx * bdimy);
-    std::cout << "bdimy: " << bdimy << ", bdimx: " << bdimx
-              << ", iter_unroll: " << iter_unroll << ", stages: " << n_stages
-              << ", reg_count: " << reg_count
-              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
   };
 
@@ -228,8 +224,6 @@ void getHeuristics(
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_circular_buffer_regs_cached=False."
-              << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
@@ -238,8 +232,6 @@ void getHeuristics(
   // If still can't achieve multiple computation warp groups, further disable
   // [is_non_circular_buffer_gmem_to_regs]
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_non_circular_buffer_gmem_to_regs=False."
-              << std::endl;
     is_non_circular_buffer_gmem_to_regs = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
@@ -465,8 +457,6 @@ void scheduleOuterReduction(
     }
 
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    std::cout << "Outer reduction tv: " << outer_reduction_tv->toString()
-              << std::endl;
     auto outer_reference_tv = outer_reduction_tv;
     if (rparams->computation_warp_groups > 1) {
       outer_reference_tv = outer_reduction_tv->rFactor({1});
@@ -680,7 +670,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     tv->axis(-1)->parallelize(ParallelType::Bulk);
     // Change from TIDy to Serial to separate the TMA load for different
     // computation warp groups
-    std::cout << "TMA load tv: " << tv->toString() << std::endl;
     if (rparams->computation_warp_groups > 1 &&
         tv->nDims() > tma_inline_pos + 1) {
       tv->axis(tma_inline_pos)->parallelize(ParallelType::Serial);
@@ -812,8 +801,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           continue;
         }
 
-        std::cout << "Vectorizing cached input: " << cached_tv->toString()
-                  << std::endl;
         if (can_vectorize(
                 inner_reference_tv, ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
@@ -824,8 +811,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
             inner_outer_utils::getGroupedReductionPersistentTvs(
                 fusion, cached_tv, reduction_tvs);
         for (auto gp_tv : grouped_reduction_persistent_tvs) {
-          std::cout << "Inline grouped persistent tv: " << gp_tv->toString()
-                    << std::endl;
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
       }
