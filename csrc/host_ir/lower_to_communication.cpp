@@ -301,7 +301,7 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
-std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
+CommunicationInfo getCommunicationInfo(Expr* expr) {
   NVF_ERROR(
       expr->isA<LoadStoreOp>() || expr->isA<ReductionOp>(),
       "getCommunicationInfo should only be called when `expr` is known to be a "
@@ -403,7 +403,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   if (!communication_info.has_value()) {
     create_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
   }
-  return communication_info;
+  return *communication_info;
 }
 
 namespace {
@@ -465,22 +465,16 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
 
-  // TODO(#4552): the caller should make sure Expr is a communication so
-  // getCommunicationInfo always returns a valid CommunicationInfo. Retry after
-  // #4552 is merged.
-  auto communication_info = getCommunicationInfo(expr);
-  if (!communication_info.has_value()) {
-    return true;
-  }
+  CommunicationInfo communication_info = getCommunicationInfo(expr);
 
   Layout p_layout = getCommunicationLayout(
-      producer, communication_info->type, communication_info->p_sharded_id);
+      producer, communication_info.type, communication_info.p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
     return false;
   }
 
   Layout c_layout = getCommunicationLayout(
-      consumer, communication_info->type, communication_info->c_sharded_id);
+      consumer, communication_info.type, communication_info.c_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
     return false;
   }
