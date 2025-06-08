@@ -435,7 +435,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
 
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
-  initializePingPongTracking(tv, cb_axis);
+  initializePingPongTracking(tv, concrete_loop_id);
 
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
