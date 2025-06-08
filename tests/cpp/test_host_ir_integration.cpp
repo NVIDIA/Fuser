@@ -136,10 +136,14 @@ TEST_F(HostIrIntegrationTest, ViewPermute_ExprEval) {
   const std::vector<int64_t> out_shape({2, 12});
 
   TensorView* in = makeContigConcreteTensor(in_shape);
+  for(auto loop : in->getLogicalDomain()){
+    std::cout << "logical domain: " << loop->toString() << std::endl;
+  }
   fusion->addInput(in);
   TensorView* out = reshape(in, in_shape, out_shape);
   out = permute(out, {1, 0});
   fusion->addOutput(out);
+  out->printTransforms();
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =

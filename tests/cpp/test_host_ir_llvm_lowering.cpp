@@ -24,6 +24,10 @@ namespace hir {
 using testing::Contains;
 using HostIrLLVMTest = NVFuserTest;
 
+using ::testing::ElementsAre;
+using ::testing::HasSubstr;
+using ::testing::ThrowsMessage;
+
 // Print tensor info
 void print_tensor_info(const at::Tensor& t){
   std::cout << "Tensor dtype: " << t.dtype() << "\n";
@@ -161,6 +165,30 @@ TEST_F(HostIrLLVMTest, Allocation4) {
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+}
+
+TEST_F(HostIrLLVMTest, Allocate5) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in =
+      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
+  fusion.addInput(in);
+  TensorView* out = reshape(in, {in->axis(0)->extent(), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
+  out = permute(out, {1, 2, 0});
+  out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
+  out->printTransforms();
+  fusion.addOutput(out);
+
+  at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(6, 9));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 8));
 }
 
 } // namespace hir
