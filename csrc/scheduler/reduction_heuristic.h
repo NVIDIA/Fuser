@@ -218,7 +218,11 @@ class ReductionParams : public HeuristicParams {
         other->unroll_factor_top_of_vectorization ==
             unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
-            vectorization_factor_tmp_gmem_write;
+            vectorization_factor_tmp_gmem_write &&
+        other->tma_warp_specialized == tma_warp_specialized &&
+        other->is_non_circular_buffer_gmem_to_regs ==
+            is_non_circular_buffer_gmem_to_regs &&
+        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached;
 
     if (other->static_bdimy || static_bdimy) {
       attr_equal = attr_equal && other->lparams.bdimy() == lparams.bdimy();
@@ -347,7 +351,11 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
             << (bits - 23) ^
-        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24) ^
+        static_cast<size_t>(tma_warp_specialized) << (bits - 25) ^
+        static_cast<size_t>(is_non_circular_buffer_gmem_to_regs)
+            << (bits - 26) ^
+        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 27);
     return attr_hash;
   }
 
