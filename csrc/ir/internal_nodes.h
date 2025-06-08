@@ -38,7 +38,7 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
-class NVF_API FullOp : public Expr {
+class FullOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -185,7 +185,7 @@ class IndexPutAccumulateOp : public Expr {
   IterDomain* getIndexingID() const;
 };
 
-class NVF_API GatherOp : public Expr {
+class GatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -362,7 +362,7 @@ class EyeOp : public Expr {
 //!   2) Negation i.e. val * -1
 //!   3) Reduction across a dimension i.e. val.sum(axis=2)
 //!   4) split/merge
-class NVF_API UnaryOp : public Expr {
+class UnaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -402,7 +402,7 @@ class NVF_API UnaryOp : public Expr {
 //! and produce a single output. Examples include:
 //!  1) Add/mul/div/mod/sub (A * B)
 //!  2) LT (A < B)
-class NVF_API BinaryOp : public Expr {
+class BinaryOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -504,10 +504,7 @@ class ArrayConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  NVF_API ArrayConstruct(
-      IrBuilderPasskey,
-      Val* output,
-      std::vector<Val*> inputs);
+  ArrayConstruct(IrBuilderPasskey, Val* output, std::vector<Val*> inputs);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -593,7 +590,7 @@ class StructConstruct : public Expr {
  public:
   using Expr::Expr;
 
-  NVF_API StructConstruct(
+  StructConstruct(
       IrBuilderPasskey,
       Val* output,
       const std::vector<std::pair<std::string, Val*>>& fields);
@@ -828,7 +825,7 @@ class RNGOp : public Expr {
 //! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
 //! is_broadcast_dims are relative to out. Where
 //! is_broadcast_dims.size() == out->nDims().
-class NVF_API BroadcastOp : public Expr {
+class BroadcastOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -879,7 +876,7 @@ class NVF_API BroadcastOp : public Expr {
 //! Squeeze in to match out. is_squeeze_dims are relative to in. Where
 //! is_squeeze_dims.size() == in->nDims(). Squeeze is the opposite of
 //! broadcast.
-class NVF_API SqueezeOp : public Expr {
+class SqueezeOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -935,7 +932,7 @@ class NVF_API SqueezeOp : public Expr {
 //! Output's axes marked as reduction will be reduced to produce an output
 //! tensor. The output tensors size will be the size of all
 //! non-reduction/non-broadcast dimensions.
-class NVF_API ReductionOp : public Expr {
+class ReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1182,7 +1179,7 @@ class WelfordTriplet {
 };
 
 //! Welford Scan operation.
-class NVF_API WelfordOp : public Expr {
+class WelfordOp : public Expr {
  public:
   using Expr::Expr;
   static constexpr int kNumAttrs = 4;
@@ -1416,7 +1413,7 @@ class GroupedWelfordOp : public Expr {
 };
 
 //! Fused Matmul operation
-class NVF_API MmaOp : public Expr {
+class MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
   using Expr::Expr;
@@ -1611,7 +1608,7 @@ class ViewAsScalar : public Expr {
   }
 };
 
-class NVF_API ViewOp : public Expr {
+class ViewOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1645,7 +1642,7 @@ class NVF_API ViewOp : public Expr {
 //!
 //! The main usage of this op is to facilitate generation of hardware
 //!   accelerated memory ops, i.e. ldmatrix, cp.async and more to come.
-class NVF_API LoadStoreOp : public Expr {
+class LoadStoreOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -1700,7 +1697,7 @@ class NVF_API LoadStoreOp : public Expr {
 //! Representation a split on an IterDomain by "factor"
 //! inner_split dictates if the factor section of the split should be inside the
 //! remainer or outside.
-class NVF_API Split : public Expr {
+class Split : public Expr {
  public:
   using Expr::Expr;
 
@@ -1744,7 +1741,7 @@ class NVF_API Split : public Expr {
 //! dictate which will be traversed first (inner). Both IterDomains must be of
 //! the same iter or reduction type, as well as the same parallelization
 //! strategy if there is one
-class NVF_API Merge : public Expr {
+class Merge : public Expr {
  public:
   using Expr::Expr;
 
@@ -1822,7 +1819,7 @@ class Swizzle : public Expr {
 };
 
 //! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-class NVF_API Swizzle2D : public Expr {
+class Swizzle2D : public Expr {
  public:
   using Expr::Expr;
 
@@ -1916,7 +1913,7 @@ class NVF_API Swizzle2D : public Expr {
 };
 
 //! IterDomain expression to resize
-class NVF_API Resize : public Expr {
+class Resize : public Expr {
  public:
   using Expr::Expr;
 
@@ -1963,7 +1960,7 @@ class NVF_API Resize : public Expr {
 //! - blockDim.z
 //! - T3.stride[2]
 //!
-class NVF_API NamedScalar : public Val {
+class NamedScalar : public Val {
  public:
   NamedScalar(IrBuilderPasskey passkey, std::string name, DataType dtype);
 
@@ -2163,7 +2160,7 @@ class SliceOp : public Expr {
   }
 };
 
-class NVF_API CatOp : public Expr {
+class CatOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -2822,7 +2819,7 @@ class EmbeddingFwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-class NVF_API ArgsortOp : public Expr {
+class ArgsortOp : public Expr {
  public:
   using Expr::Expr;
 
