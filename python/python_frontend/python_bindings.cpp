@@ -3632,6 +3632,32 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("sparse").none(true) = py::none(),
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "argsort",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         int64_t dim,
+         bool descending,
+         bool stable) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.argsort");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ArgsortOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            dim,
+            descending,
+            stable));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("descending") = false,
+      py::arg("stable") = false,
+      py::return_value_policy::reference);
+
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
