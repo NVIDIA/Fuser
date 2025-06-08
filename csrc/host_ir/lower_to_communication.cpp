@@ -313,9 +313,11 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
-  auto create_communication_info = [&](CommunicationType type,
-                                       IterDomain* p_sharded_id,
-                                       IterDomain* c_sharded_id) {
+  // Fill `communication_info` instead of returning the result, so we can catch
+  // errors when more than one DIDs have sharding changes.
+  auto fill_communication_info = [&](CommunicationType type,
+                                     IterDomain* p_sharded_id,
+                                     IterDomain* c_sharded_id) {
     NVF_ERROR(
         !communication_info.has_value(),
         "Expected at most one sharding change");
@@ -352,17 +354,17 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
-        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
       }
       if (!p_sharded && c_sharded) {
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        create_communication_info(
+        fill_communication_info(
             CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
       }
       if (p_sharded && c_sharded) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        create_communication_info(
+        fill_communication_info(
             CommunicationType::SendRecv, p_logical_id, c_logical_id);
       }
     } else {
@@ -376,7 +378,7 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allreduce
                                            : CommunicationType::Reduce;
-        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
 
@@ -393,7 +395,7 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
       if (!c_it->second->isReduction()) {
         continue;
       }
-      create_communication_info(
+      fill_communication_info(
           CommunicationType::ReduceScatter,
           c2p_map.at(c_logical_id),
           c_logical_id);
@@ -401,7 +403,7 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
   }
 
   if (!communication_info.has_value()) {
-    create_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
+    fill_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
   }
   return *communication_info;
 }
