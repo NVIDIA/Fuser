@@ -15,7 +15,7 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <host_ir/host_ir_llvm_jit.h>
+#include <host_ir/lower_to_llvm.h>
 
 namespace nvfuser {
 

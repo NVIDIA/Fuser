@@ -1,6 +1,67 @@
+#include <fusion.h>
+#include <global_allocator.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <val_graph_visitor.h>
+
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/IR/LLVMContext.h"
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/CompileUtils.h>
+#include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
+#include <llvm/ExecutionEngine/JITLink/JITLink.h>
+#include "llvm/Support/Error.h"
+
+#include <unordered_map>
+#include <queue>
+#include <chrono>
+
 #include <host_ir/lower_to_llvm.h>
 
 namespace nvfuser {
+/*
+
+Helper Data Structures & Functions
+
+*/
+using FuncType = void (*)(const int64_t* input, int64_t input_len, int64_t* output, int64_t output_len);
+// Codegen type for the shape inference
+enum class codegenType{
+  Merge, // nvfuser merge -> llvm mul
+  Split // nvfuser split -> llvm constant padding + udiv
+};
+
+// Dependency graph entry for the shape inference
+class dependency_graph{
+  public:
+  codegenType op; // Codegen type for the shape inference
+  std::vector<Val*> input_vals; // Vals that defined the current Val
+  llvm::Value* llvm_val; // LLVM Value for the current Val
+  bool is_left_val; // Whether the current Val is the left Val of the output of Split operation or input of Merge operation
+  dependency_graph(){
+    op = codegenType::Merge;
+    llvm_val = nullptr;
+    is_left_val = false;
+  }
+};
+
+// Dependency graph entry for the stride inference
+struct StrideInfo {
+public:
+    llvm::Value* llvm_extent = nullptr;   // LLVM Value for the extent of this IterDomain
+    llvm::Value* llvm_stride = nullptr;   // LLVM Value for the calculated stride of this IterDomain
+};
+
 
 // Print all exprs between input and output domain
 void print_getExprsBetween(const std::vector<IterDomain*>& input_domain, 
@@ -708,5 +769,117 @@ at::Tensor aten_output_allocation(FuncType shape_infer_func, FuncType stride_inf
 }
 
 template llvm::orc::ExecutorAddr nvfuser::ExitOnErr<llvm::orc::ExecutorAddr>(llvm::Expected<llvm::orc::ExecutorAddr> &&E);
+
+} // namespace nvfuser
+
+
+namespace nvfuser {
+
+// PIMPL implementation for HostIrLlvmJit
+struct HostIrLlvmJit::LlvmJitImpl {
+  std::unique_ptr<llvm::orc::LLJIT> jit;
+  FuncType shape_infer_fn = nullptr;
+  FuncType stride_infer_fn = nullptr;
+};
+
+// Constructor implementation
+HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  pimpl_->jit = ExitOnErr(
+      llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
+}
+
+// The destructor must be defined here where LlvmJitImpl is a complete type.
+HostIrLlvmJit::~HostIrLlvmJit() = default;
+
+// Move constructor and assignment operator
+HostIrLlvmJit::HostIrLlvmJit(HostIrLlvmJit&&) noexcept = default;
+HostIrLlvmJit& HostIrLlvmJit::operator=(HostIrLlvmJit&&) noexcept = default;
+
+void HostIrLlvmJit::compile(TensorView* output_tv) {
+  Fusion* fusion = output_tv->fusion();
+  NVF_ERROR(fusion != nullptr, "Output TensorView must belong to a fusion.");
+
+  // This simplified API assumes a single input TensorView.
+  // This can be extended to handle multiple inputs.
+  std::vector<TensorView*> input_tvs;
+  TensorView* input_tv = nullptr;
+  for (auto inp : fusion->inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      NVF_ERROR(
+          input_tv == nullptr,
+          "Multiple input TensorViews not yet supported in this simplified API");
+      input_tvs.push_back(tv);
+    }
+  }
+  NVF_ERROR(input_tvs.size() > 0, "No input TensorView found in fusion");
+
+  std::vector<IterDomain*> input_logical_domains;
+  for (auto input_tv : input_tvs) {
+    input_logical_domains.insert(
+        input_logical_domains.end(),
+        input_tv->getLogicalDomain().begin(),
+        input_tv->getLogicalDomain().end());
+  }
+  auto output_logical_domain = output_tv->getLogicalDomain();
+  auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
+
+  // Store the output dimension for the run method
+  output_tensor_dim_ = output_logical_domain.size();
+
+  // JIT compile shape inference module
+  auto TSM_shape =
+      generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion);
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_shape))) {
+    llvm::errs() << "Error adding shape infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+
+  // JIT compile stride inference module
+  auto TSM_stride =
+      generate_infer_stride_module(output_allocation_domain, output_logical_domain, *fusion);
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_stride))) {
+    llvm::errs() << "Error adding stride infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+
+  // Look up the function pointers and store them
+  pimpl_->shape_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<FuncType>();
+  pimpl_->stride_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
+}
+
+at::Tensor HostIrLlvmJit::allocateOutputTensor(const at::Tensor& input) {
+  NVF_ERROR(
+      pimpl_->shape_infer_fn != nullptr && pimpl_->stride_infer_fn != nullptr,
+      "JIT must be compiled before running.");
+
+  // Allocate memory for shape result
+  std::vector<int64_t> shape_result(output_tensor_dim_);
+
+  // Run shape inference
+  pimpl_->shape_infer_fn(
+      input.sizes().data(),
+      input.sizes().size(),
+      shape_result.data(),
+      shape_result.size());
+
+  // Allocate memory for stride result
+  std::vector<int64_t> stride_result(output_tensor_dim_);
+
+  // Run stride inference
+  pimpl_->stride_infer_fn(
+      shape_result.data(),
+      shape_result.size(),
+      stride_result.data(),
+      stride_result.size());
+
+  // Create the output tensor with the computed shape and strides
+  at::Tensor output_tensor =
+      at::empty_strided(shape_result, stride_result, input.options());
+  return output_tensor;
+}
 
 } // namespace nvfuser
