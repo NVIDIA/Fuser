@@ -61,7 +61,7 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   at::Tensor t0 = at::randn({n1, n2, h*w*c}, options);
 
   // LLVM JIT Run Allocation
-  at::Tensor output_tensor = jit.allocateOutputTensor(t0);
+  at::Tensor output_tensor = jit.allocateOutputTensor({t0});
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
@@ -87,7 +87,7 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   jit.compile(out);
 
   // LLVM JIT Run Allocation
-  auto output_tensor = jit.allocateOutputTensor(t0);
+  auto output_tensor = jit.allocateOutputTensor({t0});
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
@@ -114,12 +114,54 @@ TEST_F(HostIrLLVMTest, Allocation3) {
   jit.compile(out);
 
   // LLVM JIT Run Allocation
-  auto output_tensor = jit.allocateOutputTensor(t0);
+  auto output_tensor = jit.allocateOutputTensor({t0});
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
 }
 
+TEST_F(HostIrLLVMTest, Allocation4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int N = 16, H = 16, W = 16, C = 16;
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  // [N, H, W, C]
+  tv0->merge(0,1);
+  // [N * H, W, C]
+  tv0->split(2,4);
+  // [N * H, W, C/4, 4]
+  tv0->split(3,2);
+  // [N * H, W, C/4, 2, 2]
+  tv0->merge(1,2);
+  // [N * H, W * C/4, 2, 2]
+  TensorView* tv1 = set(tv0);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true, true});
+
+  TensorView* tv2 = makeContigConcreteTensor({N, H, W});
+  fusion.addInput(tv2);
+  auto tv3 = broadcast(tv2, {false, false, false, true});
+  auto tv4 = add(tv2, tv3);
+
+  fusion.addOutput(tv4);
+
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({N, H, W, C}, options);
+  at::Tensor t1 = at::randn({N, H, W}, options);
+  std::cout << "check point 1" << std::endl;
+  // LLVM JIT Compile
+  HostIrLlvmJit jit(4);
+  jit.compile(tv4);
+  tv4->setAllocationDomain(tv4->getLoopDomain(), {true, true, true, true});
+  std::cout << "check point 2" << std::endl;
+  tv4->printTransforms();
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0, t1});
+
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+}
 
 } // namespace hir
 

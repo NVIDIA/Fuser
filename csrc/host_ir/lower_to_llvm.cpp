@@ -142,14 +142,27 @@ std::vector<IterDomain*> vals2domain(const std::vector<Val*>& domain){
   return vals;
 }
 
-// Helper function to check if the current iter domain is alias to the input iter domain
-int mapToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain, const ValGraph& exact_graph){
-  for(auto boundary_val : boundary_vals){ 
-    auto id = boundary_val.second;
-    if(exact_graph.disjointValSets().strictAreMapped(id, current_domain) || id == current_domain){
+// Helper function to map the current domain to the input domain strictly
+int mapToInputDomainStrict(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain){
+  for(auto boundary_val : boundary_vals){
+    if(boundary_val.second == current_domain){
       return boundary_val.first;
     }
   }
+  return -1;
+}
+
+// Helper function to check if the current iter domain is alias to the input iter domain
+int mapToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain, const ValGraph& exact_graph){
+  int strict_map_index = mapToInputDomainStrict(boundary_vals, current_domain);
+  if(strict_map_index != -1){
+    return strict_map_index;
+  }
+  for(auto boundary_val : boundary_vals){ 
+    if(exact_graph.disjointValSets().strictAreMapped(boundary_val.second, current_domain)){
+      return boundary_val.first;
+    }
+  } 
   return -1;
 }
 
@@ -633,6 +646,9 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   for(long unsigned int i = 0; i < logical_domain.size(); i++){
+    if(val2stride[input_vals[i]].llvm_stride == nullptr){
+      continue;
+    }
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
     builder.CreateStore(val2stride[input_vals[i]].llvm_stride, output_i_ptr);
   }
@@ -851,18 +867,21 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
       ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
 }
 
-at::Tensor HostIrLlvmJit::allocateOutputTensor(const at::Tensor& input) {
+at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
   NVF_ERROR(
       pimpl_->shape_infer_fn != nullptr && pimpl_->stride_infer_fn != nullptr,
       "JIT must be compiled before running.");
 
   // Allocate memory for shape result
   std::vector<int64_t> shape_result(output_tensor_dim_);
-
+  std::vector<int64_t> input_sizes;
+  for(auto& input_tensor : input_tensors){
+    input_sizes.insert(input_sizes.end(), input_tensor.sizes().begin(), input_tensor.sizes().end());
+  }
   // Run shape inference
   pimpl_->shape_infer_fn(
-      input.sizes().data(),
-      input.sizes().size(),
+      input_sizes.data(),
+      input_sizes.size(),
       shape_result.data(),
       shape_result.size());
 
@@ -878,7 +897,7 @@ at::Tensor HostIrLlvmJit::allocateOutputTensor(const at::Tensor& input) {
 
   // Create the output tensor with the computed shape and strides
   at::Tensor output_tensor =
-      at::empty_strided(shape_result, stride_result, input.options());
+      at::empty_strided(shape_result, stride_result, input_tensors[0].options());
   return output_tensor;
 }
 
