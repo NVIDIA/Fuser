@@ -28,7 +28,7 @@ class HostIrLlvmJit {
   void compile(TensorView* output_tv);
 
   // Execute the compiled functions to allocate and return an output tensor.
-  at::Tensor run(const at::Tensor& input);
+  at::Tensor allocateOutputTensor(const at::Tensor& input);
 
  private:
   struct LlvmJitImpl; // The PIMPL forward declaration

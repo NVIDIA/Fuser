@@ -2,46 +2,6 @@
 
 namespace nvfuser {
 
-// Print tensor info
-void print_tensor_info(const at::Tensor& t){
-  std::cout << "Tensor dtype: " << t.dtype() << "\n";
-  std::cout << "Shape: " << t.sizes() << "\n"; 
-  std::cout << "Strides: " << t.strides() << "\n";
-  std::cout << "Is Contiguous: " << t.is_contiguous() << "\n";
-  std::cout << "Device: " << t.device() << "\n";
-  std::cout << "Data ptr: " << t.data_ptr() << "\n";
-}
-
-void compare_tensor(const at::Tensor& t0, const at::Tensor& t1){
-  bool shape_match = true;
-  bool stride_match = true;
-  for(size_t i = 0; i < t0.sizes().size(); i++){
-    if(t0.sizes()[i] != t1.sizes()[i]){
-      std::cout << "Shape mismatch at index " << i << std::endl;
-      std::cout << "t0 size: " << t0.sizes()[i] << " t1 size: " << t1.sizes()[i] << std::endl;
-      shape_match = false;
-    }
-  }
-  for(size_t i = 0; i < t0.strides().size(); i++){
-    if(t0.strides()[i] != t1.strides()[i]){
-      std::cout << "Stride mismatch at index " << i << std::endl;
-      std::cout << "t0 stride: " << t0.strides()[i] << " t1 stride: " << t1.strides()[i] << std::endl;
-      stride_match = false;
-    }
-  }
-  if(shape_match && stride_match){ 
-    std::cout << "Tensor is equal" << std::endl;
-  }
-  else{
-    if(!shape_match){
-      std::cout << "Shape is not equal" << std::endl;
-    }
-    if(!stride_match){
-      std::cout << "Stride is not equal" << std::endl;
-    }
-  }
-}
-
 // Print all exprs between input and output domain
 void print_getExprsBetween(const std::vector<IterDomain*>& input_domain, 
 const std::vector<IterDomain*>& output_domain){

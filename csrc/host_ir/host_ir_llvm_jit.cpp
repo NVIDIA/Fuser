@@ -37,27 +37,34 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
 
   // This simplified API assumes a single input TensorView.
   // This can be extended to handle multiple inputs.
+  std::vector<TensorView*> input_tvs;
   TensorView* input_tv = nullptr;
   for (auto inp : fusion->inputs()) {
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       NVF_ERROR(
           input_tv == nullptr,
           "Multiple input TensorViews not yet supported in this simplified API");
-      input_tv = tv;
+      input_tvs.push_back(tv);
     }
   }
-  NVF_ERROR(input_tv != nullptr, "No input TensorView found in fusion");
+  NVF_ERROR(input_tvs.size() > 0, "No input TensorView found in fusion");
 
-  auto input_domain = input_tv->getLogicalDomain();
+  std::vector<IterDomain*> input_logical_domains;
+  for (auto input_tv : input_tvs) {
+    input_logical_domains.insert(
+        input_logical_domains.end(),
+        input_tv->getLogicalDomain().begin(),
+        input_tv->getLogicalDomain().end());
+  }
   auto output_logical_domain = output_tv->getLogicalDomain();
-  auto allocation_domain = output_tv->getMaybeAllocationDomain();
+  auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
 
   // Store the output dimension for the run method
   output_tensor_dim_ = output_logical_domain.size();
 
   // JIT compile shape inference module
   auto TSM_shape =
-      generate_infer_shape_module(input_domain, output_logical_domain, *fusion);
+      generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion);
   if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_shape))) {
     llvm::errs() << "Error adding shape infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
@@ -65,7 +72,7 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
 
   // JIT compile stride inference module
   auto TSM_stride =
-      generate_infer_stride_module(allocation_domain, output_logical_domain, *fusion);
+      generate_infer_stride_module(output_allocation_domain, output_logical_domain, *fusion);
   if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_stride))) {
     llvm::errs() << "Error adding stride infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
@@ -78,7 +85,7 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
       ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
 }
 
-at::Tensor HostIrLlvmJit::run(const at::Tensor& input) {
+at::Tensor HostIrLlvmJit::allocateOutputTensor(const at::Tensor& input) {
   NVF_ERROR(
       pimpl_->shape_infer_fn != nullptr && pimpl_->stride_infer_fn != nullptr,
       "JIT must be compiled before running.");
