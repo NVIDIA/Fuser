@@ -1320,15 +1320,14 @@ INSTANTIATE_TEST_SUITE_P(
 
 TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  
+
   // Enable warp specialization explicitly
   EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(
       EnableOption::WarpSpecializedNormalization);
-  
-  // Test parameters: dim0, dim1 = 8192 for static warp reduction
+
   int64_t dim0 = 2048;
-  int64_t dim1 = 8192; // 8192 is divisible by 32 (warp size), enabling static warp reduction
+  int64_t dim1 = 8192;
   DataType dtype = DataType::Float;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -1358,51 +1357,31 @@ TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::InnerOuterPersistent, fusion_ptr.get(), runtime_info));
-  auto scheduler =
-      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerOuterPersistent);
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(
+      SchedulerType::InnerOuterPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
-  
+
   // Revise unroll_factor_iter_dom to 1 to enable static warp reduction
   heuristic_params->as<ReductionParams>()->unroll_factor_iter_dom = 1;
-  
+
   scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
 
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0, t1});
   auto outputs =
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
-  
+
   // Validate that static warp reduction is used by checking the generated code
   std::string kernel_code = ke.compiledKernel()->kernelString();
-  
-  // Find the __global__ kernel function and check for staticWarpAllReduceTIDX within it
-  size_t global_pos = kernel_code.find("__global__");
-  ASSERT_NE(global_pos, std::string::npos) << "No __global__ kernel function found";
-  
-  // Find the next opening brace after __global__ to get the kernel body start
-  size_t kernel_start = kernel_code.find("{", global_pos);
-  ASSERT_NE(kernel_start, std::string::npos) << "No kernel body found";
-  
-  // Find the matching closing brace to get the kernel body end
-  int brace_count = 1;
-  size_t kernel_end = kernel_start + 1;
-  while (kernel_end < kernel_code.length() && brace_count > 0) {
-    if (kernel_code[kernel_end] == '{') {
-      brace_count++;
-    } else if (kernel_code[kernel_end] == '}') {
-      brace_count--;
-    }
-    kernel_end++;
-  }
-  ASSERT_EQ(brace_count, 0) << "Could not find kernel body end";
-  
-  // Extract the kernel body and check for staticWarpAllReduceTIDX
-  std::string kernel_body = kernel_code.substr(kernel_start, kernel_end - kernel_start);
-  EXPECT_TRUE(kernel_body.find("warp::staticWarpAllReduceTIDX") != std::string::npos)
-      << "Static warp reduction function not found within __global__ kernel. "
-      << "Kernel body: " << kernel_body.substr(0, 1000) << "...";
-  
+
+  // Check for the specific static warp reduction function call
+  EXPECT_TRUE(
+      kernel_code.find("warp::staticWarpAllReduceTIDX<false, false") !=
+      std::string::npos)
+      << "Static warp reduction function 'warp::staticWarpAllReduceTIDX<false, "
+         "false' not found in kernel code";
+
   testValidate(&fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
