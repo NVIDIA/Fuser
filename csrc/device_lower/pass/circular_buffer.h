@@ -195,6 +195,11 @@ class HopperPingPongMbarriers {
         "Expected the warp specialized axis to be ParallelType::TIDy");
   }
 
+  //! Get the number of warp groups.
+  int64_t getNumWarpGroups() const {
+    return num_warp_groups_;
+  }
+
   //! Track the mbarriers used to manage ping-pong computation phases.
   //! It is used in the allocation phase.
   void trackMbarriers(TensorView* ping_pong_mbarriers) {

@@ -984,6 +984,89 @@ Expr* invalidateCircularBufferMbarrier(
   return loop;
 }
 
+// This helper function initializes ping-pong mbarriers.
+//
+// Expected result:
+// for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+//   if (warp_id == 0 && electSync()()) {
+//     mbarrier::init(...);
+//   }
+// }
+ForLoop* initializePingPongMbarrier(
+    TensorView* ping_pong_mbarrier,
+    int64_t num_ping_pong_mbarriers) {
+  ForLoop* loop = ir_utils::createRangeLoop(num_ping_pong_mbarriers);
+  Val* num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+      DataType::UInt32,
+      GpuLower::current()
+          ->parallelDimensionMap()
+          .getNumComputeThreadsEachBlock());
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(ping_pong_mbarrier, loop->index());
+  kir::MBarrierInit* ping_pong_mbarrier_init =
+      IrBuilder::create<kir::MBarrierInit>(
+          ping_pong_mbarrier_index, num_of_arrives);
+  Expr* pred_ping_pong_mbarrier_init = ping_pong_mbarrier_init->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_init);
+  return loop;
+}
+
+// This helper function invalidates ping-pong mbarriers.
+//
+// Expected result:
+// for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+//   if (warp_id == 0 && electSync()()) {
+//     mbarrier::inval(...);
+//   }
+// }
+ForLoop* invalidatePingPongMbarrier(
+    TensorView* ping_pong_mbarrier,
+    int64_t num_ping_pong_mbarriers) {
+  ForLoop* loop = ir_utils::createRangeLoop(num_ping_pong_mbarriers);
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(ping_pong_mbarrier, loop->index());
+  kir::MBarrierInvalidate* ping_pong_mbarrier_inval =
+      IrBuilder::create<kir::MBarrierInvalidate>(ping_pong_mbarrier_index);
+  Expr* pred_ping_pong_mbarrier_inval = ping_pong_mbarrier_inval->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_inval);
+  return loop;
+}
+
+// This helper function allocates, initializes and invalidates ping-pong
+// mbarriers.
+std::tuple<kir::Allocate*, ForLoop*, ForLoop*> createPingPongMbarrier(
+    HopperPingPongMbarriers* ping_pong_mbarriers) {
+  NVF_ERROR(ping_pong_mbarriers != nullptr);
+
+  // For each warp group, we have two mbarriers: one for the TensorCore
+  // phase and one for the CUDA Epilogue phase.
+  int64_t num_ping_pong_mbarriers = ping_pong_mbarriers->getNumWarpGroups() * 2;
+  TensorView* ping_pong_mbarriers_tv =
+      TensorViewBuilder()
+          .shape(std::vector<int64_t>{num_ping_pong_mbarriers})
+          .dtype(DataType::UInt64)
+          .contiguity(true)
+          .build();
+  ping_pong_mbarriers_tv->setMemoryType(MemoryType::Shared);
+
+  // Track the ping-pong mbarriers TensorView.
+  ping_pong_mbarriers->trackMbarriers(ping_pong_mbarriers_tv);
+
+  // Allocate memory for ping-pong mbarriers.
+  kir::Allocate* ping_pong_mbarrier_alloc = IrBuilder::create<kir::Allocate>(
+      ping_pong_mbarriers_tv, MemoryType::Shared);
+  ForLoop* ping_pong_mbarrier_init_raw = initializePingPongMbarrier(
+      ping_pong_mbarriers_tv, num_ping_pong_mbarriers);
+  ForLoop* ping_pong_mbarrier_inval_raw = invalidatePingPongMbarrier(
+      ping_pong_mbarriers_tv, num_ping_pong_mbarriers);
+  return {
+      ping_pong_mbarrier_alloc,
+      ping_pong_mbarrier_init_raw,
+      ping_pong_mbarrier_inval_raw};
+}
+
 class AllocationInserter : public kir::ExprMutator {
  private:
   using kir::ExprMutator::handle;
@@ -1428,11 +1511,12 @@ class AllocationInserter : public kir::ExprMutator {
       int64_t num_cb_mbarriers =
           cb_opt.usesMBarrierForWAR() ? cb_opt.stage * 2 : cb_opt.stage;
 
-      TensorView* cb_mbarrier = TensorViewBuilder()
-                                    .shape(std::vector<int64_t>{num_cb_mbarriers})
-                                    .dtype(DataType::UInt64)
-                                    .contiguity(true)
-                                    .build();
+      TensorView* cb_mbarrier =
+          TensorViewBuilder()
+              .shape(std::vector<int64_t>{num_cb_mbarriers})
+              .dtype(DataType::UInt64)
+              .contiguity(true)
+              .build();
       cb_mbarrier->setMemoryType(MemoryType::Shared);
 
       kir::Allocate* cb_mbarrier_alloc =
@@ -1440,9 +1524,9 @@ class AllocationInserter : public kir::ExprMutator {
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto cb_mbarrier_init_raw = initializeCircularBufferMbarrier(
+      Expr* cb_mbarrier_init_raw = initializeCircularBufferMbarrier(
           fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
-      auto cb_mbarrier_inval_raw = invalidateCircularBufferMbarrier(
+      Expr* cb_mbarrier_inval_raw = invalidateCircularBufferMbarrier(
           fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
@@ -1479,6 +1563,25 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertBefore(fl, cb_mbarrier_alloc, current_scope);
       registerInsertBefore(fl, cb_mbarrier_init_raw, current_scope);
       registerInsertAfter(fl, cb_mbarrier_inval_raw, current_scope);
+
+      // If this is a ping-pong hopper, then we need to create and allocate
+      // ping-pong mbarriers.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              fl->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto
+            [ping_pong_mbarrier_alloc,
+             ping_pong_mbarrier_init_raw,
+             ping_pong_mbarrier_inval_raw] =
+                createPingPongMbarrier(ping_pong_mbarriers);
+        NVF_ERROR(ping_pong_mbarrier_alloc != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_init_raw != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_inval_raw != nullptr);
+        registerInsertBefore(fl, ping_pong_mbarrier_alloc, current_scope);
+        registerInsertBefore(fl, ping_pong_mbarrier_init_raw, current_scope);
+        registerInsertAfter(fl, ping_pong_mbarrier_inval_raw, current_scope);
+      }
 
       if (cb_opt.usesMBarrierForWAR()) {
         auto cb_mbarrier_init_war = initializeCircularBufferMbarrier(
