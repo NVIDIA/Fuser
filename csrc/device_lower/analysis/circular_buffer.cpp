@@ -542,9 +542,9 @@ HopperPingPongMbarriers* CircularBufferInfo::getPingPongMbarriersFor(
 
   auto maybe_it = ping_pong_mbarriers_.find(circular_buffer_axis);
 
-  NVF_ERROR(
-      maybe_it != ping_pong_mbarriers_.end(),
-      "HopperPingPongMbarriers is not found.");
+  if (maybe_it == ping_pong_mbarriers_.end()) {
+    return nullptr;
+  }
 
   return maybe_it->second.get();
 }
