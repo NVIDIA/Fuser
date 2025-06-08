@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
+#include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
@@ -69,14 +70,28 @@ class FusionInspector : private IterVisitor {
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
     constexpr int64_t kThreadsPerWarp = 32L;
-    // Use staticWarpAllReduceTIDX if possible, only tested for circular
-    // buffered cases.
+    // Use staticWarpAllReduceTIDX if possible, only for warp specialized
+    // circular buffered cases.
     auto is_static_warp_reduction = [&]() {
-      for (auto ld : out->getLoopDomain()) {
-        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction() &&
-            ld->extent()->isConst() &&
-            ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
-          return true;
+      // First check if any tensor in the fusion uses warp specialization
+      bool has_warp_specialization = false;
+      auto fusion = rop->fusion();
+      for (auto tv : fusion->allTvs()) {
+        if (tv->isCircularBuffered() &&
+            std::holds_alternative<WarpSpecialized>(
+                tv->circularBufferOptions().type)) {
+          has_warp_specialization = true;
+          break;
+        }
+      }
+
+      if (has_warp_specialization) {
+        for (auto ld : out->getLoopDomain()) {
+          if (ld->getParallelType() == ParallelType::TIDx &&
+              ld->isReduction() && ld->extent()->isConst() &&
+              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+            return true;
+          }
         }
       }
       return false;
@@ -90,7 +105,6 @@ class FusionInspector : private IterVisitor {
                return id->getParallelType() == ParallelType::Group;
              }))) {
       reduction_dep_[out].insert(rop);
-      std::cout << "Fused ReductionOp: " << rop->toString() << std::endl;
     }
   }
   void handle(WelfordOp* wop) final {
