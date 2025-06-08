@@ -1366,6 +1366,22 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
+    // For warp specialized, may direct load non-circular buffered tv to regs
+    // Non-circular buffered tvs are those have broadcast dimensions that mapped
+    // with reduction dimensions.
+    if (rparams->tma_warp_specialized &&
+        rparams->is_non_circular_buffer_gmem_to_regs) {
+      const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
+          fusion, scheduler_utils::getReductionTvs(fusion));
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&tv](TensorView* bcast_tv) {
+                return DependencyCheck::isDependencyOf(tv, bcast_tv);
+              })) {
+        use_smem = false;
+      }
+    }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
       // Use 1D TMA, CpAsyncBulk
