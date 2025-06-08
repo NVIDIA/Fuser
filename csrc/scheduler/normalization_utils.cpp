@@ -1415,7 +1415,8 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // load right after the copy from shared memory to register cache.
       // Otherwise, it needs to wait all the computations to finish before
       // issuing the next TMA.
-      if (!rparams->tma_warp_specialized) {
+      if (!rparams->tma_warp_specialized ||
+          !rparams->is_circular_buffer_regs_cached) {
         const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
         for (auto i = 1; i < (int)consumers.size(); i++) {
           auto consumer = consumers.at(i);
