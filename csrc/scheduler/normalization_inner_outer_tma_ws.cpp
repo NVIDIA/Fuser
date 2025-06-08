@@ -159,7 +159,7 @@ void getHeuristics(
     auto [_, compute_branch_regs] =
         get_register_sharing(available_regs, bdimx * bdimy);
     std::cout << "bdimy: " << bdimy << ", bdimx: " << bdimx
-              << ", iter_unroll: " << iter_unroll << ", stages: " << n_stages
+              << ", iter_unroll: " << iter_unroll
               << ", reg_count: " << reg_count
               << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
@@ -228,8 +228,6 @@ void getHeuristics(
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_circular_buffer_regs_cached=False."
-              << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
@@ -238,18 +236,9 @@ void getHeuristics(
   // If still can't achieve multiple computation warp groups, further disable
   // [is_non_circular_buffer_gmem_to_regs]
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_non_circular_buffer_gmem_to_regs=False."
-              << std::endl;
     is_non_circular_buffer_gmem_to_regs = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
-  }
-
-  // If no circular buffering, reduce shared memory usage, don't use ping-pong
-  if (n_stages == 1) {
-    is_non_circular_buffer_gmem_to_regs = true;
-    update_heuristics(
-        /*target_stages=*/2, /*target_bdimy=*/1, /*target_iter_unroll=*/1);
   }
 
   // If sufficient shared memory is available, try increasing the number of
@@ -261,7 +250,6 @@ void getHeuristics(
   if (n_stages % bdimy != 0) {
     n_stages -= (n_stages % bdimy);
   }
-
   int64_t inner_batch = ceilDiv(after_vect, bdimx);
 
   // The inner reduction part of the kernel also does a partial outer reduction
@@ -638,8 +626,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       group_inner_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
-      {selected_tvs_inner.begin(), selected_tvs_inner.end()},
-      /*skip_input_output_unroll=*/true);
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
