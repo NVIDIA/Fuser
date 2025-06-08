@@ -935,7 +935,7 @@ class NVF_API SqueezeOp : public Expr {
 //! Output's axes marked as reduction will be reduced to produce an output
 //! tensor. The output tensors size will be the size of all
 //! non-reduction/non-broadcast dimensions.
-class NVF_API ReductionOp : public Expr {
+class ReductionOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -959,11 +959,11 @@ class NVF_API ReductionOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
-  Val* in() const {
-    return input(0);
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
   Val* init() const {
     return attributeVal(0);
