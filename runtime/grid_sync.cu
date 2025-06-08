@@ -38,13 +38,12 @@ __device__ void sync(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim,
-    uint32_t barrier_id = 1) {
+    BlockDimT block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>(block_dim, barrier_id);
+  block_sync::sync<Aligned>(block_dim);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -84,7 +83,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>(block_dim, barrier_id);
+  block_sync::sync<Aligned>(block_dim);
 }
 
 template <
@@ -100,14 +99,12 @@ __device__ void sync(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim,
-    uint32_t barrier_id = 1) {
+    BlockDimT block_dim) {
   sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
       index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim),
-      block_dim,
-      barrier_id);
+      block_dim);
 }
 
 // Grid sync that can be called multiple times in the same kernel without all
@@ -134,13 +131,12 @@ __device__ void sync(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim,
-    uint32_t barrier_id = 1) {
+    BlockDimT block_dim) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>(block_dim, barrier_id);
+  block_sync::sync<Aligned>(block_dim);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -173,7 +169,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>(block_dim, barrier_id);
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Non-blocking function to read the semaphore value in each calling thread
