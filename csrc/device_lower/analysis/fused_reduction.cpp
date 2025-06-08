@@ -58,8 +58,21 @@ class FusionInspector : private IterVisitor {
   }
 
  private:
-  FusionInspector(Fusion* fusion) {
+  FusionInspector(Fusion* fusion)
+      : has_warp_specialization_(checkWarpSpecialization(fusion)) {
     traverse(fusion);
+  }
+
+  static bool checkWarpSpecialization(Fusion* fusion) {
+    for (auto tv : fusion->allTvs()) {
+      if (!tv->isCircularBuffered() ||
+          !std::holds_alternative<WarpSpecialized>(
+              tv->circularBufferOptions().type)) {
+        continue;
+      }
+      return true;
+    }
+    return false;
   }
 
   using IterVisitor::handle;
@@ -73,25 +86,15 @@ class FusionInspector : private IterVisitor {
     // Use staticWarpAllReduceTIDX if possible, only for warp specialized
     // circular buffered cases.
     auto is_static_warp_reduction = [&]() {
-      // First check if any tensor in the fusion uses warp specialization
-      bool has_warp_specialization = false;
-      auto fusion = rop->fusion();
-      for (auto tv : fusion->allTvs()) {
-        if (tv->isCircularBuffered() &&
-            std::holds_alternative<WarpSpecialized>(
-                tv->circularBufferOptions().type)) {
-          has_warp_specialization = true;
-          break;
-        }
+      if (!has_warp_specialization_) {
+        return false;
       }
 
-      if (has_warp_specialization) {
-        for (auto ld : out->getLoopDomain()) {
-          if (ld->getParallelType() == ParallelType::TIDx &&
-              ld->isReduction() && ld->extent()->isConst() &&
-              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
-            return true;
-          }
+      for (auto ld : out->getLoopDomain()) {
+        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction() &&
+            ld->extent()->isConst() &&
+            ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+          return true;
         }
       }
       return false;
@@ -253,6 +256,8 @@ class FusionInspector : private IterVisitor {
   //! Keep track of ReductionOp/WelfordOp expressions that are
   //! (indirectly) input to a tensor
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
+  //! Whether this fusion has warp specialization enabled
+  const bool has_warp_specialization_;
 };
 
 //! Transform a fusion to use the fused reduction kernel.
