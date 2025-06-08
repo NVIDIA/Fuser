@@ -3133,6 +3133,66 @@ struct IndexPutAccumulateOpRecord : RecordFunctor {
   }
 };
 
+struct ArgsortOpRecord : RecordFunctor {
+  ArgsortOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim,
+      bool descending,
+      bool stable)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.argsort",
+            serde::RecordType::ArgsortOp),
+        dim_(dim),
+        descending_(descending),
+        stable_(stable) {}
+  ~ArgsortOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ArgsortOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto other_argsort = dynamic_cast<const ArgsortOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) &&
+          dim_ == other_argsort->dim_ &&
+          descending_ == other_argsort->descending_ &&
+          stable_ == other_argsort->stable_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    Val* output = argsort(arg, dim_, descending_, stable_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_
+       << ", descending=" << (descending_ ? "True" : "False")
+       << ", stable=" << (stable_ ? "True" : "False");
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Sort,
+        serde::CreateSort(builder, dim_, descending_, stable_).Union()};
+  }
+
+ private:
+  int64_t dim_;
+  bool descending_;
+  bool stable_;
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

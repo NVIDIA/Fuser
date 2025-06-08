@@ -451,4 +451,86 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+TEST_F(PingPongCircularBuffering, NonCircularBufferedTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t rows_per_stage = 4;
+  constexpr int64_t compute_warp_groups = 2;
+  constexpr int64_t circular_loop = 12;
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  int64_t dim0 =
+      compute_warp_groups * sm_count * circular_loop * rows_per_stage;
+
+  constexpr int64_t dim1 = 128;
+  constexpr int64_t stages = 6;
+
+  TensorView* tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  // can't be circular buffered
+  TensorView* tvb = makeContigConcreteTensor({dim1}, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tvb);
+
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = set(tvb);
+  TensorView* tv3 = broadcast(tv2, {true, false});
+  TensorView* tv4 = add(tv1, tv3);
+  fusion->addOutput(tv4);
+
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv2->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv1, tv3, tv4}) {
+    tv->split(0, rows_per_stage);
+    tv->split(0, sm_count);
+    tv->split(0, compute_warp_groups);
+  }
+  // [I, compute_warp_groups, sm_count, rows_per_stage]
+  // tv1, tma load, circular buffered
+  tv1->axis(0)->parallelize(ParallelType::Serial);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->axis(2)->parallelize(ParallelType::BIDx);
+  tv1->axis(3)->parallelize(ParallelType::Serial);
+  tv1->axis(4)->parallelize(ParallelType::Bulk);
+
+  // tv2, tma load, not circular buffered
+  tv2->axis(0)->parallelize(ParallelType::Bulk);
+
+  // tv3 and tv4, compute warp groups
+  for (auto tv : {tv3, tv4}) {
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(1)->parallelize(ParallelType::TIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+  }
+
+  // --> [sm_count, I, compute_warp_groups, rows_per_stage]
+  std::unordered_map<int64_t, int64_t> reorder_map = {{0, 1}, {1, 2}, {2, 0}};
+  for (auto tv : {tv1, tv3, tv4}) {
+    tv->reorder(reorder_map);
+  }
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
+  inlineSelectedAt({tv4}, tv4, /*reference_pos=*/3);
+
+  tv1->circularBuffer(
+      stages,
+      stages - 1,
+      WarpSpecialized(ParallelType::TIDy, /*stage_slice_position=*/3));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim1}, options);
+  KernelExecutor ke;
+
+  ke.compile(fusion.get(), {t0, t1});
+
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

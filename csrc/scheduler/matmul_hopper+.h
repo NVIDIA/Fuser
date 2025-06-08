@@ -77,7 +77,7 @@ class HopperPlus : public Common {
 
   void run() final;
 
- private:
+ protected:
   void validate() const;
 
   bool isCooperative() const {
@@ -183,24 +183,13 @@ class HopperPlus : public Common {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
-  int64_t getLdTMemVectorizeFactor() const;
-
-  void setMmaResultAllocationDomain(TensorView* mma_result);
+  virtual void setMmaResultAllocationDomain(TensorView* mma_result) = 0;
   void scheduleMmaResults();
 
-  void scheduleEpilogueWithoutSmemEpilogueHopper();
-  void scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  void scheduleEpilogueWithoutSmemEpilogue();
-  void scheduleEpilogueWithSmemEpilogueHopper();
-  void scheduleEpilogueWithSmemEpilogueBlackwell();
-  void scheduleEpilogueWithSmemEpilogue();
+  virtual void scheduleEpilogueWithoutSmemEpilogue() = 0;
+  virtual void scheduleEpilogueWithSmemEpilogue() = 0;
   void scheduleEpilogue();
-
-  void scheduleSplitKSumHopper();
-  void scheduleSplitKSumBlackwell();
-  void scheduleSplitKSum();
-
-  std::vector<TensorView*> createTMemLoad();
+  virtual void scheduleSplitKSum() = 0;
 
   void setUpInlining();
 
@@ -223,6 +212,28 @@ class HopperPlus : public Common {
 
   // This is like the above method, but tv should not have any K dimension
   void transformLikeMmaOutputWithoutK(TensorView* tv);
+};
+
+class Hopper : public HopperPlus {
+ public:
+  using HopperPlus::HopperPlus;
+
+  void setMmaResultAllocationDomain(TensorView* mma_result) final;
+  void scheduleEpilogueWithoutSmemEpilogue() final;
+  void scheduleEpilogueWithSmemEpilogue() final;
+  void scheduleSplitKSum() final;
+};
+
+class Blackwell : public HopperPlus {
+ public:
+  using HopperPlus::HopperPlus;
+
+  std::vector<TensorView*> createTMemLoad();
+  int64_t getLdTMemVectorizeFactor() const;
+  void setMmaResultAllocationDomain(TensorView* mma_result) final;
+  void scheduleEpilogueWithoutSmemEpilogue() final;
+  void scheduleEpilogueWithSmemEpilogue() final;
+  void scheduleSplitKSum() final;
 };
 
 } // namespace schedule_matmul

@@ -153,7 +153,7 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
         "No preferred layout for an alias TV: ",
         tv);
     tv->setAllocationDomain(
-        preferred_layout->allocation_domain, preferred_layout->contiguity);
+        preferred_layout->allocation_domain(), preferred_layout->contiguity());
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Set the layout of " << ir_utils::varName(tv) << " to "
               << preferred_layout->toString() << std::endl;
