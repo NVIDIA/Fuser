@@ -421,9 +421,9 @@ Layout getCommunicationLayout(
     const CommunicationType type,
     IterDomain* sharded_id) {
   const Layout layout = canonicalizeLayout(tv)->contiguous();
-  // Reduction axis in reduce/allreduce does not have to be outermost in
-  // allocation domain. Nonetheless, `tv` still needs to be contiguous and
-  // therefore .contiguous() at the beginning of this function.
+  // For the following communication types, the sharded_id does not have to be
+  // outermost in allocation domain. Nonetheless, `tv` still needs to be
+  // contiguous and therefore .contiguous() at the beginning of this function.
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||
@@ -489,19 +489,19 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
 }
 
 std::vector<Expr*> convertSingleOpToCommunication(
-    Expr* c,
+    Expr* e,
     DeviceIdxType my_device_idx,
     const CommunicatorBackend backend) {
-  FusionGuard fg(c->fusion());
+  FusionGuard fg(e->fusion());
 
   std::vector<Expr*> comms;
   NVF_ERROR(
-      c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
-          c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
+      e->inputs().size() == 1 && e->input(0)->isA<TensorView>() &&
+          e->outputs().size() == 1 && e->output(0)->isA<TensorView>(),
       "Input/Output must be single TensorView: ",
-      c);
-  auto* input_tv = c->input(0)->as<TensorView>();
-  auto* output_tv = c->output(0)->as<TensorView>();
+      e);
+  auto* input_tv = e->input(0)->as<TensorView>();
+  auto* output_tv = e->output(0)->as<TensorView>();
 
   input_tv->setMemoryType(MemoryType::Global);
   output_tv->setMemoryType(MemoryType::Global);
@@ -516,13 +516,12 @@ std::vector<Expr*> convertSingleOpToCommunication(
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
   NVF_ERROR(
-      isCommunicationLayoutCompliant(c),
+      isCommunicationLayoutCompliant(e),
       "Resharding on an inner axis is not lowerable ",
-      c->toString());
-  bool is_reduction = c->isA<ReductionOp>();
+      e->toString());
 
-  if (is_reduction) {
-    BinaryOpType op_type = c->as<ReductionOp>()->getReductionOpType();
+  if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
+    BinaryOpType op_type = reduce->getReductionOpType();
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
@@ -545,6 +544,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
       }
     }
   } else {
+    NVF_ERROR(
+        e->isA<LoadStoreOp>(),
+        "Expected a LoadStoreOp or a ReductionOp, but got: ",
+        e);
     if (!is_input_sharded && is_output_sharded) {
       lowerToScatter(input_tv, output_tv, backend, comms);
     } else if (is_input_sharded && !is_output_sharded) {

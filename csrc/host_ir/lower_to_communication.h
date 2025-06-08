@@ -33,12 +33,10 @@ struct CommunicationInfo {
 // Composite expressions that are communication + compute are not supported.
 bool isCommunicationLayoutCompliant(Expr* expr);
 
-// Returns the communication info for the
-// (All)Gather/Scatter/ReduceScatter/(All)Reduce communication that may require
-// copying the input/output and reordering the allocation domain.
-// We assume that the expr has been decomposed and represented a single
-// communication. If multiple communications are present, this function will
-// raise an error.
+// Given an Expr that's known to be a communication, returns the communication
+// info: type and sharded IDs. We assume that the expr has been decomposed and
+// represented a single communication. If multiple communications are present or
+// 2D sharding, this function will raise an error.
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout
