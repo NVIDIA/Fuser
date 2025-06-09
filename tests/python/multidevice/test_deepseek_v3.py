@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
 from linear import TensorParallelLinear
+from nvfuser.testing.benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -149,7 +150,7 @@ def parallelize_module_with_nvfuser(
     [Executor.TORCH_TP, Executor.NVFUSER],
     ids=lambda e: e.name,
 )
-def test_transformer_layer(setup_default_process_group, executor: Executor):
+def test_transformer_layer(setup_default_process_group, benchmark, executor: Executor):
     config = load_config("deepseek-ai/deepseek-v3")
     # Create only one layer which is sufficient for the test.
     config.num_hidden_layers = 1
@@ -236,11 +237,11 @@ def test_transformer_layer(setup_default_process_group, executor: Executor):
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
-        (out,) = transformer_layer(inp, attention_mask=mask)
-        # Finish all computation and communication. Otherwise,
-        # destroy_process_group may deadlock.
-        torch.cuda.synchronize()
+        warmup_fn, benchmark_fn = get_benchmark_fns(lambda: transformer_layer(inp, attention_mask=mask))
 
+        (out,) = warmup_fn()
         assert out.size() == (batch_size, seq_len, config.hidden_size)
         assert out.dtype == config.torch_dtype
         assert out.is_cuda
+
+        benchmark.pedantic(benchmark_fn, rounds=5)
