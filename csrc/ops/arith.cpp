@@ -2284,17 +2284,22 @@ TopKResult topk(
     int64_t dim,
     bool largest,
     bool sorted) {
+  dim = wrapDim(dim, inp->nDims());
+  NVF_CHECK(
+      k->dtype() == DataType::Int, "TopKOp expects int64_t input for k but got ", k->dtype());
+
   Val* out_values = ops::newValLike(inp, inp->dtype());
   Val* out_indices = ops::newValLike(inp, DataType::Int);
+
   IrBuilder::create<TopKOp>(
       out_values,
       out_indices,
       inp,
       k,
-      wrapDim(dim, inp->nDims()),
+      dim,
       largest,
       sorted);
-  return {out_values->as<TensorView>(), out_indices->as<TensorView>()};
+  return TopKResult(out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
 } // namespace nvfuser
