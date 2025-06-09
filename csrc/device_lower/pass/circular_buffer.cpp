@@ -538,6 +538,22 @@ class CloneTmaCircularBufferLoopAndInsertSync
       if (ite != nullptr) {
         for_loop_stack_.back()->body().push_back(ite);
       }
+
+      // In persistent for_loop for ComputeWarp, after continue short-circuit
+      // but before TensorCores, wait for TensorCores to be available for this
+      // warp group.
+      if (loop_type_ == CircularBufferLoopStage::ComputeWarp) {
+        HopperPingPongMbarriers* ping_pong_mbarriers =
+            GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+                for_loop_stack_.front()->iter_domain());
+        if (ping_pong_mbarriers != nullptr) {
+          ping_pong_mbarriers->trackPersistentForLoop(for_loop_stack_.front());
+
+          Expr* mbarrier_wait =
+              ping_pong_mbarriers->createMbarrierWait(/*is_epilogue=*/false);
+          for_loop_stack_.back()->body().push_back(mbarrier_wait);
+        }
+      }
     }
 
     insertMBarrierWaitBeforeFirstRead();
@@ -2081,12 +2097,12 @@ Val* HopperPingPongMbarriers::indexByComputeType(bool is_epilogue) {
   return SimplifyingIrBuilder::addExpr(warp_group_offset, is_epilogue ? 1 : 0);
 }
 
-Expr* HopperPingPongMbarriers::createMbarrierWait(
-    bool is_epilogue,
-    Val* phase_index) {
+Expr* HopperPingPongMbarriers::createMbarrierWait(bool is_epilogue) {
+  NVF_ERROR(persistent_for_loop_ != nullptr);
   Val* index = indexByComputeType(is_epilogue);
   Val* two = IrBuilder::create<Val>(2, DataType::Index);
-  Val* parity = SimplifyingIrBuilder::modExpr(phase_index, two);
+  Val* parity =
+      SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two);
   kir::TensorIndex* mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
   kir::MBarrierWait* mbarrier_wait =
