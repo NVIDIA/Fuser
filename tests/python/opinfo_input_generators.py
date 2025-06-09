@@ -872,17 +872,17 @@ def topk_error_generator(
 
     a = make_arg((128, 7, 32))
 
-    yield SampleInput(a, 3, 3, True, False), RuntimeError, "dim is out of bounds"
-    yield SampleInput(a, 3, -4, True, False), RuntimeError, "dim is out of bounds"
+    yield SampleInput(a, 3, 3, True, False), RuntimeError, "Tried to access out of boundary index"
+    yield SampleInput(a, 3, -4, True, False), RuntimeError, "Tried to access out of boundary index"
 
     # negative k is out of bounds
     yield SampleInput(
         a, -5, 1, True, False
-    ), RuntimeError, "selected index k is out of bounds"
+    ), RuntimeError, "Unexpected size of axis"
 
     yield SampleInput(
         a, 16, 1, True, False
-    ), RuntimeError, "selected index k is out of bounds"
+    ), RuntimeError, "Unexpected size of axis
 
 
 def index_select_generator(
