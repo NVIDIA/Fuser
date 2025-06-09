@@ -882,7 +882,7 @@ def topk_error_generator(
 
     yield SampleInput(
         a, 16, 1, True, False
-    ), RuntimeError, "Unexpected size of axis
+    ), RuntimeError, "Unexpected size of axis"
 
 
 def index_select_generator(
