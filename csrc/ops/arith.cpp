@@ -1748,6 +1748,11 @@ WelfordResult::WelfordResult(
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
 }
 
+TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
+    : values(in_values), indices(in_indices) {
+  NVF_ERROR(values->definition()->sameAs(indices->definition()));
+}
+
 // COMPOUND OPERATIONS
 
 // add_alpha
