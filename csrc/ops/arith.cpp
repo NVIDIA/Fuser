@@ -2286,7 +2286,7 @@ TopKResult topk(
     bool sorted,
     bool maybe_symbolic) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  dim = wrapDim(dim, inp_domain.ssize());
+  dim = wrapDim(dim, std::ssize(inp_domain));
 
   NVF_CHECK(
       k->dtype() == DataType::Int,
@@ -2296,10 +2296,10 @@ TopKResult topk(
   std::vector<IterDomain*> out_domain;
   out_domain.reserve(inp_domain.size());
 
-  for (auto auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
     if (index == dim) {
       ExpressionEvaluator ee;
-      PolymorphicType ext = ee.evaluate(k);
+      PolymorphicValue ext = ee.evaluate(k);
 
       IterType iter_type;
       if (ext.hasValue()) {
