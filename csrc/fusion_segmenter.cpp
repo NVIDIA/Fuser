@@ -4372,6 +4372,59 @@ bool is_upcast_op(Expr* expr) {
   }
   return true;
 }
+
+// Updates entries in the privatized_ops map after replacing old_expr with
+// new_expr. This function handles two cases:
+// 1. If old_expr is a key in privatized_ops, moves its entire set of values
+//    to be associated with new_expr instead
+// 2. If old_expr appears as a value in any of the value sets, replaces it
+//    with new_expr in that set
+//
+// Args:
+//    privatized_ops: Map tracking groups of privatized operations where each
+//    key is the original op and values are the cloned versions
+//    old_expr: Expression being replaced
+//    new_expr: Expression replacing old_expr
+void update_privatized_ops(
+    std::unordered_map<Expr*, std::unordered_set<Expr*>>& privatized_ops,
+    Expr* old_expr,
+    Expr* new_expr) {
+  // Check if old_expr is a key
+  auto it = privatized_ops.find(old_expr);
+  if (it != privatized_ops.end()) {
+    // Copy the set of values
+    auto cloned_set = it->second;
+    // Remove old entry
+    privatized_ops.erase(it);
+    // Insert with new key
+    privatized_ops[new_expr] = cloned_set;
+    return;
+  }
+
+  // Check if old_expr is in any value sets and update it
+  for (auto& kv : privatized_ops) {
+    if (kv.second.count(old_expr) > 0) {
+      kv.second.erase(old_expr);
+      kv.second.insert(new_expr);
+      return;
+    }
+  }
+}
+
+std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
+  std::vector<Expr*> upcasts_or_squeezes;
+  std::copy_if(
+      group->exprs().begin(),
+      group->exprs().end(),
+      std::back_inserter(upcasts_or_squeezes),
+      [](Expr* expr) {
+        return ir_utils::isTvOp(expr) &&
+            (is_upcast_op(expr) || expr->isA<SqueezeOp>());
+      });
+
+  return upcasts_or_squeezes;
+}
+
 } // namespace
 
 template <typename T>
@@ -4435,12 +4488,14 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
             squeeze_op->input(0)->as<TensorView>(),
             squeeze_op->getSqueezeDimFlags());
       }
-      expr = ir_utils::replaceValInExprInputs(
+
+      auto new_expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
+
+      update_privatized_ops(privatized_ops_, expr, new_expr);
 
       auto upcast_op = maybe_upcast_squeeze_out_tv->definition();
       privatized_ops_[upcast_op].insert(out_tv_clone->definition());
-
       privatized = true;
     }
   }
@@ -4512,22 +4567,11 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
     }
   };
 
-  std::vector<Expr*> upcasts_or_squeezes;
-  std::copy_if(
-      group->exprs().begin(),
-      group->exprs().end(),
-      std::back_inserter(upcasts_or_squeezes),
-      [](Expr* expr) {
-        return ir_utils::isTvOp(expr) &&
-            (is_upcast_op(expr) || expr->isA<SqueezeOp>());
-      });
-
   bool reverted_privatized_op = true;
   std::unordered_set<Expr*> processed;
 
   auto revert_privatized_exprs =
       [group,
-       &upcasts_or_squeezes,
        &reverted_privatized_op,
        &processed,
        maybe_replace,
@@ -4538,7 +4582,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
         for (const auto& [original, clones] : privatized_ops) {
           std::vector<Expr*> expr_in_group;
           Val* val_to_keep = nullptr;
-          for (auto op : upcasts_or_squeezes) {
+          for (auto op : get_upcasts_and_squeezes(group)) {
             if (op != original && !clones.count(op)) {
               continue;
             }
@@ -4574,6 +4618,9 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
 
             auto updated_expr = ir_utils::replaceValInExprInputs(
                 use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
+
+            update_privatized_ops(
+                privatized_ops, use_of_out_val_to_replace, updated_expr);
 
             // Replace use_of_out_val_to_replace with
             // updated_expr. use_of_out_val_to_replace must be in the
@@ -4631,6 +4678,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
       remaining_privatized_ops.erase(key);
     }
     // Revert privatized upcasts
+    processed.clear();
     revert_privatized_exprs(remaining_privatized_ops);
   };
 }
