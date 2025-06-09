@@ -334,7 +334,34 @@ void getHeuristics(
       ws_pt == ParallelType::TIDy ? bdimy + 1 : bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  rparams->tag = "TMA Warp Specialized Persistent Heuristic.\n";
+  auto is_good_ws_heuristic = [&]() {
+    // If can't achieve cirulcar buffer, the heuristic is bad.
+    if (n_stages == 1) {
+      return false;
+    }
+    // To achieve circular buffer, the heuristic tried to reduce shared memory
+    // usage by directly load data from gmem to registers. This increased
+    // register usage and may lead to register spills, only consider it is good
+    // when non-buffer register is at least 64 to avoid large register spills.
+    // This is an empirical value based on RMSNorm Bwd FP16 on B200. It makes a
+    // cut-off at hidden size of 24K.
+    if (bdimy == 1 && is_non_circular_buffer_gmem_to_regs) {
+      int64_t buffer_regs =
+          round_up_reg_count(non_circular_buffered_smem_size, bdimx) +
+          round_up_reg_count(regs_buffer_size, bdimx);
+      int64_t other_regs = ws.num_registers - buffer_regs;
+      return other_regs >= 64L;
+    }
+    return true;
+  };
+  // evaluate if the heuristic is good enough to use warp specialized
+  // otherwise, the heuristic is discarded and fall back to multi-wave approach.
+  rparams->is_good_ws_heuristic = is_good_ws_heuristic();
+
+  rparams->tag = rparams->is_good_ws_heuristic
+      ? "TMA Warp Specialized Persistent Heuristic.\n"
+      : "TMA Warp Specialized Persistent Heuristic Failed, falling back to "
+        "multi-wave.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"

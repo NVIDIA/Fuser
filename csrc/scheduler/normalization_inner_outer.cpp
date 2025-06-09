@@ -19,6 +19,25 @@
 
 namespace nvfuser {
 namespace {
+
+// Prioritize warp specialized approach if possible
+bool preferWarpSpecialized(Fusion* fusion) {
+  // False, for pre-Blackwell GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 10) {
+    return false;
+  }
+  // False, if any of the inputs is not a constant
+  if (std::any_of(
+          fusion->inputs().begin(), fusion->inputs().end(), [](Val* val) {
+            return !val->isConst();
+          })) {
+    return false;
+  }
+  // Try to use warp specialized, but if the heuristic fails, fall back to
+  // multi-wave
+  return true;
+}
+
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -99,28 +118,29 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
-  auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
-      fusion,
-      runtime_info,
-      data_cache,
-      reduction_tvs,
-      hp.vectorize_factor,
-      hp.threads_per_block_min,
-      hp.threads_per_block_max,
-      hp.is_warp_specialized);
 
-  auto rparams = std::make_unique<ReductionParams>(
-      InnerOuterPersistentKernelScheduler::schedulerType());
+  auto getBufferParams = [&](bool warp_specialized) {
+    return inner_outer_utils::getPersistentBufferStorageParams(
+        fusion,
+        runtime_info,
+        data_cache,
+        reduction_tvs,
+        hp.vectorize_factor,
+        hp.threads_per_block_min,
+        hp.threads_per_block_max,
+        warp_specialized);
+  };
 
-  // save persistent tvs should use shared memory, to avoid calling
-  // getPersistentBufferStorageParams again during the scheduling.
-  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+  auto makeRParams = [&]() {
+    return std::make_unique<ReductionParams>(
+        InnerOuterPersistentKernelScheduler::schedulerType());
+  };
 
-  // Ultimately, we want the heuristic to decide between using the
-  // warp-specialized version or the multi-wave version. The enable option is a
-  // temporary configuration to facilitate testing during development without
-  // disrupting existing behavior.
-  if (hp.is_warp_specialized) {
+  if (hp.is_warp_specialized || preferWarpSpecialized(fusion)) {
+    auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
+    auto rparams = makeRParams();
+    rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+
     inner_outer_tma_warp_specialized::getHeuristics(
         rparams.get(),
         properties.total_iteration_numel,
@@ -134,21 +154,31 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         hp.threads_per_block_max,
         buffer_params.project_to_input,
         runtime_info.getIndexType());
-  } else {
-    inner_outer_multi_wave::getHeuristics(
-        rparams.get(),
-        properties.total_iteration_numel,
-        properties.total_reduction_numel,
-        buffer_params.regs_buffer_size,
-        buffer_params.smem_buffer_size,
-        buffer_params.smem_overhead,
-        max_outer_reduction_dtype_size,
-        hp.vectorize_factor,
-        hp.threads_per_block_min,
-        hp.threads_per_block_max,
-        buffer_params.project_to_input,
-        runtime_info.getIndexType());
+
+    // If warp specialized is enabled, or the heuristic is successful, return
+    if (hp.is_warp_specialized || rparams->is_good_ws_heuristic) {
+      return rparams;
+    }
   }
+
+  // Fallback to multi-wave
+  auto buffer_params = getBufferParams(/*is_warp_specialized=*/false);
+  auto rparams = makeRParams();
+  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+
+  inner_outer_multi_wave::getHeuristics(
+      rparams.get(),
+      properties.total_iteration_numel,
+      properties.total_reduction_numel,
+      buffer_params.regs_buffer_size,
+      buffer_params.smem_buffer_size,
+      buffer_params.smem_overhead,
+      max_outer_reduction_dtype_size,
+      hp.vectorize_factor,
+      hp.threads_per_block_min,
+      hp.threads_per_block_max,
+      buffer_params.project_to_input,
+      runtime_info.getIndexType());
 
   return rparams;
 }
@@ -375,7 +405,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           hp.vectorize_factor,
           hp.threads_per_block_min,
           hp.threads_per_block_max,
-          hp.is_warp_specialized);
+          hp.is_warp_specialized.value_or(false));
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
