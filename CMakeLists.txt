@@ -296,7 +296,7 @@ list(APPEND NVFUSER_SRCS
 set(BUILD_LLVM ON)
 if(BUILD_LLVM)
   # Add LLVM JIT related dependencies
-  set(LLVM_DIR "/usr/lib/llvm-18/lib/cmake/llvm")
+  set(LLVM_DIR "/usr/lib/llvm-18/lib")
   find_package(LLVM REQUIRED CONFIG)
   llvm_map_components_to_libnames(LLVM_LIBS
     support
