@@ -2074,6 +2074,35 @@ kir::IfThenElse* HopperPingPongMbarriers::createPrefetchIfThenElse() {
   return ite;
 }
 
+Val* HopperPingPongMbarriers::indexByComputeType(bool is_epilogue) {
+  Val* two = IrBuilder::create<Val>(2, DataType::Index);
+  Val* warp_group_offset = SimplifyingIrBuilder::mulExpr(
+      NamedScalar::getParallelIndex(ws_axis_), two);
+  return SimplifyingIrBuilder::addExpr(warp_group_offset, is_epilogue ? 1 : 0);
+}
+
+Expr* HopperPingPongMbarriers::createMbarrierWait(
+    bool is_epilogue,
+    Val* phase_index) {
+  Val* index = indexByComputeType(is_epilogue);
+  Val* two = IrBuilder::create<Val>(2, DataType::Index);
+  Val* parity = SimplifyingIrBuilder::modExpr(phase_index, two);
+  kir::TensorIndex* mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
+  kir::MBarrierWait* mbarrier_wait =
+      IrBuilder::create<kir::MBarrierWait>(mbarrier_index, parity);
+  return mbarrier_wait;
+}
+
+Expr* HopperPingPongMbarriers::createMbarrierArrive(bool is_epilogue) {
+  Val* index = indexByComputeType(is_epilogue);
+  kir::TensorIndex* mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
+  kir::MBarrierArrive* mbarrier_arrive = IrBuilder::create<kir::MBarrierArrive>(
+      /*state=*/nullptr, mbarrier_index);
+  return mbarrier_arrive;
+}
+
 void TmaCircularBufferInfo::recordTensorIndex(
     const Expr* expr,
     kir::TensorIndex* index) {

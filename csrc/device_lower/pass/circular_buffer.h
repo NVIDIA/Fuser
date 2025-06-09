@@ -241,9 +241,8 @@ class HopperPingPongMbarriers {
   //! warp groups.
   //!
   //! Pseudo-code:
-  //!   mbarrier::arrive(ping_pong_mbarriers[indexByComputeType(is_epilogue)],
-  //!                    phase_index % 2)
-  Expr* createMbarrierArrive(bool is_epilogue, Val* phase_index);
+  //!   mbarrier::arrive(ping_pong_mbarriers[indexByComputeType(is_epilogue)])
+  Expr* createMbarrierArrive(bool is_epilogue);
 
  private:
   int64_t num_warp_groups_ = 0;
