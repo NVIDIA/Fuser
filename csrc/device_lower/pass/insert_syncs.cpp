@@ -555,10 +555,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
             GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
                 sync_within_fl->iter_domain());
         if (ping_pong_mbarriers != nullptr) {
-          Expr* mbarrier_arrive =
-              ping_pong_mbarriers->createMbarrierArrive(/*is_epilogue=*/false);
-          Expr* mbarrier_wait =
-              ping_pong_mbarriers->createMbarrierWait(/*is_epilogue=*/true);
+          Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
+              /*next_warp_group=*/true, /*is_epilogue=*/false);
+          Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+              /*next_warp_group=*/false, /*is_epilogue=*/true);
           kir::ExprMutator::registerInsertAfter(
               wait_expr, mbarrier_arrive, &sync_within_fl->body());
           kir::ExprMutator::registerInsertAfter(
@@ -1403,8 +1403,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
               GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
                   for_loop->iter_domain());
           if (ping_pong_mbarriers != nullptr) {
-            Expr* mbarrier_arrive =
-                ping_pong_mbarriers->createMbarrierArrive(/*is_epilogue=*/true);
+            Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
+                /*next_warp_group=*/false, /*is_epilogue=*/true);
             sync_exprs.push_back(mbarrier_arrive);
           }
         }
