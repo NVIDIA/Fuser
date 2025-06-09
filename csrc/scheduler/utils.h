@@ -848,6 +848,8 @@ TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 //! See device_lower/analysis/tensor_producer_aliases.h
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
+// Returns true if any of the domains of the tensor is symbolic
+bool isSymbolicTv(const TensorView* tv);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

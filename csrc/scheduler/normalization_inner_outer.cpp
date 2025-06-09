@@ -14,6 +14,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -26,11 +27,13 @@ bool preferWarpSpecialized(Fusion* fusion) {
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     return false;
   }
-  // False, if any of the inputs is not a constant
-  if (std::any_of(
-          fusion->inputs().begin(), fusion->inputs().end(), [](Val* val) {
-            return !val->isConst();
-          })) {
+  // False, if any of the inputs is symbolic
+  // TODO: extend to support symbolic inputs, warp specialization requires
+  // static CTA size
+  auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  if (std::any_of(inp_tvs.begin(), inp_tvs.end(), [](TensorView* tv) {
+        return scheduler_utils::isSymbolicTv(tv);
+      })) {
     return false;
   }
   // Try to use warp specialized, but if the heuristic fails, fall back to
