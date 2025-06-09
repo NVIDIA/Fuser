@@ -244,6 +244,9 @@ class MmaSwizzler {
       int64_t first_ids_to_skip);
 };
 
+//! This splits the tensor such that the inner dimensions are the TMA box
+void scheduleTMAStoreOuterSplit(TensorView* tv, MmaInputSmemSwizzle swizzle);
+
 //! Schedules the copy operation of output of a Mma op which resided in the
 //! shared memory to global memory.
 void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);

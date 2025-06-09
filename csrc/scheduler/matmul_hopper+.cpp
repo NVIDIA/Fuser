@@ -915,8 +915,8 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
-  fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
+  fusion_->manage("ldst_matrix_m_smem", (int64_t)64L);
+  fusion_->manage("ldst_matrix_n_smem", (int64_t)64L);
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -1047,6 +1047,8 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
 
     // First, create loop domain that matches wgmma register accumulator using
     // original loop domain.
+    // We first split by 64, since
+    mma_utils::scheduleTMAStoreOuterSplit(d_smem, swizzle);
     const AbstractTensor s =
         mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             d_smem->getLoopDomain());

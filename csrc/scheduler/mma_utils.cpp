@@ -1265,13 +1265,7 @@ inline void resolveTvToMatmulDimRolesMapping(
 
 } // anonymous namespace
 
-void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
-  // [BDX, BDY, TDY, MI, NI]
-  // skip all but last 2 iterDomains
-  int64_t num_ids_to_skip =
-      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
-
-  NVF_ERROR(num_ids_to_skip >= 0);
+void scheduleTMAStoreOuterSplit(TensorView* tv, MmaInputSmemSwizzle swizzle) {
   if (swizzle == MmaInputSmemSwizzle::None) {
     // For no-swizzle case, the entire tile are divided into 8x8 core matrices,
     // and each core matrix resides in a contiguous 8*8*2 bytes region in shared
@@ -1291,6 +1285,22 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
+  }
+}
+
+void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
+  scheduleTMAStoreOuterSplit(tv, swizzle);
+
+  // [BDX, BDY, TDY, MI, NI]
+  // skip all but last 2 iterDomains
+  int64_t num_ids_to_skip =
+      static_cast<int64_t>(tv->getLoopDomain().size() - 2);
+
+  NVF_ERROR(num_ids_to_skip >= 0);
+  if (swizzle != MmaInputSmemSwizzle::None) {
+    auto dtype = tv->getDataType().value();
+
+    // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
 
     // [NO, K, NI] ->
     // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
