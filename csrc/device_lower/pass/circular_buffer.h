@@ -261,7 +261,7 @@ class HopperPingPongMbarriers {
 
   //! Select mbarrier for the given computation phase and independent warp
   //! group.
-  Val* indexByComputeType(bool is_epilogue);
+  Val* getMbarrierIndex(bool next_warp_group, bool is_epilogue);
 
   //! Create mbarrier::wait to pause warp group until the computation phase is
   //! unused by the other warp groups.
@@ -269,14 +269,14 @@ class HopperPingPongMbarriers {
   //! Pseudo-code:
   //!   mbarrier::wait(ping_pong_mbarriers[indexByComputeType(is_epilogue)],
   //!                  persistent_for_loop->index() % 2)
-  Expr* createMbarrierWait(bool is_epilogue);
+  Expr* createMbarrierWait(bool next_warp_group, bool is_epilogue);
 
   //! Create mbarrier::arrive to release given computation phase to the other
   //! warp groups.
   //!
   //! Pseudo-code:
   //!   mbarrier::arrive(ping_pong_mbarriers[indexByComputeType(is_epilogue)])
-  Expr* createMbarrierArrive(bool is_epilogue);
+  Expr* createMbarrierArrive(bool next_warp_group, bool is_epilogue);
 
  private:
   int64_t num_warp_groups_ = 0;

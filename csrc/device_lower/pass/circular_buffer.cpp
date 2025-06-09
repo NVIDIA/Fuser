@@ -549,8 +549,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
         if (ping_pong_mbarriers != nullptr) {
           ping_pong_mbarriers->trackPersistentForLoop(for_loop_stack_.front());
 
-          Expr* mbarrier_wait =
-              ping_pong_mbarriers->createMbarrierWait(/*is_epilogue=*/false);
+          Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+              /*next_warp_group=*/false, /*is_epilogue=*/false);
           for_loop_stack_.back()->body().push_back(mbarrier_wait);
         }
       }
@@ -2090,16 +2090,31 @@ kir::IfThenElse* HopperPingPongMbarriers::createPrefetchIfThenElse() {
   return ite;
 }
 
-Val* HopperPingPongMbarriers::indexByComputeType(bool is_epilogue) {
+Val* HopperPingPongMbarriers::getMbarrierIndex(
+    bool next_warp_group,
+    bool is_epilogue) {
+  Val* warp_group = nullptr;
+  if (next_warp_group) {
+    Val* next_warp_group = SimplifyingIrBuilder::addExpr(
+        NamedScalar::getParallelIndex(ws_axis_),
+        GpuLower::current()->kernel()->oneVal());
+    warp_group = SimplifyingIrBuilder::modExpr(
+        next_warp_group,
+        IrBuilder::create<Val>(num_warp_groups_, DataType::Index));
+  } else {
+    warp_group = NamedScalar::getParallelIndex(ws_axis_);
+  }
+
   Val* two = IrBuilder::create<Val>(2, DataType::Index);
-  Val* warp_group_offset = SimplifyingIrBuilder::mulExpr(
-      NamedScalar::getParallelIndex(ws_axis_), two);
+  Val* warp_group_offset = SimplifyingIrBuilder::mulExpr(warp_group, two);
   return SimplifyingIrBuilder::addExpr(warp_group_offset, is_epilogue ? 1 : 0);
 }
 
-Expr* HopperPingPongMbarriers::createMbarrierWait(bool is_epilogue) {
+Expr* HopperPingPongMbarriers::createMbarrierWait(
+    bool next_warp_group,
+    bool is_epilogue) {
   NVF_ERROR(persistent_for_loop_ != nullptr);
-  Val* index = indexByComputeType(is_epilogue);
+  Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
   Val* two = IrBuilder::create<Val>(2, DataType::Index);
   Val* parity =
       SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two);
@@ -2110,8 +2125,10 @@ Expr* HopperPingPongMbarriers::createMbarrierWait(bool is_epilogue) {
   return mbarrier_wait;
 }
 
-Expr* HopperPingPongMbarriers::createMbarrierArrive(bool is_epilogue) {
-  Val* index = indexByComputeType(is_epilogue);
+Expr* HopperPingPongMbarriers::createMbarrierArrive(
+    bool next_warp_group,
+    bool is_epilogue) {
+  Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
   kir::TensorIndex* mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
   kir::MBarrierArrive* mbarrier_arrive = IrBuilder::create<kir::MBarrierArrive>(
