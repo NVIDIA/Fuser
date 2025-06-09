@@ -14,9 +14,12 @@ using nvfuser_index_t = int64_t;
 
 // nvFuser headers
 #include <tests/cpp/argsort_test_helper.h>
-#include <runtime/argsort.cu>
+
+// index_utils.cu needs to be included before argsort because of the dependency
+// from argsort
 #include <runtime/index_utils.cu>
 
+#include <runtime/argsort.cu>
 // Standard C++ headers
 #include <cassert>
 #include <cstdint>
@@ -46,10 +49,9 @@ __global__ void basic_argsort_test_kernel(
   }
 
   // Perform block-parallel argsort using the actual runtime implementation
-  DataT* dummy_shared_mem = nullptr;
-  nvfuser_runtime::
+  nvfuser_runtime::argsort::
       blockArgsort<BLOCK_SIZE, 1, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
-          thread_indices, thread_data, descending, dummy_shared_mem, blockDim);
+          thread_indices, thread_data, descending, blockDim);
 
   // Store results back to global memory
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
@@ -75,9 +77,9 @@ __global__ void multi_dim_2d_argsort_test_kernel(
   }
 
   // Test 2D block: 4x2x1 (8 threads total) using actual runtime implementation
-  DataT* dummy_shared_mem = nullptr;
-  nvfuser_runtime::blockArgsort<4, 2, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
-      thread_indices, thread_data, descending, dummy_shared_mem, blockDim);
+  nvfuser_runtime::argsort::
+      blockArgsort<4, 2, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
+          thread_indices, thread_data, descending, blockDim);
 
   // Store results back
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
@@ -103,9 +105,9 @@ __global__ void multi_dim_3d_argsort_test_kernel(
   }
 
   // Test 3D block: 2x2x2 (8 threads total) using actual runtime implementation
-  DataT* dummy_shared_mem = nullptr;
-  nvfuser_runtime::blockArgsort<2, 2, 2, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
-      thread_indices, thread_data, descending, dummy_shared_mem, blockDim);
+  nvfuser_runtime::argsort::
+      blockArgsort<2, 2, 2, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
+          thread_indices, thread_data, descending, blockDim);
 
   // Store results back
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
@@ -130,10 +132,9 @@ __global__ void bfloat16_argsort_test_kernel(
     thread_data[i] = input[global_offset + i];
   }
 
-  __nv_bfloat16* dummy_shared_mem = nullptr;
-  nvfuser_runtime::
+  nvfuser_runtime::argsort::
       blockArgsort<4, 1, 1, 0, 0, 0, __nv_bfloat16, ITEMS_PER_THREAD>(
-          thread_indices, thread_data, descending, dummy_shared_mem, blockDim);
+          thread_indices, thread_data, descending, blockDim);
 
   // Store results back to global memory
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {

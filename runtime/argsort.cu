@@ -1,8 +1,7 @@
-#pragma once
-
 #include <cub/block/block_radix_sort.cuh>
 
 namespace nvfuser_runtime {
+namespace argsort {
 
 // Block state constants following nvFuser conventions from fused_reduction.cu
 // Sort Domain - TEMPLATE STATE 0
@@ -35,7 +34,6 @@ __device__ void blockArgsort(
     int64_t (&indices)[ITEMS_PER_THREAD],
     const DataT (&input_data)[ITEMS_PER_THREAD],
     bool descending,
-    DataT* shared_mem,
     BlockDimT block_dim) {
   // For now, only support all dimensions participating in sort (state=0)
   static_assert(
@@ -88,4 +86,5 @@ __device__ void blockArgsort(
   }
 }
 
+} // namespace argsort
 } // namespace nvfuser_runtime
