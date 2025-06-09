@@ -7,9 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <host_ir/lower.h>
-#include <ir/all_nodes.h>
+#include <vector>
+
 #include <ir/allocation_utils.h>
+#include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
+#include <ir/internal_base_nodes.h>
+#include <multidevice/communication.h>
+#include <multidevice/multidevice.h>
 
 namespace nvfuser {
 
@@ -28,12 +33,10 @@ struct CommunicationInfo {
 // Composite expressions that are communication + compute are not supported.
 bool isCommunicationLayoutCompliant(Expr* expr);
 
-// Returns the communication info for the
-// (All)Gather/Scatter/ReduceScatter/(All)Reduce communication that may require
-// copying the input/output and reordering the allocation domain.
-// We assume that the expr has been decomposed and represented a single
-// communication. If multiple communications are present, this function will
-// raise an error.
+// Given an Expr that's known to be a communication, returns the communication
+// info: type and sharded IDs. We assume that the expr has been decomposed and
+// represented a single communication. If multiple communications are present or
+// 2D sharding, this function will raise an error.
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout
@@ -51,6 +54,6 @@ Layout getCommunicationLayout(
 std::vector<Expr*> convertSingleOpToCommunication(
     Expr* c,
     DeviceIdxType my_device_idx,
-    const HostIrLowerParams& params);
+    const CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
 } // namespace nvfuser

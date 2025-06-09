@@ -17,7 +17,6 @@
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
-#include <host_ir/lower.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
@@ -46,16 +45,9 @@ HostIrExecutor::HostIrExecutor(
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && HostIrLower::canLower(e);
-      })) {
+  if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
     NVF_ERROR(
-        std::all_of(
-            exprs.begin(),
-            exprs.end(),
-            [](Expr* e) {
-              return isResharding(e) && HostIrLower::canLower(e);
-            }),
+        std::all_of(exprs.begin(), exprs.end(), isResharding),
         "Could not execute fusion as all expressions in a host IR container "
         "must be communication based at this point.");
     return true;
@@ -82,8 +74,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = convertSingleOpToCommunication(
-          cloner.clone(e), my_device_idx, HostIrLowerParams());
+      std::vector<Expr*> communications =
+          convertSingleOpToCommunication(cloner.clone(e), my_device_idx);
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
