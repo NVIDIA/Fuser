@@ -577,18 +577,14 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
-  template <typename T>
-  typename std::enable_if<
-      std::is_same<T, UnaryOp>::value || std::is_same<T, SqueezeOp>::value,
-      bool>::type
-  privatizeUpCastOrSqueezeOp();
+  bool privatizeUpCastOrSqueezeOp();
 
   // Replicate upcast ops when consumed by multiple expressions. This
   // promotes segmented fusions to share pre-upcast tensors rather
   // than post-upcast tensors. Replicated upcast ops will be reverted
   // when they are grouped into the same segment. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
-  void privatizeUpCastAndSqueeze();
+  void privatizeOps();
 
   void findSegments();
 
