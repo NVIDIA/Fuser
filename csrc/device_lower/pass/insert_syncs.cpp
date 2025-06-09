@@ -539,14 +539,28 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      std::vector<Expr*> sync_exprs;
       if (async_type != AsyncOpType::WgMma) {
-        sync_exprs.push_back(getAsyncCommit(async_type));
+        insertSyncExpr(ops, expr, getAsyncCommit(async_type), nullptr);
       }
-      sync_exprs.push_back(getAsyncWait(async_type, /*keep_stages=*/0));
-      for (auto sync_expr : sync_exprs) {
-        insertSyncExpr(ops, expr, sync_expr, nullptr);
+      Expr* wait_expr = getAsyncWait(async_type, /*keep_stages=*/0);
+      ForLoop* sync_within_fl = insertSyncExpr(ops, expr, wait_expr, nullptr);
+
+      if (async_type == AsyncOpType::WgMma && sync_within_fl != nullptr) {
+        HopperPingPongMbarriers* ping_pong_mbarriers =
+            GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+                sync_within_fl->iter_domain());
+        if (ping_pong_mbarriers != nullptr) {
+          Expr* mbarrier_arrive =
+              ping_pong_mbarriers->createMbarrierArrive(/*is_epilogue=*/false);
+          Expr* mbarrier_wait =
+              ping_pong_mbarriers->createMbarrierWait(/*is_epilogue=*/true);
+          kir::ExprMutator::registerInsertAfter(
+                wait_expr, mbarrier_arrive, &sync_within_fl->body());
+          kir::ExprMutator::registerInsertAfter(
+                mbarrier_arrive, mbarrier_wait, &sync_within_fl->body());
+        }
       }
+
       for (auto op : ops) {
         // Already waited for the write to complete, so no need to wait again
         // before exiting the kernel.
@@ -620,7 +634,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   // before the expression at the common alloc point of producers (really
   // last_writes because we may have other exprs we're syncing besides the
   // producers of this one)
-  void insertSyncExpr(
+  ForLoop* insertSyncExpr(
       const std::unordered_set<Expr*>& last_writes,
       Expr* insert_before_expr,
       Expr* sync_expr,
@@ -683,6 +697,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         registerInsertBefore(place_before, maybe_alloc, nullptr);
       }
       registerInsertBefore(*(place_before_it), sync_expr, nullptr);
+      return nullptr;
     } else {
       auto sync_within_loop_it =
           std::find(for_loops_.begin(), for_loops_.end(), sync_within_fl);
@@ -701,6 +716,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       if (maybe_alloc != nullptr) {
         registerInsertBefore(place_before, maybe_alloc, &place_in->body());
       }
+      return place_in;
     }
   }
 
