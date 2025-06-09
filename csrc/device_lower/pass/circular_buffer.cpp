@@ -1968,6 +1968,60 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
 
 } // namespace
 
+ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
+  ForLoop* loop = ir_utils::createRangeLoop(num_warp_groups_ * 2);
+  Val* num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+      DataType::UInt32,
+      GpuLower::current()
+          ->parallelDimensionMap()
+          .getNumComputeThreadsEachBlock());
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
+  kir::MBarrierInit* ping_pong_mbarrier_init =
+      IrBuilder::create<kir::MBarrierInit>(
+          ping_pong_mbarrier_index, num_of_arrives);
+  Expr* pred_ping_pong_mbarrier_init = ping_pong_mbarrier_init->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_init);
+  return loop;
+}
+
+ForLoop* HopperPingPongMbarriers::invalidatePingPongMbarrier() {
+  ForLoop* loop = ir_utils::createRangeLoop(num_warp_groups_ * 2);
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
+  kir::MBarrierInvalidate* ping_pong_mbarrier_inval =
+      IrBuilder::create<kir::MBarrierInvalidate>(ping_pong_mbarrier_index);
+  Expr* pred_ping_pong_mbarrier_inval = ping_pong_mbarrier_inval->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_inval);
+  return loop;
+}
+
+// This helper function allocates, initializes and invalidates ping-pong
+// mbarriers.
+std::tuple<kir::Allocate*, ForLoop*, ForLoop*> HopperPingPongMbarriers::
+    createPingPongMbarrier() {
+  // For each warp group, we have two mbarriers: one for the TensorCore
+  // phase and one for the CUDA Epilogue phase.
+  mbarriers_ = TensorViewBuilder()
+                   .shape(std::vector<int64_t>{num_warp_groups_ * 2})
+                   .dtype(DataType::UInt64)
+                   .contiguity(true)
+                   .build();
+  mbarriers_->setMemoryType(MemoryType::Shared);
+
+  // Allocate memory for ping-pong mbarriers.
+  kir::Allocate* ping_pong_mbarrier_alloc =
+      IrBuilder::create<kir::Allocate>(mbarriers_, MemoryType::Shared);
+  ForLoop* ping_pong_mbarrier_init_raw = initializePingPongMbarrier();
+  ForLoop* ping_pong_mbarrier_inval_raw = invalidatePingPongMbarrier();
+  return {
+      ping_pong_mbarrier_alloc,
+      ping_pong_mbarrier_init_raw,
+      ping_pong_mbarrier_inval_raw};
+}
+
 void TmaCircularBufferInfo::recordTensorIndex(
     const Expr* expr,
     kir::TensorIndex* index) {
