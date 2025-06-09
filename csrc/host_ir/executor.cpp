@@ -264,7 +264,6 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
-    std::cout << expr->toString() << std::endl;
     dispatch(expr);
   }
 
