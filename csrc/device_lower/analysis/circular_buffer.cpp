@@ -435,9 +435,9 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
 
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
-  initializePingPongTracking(tv, concrete_loop_id);
-
   setCircularBufferInsertionPosition(tv, cb_axis);
+
+  initializePingPongTracking(tv, concrete_loop_id);
 }
 
 void CircularBufferInfo::initializePingPongTracking(
@@ -458,6 +458,11 @@ void CircularBufferInfo::initializePingPongTracking(
 
   // short-circuit: only applied for hopper matmul
   if (!hasHopperMatmulConsumer(tv)) {
+    return;
+  }
+
+  // short-circuit: only applied to persistent kernels
+  if (getCircularBufferInsertionPosition(cb_axis) == 1) {
     return;
   }
 
