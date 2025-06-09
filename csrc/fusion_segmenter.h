@@ -577,13 +577,28 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  //  This is a helper function used by privatizeOps.
+  // @return true if any upcast or squeeze operation was successfully
+  // privatized; false otherwise.
   bool privatizeUpCastOrSqueezeOp();
 
-  // Replicate upcast ops when consumed by multiple expressions. This
-  // promotes segmented fusions to share pre-upcast tensors rather
-  // than post-upcast tensors. Replicated upcast ops will be reverted
-  // when they are grouped into the same segment. See
+  // Replicate upcast ops or squeeze ops when they are consumed by multiple
+  // expressions. This promotes segmented fusions to share pre-upcast tensors
+  // rather than post-upcast tensors. Replicated upcast/squeeze ops will be
+  // reverted when they are grouped into the same segment.
+  // Originally this was implemented for (up)cast onlys. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
+  // To extend this for squeeze ops, we need to call the helper function
+  // privatizeUpCastOrSqueezeOp() in a loop. This is because a round of
+  // privatization may open up new opportunities for further privatization.
+  // For example we may start with:
+  //  tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= sum(tv2); tv4=sum(tv2);
+  // After the first round if privatization, we may have:
+  // tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= squeeze(tv1); 
+  // tv4=sum(tv2); tv5=sum(tv3);
+  // Futher privatization will then be able to:
+  // tv1 = cast(tv0); tv2 = cast(tv0); tv3= squeeze(tv1);
+  // tv4=squeeze(tv2); tv5=sum(tv3); tv6=sum(tv4);
   void privatizeOps();
 
   void findSegments();
