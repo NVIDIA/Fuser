@@ -716,4 +716,11 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
+NVF_API TensorView* topk(
+    TensorView* v1,
+    int64_t k,
+    int64_t dim = -1,
+    bool largest = true,
+    bool sorted = false);
+
 } // namespace nvfuser

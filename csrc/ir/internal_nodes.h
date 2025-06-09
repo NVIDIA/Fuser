@@ -2871,10 +2871,10 @@ class NVF_API TopKOp : public Expr {
       IrBuilderPasskey,
       Val* out,
       Val* in,
-      int64_t dim,
       int64_t k,
-      bool largest = true,
-      bool sorted = false);
+      int64_t dim,
+      bool largest,
+      bool sorted);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2894,10 +2894,10 @@ class NVF_API TopKOp : public Expr {
   Val* in() const {
     return input(0);
   }
-  int64_t dim() const {
+  int64_t k() const {
     return attribute<int64_t>(0);
   }
-  int64_t k() const {
+  int64_t dim() const {
     return attribute<int64_t>(1);
   }
   bool isLargest() const {
