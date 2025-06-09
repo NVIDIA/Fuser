@@ -2116,8 +2116,9 @@ Expr* HopperPingPongMbarriers::createMbarrierWait(
   NVF_ERROR(persistent_for_loop_ != nullptr);
   Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
   Val* two = IrBuilder::create<Val>(2, DataType::Index);
-  Val* parity =
-      SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two);
+  Val* parity = IrBuilder::maybeCastExpr(
+      DataType::UInt64,
+      SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two));
   kir::TensorIndex* mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
   kir::MBarrierWait* mbarrier_wait =
