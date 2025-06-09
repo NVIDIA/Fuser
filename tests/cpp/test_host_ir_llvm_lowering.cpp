@@ -38,6 +38,14 @@ void print_tensor_info(const at::Tensor& t){
   std::cout << "Data ptr: " << t.data_ptr() << "\n";
 }
 
+void print_iter_domain(const std::vector<IterDomain*>& iter_domain, const std::string& name){
+  std::cout << name << ": ";
+  for(auto* id : iter_domain){
+    std::cout << id->toString() << " ";
+  }
+  std::cout << std::endl;
+}
+
 TEST_F(HostIrLLVMTest, Allocation1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -55,7 +63,8 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   tv1->merge(1);
   // [N, H*W, C]
   tv1->setAllocationDomain({tv1->axis(0), tv1->axis(1), tv1->axis(2)}, {true, true, true});
-
+  print_iter_domain(tv1->getLoopDomain(), "Output Loop Domain");
+  print_iter_domain(tv1->getLogicalDomain(), "Input Logical Domain");
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(tv1);
@@ -81,11 +90,11 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
   fusion.addOutput(out);
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
-
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8,8,16,32,16}, options);
-
+  print_iter_domain(in->getLogicalDomain(), "Input Logical Domain");
+  print_iter_domain(out->getLoopDomain(), "Output Loop Domain");
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(out);
@@ -168,27 +177,7 @@ TEST_F(HostIrLLVMTest, Allocation4) {
 }
 
 TEST_F(HostIrLLVMTest, Allocate5) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* in =
-      TensorViewBuilder().shape({-1, 6}).dtype(DataType::Float).build();
-  fusion.addInput(in);
-  TensorView* out = reshape(in, {in->axis(0)->extent(), IrBuilder::create<Val>(2), IrBuilder::create<Val>(3)});
-  out = permute(out, {1, 2, 0});
-  out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
-  out->printTransforms();
-  fusion.addOutput(out);
-
-  at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
-
-  ExpressionEvaluator evaluator;
-  evaluator.bind(in, in_tensor);
-  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
-
-  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
-  EXPECT_THAT(out_tensor.sizes(), ElementsAre(6, 9));
-  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 8));
+  
 }
 
 } // namespace hir

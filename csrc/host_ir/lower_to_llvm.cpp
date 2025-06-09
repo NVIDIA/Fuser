@@ -232,66 +232,83 @@ void build_dep_graph(Expr* expr, std::unordered_map<Val*, dependency_graph>& val
 /*
 
 Generate LLVM IR for a dependency graph
+By default, we assume it is in typological order, which means input values are ready to use
 
 */
-void generate_shape_llvm_ir(Val * node, std::unordered_map<Val*, dependency_graph>& val2graph, llvm::IRBuilder<>& builder) {
-  if(val2graph.find(node) != val2graph.end() && val2graph[node].llvm_val != nullptr){
-    return;
-  }
-  if(val2graph.find(node) == val2graph.end()){
-    val2graph[node] = dependency_graph();
-    val2graph[node].op = codegenType::Merge;
-    bool is_constant_val =  dynamic_cast<IterDomain*>(node)->extent()->isConstInt();
-    if(is_constant_val){
-      val2graph[node].llvm_val = builder.getInt64(std::stoi(dynamic_cast<IterDomain*>(node)->extent()->toString()));
+void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unordered_map<Val*,llvm::Value*>& val2llvm, std::unordered_map<int, Val*>& boundary_vals) {
+  std::string op_string = std::string(expr->getOpString());
+
+  // Perform the merge -> mul transformation
+  if(op_string == "Merge"){
+    llvm::Value* result = nullptr;
+    auto* merge_expr = expr->as<Merge*>();
+    auto merge_input_outer_val = merge_expr->outer()->as<Val*>();
+    auto merge_input_inner_val = merge_expr->inner()->as<Val*>();
+    auto merge_output_val = merge_expr->outputs()[0]->as<Val*>();
+
+    int input_outer_potential_index = mapToInputDomain(boundary_vals, merge_input_outer_val, graph);
+    int input_inner_potential_index = mapToInputDomain(boundary_vals, merge_input_inner_val, graph);
+    llvm::Value* input_outer_llvm_val = nullptr;
+    llvm::Value* input_inner_llvm_val = nullptr;
+
+    if(input_outer_potential_index != -1){
+      input_outer_llvm_val = val2llvm[boundary_vals[input_outer_potential_index]];
     }
     else{
-      val2graph[node].llvm_val = builder.getInt64(1);
-      std::cout<< "Missing node: " << node->toString() << " llvm_val: 1" << val2graph[node].llvm_val << std::endl;
+      input_outer_llvm_val = val2llvm[merge_input_outer_val];
     }
-    return;
+
+    if(input_inner_potential_index != -1){
+      input_inner_llvm_val = val2llvm[boundary_vals[input_inner_potential_index]];
+    }
+    else{
+      input_inner_llvm_val = val2llvm[merge_input_inner_val];
+    }
+
+    result = builder.CreateMul(input_outer_llvm_val, input_inner_llvm_val, merge_output_val->toString());
+
+    val2llvm[merge_output_val] = result;
   }
-  llvm::Value* result = nullptr;
-  if(val2graph[node].input_vals.size() == 2){
-    auto* input_val_1 = val2graph[node].input_vals[0];
-    auto* input_val_2 = val2graph[node].input_vals[1];
-    if(val2graph.find(input_val_1) == val2graph.end() || val2graph[input_val_1].llvm_val == nullptr){
-      generate_shape_llvm_ir(input_val_1, val2graph, builder);
+  else if(op_string == "Split"){
+    auto* split_expr = expr->as<Split*>();
+    auto* split_input_val = split_expr->in()->as<Val*>();
+    auto* split_output_outer_val = split_expr->outer()->as<Val*>();
+    auto* split_output_inner_val = split_expr->inner()->as<Val*>();
+
+    int input_potential_index = mapToInputDomain(boundary_vals, split_input_val, graph);
+    llvm::Value* input_llvm_val = nullptr;
+    if(input_potential_index != -1){
+      input_llvm_val = val2llvm[boundary_vals[input_potential_index]]; 
     }
-    if(val2graph.find(input_val_2) == val2graph.end() || val2graph[input_val_2].llvm_val == nullptr){ 
-      generate_shape_llvm_ir(input_val_2, val2graph, builder);
+    else{
+      input_llvm_val = val2llvm[split_input_val];
     }
-    if(val2graph[node].op == codegenType::Merge){
-      result = builder.CreateMul(val2graph[input_val_1].llvm_val, val2graph[input_val_2].llvm_val, node->toString());
+
+    // Perform the split -> ceildiv transformation
+    if(split_expr->innerSplit()){
+      // inner = factor
+      val2llvm[split_output_inner_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
+      // outer = input + 1
+      llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
+      // outer = (input + 1) + inner
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_inner_val], "sum_ab");
+      // outer = (input + 1 + inner) / inner
+      val2llvm[split_output_outer_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_inner_val], split_output_outer_val->extent()->toString());
     }
-    else if(val2graph[node].op == codegenType::Split){
-    bool is_input_1_const =  dynamic_cast<IterDomain*>(input_val_1)->extent()->isConstInt();
-    bool is_input_2_const =  dynamic_cast<IterDomain*>(input_val_2)->extent()->isConstInt();
-      if(is_input_1_const){
-        llvm::Value* minus_1 = builder.CreateSub(val2graph[input_val_1].llvm_val, builder.getInt64(1), "minus_1");
-        llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2graph[input_val_2].llvm_val, "sum_ab");
-        result = builder.CreateUDiv(sum_ab, val2graph[input_val_1].llvm_val, node->toString());
-      }
-      else if(is_input_2_const){
-        llvm::Value* minus_1 = builder.CreateSub(val2graph[input_val_2].llvm_val, builder.getInt64(1), "minus_1");  
-        llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2graph[input_val_1].llvm_val, "sum_ab");
-        result = builder.CreateUDiv(sum_ab, val2graph[input_val_2].llvm_val, node->toString());
-      }
-      else{
-        result = builder.CreateUDiv(val2graph[input_val_1].llvm_val, val2graph[input_val_2].llvm_val, node->toString());
-      }
+    else{
+      val2llvm[split_output_outer_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
+      // inner = input - 1
+      llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
+      // inner = (input - 1) + outer
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_outer_val], "sum_ab");
+      // inner = (input - 1 + outer) / outer
+      val2llvm[split_output_inner_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_outer_val], split_output_inner_val->extent()->toString());
     }
   }
   else{
-    if(val2graph[node].llvm_val == nullptr){
-      std::cout << "Missing result node: " << node->toString() << " llvm_val: 1" << std::endl;
-      result = builder.getInt64(1);
-    }
-    else{
-      return;
-    }
+    std::cerr << "Unsupported op: " << op_string << std::endl;
+    exit(1);
   }
-  val2graph[node].llvm_val = result;
 }
 
 /*
@@ -302,11 +319,15 @@ Dumping all exprs between input and output domain, currently this is only used f
 std::vector<Expr*> traverse_expr_group(const ValGraph& graph, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain){
   ValGroups tv0_loop_groups = graph.toGroups(input_domain);
   ValGroups tv1_loop_groups = graph.toGroups(output_domain);
+  std::unordered_map<Val*, llvm::Value*> val2llvm_val;
   auto result = getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
-  std::vector<Expr*> exprs;
   for(auto expr_group : result){
     for(auto expr : *expr_group.first){
-      exprs.push_back(expr);
+      for(auto* input : expr->inputs()){
+        if(val2llvm_val.find(input) == val2llvm_val.end()){
+          val2llvm_val[input] = builder.getInt64(std::stoi(input->extent()->toString()));
+        }
+      }
     }
   }
   return exprs; 
@@ -686,8 +707,8 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
   std::unordered_map<Val*, dependency_graph> val2graph;
-  std::vector<Val*> input_vals = domain2vals(input_logical_domain);
-  std::vector<Val*> output_vals = domain2vals(output_logical_domain);
+  std::vector<Val*> input_values = domain2vals(input_logical_domain);
+  std::vector<Val*> output_values = domain2vals(output_logical_domain);
   auto arg_it = func->arg_begin();
   llvm::Value* input_ptr = &*arg_it;
   llvm::Value* output_ptr = &*arg_it+2;
@@ -696,16 +717,16 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   auto exprs = traverse_expr_group(graph, input_logical_domain, output_logical_domain);
   std::unordered_map<int, Val*> boundary_vals;
   for(long unsigned int i = 0; i < input_logical_domain.size(); i++){
-    boundary_vals[i] = input_vals[i];
+    boundary_vals[i] = input_values[i];
     auto* zero = builder.getInt64(i);
     auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
     auto* input_i_val = builder.CreateLoad(int64Ty, input_i_ptr, "val");
-    val2graph[input_vals[i]] = dependency_graph();
-    val2graph[input_vals[i]].llvm_val = input_i_val;
+    val2graph[input_values[i]] = dependency_graph();
+    val2graph[input_values[i]].llvm_val = input_i_val;
   }
 
   // Map the output values to the input values if they are the same
-  for(auto* val : output_vals){
+  for(auto* val : output_values){
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
       val2graph[val] = val2graph[boundary_vals[index]];
@@ -713,25 +734,16 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   }
 
   for(auto* expr : exprs){
-    auto expr_input_domain = vals2domain(expr->inputs());
-    build_dep_graph(expr, val2graph, builder);
-    int current_index = 0;
-    for(auto* expr_input : expr->inputs()){
-      auto index = mapToInputDomain(boundary_vals, expr_input, graph);
-      if(index != -1){
-        val2graph[expr_input].input_vals[current_index] = boundary_vals[index];
-      }
-      current_index++;
-    }
+    std::cout << expr->toString() << std::endl;
   }
 
-  for(auto* val : output_vals){
+  for(auto* val : output_values){
     generate_shape_llvm_ir(val, val2graph, builder);
   }
 
-  for(long unsigned int i = 0; i < output_vals.size(); i++){
+  for(long unsigned int i = 0; i < output_values.size(); i++){
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
-    builder.CreateStore(val2graph[output_vals[i]].llvm_val, output_i_ptr);
+    builder.CreateStore(val2graph[output_values[i]].llvm_val, output_i_ptr);
   }
 
   builder.CreateRetVoid();
@@ -838,15 +850,15 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
         input_tv->getLogicalDomain().begin(),
         input_tv->getLogicalDomain().end());
   }
-  auto output_logical_domain = output_tv->getLogicalDomain();
+  auto output_loop_domain = output_tv->getLoopDomain();
   auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
 
   // Store the output dimension for the run method
-  output_tensor_dim_ = output_logical_domain.size();
+  output_tensor_dim_ = output_loop_domain.size();
 
   // JIT compile shape inference module
   auto TSM_shape =
-      generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion);
+      generate_infer_shape_module(input_logical_domains, output_loop_domain, *fusion);
   if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_shape))) {
     llvm::errs() << "Error adding shape infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
@@ -854,7 +866,7 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
 
   // JIT compile stride inference module
   auto TSM_stride =
-      generate_infer_stride_module(output_allocation_domain, output_logical_domain, *fusion);
+      generate_infer_stride_module(output_allocation_domain, output_loop_domain, *fusion);
   if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_stride))) {
     llvm::errs() << "Error adding stride infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";

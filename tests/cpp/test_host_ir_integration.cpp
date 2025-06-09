@@ -143,7 +143,6 @@ TEST_F(HostIrIntegrationTest, ViewPermute_ExprEval) {
   TensorView* out = reshape(in, in_shape, out_shape);
   out = permute(out, {1, 0});
   fusion->addOutput(out);
-  out->printTransforms();
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
