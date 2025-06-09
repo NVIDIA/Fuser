@@ -8,7 +8,7 @@
 
 #include <cub/block/block_radix_sort.cuh>
 
-namespace nvfuser_runtime {
+namespace nvf {
 namespace argsort {
 
 // Block state constants following nvFuser conventions from fused_reduction.cu
@@ -24,6 +24,41 @@ constexpr __device__ bool isSort(int STATE) {
 constexpr __device__ bool isIter(int STATE) {
   return STATE == 1;
 }
+
+// Type utils for interoperation between our own half types and the
+// CUDA standard types
+template <typename T>
+struct CudaType {
+  using type = T;
+
+  __device__ inline static T get(const T& t) {
+    return t;
+  }
+};
+
+#ifdef __NVFUSER_HAS_HALF__
+template <>
+struct CudaType<__half> {
+  using type = __nv_half;
+
+  __device__ inline static typename CudaType<__half>::type get(
+      const __half& t) {
+    return __ushort_as_half(__NVFUSER_HALF_TO_CUS(t));
+  }
+};
+#endif // __NVFUSER_HAS_HALF__
+
+#ifdef __NVFUSER_HAS_BFLOAT__
+template <>
+struct CudaType<__bfloat> {
+  using type = __nv_bfloat16;
+
+  __device__ inline static typename CudaType<__bfloat>::type get(
+      const __bfloat& t) {
+    return __ushort_as_bfloat16(__NVFUSER_BFLOAT_TO_CUS(t));
+  }
+};
+#endif // __NVFUSER_HAS_BFLOAT__
 
 // Block-parallel argsort using CUB BlockRadixSort
 // Following nvFuser dimensional template parameter pattern like
@@ -51,16 +86,16 @@ __device__ void blockArgsort(
       "For now, active TID dimensions must participate in sorting");
 
   // Create temporary buffer for CUB operations since input_data is const
-  DataT temp_data[ITEMS_PER_THREAD];
+  typename CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    temp_data[i] = input_data[i];
+    temp_data[i] = CudaType<DataT>::get(input_data[i]);
   }
 
   // CUB BlockRadixSort setup - with proper multi-dimensional block support
   // CUB supports multi-dimensional blocks when BLOCK_DIM_Y and BLOCK_DIM_Z are
   // specified
   using BlockRadixSort = cub::BlockRadixSort<
-      DataT, // Key type
+      typename CudaType<DataT>::type, // Key type
       BLOCK_DIM_X, // X dimension
       ITEMS_PER_THREAD, // Items per thread
       int64_t, // Value type (for key-value sorting)
@@ -97,4 +132,4 @@ __device__ void blockArgsort(
 }
 
 } // namespace argsort
-} // namespace nvfuser_runtime
+} // namespace nvf

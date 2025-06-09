@@ -155,7 +155,7 @@ class CompiledKernel : public NonCopyable {
   void createKernelId();
 
   static std::string kernelNamespace() {
-    return "nvfuser_runtime";
+    return "nvf";
   }
 
   std::string kernelName() const {

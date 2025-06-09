@@ -26,37 +26,86 @@ class ArgsortTest : public NVFuserTest {
   }
 };
 
-TEST_F(ArgsortTest, BasicExecution) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+// Parameterized test fixture for BasicExecution with different data types
+class ArgsortTestBasicExecution
+    : public ArgsortTest,
+      public ::testing::WithParamInterface<DataType> {
+ protected:
+  void runBasicExecutionTest(DataType data_type) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
 
-  // Create input tensor [4, 8] with float data
-  std::vector<int64_t> shape = {4, 8};
-  auto tv0 = makeContigConcreteTensor(shape);
-  fusion.addInput(tv0);
+    // Create input tensor [4, 8] with specified data type
+    std::vector<int64_t> shape = {4, 8};
+    auto tv0 = makeContigConcreteTensor(shape, data_type);
+    fusion.addInput(tv0);
 
-  auto tv1 = set(tv0);
-  // Create argsort operation along dimension 1
-  auto tv2 = argsort(tv1, 1, /*descending=*/false, /*stable=*/false);
-  auto tv3 = set(tv2);
-  fusion.addOutput(tv3);
+    auto tv1 = set(tv0);
+    // Create argsort operation along dimension 1
+    auto tv2 = argsort(tv1, 1, /*descending=*/false, /*stable=*/true);
+    auto tv3 = set(tv2);
+    fusion.addOutput(tv3);
 
-  // Create test input data
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto input = at::randn({4, 8}, options);
+    // Create test input data with appropriate tensor options
+    at::TensorOptions options;
+    at::Tensor input;
 
-  for (auto tv : {tv1, tv2, tv3}) {
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
+    if (data_type == DataType::Float) {
+      options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+      input = at::randn({4, 8}, options);
+    } else if (data_type == DataType::Half) {
+      options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+      input = at::randn({4, 8}, options);
+    } else if (data_type == DataType::BFloat16) {
+      options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+      input = at::randn({4, 8}, options);
+    } else if (data_type == DataType::Int) {
+      options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+      // For integer types, use randint to avoid floating point values
+      input = at::randint(-100, 100, {4, 8}, options);
+    } else {
+      NVF_ERROR(false, "Unsupported data type for ArgSortTestBasicExecution");
+    }
+
+    for (auto tv : {tv1, tv2, tv3}) {
+      tv->axis(0)->parallelize(ParallelType::BIDx);
+      tv->axis(1)->parallelize(ParallelType::TIDx);
+    }
+
+    // Execute the fusion
+    KernelExecutor ke;
+    ke.compile(&fusion, {input});
+    auto outputs = ke.run({input});
+
+    // Verify the output
+    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
   }
+};
 
-  // Execute the fusion
-  KernelExecutor ke;
-  ke.compile(&fusion, {input});
-  auto outputs = ke.run({input});
-
-  // Verify the output
-  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+TEST_P(ArgsortTestBasicExecution, ParameterizedBasicExecution) {
+  runBasicExecutionTest(GetParam());
 }
+
+// Instantiate parameterized tests for different data types
+INSTANTIATE_TEST_SUITE_P(
+    ArgsortTest,
+    ArgsortTestBasicExecution,
+    ::testing::Values(
+        DataType::Float,
+        DataType::Half,
+        DataType::BFloat16,
+        DataType::Int),
+    [](const ::testing::TestParamInfo<DataType>& info) {
+      auto data_type = info.param;
+      if (data_type == DataType::Float)
+        return std::string("Float");
+      if (data_type == DataType::Half)
+        return std::string("Half");
+      if (data_type == DataType::BFloat16)
+        return std::string("BFloat16");
+      if (data_type == DataType::Int)
+        return std::string("Int");
+      return std::string("Unknown");
+    });
 
 } // namespace nvfuser

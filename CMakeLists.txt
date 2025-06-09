@@ -825,7 +825,7 @@ if(BUILD_TEST)
   list(APPEND TEST_BINARIES tutorial_multidevice)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
-  list(APPEND TEST_BINARIES test_view)
+  list(APPEND TEST_BINARIES test_reshape)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS

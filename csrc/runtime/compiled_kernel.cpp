@@ -711,13 +711,17 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
 
   createNvrtcProgram(program, func_name, full_src_code);
 
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  std::string canonical_func_name =
+      CompiledKernel::kernelNamespace() + "::" + func_name;
+
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcAddNameExpression(program, canonical_func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetLoweredName(
+      program, canonical_func_name.c_str(), &lowered_kernel_name));
   compiled_kernel->kernel_name = lowered_kernel_name;
   compiled_kernel->compile_log = log.str();
 
@@ -1139,10 +1143,9 @@ std::string _getStructuredCode(
     code += nvfuser_resources::argsort_cu;
   }
 
-  // Kernel is not in the namespace for historical reasons.
-  code += "\nusing namespace " + CompiledKernel::kernelNamespace() + ";\n\n";
-
+  code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
   code += kernel_str;
+  code += "\n} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernel_name
