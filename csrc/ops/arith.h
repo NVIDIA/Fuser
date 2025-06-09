@@ -731,6 +731,7 @@ NVF_API TopKResult topk(
     Val* k,
     int64_t dim = -1,
     bool largest = true,
-    bool sorted = false);
+    bool sorted = false,
+    bool maybe_symbolic = true);
 
 } // namespace nvfuser

@@ -822,6 +822,7 @@ def argsort_generator(
 
     # a.shape, dim
     cases = (
+        (list(), 0),
         ((128,), 0),
         ((128, 7, 32), 0),
         ((128, 7, 32), 1),

@@ -2283,23 +2283,53 @@ TopKResult topk(
     Val* k,
     int64_t dim,
     bool largest,
-    bool sorted) {
-  dim = wrapDim(dim, inp->nDims());
-  NVF_CHECK(
-      k->dtype() == DataType::Int, "TopKOp expects int64_t input for k but got ", k->dtype());
+    bool sorted,
+    bool maybe_symbolic) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  dim = wrapDim(dim, inp_domain.ssize());
 
-  Val* out_values = ops::newValLike(inp, inp->dtype());
-  Val* out_indices = ops::newValLike(inp, DataType::Int);
+  NVF_CHECK(
+      k->dtype() == DataType::Int,
+      "TopKOp expects int64_t input for k but got ",
+      k->dtype());
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(inp_domain.size());
+
+  for (auto auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+    if (index == dim) {
+      ExpressionEvaluator ee;
+      PolymorphicType ext = ee.evaluate(k);
+
+      IterType iter_type;
+      if (ext.hasValue()) {
+        int64_t k_val = ext.value<int64_t>();
+        iter_type = k_val == 1 ? IterType::Broadcast : IterType::Iteration;
+      } else {
+        iter_type =
+            maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+      }
+      out_domain.push_back(
+          IterDomainBuilder(
+              inp->fusion()->zeroVal(),
+              SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
+              .iter_type(iter_type)
+              .build());
+    } else {
+      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+    }
+  }
+
+  TensorView* out_values = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  Val* out_indices = ops::newValLike(out_values, DataType::Int);
 
   IrBuilder::create<TopKOp>(
-      out_values,
-      out_indices,
-      inp,
-      k,
-      dim,
-      largest,
-      sorted);
-  return TopKResult(out_values->as<TensorView>(), out_indices->as<TensorView>());
+      out_values, out_indices, inp, k, dim, largest, sorted);
+  return TopKResult(
+      out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
 } // namespace nvfuser
