@@ -373,109 +373,100 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
   // TODO: It might be more natural to just have a "CGA tile" as part of
   // params_->tile_sizes and infer cluster_dims from that
-  bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
-  if (has_cga) {
-    int64_t cm = params_->cluster_dims.x;
-    int64_t cn = params_->cluster_dims.y;
-    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      std::swap(cm, cn);
-    }
-    GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * cm,
-        params_->tile_sizes.cta_tile.n * cn,
-        params_->tile_sizes.cta_tile.k};
+  int64_t cm = params_->cluster_dims.x;
+  int64_t cn = params_->cluster_dims.y;
+  if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+    std::swap(cm, cn);
+  }
+  GemmTile cga_tile{
+      params_->tile_sizes.cta_tile.m * cm,
+      params_->tile_sizes.cta_tile.n * cn,
+      params_->tile_sizes.cta_tile.k};
 
-    merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
+  merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
 
-    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
+  merged_roles = reorderBlockTileTraversal(tv, merged_roles);
 
-    merged_roles =
-        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+  merged_roles =
+      mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    switch (params_->tiling_strategy) {
-      case MatmulParams::TilingStrategy::OneTilePerCTA: {
-        // NOTE: This merge is only used for non-persistent schedules
-        // Now merge the 3 CGA/CTA split outer dims back with the outermost
-        // dims. This is important since we need single dims to bind to. For
-        // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
-        // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
-        int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
-        int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
-        while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
-          outer_mnk_pos++;
-        }
-        std::unordered_set<MatmulDimRole> outer_roles;
-        while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
-          // Find first repeated role position
-          MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
-          if (outer_roles.count(role)) {
-            break;
-          }
-          almost_outer_mnk_pos++;
-          outer_roles.insert(role);
-        }
-        NVF_ERROR(
-            almost_outer_mnk_pos < (int64_t)merged_roles.size(),
-            "Because of tiling, we expect repeated roles");
-        for (int64_t i :
-             std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-          tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
-          merged_roles.erase(merged_roles.begin() + (size_t)i);
-        }
-        break;
+  switch (params_->tiling_strategy) {
+    case MatmulParams::TilingStrategy::OneTilePerCTA: {
+      // NOTE: This merge is only used for non-persistent schedules
+      // Now merge the 3 CGA/CTA split outer dims back with the outermost
+      // dims. This is important since we need single dims to bind to. For
+      // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
+      // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+      int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+      int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
+      while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+        outer_mnk_pos++;
       }
-      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs: {
-        // Do not merge CGA dims since we will map them to BIDy/BIDz instead
-        // However, We do move the CGA dims outside the serial K loop
-        // dimension in order to simplify downstream scheduling.
-        //
-        // For example, at this point we might have
-        //     T7_s___bfloat[
-        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
-        //       bS32{1},
-        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
-        //       iS39{2},  // cga dims
-        //       bS37{1},
-        //       iS35{1},
-        //       iS40{128},  // cta tile
-        //       bS38{256},
-        //       iS36{64}
-        //       ]
-        // We need to reorder this to be
-        //     T7_s___bfloat[
-        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
-        //       bS32{1},
-        //       iS39{2},  // cga dims
-        //       bS37{1},
-        //       iS35{1},
-        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
-        //       iS40{128},  // cta tile
-        //       bS38{256},
-        //       iS36{64}
-        //       ]
-
-        if (merged_roles.back() == MatmulDimRole::K) {
-          tv->reorder({{-7, -4}, {-6, -7}, {-5, -6}, {-4, -5}});
-          NVF_ERROR(merged_roles[merged_roles.size() - 7] == MatmulDimRole::K);
-          NVF_ERROR(merged_roles[merged_roles.size() - 6] == MatmulDimRole::M);
-          NVF_ERROR(merged_roles[merged_roles.size() - 5] == MatmulDimRole::N);
-          NVF_ERROR(merged_roles[merged_roles.size() - 4] == MatmulDimRole::K);
-          merged_roles[merged_roles.size() - 7] = MatmulDimRole::M;
-          merged_roles[merged_roles.size() - 6] = MatmulDimRole::N;
-          merged_roles[merged_roles.size() - 5] = MatmulDimRole::K;
-          merged_roles[merged_roles.size() - 4] = MatmulDimRole::K;
+      std::unordered_set<MatmulDimRole> outer_roles;
+      while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+        // Find first repeated role position
+        MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+        if (outer_roles.count(role)) {
+          break;
         }
-        break;
+        almost_outer_mnk_pos++;
+        outer_roles.insert(role);
       }
-      default:
-        NVF_THROW("Unsupported tiling strategy");
+      NVF_ERROR(
+          almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+          "Because of tiling, we expect repeated roles");
+      for (int64_t i :
+           std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+        tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+        merged_roles.erase(merged_roles.begin() + (size_t)i);
+      }
+      break;
     }
-  } else {
-    // no cga split
+    case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs: {
+      // Do not merge CGA dims since we will map them to BIDy/BIDz instead
+      // However, We do move the CGA dims outside the serial K loop
+      // dimension in order to simplify downstream scheduling.
+      //
+      // For example, at this point we might have
+      //     T7_s___bfloat[
+      //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+      //       bS32{1},
+      //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+      //       iS39{2},  // cga dims
+      //       bS37{1},
+      //       iS35{1},
+      //       iS40{128},  // cta tile
+      //       bS38{256},
+      //       iS36{64}
+      //       ]
+      // We need to reorder this to be
+      //     T7_s___bfloat[
+      //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+      //       bS32{1},
+      //       iS39{2},  // cga dims
+      //       bS37{1},
+      //       iS35{1},
+      //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+      //       iS40{128},  // cta tile
+      //       bS38{256},
+      //       iS36{64}
+      //       ]
 
-    merged_roles = mma_utils::makeTile(
-        tv, params_->tile_sizes.cta_tile, orig_merged_roles);
-    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
+      if (merged_roles.back() == MatmulDimRole::K) {
+        tv->reorder({{-7, -4}, {-6, -7}, {-5, -6}, {-4, -5}});
+        NVF_ERROR(merged_roles[merged_roles.size() - 7] == MatmulDimRole::K);
+        NVF_ERROR(merged_roles[merged_roles.size() - 6] == MatmulDimRole::M);
+        NVF_ERROR(merged_roles[merged_roles.size() - 5] == MatmulDimRole::N);
+        NVF_ERROR(merged_roles[merged_roles.size() - 4] == MatmulDimRole::K);
+        merged_roles[merged_roles.size() - 7] = MatmulDimRole::M;
+        merged_roles[merged_roles.size() - 6] = MatmulDimRole::N;
+        merged_roles[merged_roles.size() - 5] = MatmulDimRole::K;
+        merged_roles[merged_roles.size() - 4] = MatmulDimRole::K;
+      }
+      break;
+    }
+    default:
+      NVF_THROW("Unsupported tiling strategy");
   }
 
   return merged_roles;
@@ -672,25 +663,21 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
         // For persistent kernels, we parallelize BIDx, and if cluster_dims is
         // non-trivial then we also bind BIDy and BIDz
-        if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
-          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
-          switch (params_->cta_order) {
-            // TODO: Should we instead check the roles of these dimensions to
-            // take the outermost two M or N axes?
-            case MatmulParams::TileRasterizationOrder::ColumnMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
-              break;
-            case MatmulParams::TileRasterizationOrder::RowMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
-              break;
-            default:
-              NVF_THROW(
-                  "Invalid TileRasterizationOrder passed to Matmul scheduler");
-          }
-        } else {
-          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
+        tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
+        switch (params_->cta_order) {
+          // TODO: Should we instead check the roles of these dimensions to
+          // take the outermost two M or N axes?
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+            tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
+            break;
+          default:
+            NVF_THROW(
+                "Invalid TileRasterizationOrder passed to Matmul scheduler");
         }
         break;
     }
