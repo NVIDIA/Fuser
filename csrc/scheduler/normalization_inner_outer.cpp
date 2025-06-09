@@ -405,7 +405,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           hp.vectorize_factor,
           hp.threads_per_block_min,
           hp.threads_per_block_max,
-          hp.is_warp_specialized.value_or(false));
+          hp.is_warp_specialized);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
