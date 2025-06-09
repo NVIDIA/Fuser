@@ -200,13 +200,27 @@ class HopperPingPongMbarriers {
     return num_warp_groups_;
   }
 
-  //! Track the mbarriers used to manage ping-pong computation phases.
-  //! It is used in the allocation phase.
-  void trackMbarriers(TensorView* ping_pong_mbarriers) {
-    NVF_ERROR(ping_pong_mbarriers != nullptr);
-    NVF_ERROR(ping_pong_mbarriers->getMemoryType() == MemoryType::Shared);
-    mbarriers_ = ping_pong_mbarriers;
-  }
+  //! This helper function initializes ping-pong mbarriers.
+  //!
+  //! for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+  //!   if (warp_id == 0 && electSync()()) {
+  //!     mbarrier::init(...);
+  //!   }
+  //! }
+  ForLoop* initializePingPongMbarrier();
+
+  //! This helper function invalidates ping-pong mbarriers.
+  //!
+  //! for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+  //!   if (warp_id == 0 && electSync()()) {
+  //!     mbarrier::inval(...);
+  //!   }
+  //! }
+  ForLoop* invalidatePingPongMbarrier();
+
+  //! This helper function allocates, initializes and invalidates ping-pong
+  //! mbarriers.
+  std::tuple<kir::Allocate*, ForLoop*, ForLoop*> createPingPongMbarrier();
 
   //! Create a IfThenElse that releases the TensorCore and Epilogue mbarriers
   //! for the first independent warp group.
