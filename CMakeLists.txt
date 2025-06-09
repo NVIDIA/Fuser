@@ -296,7 +296,7 @@ list(APPEND NVFUSER_SRCS
 set(BUILD_LLVM ON)
 if(BUILD_LLVM)
   # Add LLVM JIT related dependencies
-  set(LLVM_DIR "/usr/lib/llvm-18/lib/cmake/llvm")
+  set(LLVM_DIR "/usr/lib/llvm-18/lib")
   find_package(LLVM REQUIRED CONFIG)
   llvm_map_components_to_libnames(LLVM_LIBS
     support
@@ -313,7 +313,6 @@ if(BUILD_LLVM)
   # Add LLVM JIT related sources
   list(APPEND NVFUSER_SRCS
     ${NVFUSER_SRCS_DIR}/host_ir/lower_to_llvm.cpp
-    ${NVFUSER_SRCS_DIR}/host_ir/host_ir_llvm_jit.cpp
   )
 endif()
 

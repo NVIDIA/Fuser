@@ -1,46 +1,67 @@
+#include <fusion.h>
+#include <global_allocator.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <val_graph_visitor.h>
+
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Module.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/IR/Verifier.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/IR/LLVMContext.h"
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/CompileUtils.h>
+#include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
+#include <llvm/ExecutionEngine/JITLink/JITLink.h>
+#include "llvm/Support/Error.h"
+
+#include <unordered_map>
+#include <queue>
+#include <chrono>
+
 #include <host_ir/lower_to_llvm.h>
 
 namespace nvfuser {
+/*
 
-// Print tensor info
-void print_tensor_info(const at::Tensor& t){
-  std::cout << "Tensor dtype: " << t.dtype() << "\n";
-  std::cout << "Shape: " << t.sizes() << "\n"; 
-  std::cout << "Strides: " << t.strides() << "\n";
-  std::cout << "Is Contiguous: " << t.is_contiguous() << "\n";
-  std::cout << "Device: " << t.device() << "\n";
-  std::cout << "Data ptr: " << t.data_ptr() << "\n";
-}
+Helper Data Structures & Functions
 
-void compare_tensor(const at::Tensor& t0, const at::Tensor& t1){
-  bool shape_match = true;
-  bool stride_match = true;
-  for(size_t i = 0; i < t0.sizes().size(); i++){
-    if(t0.sizes()[i] != t1.sizes()[i]){
-      std::cout << "Shape mismatch at index " << i << std::endl;
-      std::cout << "t0 size: " << t0.sizes()[i] << " t1 size: " << t1.sizes()[i] << std::endl;
-      shape_match = false;
-    }
+*/
+using FuncType = void (*)(const int64_t* input, int64_t input_len, int64_t* output, int64_t output_len);
+// Codegen type for the shape inference
+enum class codegenType{
+  Merge, // nvfuser merge -> llvm mul
+  Split // nvfuser split -> llvm constant padding + udiv
+};
+
+// Dependency graph entry for the shape inference
+class dependency_graph{
+  public:
+  codegenType op; // Codegen type for the shape inference
+  std::vector<Val*> input_vals; // Vals that defined the current Val
+  llvm::Value* llvm_val; // LLVM Value for the current Val
+  bool is_left_val; // Whether the current Val is the left Val of the output of Split operation or input of Merge operation
+  dependency_graph(){
+    op = codegenType::Merge;
+    llvm_val = nullptr;
+    is_left_val = false;
   }
-  for(size_t i = 0; i < t0.strides().size(); i++){
-    if(t0.strides()[i] != t1.strides()[i]){
-      std::cout << "Stride mismatch at index " << i << std::endl;
-      std::cout << "t0 stride: " << t0.strides()[i] << " t1 stride: " << t1.strides()[i] << std::endl;
-      stride_match = false;
-    }
-  }
-  if(shape_match && stride_match){ 
-    std::cout << "Tensor is equal" << std::endl;
-  }
-  else{
-    if(!shape_match){
-      std::cout << "Shape is not equal" << std::endl;
-    }
-    if(!stride_match){
-      std::cout << "Stride is not equal" << std::endl;
-    }
-  }
-}
+};
+
+// Dependency graph entry for the stride inference
+struct StrideInfo {
+public:
+    llvm::Value* llvm_extent = nullptr;   // LLVM Value for the extent of this IterDomain
+    llvm::Value* llvm_stride = nullptr;   // LLVM Value for the calculated stride of this IterDomain
+};
+
 
 // Print all exprs between input and output domain
 void print_getExprsBetween(const std::vector<IterDomain*>& input_domain, 
@@ -121,143 +142,133 @@ std::vector<IterDomain*> vals2domain(const std::vector<Val*>& domain){
   return vals;
 }
 
-// Helper function to check if the current iter domain is alias to the input iter domain
-int mapToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain, const ValGraph& exact_graph){
-  for(auto boundary_val : boundary_vals){ 
-    auto id = boundary_val.second;
-    if(exact_graph.disjointValSets().strictAreMapped(id, current_domain) || id == current_domain){
+// Helper function to map the current domain to the input domain strictly
+int mapToInputDomainStrict(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain){
+  for(auto boundary_val : boundary_vals){
+    if(boundary_val.second == current_domain){
       return boundary_val.first;
     }
   }
   return -1;
 }
 
-/*
-
-Build dependency graph for a given expression in shape inference before llvm codegen
-
-TODO: Need more comments here to explain the logic
-
-*/
-void build_dep_graph(Expr* expr, std::unordered_map<Val*, dependency_graph>& val2graph, llvm::IRBuilder<>& builder){
-  for(auto* output_value : expr->outputs()){
-    if(val2graph.find(output_value) != val2graph.end()){
-      return;
-    }
+// Helper function to check if the current iter domain is alias to the input iter domain
+int mapToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain, const ValGraph& exact_graph){
+  int strict_map_index = mapToInputDomainStrict(boundary_vals, current_domain);
+  if(strict_map_index != -1){
+    return strict_map_index;
   }
-  if(std::string(expr->getOpString()) == "Split"){
-    auto* output_value_1 = expr->outputs()[0];
-    auto* output_value_2 = expr->outputs()[1];
-    auto* out_domain_1 = dynamic_cast<IterDomain*>(output_value_1);
-    auto* out_domain_2 = dynamic_cast<IterDomain*>(output_value_2);
-
-    if(out_domain_1->extent()->isConstInt()){
-      val2graph[output_value_2] = dependency_graph();
-      val2graph[output_value_2].op = codegenType::Split;
-      val2graph[output_value_2].input_vals.push_back(output_value_1);
-      val2graph[output_value_2].input_vals.push_back(expr->inputs()[0]);
-      val2graph[output_value_2].is_left_val = true;
-
-      val2graph[output_value_1] = dependency_graph();
-      val2graph[output_value_1].op = codegenType::Split;
-      val2graph[output_value_1].llvm_val = builder.getInt64(std::stoi(out_domain_1->extent()->toString()));
+  for(auto boundary_val : boundary_vals){ 
+    if(exact_graph.disjointValSets().strictAreMapped(boundary_val.second, current_domain)){
+      return boundary_val.first;
     }
-    else if(out_domain_2->extent()->isConstInt()){
-      val2graph[output_value_1] = dependency_graph();
-      val2graph[output_value_1].op = codegenType::Split;
-      val2graph[output_value_1].input_vals.push_back(output_value_2);
-      val2graph[output_value_1].input_vals.push_back(expr->inputs()[0]);
-      val2graph[output_value_1].is_left_val = false;
-
-      val2graph[output_value_2] = dependency_graph();
-      val2graph[output_value_2].op = codegenType::Split;
-      val2graph[output_value_2].llvm_val = builder.getInt64(std::stoi(out_domain_2->extent()->toString()));
-    }
-    else{
-      val2graph[output_value_1] = dependency_graph();
-      val2graph[output_value_1].op = codegenType::Split;
-      val2graph[output_value_1].llvm_val = builder.getInt64(std::stoi(out_domain_1->extent()->toString()));
-
-      val2graph[output_value_2] = dependency_graph();
-      val2graph[output_value_2].op = codegenType::Split;
-      val2graph[output_value_2].llvm_val = builder.getInt64(std::stoi(out_domain_2->extent()->toString()));
-    }
-  }
-  else if(std::string(expr->getOpString()) == "Merge"){
-    auto* output_value = expr->outputs()[0];
-
-    val2graph[output_value] = dependency_graph();
-    val2graph[output_value].op = codegenType::Merge;
-    val2graph[output_value].input_vals.push_back(expr->inputs()[0]);
-
-    val2graph[output_value].input_vals.push_back(expr->inputs()[1]);
-  }
+  } 
+  return -1;
 }
-
 
 /*
 
 Generate LLVM IR for a dependency graph
+By default, we assume it is in typological order, which means input values are ready to use
 
 */
-void generate_shape_llvm_ir(Val * node, std::unordered_map<Val*, dependency_graph>& val2graph, llvm::IRBuilder<>& builder) {
-  if(val2graph.find(node) != val2graph.end() && val2graph[node].llvm_val != nullptr){
-    return;
-  }
-  if(val2graph.find(node) == val2graph.end()){
-    val2graph[node] = dependency_graph();
-    val2graph[node].op = codegenType::Merge;
-    bool is_constant_val =  dynamic_cast<IterDomain*>(node)->extent()->isConstInt();
-    if(is_constant_val){
-      val2graph[node].llvm_val = builder.getInt64(std::stoi(dynamic_cast<IterDomain*>(node)->extent()->toString()));
+void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unordered_map<Val*,llvm::Value*>& val2llvm, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
+  std::string op_string = std::string(expr->getOpString());
+
+  // Perform the merge -> mul transformation
+  if(op_string == "Merge"){
+    llvm::Value* result = nullptr;
+    auto* merge_expr = expr->as<Merge>();
+    auto* merge_input_outer_val = merge_expr->outer()->as<Val>();
+    auto* merge_input_inner_val = merge_expr->inner()->as<Val>();
+    auto* merge_output_val = merge_expr->outputs()[0]->as<Val>();
+
+    int input_outer_potential_index = mapToInputDomain(boundary_vals, merge_input_outer_val, graph);
+    int input_inner_potential_index = mapToInputDomain(boundary_vals, merge_input_inner_val, graph);
+    llvm::Value* input_outer_llvm_val = nullptr;
+    llvm::Value* input_inner_llvm_val = nullptr;
+
+    if(input_outer_potential_index != -1){
+      input_outer_llvm_val = val2llvm[boundary_vals[input_outer_potential_index]];
     }
     else{
-      val2graph[node].llvm_val = builder.getInt64(1);
-      std::cout<< "Missing node: " << node->toString() << " llvm_val: 1" << val2graph[node].llvm_val << std::endl;
+      input_outer_llvm_val = val2llvm[merge_input_outer_val];
     }
-    return;
+
+    if(input_inner_potential_index != -1){
+      input_inner_llvm_val = val2llvm[boundary_vals[input_inner_potential_index]];
+    }
+    else{
+      input_inner_llvm_val = val2llvm[merge_input_inner_val];
+    }
+
+    result = builder.CreateMul(input_outer_llvm_val, input_inner_llvm_val, merge_output_val->toString());
+
+    val2llvm[merge_output_val] = result;
   }
-  llvm::Value* result = nullptr;
-  if(val2graph[node].input_vals.size() == 2){
-    auto* input_val_1 = val2graph[node].input_vals[0];
-    auto* input_val_2 = val2graph[node].input_vals[1];
-    if(val2graph.find(input_val_1) == val2graph.end() || val2graph[input_val_1].llvm_val == nullptr){
-      generate_shape_llvm_ir(input_val_1, val2graph, builder);
+  else if(op_string == "Split"){
+    auto* split_expr = expr->as<Split>();
+    auto* split_input_val = split_expr->in()->as<Val>();
+    auto* split_output_outer_val = split_expr->outer()->as<Val>();
+    auto* split_output_inner_val = split_expr->inner()->as<Val>();
+
+    int input_potential_index = mapToInputDomain(boundary_vals, split_input_val, graph);
+    llvm::Value* input_llvm_val = nullptr;
+    if(input_potential_index != -1){
+      input_llvm_val = val2llvm[boundary_vals[input_potential_index]]; 
     }
-    if(val2graph.find(input_val_2) == val2graph.end() || val2graph[input_val_2].llvm_val == nullptr){ 
-      generate_shape_llvm_ir(input_val_2, val2graph, builder);
+    else{
+      input_llvm_val = val2llvm[split_input_val];
     }
-    if(val2graph[node].op == codegenType::Merge){
-      result = builder.CreateMul(val2graph[input_val_1].llvm_val, val2graph[input_val_2].llvm_val, node->toString());
-    }
-    else if(val2graph[node].op == codegenType::Split){
-    bool is_input_1_const =  dynamic_cast<IterDomain*>(input_val_1)->extent()->isConstInt();
-    bool is_input_2_const =  dynamic_cast<IterDomain*>(input_val_2)->extent()->isConstInt();
-      if(is_input_1_const){
-        llvm::Value* minus_1 = builder.CreateSub(val2graph[input_val_1].llvm_val, builder.getInt64(1), "minus_1");
-        llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2graph[input_val_2].llvm_val, "sum_ab");
-        result = builder.CreateUDiv(sum_ab, val2graph[input_val_1].llvm_val, node->toString());
-      }
-      else if(is_input_2_const){
-        llvm::Value* minus_1 = builder.CreateSub(val2graph[input_val_2].llvm_val, builder.getInt64(1), "minus_1");  
-        llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2graph[input_val_1].llvm_val, "sum_ab");
-        result = builder.CreateUDiv(sum_ab, val2graph[input_val_2].llvm_val, node->toString());
+
+    // Perform the split -> ceildiv transformation
+    if(split_expr->innerSplit()){
+      // inner = factor
+      if(split_expr->factor()->isConstInt()){
+        val2llvm[split_output_inner_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
       }
       else{
-        result = builder.CreateUDiv(val2graph[input_val_1].llvm_val, val2graph[input_val_2].llvm_val, node->toString());
+        if(val2llvm.find(split_expr->factor()) != val2llvm.end()){
+          val2llvm[split_output_inner_val] = val2llvm[split_expr->factor()];
+        }
+        else{
+          std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
+          exit(1);
+        }
       }
+      // outer = input + 1
+      llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
+      // outer = (input + 1) + inner
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_inner_val], "sum_ab");
+      // outer = (input + 1 + inner) / inner
+      val2llvm[split_output_outer_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_inner_val], split_output_outer_val->as<IterDomain>()->extent()->toString());
+    }
+    else{
+      // outer = factor
+      if(split_expr->factor()->isConstInt()){
+        val2llvm[split_output_outer_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
+      }
+      else{
+        if(val2llvm.find(split_expr->factor()) != val2llvm.end()){
+          val2llvm[split_output_outer_val] = val2llvm[split_expr->factor()];
+        }
+        else{
+          std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
+          exit(1);
+        }
+      }
+      // inner = input - 1
+      llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
+      // inner = (input - 1) + outer
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_outer_val], "sum_ab");
+      // inner = (input - 1 + outer) / outer
+      val2llvm[split_output_inner_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_outer_val], split_output_inner_val->as<IterDomain>()->extent()->toString());
     }
   }
   else{
-    if(val2graph[node].llvm_val == nullptr){
-      std::cout << "Missing result node: " << node->toString() << " llvm_val: 1" << std::endl;
-      result = builder.getInt64(1);
-    }
-    else{
-      return;
-    }
+    std::cerr << "Unsupported op: " << op_string << std::endl;
+    exit(1);
   }
-  val2graph[node].llvm_val = result;
 }
 
 /*
@@ -275,7 +286,19 @@ std::vector<Expr*> traverse_expr_group(const ValGraph& graph, std::vector<IterDo
       exprs.push_back(expr);
     }
   }
-  return exprs; 
+  return exprs;
+}
+
+void generate_all_shape_llvm_ir(const ValGraph& graph, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain, 
+std::unordered_map<Val*, llvm::Value*>& val2llvm_val, std::unordered_map<int, Val*>& boundary_vals, llvm::IRBuilder<>& builder){
+  ValGroups tv0_loop_groups = graph.toGroups(input_domain);
+  ValGroups tv1_loop_groups = graph.toGroups(output_domain);
+  auto result = getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
+  for(auto expr_group : result){
+    for(auto expr : *expr_group.first){
+      generate_shape_llvm_ir(expr, builder, val2llvm_val, boundary_vals, graph);
+    }
+  }
 }
 
 /*
@@ -284,7 +307,7 @@ Verify if the merge is legit by traversing the exprs between output and input do
 
 TODO: Need to implement this function
 */
-Val* findLowestCommonAncestor(Val* left_val, Val* right_val, std::unordered_map<Val*, dependency_graph>& val2graph) {
+Val* findLowestCommonAncestor(Val* left_val, Val* right_val) {
   if (!left_val || !right_val) {
     return nullptr;
   }
@@ -299,9 +322,8 @@ Val* findLowestCommonAncestor(Val* left_val, Val* right_val, std::unordered_map<
     Val* current = q.front();
     q.pop();
 
-    auto it = val2graph.find(current);
-    if (it != val2graph.end()) {
-      for (auto* input : it->second.input_vals) {
+    if (auto* def = current->definition()) {
+      for (auto* input : def->inputs()) {
         if (left_ancestors.find(input) == left_ancestors.end()) {
           left_ancestors.insert(input);
           q.push(input);
@@ -324,9 +346,8 @@ Val* findLowestCommonAncestor(Val* left_val, Val* right_val, std::unordered_map<
       return current;
     }
 
-    auto it = val2graph.find(current);
-    if (it != val2graph.end()) {
-      for (auto* input : it->second.input_vals) {
+    if (auto* def = current->definition()) {
+      for (auto* input : def->inputs()) {
         if (visited_right.find(input) == visited_right.end()) {
           visited_right.insert(input);
           q2.push(input);
@@ -338,87 +359,72 @@ Val* findLowestCommonAncestor(Val* left_val, Val* right_val, std::unordered_map<
   return nullptr;
 }
 
-bool verify(Val* left_val, Val* right_val, std::unordered_map<Val*, dependency_graph>& val2graph) {
-  Val* ancestor = findLowestCommonAncestor(left_val, right_val, val2graph);
-  if (!ancestor) {
-    // If there is no common ancestor, it's not a valid merge.
-    return false;
-  }
-
-  auto traverse = [&](Val* start_node, bool is_from_left_val) -> bool {
-    Val* current = start_node;
-    std::unordered_set<Val*> visited;
-
-    while (current != ancestor) {
-      if (!current || visited.count(current)) {
-        return false; // Reached null or cycle without finding ancestor
-      }
-      visited.insert(current);
-
-      auto it = val2graph.find(current);
-      if (it == val2graph.end()) {
-        return false; // Path incomplete in val2graph
-      }
-
-      auto& dep_node = it->second;
-      if (dep_node.op == codegenType::Merge) {
-        if (dep_node.input_vals.size() != 2) {
-          return false;
-        }
-        if (is_from_left_val) {
-          current =
-              dep_node.input_vals[1]; // traverse rightmost for left_val path
-        } else {
-          current =
-              dep_node.input_vals[0]; // traverse leftmost for right_val path
-        }
-      } else if (dep_node.op == codegenType::Split) {
-        if (dep_node.input_vals.size() != 2) {
-          return false;
-        }
-        if (is_from_left_val) {
-          // for left_val, path should be on the right side, so is_left_val
-          // should be true
-          if (!dep_node.is_left_val) {
-            return false;
-          }
-        } else {
-          // for right_val, path should be on the left side, so is_left_val
-          // should be false
-          if (dep_node.is_left_val) {
-            return false;
-          }
-        }
-        // Traverse up to the original input of the split operation
-        current = dep_node.input_vals[1];
-      } else {
-        // Other op types are not expected in this verification path.
-        return false;
-      }
-    }
+// Helper function to recursively trace the path from a value up to a given
+// ancestor, ensuring the path integrity is maintained (inner vs. outer).
+bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
+  // Base case: We've successfully reached the ancestor.
+  if (current == ancestor) {
     return true;
-  };
-
-  if (!traverse(left_val, true)) {
-    return false;
-  }
-  if (!traverse(right_val, false)) {
-    return false;
   }
 
-  return true;
+  // If there's no defining expression, we've hit a root, which is not the
+  // ancestor, so the path is invalid.
+  Expr* def = current->definition();
+  if (!def) {
+    return false;
+  }
+
+  // Handle Split expressions: check if we are on the correct side.
+  if (auto* split = def->as<Split>()) {
+    if (must_be_inner_path) {
+      if (current != split->inner()) return false; // Wrong side
+    } else {
+      if (current != split->outer()) return false; // Wrong side
+    }
+    // Continue from the split's input
+    return tracePathToAncestor(split->in(), ancestor, must_be_inner_path);
+  }
+  // Handle Merge expressions: continue up the corresponding path.
+  else if (auto* merge = def->as<Merge>()) {
+    if (must_be_inner_path) {
+      return tracePathToAncestor(merge->inner(), ancestor, must_be_inner_path);
+    } else {
+      return tracePathToAncestor(merge->outer(), ancestor, must_be_inner_path);
+    }
+  }
+  // Handle other expressions that are simple pass-throughs.
+  else if (def->inputs().size() == 1) {
+    return tracePathToAncestor(def->inputs()[0], ancestor, must_be_inner_path);
+  }
+
+  // Any other expression type breaks the verifiable path.
+  return false;
 }
 
-bool verify_exprs(const ValGraph& graph, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain, std::unordered_map<Val*, dependency_graph>& val2graph){
-  auto exprs = traverse_expr_group(graph, input_domain, output_domain);
-  for(auto* expr : exprs){
-    if(std::string(expr->getOpString()) == "Merge"){
-      if(verify(expr->inputs()[0], expr->inputs()[1], val2graph)){
-        std::cerr << "Invalid merge expr: " << expr->toString() << std::endl;
-        return false;
-      }
-    }
-  }
+bool verify(Expr* expr) {
+  // This function only verifies Merge expressions.
+  // auto merge = dynamic_cast<Merge*>(expr);
+  // if (!merge) {
+  //   return true;
+  // }
+
+  // Val* inner_val = merge->inner(); // Rightmost input
+  // Val* outer_val = merge->outer(); // Leftmost input
+
+  // // Find the lowest common ancestor.
+  // Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
+  // if (!ancestor) {
+  //   // No common ancestor means they don't originate from a single split.
+  //   return false;
+  // }
+
+  // // Verify that the path from the inner_val to the ancestor is exclusively
+  // // through "inner" or "rightmost" paths, and the path from the outer_val
+  // // is exclusively through "outer" or "leftmost" paths.
+  // bool inner_path_is_valid = tracePathToAncestor(inner_val, ancestor, true);
+  // bool outer_path_is_valid = tracePathToAncestor(outer_val, ancestor, false);
+
+  // return inner_path_is_valid && outer_path_is_valid;
   return true;
 }
 
@@ -435,53 +441,69 @@ void generate_stride_llvm_ir(
     llvm::Value*& running_stride_product,
     const ValGraph& graph
     ) {
+
+    // Check if the current val is nullptr
     if (current_val_to_process == nullptr) {
         std::cerr << "Error: generate_stride_llvm_ir called with nullptr Val." << std::endl;
         return;
     }
-    int cur_val_boundary_index = mapToInputDomain(boundary_vals, current_val_to_process, graph);
-    if(cur_val_boundary_index != -1){
-      if(val2stride_map[boundary_vals[cur_val_boundary_index]].llvm_stride == nullptr){
-        val2stride_map[boundary_vals[cur_val_boundary_index]].llvm_stride = running_stride_product;
-        running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[cur_val_boundary_index]].llvm_extent, "stride_root_val");
+
+    // Check if the current val is a boundary val
+    int cur_val_potential_index = mapToInputDomain(boundary_vals, current_val_to_process, graph);
+    if(cur_val_potential_index != -1){
+      if(val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride == nullptr){
+        val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride = running_stride_product;
+        running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[cur_val_potential_index]].llvm_extent, "stride_root_val");
       }
       return;
     }
 
-    if (val2stride_map.count(current_val_to_process) && val2stride_map[current_val_to_process].llvm_stride != nullptr) {
-        return; // Memoization: Already processed
+    // Memoization: Already processed
+    if (val2stride_map.find(current_val_to_process) != val2stride_map.end() && val2stride_map[current_val_to_process].llvm_stride != nullptr) {
+        return;
     }
 
-    auto def_expr = current_val_to_process->definition();
-    if (def_expr == nullptr) { // Base Case: Root Val (e.g., physical input IterDomain)
-        if (!val2stride_map.count(current_val_to_process) || val2stride_map[current_val_to_process].llvm_stride == nullptr) {
+    auto* def_expr = current_val_to_process->definition();
+
+    // Check if the current val is missing
+    if (def_expr == nullptr) {
+        if (val2stride_map.find(current_val_to_process) == val2stride_map.end() || val2stride_map[current_val_to_process].llvm_stride == nullptr) {
             std::cerr << "Warning: StrideInfo not pre-populated for root Val: "
                       << current_val_to_process->toString() << ". Its stride will be unknown." << std::endl;
         }
         return;
     }
+
     std::string op_type = def_expr->getOpString();
+    // For each merge op, we need to check if it is valid split, we don't want to merge two values that has gaps in between
     if (op_type == "Merge") {
-        Val* input_inner_val = def_expr->inputs()[1];
-        Val* input_outer_val = def_expr->inputs()[0];
-        int input_inner_val_boundary_index = mapToInputDomain(boundary_vals, input_inner_val, graph);
-        int input_outer_val_boundary_index = mapToInputDomain(boundary_vals, input_outer_val, graph);
-        if(input_inner_val_boundary_index != -1 && val2stride_map[boundary_vals[input_inner_val_boundary_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_inner_val_boundary_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_inner_val_boundary_index]].llvm_extent, "stride_merge_inner_val");
+        auto* merge_expr = def_expr->as<Merge>();
+        auto* input_inner_val = merge_expr->inner()->as<Val>();
+        auto* input_outer_val = merge_expr->outer()->as<Val>();
+        int input_inner_potential_index = mapToInputDomain(boundary_vals, input_inner_val, graph);
+        int input_outer_potential_index = mapToInputDomain(boundary_vals, input_outer_val, graph);
+        if(!verify(merge_expr->as<Expr>())){
+          std::cerr << "Invalid merge expr: " << merge_expr->toString() << std::endl;
+          exit(1);
         }
-        else if(input_inner_val_boundary_index != -1 && val2stride_map[boundary_vals[input_inner_val_boundary_index]].llvm_stride != nullptr){
-          // case where the inner val is already computed in previous dfs calls
+        // Check if the inner val is a boundary val
+        if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_inner_potential_index]].llvm_extent, "stride_merge_inner_val");
+        }
+        else if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride != nullptr){
           return;
         }
         else{
           generate_stride_llvm_ir(input_inner_val, val2stride_map, builder, boundary_vals, running_stride_product, graph);
         }
-        if(input_outer_val_boundary_index != -1 && val2stride_map[boundary_vals[input_outer_val_boundary_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_outer_val_boundary_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_outer_val_boundary_index]].llvm_extent, "stride_merge_outer_val");
+
+        // Check if the outer val is a boundary val
+        if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_outer_potential_index]].llvm_extent, "stride_merge_outer_val");
         }
-        else if(input_outer_val_boundary_index != -1 && val2stride_map[boundary_vals[input_outer_val_boundary_index]].llvm_stride != nullptr){
+        else if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride != nullptr){
           // case where the outer val is already computed in previous dfs calls
           return;
         }
@@ -490,12 +512,7 @@ void generate_stride_llvm_ir(
         }
         
         // Extent of merged domain
-        if(val2stride_map[input_outer_val].llvm_extent == nullptr || val2stride_map[input_inner_val].llvm_extent == nullptr){
-          // std::cout << "outer and inner val extent not computed" << std::endl;
-          return;
-        }
-        else if(val2stride_map[current_val_to_process].llvm_extent != nullptr){
-          // std::cout << "current val extent already computed" << std::endl;
+        if(val2stride_map[input_outer_val].llvm_extent == nullptr || val2stride_map[input_inner_val].llvm_extent == nullptr || val2stride_map[current_val_to_process].llvm_extent != nullptr){
           return;
         }
         else{
@@ -507,52 +524,63 @@ void generate_stride_llvm_ir(
         }
 
     } else if (op_type == "Split") {
-        Val* input_val = def_expr->inputs()[0];
-        Val* output_inner_val = def_expr->outputs()[1];
-        Val* output_outer_val = def_expr->outputs()[0];
-        auto output_inner_domain = dynamic_cast<IterDomain*>(output_inner_val);
-        auto output_outer_domain = dynamic_cast<IterDomain*>(output_outer_val);
-        int input_val_boundary_index = mapToInputDomain(boundary_vals, input_val, graph);
-        if(input_val_boundary_index != -1 && val2stride_map[boundary_vals[input_val_boundary_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_val_boundary_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_val_boundary_index]].llvm_extent, "stride_split_input_val");
+        auto* split_expr = def_expr->as<Split>();
+        auto* input_val = split_expr->in()->as<Val>();
+        auto* output_inner_val = split_expr->inner()->as<Val>();
+        auto* output_outer_val = split_expr->outer()->as<Val>();
+        int input_val_potential_index = mapToInputDomain(boundary_vals, input_val, graph);
+
+        if(input_val_potential_index != -1 && val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_val_potential_index]].llvm_extent, "stride_split_input_val");
         }
-        else if(input_val_boundary_index != -1 && val2stride_map[boundary_vals[input_val_boundary_index]].llvm_stride != nullptr){
+        else if(input_val_potential_index != -1 && val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride != nullptr){
           return;
         }
         else{
           generate_stride_llvm_ir(input_val, val2stride_map, builder, boundary_vals, running_stride_product, graph);
         }
-        bool is_inner_val_const = output_inner_domain->extent()->isConstInt();
-        bool is_outer_val_const = output_outer_domain->extent()->isConstInt();
-        if(is_inner_val_const && val2stride_map[output_outer_val].llvm_extent == nullptr){
-          val2stride_map[output_inner_val].llvm_extent = builder.getInt64(stoi(output_inner_domain->extent()->toString()));
+
+        int64_t split_factor = stoi(split_expr->factor()->toString());
+        if(split_expr->innerSplit()){
+          if(split_expr->factor()->isConstInt()){
+            val2stride_map[output_inner_val].llvm_extent = builder.getInt64(split_factor);
+          }
+          else{
+            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
+              val2stride_map[output_inner_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            }
+            else{
+              std::cerr << "Error: Inner split factor is not a constant and not found in val2stride_map" << std::endl;
+              return;
+            }
+          }
           val2stride_map[output_outer_val].llvm_extent = builder.CreateUDiv(
             val2stride_map[input_val].llvm_extent,
             val2stride_map[output_inner_val].llvm_extent,
             output_outer_val->toString() + "_split_extent"
-          );
-        }
-        else if(is_outer_val_const && val2stride_map[output_inner_val].llvm_extent == nullptr){
-          val2stride_map[output_outer_val].llvm_extent = builder.getInt64(stoi(output_outer_domain->extent()->toString()));
-          val2stride_map[output_inner_val].llvm_extent = builder.CreateUDiv(
-            val2stride_map[input_val].llvm_extent,
-            val2stride_map[output_outer_val].llvm_extent,
-            output_inner_val->toString() + "_split_extent"
           );
         }
         else{
+          if(split_expr->factor()->isConstInt()){
+            val2stride_map[output_outer_val].llvm_extent = builder.getInt64(split_factor);
+          }
+          else{
+            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
+              val2stride_map[output_outer_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            }
+            else{
+              std::cerr << "Error: Outer split factor is not a constant and not found in val2stride_map" << std::endl;
+              return;
+            }
+          }
           val2stride_map[output_inner_val].llvm_extent = builder.CreateUDiv(
             val2stride_map[input_val].llvm_extent,
             val2stride_map[output_outer_val].llvm_extent,
             output_inner_val->toString() + "_split_extent"
           );
-          val2stride_map[output_outer_val].llvm_extent = builder.CreateUDiv(
-            val2stride_map[input_val].llvm_extent,
-            val2stride_map[output_inner_val].llvm_extent,
-            output_outer_val->toString() + "_split_extent"
-          );
         }
+
     } else { // Fallback for other ops (e.g., simple unary pass-through)
         std::cerr << "Warning: Unhandled op_type '" << op_type << "' for Val ";
     }
@@ -563,16 +591,16 @@ void generate_stride_llvm_ir(
 Generate infer stride module
 
 */
-llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*>& allocation_domain, std::vector<IterDomain*>& logical_domain, Fusion& fusion) {
+llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*>& logical_domain, std::vector<IterDomain*>& allocation_domain, Fusion& fusion, std::string name) {
   auto Context = std::make_unique<llvm::LLVMContext>();
   auto* ctx = Context.get();
-  auto Module = std::make_unique<llvm::Module>("infer_stride_module", *ctx);
+  auto Module = std::make_unique<llvm::Module>(name, *ctx);
   llvm::IRBuilder<> builder(*ctx);
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
 
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_stride", Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
 
@@ -612,6 +640,9 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   for(long unsigned int i = 0; i < logical_domain.size(); i++){
+    if(val2stride[input_vals[i]].llvm_stride == nullptr){
+      continue;
+    }
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
     builder.CreateStore(val2stride[input_vals[i]].llvm_stride, output_i_ptr);
   }
@@ -628,73 +659,71 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
 Generate infer shape module
 
 */
-llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>& input_logical_domain, std::vector<IterDomain*>& output_logical_domain, Fusion& fusion) {
+llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain, Fusion& fusion, std::string name) {
   auto Context = std::make_unique<llvm::LLVMContext>();
   auto* ctx = Context.get();
-  auto Module = std::make_unique<llvm::Module>("infer_shape_module", *ctx);
+  auto Module = std::make_unique<llvm::Module>(name, *ctx);
   llvm::IRBuilder<> builder(*ctx);
   std::vector<llvm::Type*> output_types;
-  for(long unsigned int i = 0; i < output_logical_domain.size(); i++){
+
+  // Initialize the output types, linking with llvm outputs
+  for(size_t i = 0; i < output_domain.size(); i++){
     output_types.push_back(builder.getInt64Ty());
   }
+
+  // Initialize the input types, linking with llvm inputs
   std::vector<llvm::Type*> input_types;
-  for(long unsigned int i = 0; i < input_logical_domain.size(); i++){
+  for(size_t i = 0; i < input_domain.size(); i++){
     input_types.push_back(builder.getInt64Ty());
   }
+
+  // Initialize the function type, input and output types
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
-
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_shape", Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
-  std::unordered_map<Val*, dependency_graph> val2graph;
-  std::vector<Val*> input_vals = domain2vals(input_logical_domain);
-  std::vector<Val*> output_vals = domain2vals(output_logical_domain);
+
+  // Cast input and output domains to vals
+  std::vector<Val*> input_values = domain2vals(input_domain);
+  std::vector<Val*> output_values = domain2vals(output_domain);
+
+  // Get the function arguments
   auto arg_it = func->arg_begin();
   llvm::Value* input_ptr = &*arg_it;
   llvm::Value* output_ptr = &*arg_it+2;
+
+  // Initialize the id model and the val graph, and Val to llvm value map
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
-  auto exprs = traverse_expr_group(graph, input_logical_domain, output_logical_domain);
   std::unordered_map<int, Val*> boundary_vals;
-  for(long unsigned int i = 0; i < input_logical_domain.size(); i++){
-    boundary_vals[i] = input_vals[i];
+  std::unordered_map<Val*, llvm::Value*> val2llvm_val;
+
+  // Initialize the input values, linking with llvm inputs
+  for(size_t i = 0; i < input_domain.size(); i++){
+    boundary_vals[i] = input_values[i];
     auto* zero = builder.getInt64(i);
     auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
     auto* input_i_val = builder.CreateLoad(int64Ty, input_i_ptr, "val");
-    val2graph[input_vals[i]] = dependency_graph();
-    val2graph[input_vals[i]].llvm_val = input_i_val;
+    val2llvm_val[input_values[i]] = input_i_val;
   }
+
+  // Generate the shape llvm ir for all the exprs between input and output domain
+  generate_all_shape_llvm_ir(graph, input_domain, output_domain, val2llvm_val, boundary_vals, builder);
 
   // Map the output values to the input values if they are the same
-  for(auto* val : output_vals){
+  for(auto* val : output_values){
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
-      val2graph[val] = val2graph[boundary_vals[index]];
+      val2llvm_val[val] = val2llvm_val[boundary_vals[index]];
     }
   }
 
-  for(auto* expr : exprs){
-    auto expr_input_domain = vals2domain(expr->inputs());
-    build_dep_graph(expr, val2graph, builder);
-    int current_index = 0;
-    for(auto* expr_input : expr->inputs()){
-      auto index = mapToInputDomain(boundary_vals, expr_input, graph);
-      if(index != -1){
-        val2graph[expr_input].input_vals[current_index] = boundary_vals[index];
-      }
-      current_index++;
-    }
-  }
-
-  for(auto* val : output_vals){
-    generate_shape_llvm_ir(val, val2graph, builder);
-  }
-
-  for(long unsigned int i = 0; i < output_vals.size(); i++){
+  // Store the output values to the preallocated output buffer
+  for(size_t i = 0; i < output_values.size(); i++){
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
-    builder.CreateStore(val2graph[output_vals[i]].llvm_val, output_i_ptr);
+    builder.CreateStore(val2llvm_val[output_values[i]], output_i_ptr);
   }
 
   builder.CreateRetVoid();
@@ -709,24 +738,6 @@ std::unique_ptr<llvm::orc::LLJIT> llvm_jit_init(int num_threads){
   llvm::InitializeNativeTargetAsmPrinter();
   auto JIT = ExitOnErr(llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
   return JIT;
-}
-
-// shape infer compile
-void llvm_jit_compile_shape_infer(std::unique_ptr<llvm::orc::LLJIT>& JIT, Fusion& fusion, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain){
-  std::cout << "llvm_jit_compile shape infer" << std::endl;
-  auto TSM_shape = generate_infer_shape_module(input_domain, output_domain, fusion);
-  if (auto Err = JIT->addIRModule(std::move(TSM_shape))) {
-    llvm::errs() << "Error adding module to JIT: " << llvm::toString(std::move(Err)) << "\n";
-  }
-}
-
-// stride infer compile
-void llvm_jit_compile_stride_infer(std::unique_ptr<llvm::orc::LLJIT>& JIT,Fusion& fusion, std::vector<IterDomain*>& allocation_domain, std::vector<IterDomain*>& logical_domain){
-  std::cout << "llvm_jit_compile stride infer" << std::endl;
-  auto TSM_stride = generate_infer_stride_module(allocation_domain, logical_domain, fusion);
-  if (auto Err = JIT->addIRModule(std::move(TSM_stride))) {
-    llvm::errs() << "Error adding module to JIT: " << llvm::toString(std::move(Err)) << "\n";
-  }
 }
 
 // Allocate the output tensor based on the shape and stride inference
@@ -748,5 +759,161 @@ at::Tensor aten_output_allocation(FuncType shape_infer_func, FuncType stride_inf
 }
 
 template llvm::orc::ExecutorAddr nvfuser::ExitOnErr<llvm::orc::ExecutorAddr>(llvm::Expected<llvm::orc::ExecutorAddr> &&E);
+
+} // namespace nvfuser
+
+
+namespace nvfuser {
+
+// PIMPL implementation for HostIrLlvmJit
+struct HostIrLlvmJit::LlvmJitImpl {
+  std::unique_ptr<llvm::orc::LLJIT> jit;
+  FuncType allocation_shape_infer_fn = nullptr;
+  FuncType logical_shape_infer_fn = nullptr;
+  FuncType allocation_stride_infer_fn = nullptr;
+  FuncType logical_stride_infer_fn = nullptr;
+  TensorView* output_tv = nullptr;
+};
+
+// Constructor implementation
+HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+  pimpl_->jit = ExitOnErr(
+      llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
+}
+
+// The destructor must be defined here where LlvmJitImpl is a complete type.
+HostIrLlvmJit::~HostIrLlvmJit() = default;
+
+// Move constructor and assignment operator
+HostIrLlvmJit::HostIrLlvmJit(HostIrLlvmJit&&) noexcept = default;
+HostIrLlvmJit& HostIrLlvmJit::operator=(HostIrLlvmJit&&) noexcept = default;
+
+void HostIrLlvmJit::compile(TensorView* output_tv) {
+  pimpl_->output_tv = output_tv;
+  Fusion* fusion = output_tv->fusion();
+  NVF_ERROR(fusion != nullptr, "Output TensorView must belong to a fusion.");
+
+  // This simplified API assumes a single input TensorView.
+  // This can be extended to handle multiple inputs.
+  std::vector<TensorView*> input_tvs;
+  TensorView* input_tv = nullptr;
+  for (auto inp : fusion->inputs()) {
+    if (auto tv = dynamic_cast<TensorView*>(inp)) {
+      NVF_ERROR(
+          input_tv == nullptr,
+          "Multiple input TensorViews not yet supported in this simplified API");
+      input_tvs.push_back(tv);
+    }
+  }
+  NVF_ERROR(input_tvs.size() > 0, "No input TensorView found in fusion");
+
+  std::vector<IterDomain*> input_logical_domains;
+  for (auto input_tv : input_tvs) {
+    input_logical_domains.insert(
+        input_logical_domains.end(),
+        input_tv->getLogicalDomain().begin(),
+        input_tv->getLogicalDomain().end());
+  }
+  auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
+  auto output_logical_domain = output_tv->getLogicalDomain();
+
+  // JIT compile shape inference module
+  auto TSM_allocation_shape =
+      generate_infer_shape_module(input_logical_domains, output_allocation_domain, *fusion, "infer_allocation_shape_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_shape))) {
+    llvm::errs() << "Error adding shape infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+  auto TSM_logical_shape =
+      generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion, "infer_logical_shape_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_logical_shape))) {
+    llvm::errs() << "Error adding shape infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+
+  // JIT compile stride inference module
+  auto TSM_logical_stride =
+      generate_infer_stride_module(output_logical_domain, output_allocation_domain, *fusion, "infer_logical_stride_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_logical_stride))) {
+    llvm::errs() << "Error adding stride infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+  auto TSM_allocation_stride =
+      generate_infer_stride_module(output_allocation_domain, output_allocation_domain, *fusion, "infer_allocation_stride_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_stride))) {
+    llvm::errs() << "Error adding stride infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+
+  // Look up the function pointers and store them
+  pimpl_->allocation_shape_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_allocation_shape_module")).toPtr<FuncType>();
+  pimpl_->logical_shape_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_logical_shape_module")).toPtr<FuncType>();
+  pimpl_->allocation_stride_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_allocation_stride_module")).toPtr<FuncType>();
+  pimpl_->logical_stride_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_logical_stride_module")).toPtr<FuncType>();
+}
+
+at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
+  NVF_ERROR(
+      pimpl_->allocation_shape_infer_fn != nullptr && pimpl_->logical_shape_infer_fn != nullptr 
+      && pimpl_->allocation_stride_infer_fn != nullptr && pimpl_->logical_stride_infer_fn != nullptr
+      && pimpl_->output_tv != nullptr,
+      "JIT must be compiled before running.");
+
+  // Allocate memory for shape result
+  std::vector<int64_t> allocation_shape_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
+  std::vector<int64_t> logical_shape_result(pimpl_->output_tv->getLogicalDomain().size());
+  std::vector<int64_t> input_sizes;
+  for(auto& input_tensor : input_tensors){
+    input_sizes.insert(input_sizes.end(), input_tensor.sizes().begin(), input_tensor.sizes().end());
+  }
+  // Run output tensor allocation shape inference
+  pimpl_->allocation_shape_infer_fn(
+      input_sizes.data(),
+      input_sizes.size(),
+      allocation_shape_result.data(),
+      allocation_shape_result.size());
+
+  // Run output tensor logical shape inference
+  pimpl_->logical_shape_infer_fn(
+      input_sizes.data(),
+      input_sizes.size(),
+      logical_shape_result.data(),
+      logical_shape_result.size());
+
+  // Allocate memory for stride result
+  std::vector<int64_t> logical_stride_result(pimpl_->output_tv->getLogicalDomain().size());
+  std::vector<int64_t> allocation_stride_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
+
+  // Run output tensor logical stride inference
+  pimpl_->logical_stride_infer_fn(
+      logical_shape_result.data(),
+      logical_shape_result.size(),
+      logical_stride_result.data(),
+      logical_stride_result.size());
+  for(size_t i = 0; i < logical_stride_result.size(); i++){
+    std::cout << "logical_stride_result[" << i << "] = " << logical_stride_result[i] << std::endl;
+  }
+
+  // Run output tensor allocation stride inference
+  pimpl_->allocation_stride_infer_fn(
+      allocation_shape_result.data(),
+      allocation_shape_result.size(),
+      allocation_stride_result.data(),
+      allocation_stride_result.size());
+  for(size_t i = 0; i < allocation_stride_result.size(); i++){
+    std::cout << "allocation_stride_result[" << i << "] = " << allocation_stride_result[i] << std::endl;
+  }
+
+  // Create the output tensor with the computed shape and strides
+  at::Tensor physical_output_tensor = at::empty_strided(allocation_shape_result, allocation_stride_result, input_tensors[0].options());
+  at::Tensor logical_output_tensor = at::as_strided(physical_output_tensor, logical_shape_result, logical_stride_result);
+  return logical_output_tensor;
+}
 
 } // namespace nvfuser
