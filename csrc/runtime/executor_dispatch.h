@@ -16,7 +16,7 @@ namespace nvfuser {
 // ExprEvalExecutor
 class ExecutorDispatch {
  public:
-  // If `scheduler_type` is `SchedulerType::None`, this function Iterates
+  // If `scheduler_type` is `SchedulerType::None`, this function iterates
   // through executors in priority order creating the first executor that
   // returns true when checking their "supported" method. Otherwise, create the
   // executor according to `scheduler_type`, which is faster.
