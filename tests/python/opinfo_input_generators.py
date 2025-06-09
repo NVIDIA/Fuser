@@ -837,6 +837,44 @@ def argsort_generator(
             yield SampleInput(a, dim, descending, stable)
 
 
+def topk_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # a.shape, dim, k_values
+    cases = (
+        ((128,), 0, [5, 10, 64]),
+        ((128, 7, 32), 0, [5, 1, 128]),
+        ((128, 7, 32), 1, [5, 1, 7]),
+        ((128, 7, 32), 2, [5, 1, 32]),
+        ((128, 7, 32), -1, [5, 1, 32]),
+        ((128, 7, 32), -2, [5, 1, 7]),
+        ((128, 7, 32), -3, [5, 1, 128]),
+    )
+
+    for shape, dim, k_values in cases:
+        a = make_arg(shape)
+        for k in k_values:
+            for largest, sorted_flag in itertools.product([True, False], repeat=2):
+                yield SampleInput(a, k, dim, largest, sorted_flag)
+
+def topk_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    a = make_arg((128, 7, 32))
+    yield SampleInput(a, 10, 0, True, False), RuntimeError, "dim is out of bounds"
+    yield SampleInput(a, -5, 1, True, False), RuntimeError, "dim is out of bounds"
+
+    # k is out of bounds
+    yield SampleInput(a, 1, 32, True, False), RuntimeError, "selected index k is out of bounds"
+
 def index_select_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

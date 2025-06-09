@@ -15,6 +15,7 @@ from opinfo_fusion_definitions import (
 from opinfo_input_generators import (
     argsort_generator,
     topk_generator,
+    topk_error_generator,
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
@@ -1077,6 +1078,7 @@ topk_opinfo = OpInfo(
     "topk",
     # dtypes=(int_float_dtypes),
     sample_input_generator=topk_generator,
+    error_input_generator=topk_error_generator,
     reference=torch.topk,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
