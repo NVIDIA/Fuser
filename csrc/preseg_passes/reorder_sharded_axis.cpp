@@ -22,12 +22,11 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-void makeCommunicationLayoutCompliant(
-    Expr* expr,
-    CommunicationInfo communication_info) {
+void makeCommunicationLayoutCompliant(Expr* expr) {
   auto* input = expr->inputs().at(0)->as<TensorView>();
   auto* output = expr->outputs().at(0)->as<TensorView>();
 
+  CommunicationInfo communication_info = getCommunicationInfo(expr);
   IterDomain* p_sharded_id = communication_info.p_sharded_id;
   IterDomain* c_sharded_id = communication_info.c_sharded_id;
 
@@ -81,17 +80,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    auto communication_info = getCommunicationInfo(expr);
-    // Should really be simply NVF_ERROR(communication_info.has_value());
-    //
-    // I'll try to do that after #4552 is merged. Some of the `mesh.size() > 1`
-    // check in getCommunicationInfo and convertSingleOpToCommuniation will also
-    // need to go away for this simplification.
-    if (!communication_info.has_value()) {
-      continue;
-    }
-
-    makeCommunicationLayoutCompliant(expr, *communication_info);
+    makeCommunicationLayoutCompliant(expr);
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {

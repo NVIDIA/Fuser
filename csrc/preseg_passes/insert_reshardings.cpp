@@ -398,11 +398,7 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
   // Validate
   for (Expr* e : fusion->exprs()) {
     if (isResharding(e)) {
-      NVF_ERROR(
-          getCommunicationInfo(e).has_value(),
-          "After decomposition, any resharding expression is expected to be a "
-          "lowerable communication: ",
-          e);
+      getCommunicationInfo(e);
     }
   }
 }

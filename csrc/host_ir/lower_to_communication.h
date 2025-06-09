@@ -37,7 +37,7 @@ bool isCommunicationLayoutCompliant(Expr* expr);
 // info: type and sharded IDs. We assume that the expr has been decomposed and
 // represented a single communication. If multiple communications are present or
 // 2D sharding, this function will raise an error.
-std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr);
+CommunicationInfo getCommunicationInfo(Expr* expr);
 
 // Given the input/output TensorView of a communication, returns its layout
 // required by the communication backend (e.g. NCCL or UCC). `sharded_id` is the
