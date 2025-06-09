@@ -260,7 +260,6 @@ __device__ void staticWarpAllReduceTIDX(
     const T& inp_val,
     Func reduction_op,
     T* shared_mem,
-    uint32_t threadIdx_x,
     uint32_t barrier_id = 1) {
   constexpr int WARP_SIZE = 32;
   constexpr dim3 block_dim = dim3(n_threads, 1, 1);
@@ -274,8 +273,8 @@ __device__ void staticWarpAllReduceTIDX(
   // Reduce across warp if needed
   // Load value to shared mem
   if constexpr (!SINGLE_WARP) {
-    unsigned int warp_idx = threadIdx_x / WARP_SIZE;
-    unsigned int lane_idx = threadIdx_x % WARP_SIZE;
+    unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+    unsigned int lane_idx = threadIdx.x % WARP_SIZE;
 
     if (lane_idx == 0) {
       shared_mem[warp_idx] = reduce_val;

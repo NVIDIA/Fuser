@@ -1393,14 +1393,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder template_args;
 
     if (warp_specialized_on_ != ParallelType::Serial && is_all_reduce) {
-      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
-      func_args.arg(
-          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
-      func_args.arg("1"); // Simple barrier ID
+      if (has_independent_compute_warp_groups_) {
+        func_args.arg(
+            genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+            genSmemOffset());
+        func_args.arg(genBarrierId(true));
+
+      } else {
+        func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+      }
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
       template_args.arg(getComputeThreadsTIDx());
+
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)
                << ";\n";
@@ -3966,3 +3972,4 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
+     

@@ -358,9 +358,13 @@ void getHeuristics(
             << "\n"
             << "vectorization_factor_outer: " << vectorization_factor_outer
             << "\n"
-            << "bdimx: " << bdimx << "\n"
-            << "bdimy: " << bdimy << "\n"
-            << "gdimy: " << gdimy << "\n";
+            << "bdimx: " << bdimx << ", bdimy: " << bdimy
+            << ", iter_unroll: " << iter_unroll << ", n_stages: " << n_stages
+            << "\n"
+            << "is_circular_buffer_regs_cached: "
+            << is_circular_buffer_regs_cached << "\n"
+            << "is_non_circular_buffer_gmem_to_regs: "
+            << is_non_circular_buffer_gmem_to_regs << "\n";
     debug() << "smem_persistent_buffers: " << "\n";
     for (auto buffer : rparams->smem_persistent_buffers) {
       debug() << buffer->toString() << "\n";
