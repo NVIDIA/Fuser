@@ -667,8 +667,8 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         data->dim(),
-        data->bAttr0(),
-        data->bAttr1());
+        data->b_attr_0(),
+        data->b_attr_1());
   };
   registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
 
@@ -678,8 +678,8 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         data->dim(),
-        data->bAttr0(),
-        data->bAttr1());
+        data->b_attr_0(),
+        data->b_attr_1());
   };
   registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }
