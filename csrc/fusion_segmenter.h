@@ -577,7 +577,7 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
-  //  This is a helper function used by privatizeOps.
+  // This is a helper function used by privatizeOps.
   // @return true if any upcast or squeeze operation was successfully
   // privatized; false otherwise.
   bool privatizeUpCastOrSqueezeOp();
@@ -603,7 +603,7 @@ class SegmentCandidateFinder {
 
   void findSegments();
 
-  // Revert privatized upcast ops when not necessary
+  // Revert privatized ops when not necessary
   void revertPrivatizedOps(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
