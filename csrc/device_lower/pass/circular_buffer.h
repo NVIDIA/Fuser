@@ -184,16 +184,7 @@ class TmaCircularBufferInfo {
 
 class HopperPingPongMbarriers {
  public:
-  HopperPingPongMbarriers(int64_t num_warp_groups, ParallelType ws_axis)
-      : num_warp_groups_{num_warp_groups}, ws_axis_{ws_axis} {
-    NVF_ERROR(
-        num_warp_groups == 2,
-        "Expected the number of warp groups to be two for Hopper ping-pong ",
-        "matmuls");
-    NVF_ERROR(
-        ws_axis == ParallelType::TIDy,
-        "Expected the warp specialized axis to be ParallelType::TIDy");
-  }
+  HopperPingPongMbarriers(int64_t num_warp_groups, ParallelType ws_axis);
 
   //! Get the number of warp groups.
   int64_t getNumWarpGroups() const {
@@ -222,8 +213,16 @@ class HopperPingPongMbarriers {
   //! mbarriers.
   std::tuple<kir::Allocate*, ForLoop*, ForLoop*> createPingPongMbarrier();
 
-  //! Create a IfThenElse that releases the TensorCore and Epilogue mbarriers
-  //! for the first independent warp group.
+  //! Create a IfThenElse where the last warp group releases the TensorCore and
+  //! Epilogue mbarriers for the first independent warp group.
+  //!
+  //! Pseudo-code:
+  //! if (ws_axis == (all_compute_id - 1)) {
+  //!   // offset 0 is the TensorCores mbarrier whereas offset 1 is the Cuda
+  //!   // Epilogue mbarrier.
+  //!   mbarrier::arrive(ping_pong_mbarriers[0]);
+  //!   mbarrier::arrive(ping_pong_mbarriers[1]);
+  //! }
   kir::IfThenElse* createPrefetchIfThenElse();
 
   //! Select mbarrier for the given computation phase and independent warp
