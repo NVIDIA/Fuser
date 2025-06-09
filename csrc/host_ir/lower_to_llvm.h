@@ -1,5 +1,11 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #pragma once
-
 #include <fusion.h> // For TensorView and at::Tensor
 #include <memory>  // For std::unique_ptr
 
