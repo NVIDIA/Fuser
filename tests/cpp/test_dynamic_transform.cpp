@@ -246,12 +246,10 @@ TEST_F(DynamicTransformTest, DynamicTransform4) {
     }
 
     auto tv2 = reshape(tv0, shape_arg);
-    tv2->printTransforms();
 
     // tv3 will also have symbolic axes
     auto tv3 = set(tv2);
     auto tv4 = add(tv1, tv3);
-    tv4->printTransforms();
 
     fusion.addOutput(tv4);
 
