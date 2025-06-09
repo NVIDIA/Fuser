@@ -4,6 +4,7 @@
 
 import torch
 
+
 def get_benchmark_fn(func, /, profile: bool):
     def wrapper(*args, **kwargs):
         if profile:

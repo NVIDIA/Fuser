@@ -237,7 +237,9 @@ def test_transformer_layer(setup_default_process_group, benchmark, executor: Exe
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
-        warmup_fn, benchmark_fn = get_benchmark_fns(lambda: transformer_layer(inp, attention_mask=mask))
+        warmup_fn, benchmark_fn = get_benchmark_fns(
+            lambda: transformer_layer(inp, attention_mask=mask)
+        )
 
         (out,) = warmup_fn()
         assert out.size() == (batch_size, seq_len, config.hidden_size)
