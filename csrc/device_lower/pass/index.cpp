@@ -378,7 +378,8 @@ void IndexLowering::handle(const ScatterOp* sop) {
 void IndexLowering::handle(const ArgsortOp* aop) {
   const auto in = lowerSrcIndex(aop->in(), aop->out());
   const auto out = lowerDstIndex(aop->out());
-  pushBack(IrBuilder::create<ArgsortOp>(out, in, aop->dim(), aop->isDescending(), aop->isStable()));
+  pushBack(IrBuilder::create<ArgsortOp>(
+      out, in, aop->dim(), aop->isDescending(), aop->isStable()));
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
