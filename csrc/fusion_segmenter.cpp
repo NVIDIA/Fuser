@@ -4081,7 +4081,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
   }
 
-  privatizeUpCastAndSqueeze();
+  privatizeOps();
   findSegments();
 }
 
@@ -4415,11 +4415,7 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
 
 } // namespace
 
-template <typename T>
-typename std::enable_if<
-    std::is_same<T, UnaryOp>::value || std::is_same<T, SqueezeOp>::value,
-    bool>::type
-SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
+bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
 
@@ -4437,14 +4433,9 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         continue;
       }
 
-      if (std::is_same<T, UnaryOp>::value) {
-        if (!is_upcast_op(maybe_upcast_squeeze_out_tv->definition())) {
-          continue;
-        }
-      } else {
-        if (!maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>()) {
-          continue;
-        }
+      if (!is_upcast_op(maybe_upcast_squeeze_out_tv->definition()) &&
+          !maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>()) {
+        continue;
       }
 
       // Check if there's multiple uses of the upcast/squeeze output
@@ -4459,7 +4450,7 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
       }
 
       TensorView* out_tv_clone = nullptr;
-      if (std::is_same<T, UnaryOp>::value) {
+      if (maybe_upcast_squeeze_out_tv->definition()->isA<UnaryOp>()) {
         auto upcast_op =
             maybe_upcast_squeeze_out_tv->definition()->as<UnaryOp>();
         out_tv_clone = castOp(
@@ -4491,13 +4482,11 @@ SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   return privatized;
 }
 
-void SegmentCandidateFinder::privatizeUpCastAndSqueeze() {
-  bool changed = true;
-  while (changed) {
-    auto privatized_squeeze = privatizeUpCastOrSqueezeOp<SqueezeOp>();
-    auto privatized_upcast = privatizeUpCastOrSqueezeOp<UnaryOp>();
-    changed = privatized_squeeze || privatized_upcast;
-  }
+void SegmentCandidateFinder::privatizeOps() {
+  bool changed = false;
+  do {
+    changed = privatizeUpCastOrSqueezeOp();
+  } while (changed);
   return;
 }
 
