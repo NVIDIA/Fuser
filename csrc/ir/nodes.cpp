@@ -5637,7 +5637,8 @@ TopKOp::TopKOp(
 
 std::string TopKOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "( " << outValues()->toString() << ", " << outIndices()->toString() << " ) = topk( "
+  indent(ss, indent_size) << "( " << outValues()->toString() << ", "
+                          << outIndices()->toString() << " ) = topk( "
                           << in()->toString() << ", k = " << k()
                           << ", dim = " << dim()
                           << ", largest = " << (isLargest() ? "True" : "False")

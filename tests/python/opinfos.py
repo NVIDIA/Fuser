@@ -14,6 +14,7 @@ from opinfo_fusion_definitions import (
 )
 from opinfo_input_generators import (
     argsort_generator,
+    topk_generator,
     broadcast_error_generator,
     broadcast_in_dim_generator,
     broadcast_in_dim_error_generator,
@@ -1069,6 +1070,23 @@ argsort_opinfo = OpInfo(
     ),
 )
 shape_ops.append(argsort_opinfo)
+
+
+topk_opinfo = OpInfo(
+    lambda fd: fd.ops.topk,
+    "topk",
+    # dtypes=(int_float_dtypes),
+    sample_input_generator=topk_generator,
+    reference=torch.topk,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(topk_opinfo)
 
 
 def index_put_accumulate_ref(

@@ -3658,6 +3658,39 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("stable") = false,
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "topk",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         int64_t k,
+         int64_t dim,
+         bool largest,
+         bool sorted) -> py::tuple {
+        FUSER_PERF_SCOPE("Operators.topk");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor values = fd->defineTensor(arg.dims);
+        Tensor indices = fd->defineTensor(arg.dims);
+
+        fd->defineRecord(new TopKOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(values()), fd->recordingState(indices())},
+            k,
+            dim,
+            largest,
+            sorted));
+
+        return py::make_tuple(values, indices);
+      },
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
+      py::return_value_policy::reference);
+
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);

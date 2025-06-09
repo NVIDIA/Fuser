@@ -135,6 +135,16 @@ class WelfordResult {
       const bool check_definition = true);
 };
 
+//! Auxiliary Struct holding result of
+//! a topk operation
+class TopKResult {
+ public:
+  TensorView* values;
+  TensorView* indices;
+
+  explicit TopKResult(TensorView* in_values, TensorView* in_indices);
+};
+
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
@@ -716,7 +726,7 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
-NVF_API std::array<TensorView*, 2> topk(
+NVF_API TopKResult topk(
     TensorView* v1,
     int64_t k,
     int64_t dim = -1,

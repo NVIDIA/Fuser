@@ -2278,7 +2278,7 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
-std::array<TensorView*, 2> topk(
+TopKResult topk(
     TensorView* inp,
     int64_t k,
     int64_t dim,
@@ -2287,7 +2287,13 @@ std::array<TensorView*, 2> topk(
   Val* out_values = ops::newValLike(inp, inp->dtype());
   Val* out_indices = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<TopKOp>(
-      out_values, out_indices, inp, wrapDim(dim, inp->nDims()), k, largest, sorted);
+      out_values,
+      out_indices,
+      inp,
+      wrapDim(dim, inp->nDims()),
+      k,
+      largest,
+      sorted);
   return {out->as<TensorView>(), out_indices->as<TensorView>()};
 }
 
