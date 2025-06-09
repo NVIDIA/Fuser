@@ -2863,4 +2863,49 @@ class NVF_API ArgsortOp : public Expr {
   }
 };
 
+class NVF_API TopKOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  TopKOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* in,
+      int64_t dim,
+      int64_t k,
+      bool largest = true,
+      bool sorted = false);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TopKOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+  Val* in() const {
+    return input(0);
+  }
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+  int64_t k() const {
+    return attribute<int64_t>(1);
+  }
+  bool isLargest() const {
+    return attribute<bool>(2);
+  }
+  bool isSorted() const {
+    return attribute<bool>(3);
+  }
+};
+
 } // namespace nvfuser
