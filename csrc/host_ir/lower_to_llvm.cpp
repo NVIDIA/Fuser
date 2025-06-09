@@ -359,8 +359,73 @@ Val* findLowestCommonAncestor(Val* left_val, Val* right_val) {
   return nullptr;
 }
 
+// Helper function to recursively trace the path from a value up to a given
+// ancestor, ensuring the path integrity is maintained (inner vs. outer).
+bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
+  // Base case: We've successfully reached the ancestor.
+  if (current == ancestor) {
+    return true;
+  }
+
+  // If there's no defining expression, we've hit a root, which is not the
+  // ancestor, so the path is invalid.
+  Expr* def = current->definition();
+  if (!def) {
+    return false;
+  }
+
+  // Handle Split expressions: check if we are on the correct side.
+  if (auto* split = def->as<Split>()) {
+    if (must_be_inner_path) {
+      if (current != split->inner()) return false; // Wrong side
+    } else {
+      if (current != split->outer()) return false; // Wrong side
+    }
+    // Continue from the split's input
+    return tracePathToAncestor(split->in(), ancestor, must_be_inner_path);
+  }
+  // Handle Merge expressions: continue up the corresponding path.
+  else if (auto* merge = def->as<Merge>()) {
+    if (must_be_inner_path) {
+      return tracePathToAncestor(merge->inner(), ancestor, must_be_inner_path);
+    } else {
+      return tracePathToAncestor(merge->outer(), ancestor, must_be_inner_path);
+    }
+  }
+  // Handle other expressions that are simple pass-throughs.
+  else if (def->inputs().size() == 1) {
+    return tracePathToAncestor(def->inputs()[0], ancestor, must_be_inner_path);
+  }
+
+  // Any other expression type breaks the verifiable path.
+  return false;
+}
+
 bool verify(Expr* expr) {
-  
+  // This function only verifies Merge expressions.
+  // auto merge = dynamic_cast<Merge*>(expr);
+  // if (!merge) {
+  //   return true;
+  // }
+
+  // Val* inner_val = merge->inner(); // Rightmost input
+  // Val* outer_val = merge->outer(); // Leftmost input
+
+  // // Find the lowest common ancestor.
+  // Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
+  // if (!ancestor) {
+  //   // No common ancestor means they don't originate from a single split.
+  //   return false;
+  // }
+
+  // // Verify that the path from the inner_val to the ancestor is exclusively
+  // // through "inner" or "rightmost" paths, and the path from the outer_val
+  // // is exclusively through "outer" or "leftmost" paths.
+  // bool inner_path_is_valid = tracePathToAncestor(inner_val, ancestor, true);
+  // bool outer_path_is_valid = tracePathToAncestor(outer_val, ancestor, false);
+
+  // return inner_path_is_valid && outer_path_is_valid;
+  return true;
 }
 
 /*
@@ -526,16 +591,16 @@ void generate_stride_llvm_ir(
 Generate infer stride module
 
 */
-llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*>& allocation_domain, std::vector<IterDomain*>& logical_domain, Fusion& fusion) {
+llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*>& logical_domain, std::vector<IterDomain*>& allocation_domain, Fusion& fusion, std::string name) {
   auto Context = std::make_unique<llvm::LLVMContext>();
   auto* ctx = Context.get();
-  auto Module = std::make_unique<llvm::Module>("infer_stride_module", *ctx);
+  auto Module = std::make_unique<llvm::Module>(name, *ctx);
   llvm::IRBuilder<> builder(*ctx);
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
 
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_stride", Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
 
@@ -594,21 +659,21 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
 Generate infer shape module
 
 */
-llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>& input_logical_domain, std::vector<IterDomain*>& output_logical_domain, Fusion& fusion) {
+llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain, Fusion& fusion, std::string name) {
   auto Context = std::make_unique<llvm::LLVMContext>();
   auto* ctx = Context.get();
-  auto Module = std::make_unique<llvm::Module>("infer_shape_module", *ctx);
+  auto Module = std::make_unique<llvm::Module>(name, *ctx);
   llvm::IRBuilder<> builder(*ctx);
   std::vector<llvm::Type*> output_types;
 
   // Initialize the output types, linking with llvm outputs
-  for(long unsigned int i = 0; i < output_logical_domain.size(); i++){
+  for(size_t i = 0; i < output_domain.size(); i++){
     output_types.push_back(builder.getInt64Ty());
   }
 
   // Initialize the input types, linking with llvm inputs
   std::vector<llvm::Type*> input_types;
-  for(long unsigned int i = 0; i < input_logical_domain.size(); i++){
+  for(size_t i = 0; i < input_domain.size(); i++){
     input_types.push_back(builder.getInt64Ty());
   }
 
@@ -616,13 +681,13 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_shape", Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
 
   // Cast input and output domains to vals
-  std::vector<Val*> input_values = domain2vals(input_logical_domain);
-  std::vector<Val*> output_values = domain2vals(output_logical_domain);
+  std::vector<Val*> input_values = domain2vals(input_domain);
+  std::vector<Val*> output_values = domain2vals(output_domain);
 
   // Get the function arguments
   auto arg_it = func->arg_begin();
@@ -636,7 +701,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   std::unordered_map<Val*, llvm::Value*> val2llvm_val;
 
   // Initialize the input values, linking with llvm inputs
-  for(long unsigned int i = 0; i < input_logical_domain.size(); i++){
+  for(size_t i = 0; i < input_domain.size(); i++){
     boundary_vals[i] = input_values[i];
     auto* zero = builder.getInt64(i);
     auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
@@ -645,7 +710,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   }
 
   // Generate the shape llvm ir for all the exprs between input and output domain
-  generate_all_shape_llvm_ir(graph, input_logical_domain, output_logical_domain, val2llvm_val, boundary_vals, builder);
+  generate_all_shape_llvm_ir(graph, input_domain, output_domain, val2llvm_val, boundary_vals, builder);
 
   // Map the output values to the input values if they are the same
   for(auto* val : output_values){
@@ -656,7 +721,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   }
 
   // Store the output values to the preallocated output buffer
-  for(long unsigned int i = 0; i < output_values.size(); i++){
+  for(size_t i = 0; i < output_values.size(); i++){
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
     builder.CreateStore(val2llvm_val[output_values[i]], output_i_ptr);
   }
@@ -673,24 +738,6 @@ std::unique_ptr<llvm::orc::LLJIT> llvm_jit_init(int num_threads){
   llvm::InitializeNativeTargetAsmPrinter();
   auto JIT = ExitOnErr(llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
   return JIT;
-}
-
-// shape infer compile
-void llvm_jit_compile_shape_infer(std::unique_ptr<llvm::orc::LLJIT>& JIT, Fusion& fusion, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain){
-  std::cout << "llvm_jit_compile shape infer" << std::endl;
-  auto TSM_shape = generate_infer_shape_module(input_domain, output_domain, fusion);
-  if (auto Err = JIT->addIRModule(std::move(TSM_shape))) {
-    llvm::errs() << "Error adding module to JIT: " << llvm::toString(std::move(Err)) << "\n";
-  }
-}
-
-// stride infer compile
-void llvm_jit_compile_stride_infer(std::unique_ptr<llvm::orc::LLJIT>& JIT,Fusion& fusion, std::vector<IterDomain*>& allocation_domain, std::vector<IterDomain*>& logical_domain){
-  std::cout << "llvm_jit_compile stride infer" << std::endl;
-  auto TSM_stride = generate_infer_stride_module(allocation_domain, logical_domain, fusion);
-  if (auto Err = JIT->addIRModule(std::move(TSM_stride))) {
-    llvm::errs() << "Error adding module to JIT: " << llvm::toString(std::move(Err)) << "\n";
-  }
 }
 
 // Allocate the output tensor based on the shape and stride inference
@@ -721,8 +768,11 @@ namespace nvfuser {
 // PIMPL implementation for HostIrLlvmJit
 struct HostIrLlvmJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  FuncType shape_infer_fn = nullptr;
-  FuncType stride_infer_fn = nullptr;
+  FuncType allocation_shape_infer_fn = nullptr;
+  FuncType logical_shape_infer_fn = nullptr;
+  FuncType allocation_stride_infer_fn = nullptr;
+  FuncType logical_stride_infer_fn = nullptr;
+  TensorView* output_tv = nullptr;
 };
 
 // Constructor implementation
@@ -741,6 +791,7 @@ HostIrLlvmJit::HostIrLlvmJit(HostIrLlvmJit&&) noexcept = default;
 HostIrLlvmJit& HostIrLlvmJit::operator=(HostIrLlvmJit&&) noexcept = default;
 
 void HostIrLlvmJit::compile(TensorView* output_tv) {
+  pimpl_->output_tv = output_tv;
   Fusion* fusion = output_tv->fusion();
   NVF_ERROR(fusion != nullptr, "Output TensorView must belong to a fusion.");
 
@@ -765,67 +816,104 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
         input_tv->getLogicalDomain().begin(),
         input_tv->getLogicalDomain().end());
   }
-  auto output_loop_domain = output_tv->getLoopDomain();
   auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
-
-  // Store the output dimension for the run method
-  output_tensor_dim_ = output_loop_domain.size();
+  auto output_logical_domain = output_tv->getLogicalDomain();
 
   // JIT compile shape inference module
-  auto TSM_shape =
-      generate_infer_shape_module(input_logical_domains, output_loop_domain, *fusion);
-  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_shape))) {
+  auto TSM_allocation_shape =
+      generate_infer_shape_module(input_logical_domains, output_allocation_domain, *fusion, "infer_allocation_shape_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_shape))) {
+    llvm::errs() << "Error adding shape infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+  auto TSM_logical_shape =
+      generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion, "infer_logical_shape_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_logical_shape))) {
     llvm::errs() << "Error adding shape infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
   }
 
   // JIT compile stride inference module
-  auto TSM_stride =
-      generate_infer_stride_module(output_allocation_domain, output_loop_domain, *fusion);
-  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_stride))) {
+  auto TSM_logical_stride =
+      generate_infer_stride_module(output_logical_domain, output_allocation_domain, *fusion, "infer_logical_stride_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_logical_stride))) {
+    llvm::errs() << "Error adding stride infer module to JIT: "
+                 << llvm::toString(std::move(Err)) << "\n";
+  }
+  auto TSM_allocation_stride =
+      generate_infer_stride_module(output_allocation_domain, output_allocation_domain, *fusion, "infer_allocation_stride_module");
+  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_stride))) {
     llvm::errs() << "Error adding stride infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
   }
 
   // Look up the function pointers and store them
-  pimpl_->shape_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<FuncType>();
-  pimpl_->stride_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
+  pimpl_->allocation_shape_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_allocation_shape_module")).toPtr<FuncType>();
+  pimpl_->logical_shape_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_logical_shape_module")).toPtr<FuncType>();
+  pimpl_->allocation_stride_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_allocation_stride_module")).toPtr<FuncType>();
+  pimpl_->logical_stride_infer_fn =
+      ExitOnErr(pimpl_->jit->lookup("infer_logical_stride_module")).toPtr<FuncType>();
 }
 
 at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
   NVF_ERROR(
-      pimpl_->shape_infer_fn != nullptr && pimpl_->stride_infer_fn != nullptr,
+      pimpl_->allocation_shape_infer_fn != nullptr && pimpl_->logical_shape_infer_fn != nullptr 
+      && pimpl_->allocation_stride_infer_fn != nullptr && pimpl_->logical_stride_infer_fn != nullptr
+      && pimpl_->output_tv != nullptr,
       "JIT must be compiled before running.");
 
   // Allocate memory for shape result
-  std::vector<int64_t> shape_result(output_tensor_dim_);
+  std::vector<int64_t> allocation_shape_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
+  std::vector<int64_t> logical_shape_result(pimpl_->output_tv->getLogicalDomain().size());
   std::vector<int64_t> input_sizes;
   for(auto& input_tensor : input_tensors){
     input_sizes.insert(input_sizes.end(), input_tensor.sizes().begin(), input_tensor.sizes().end());
   }
-  // Run shape inference
-  pimpl_->shape_infer_fn(
+  // Run output tensor allocation shape inference
+  pimpl_->allocation_shape_infer_fn(
       input_sizes.data(),
       input_sizes.size(),
-      shape_result.data(),
-      shape_result.size());
+      allocation_shape_result.data(),
+      allocation_shape_result.size());
+
+  // Run output tensor logical shape inference
+  pimpl_->logical_shape_infer_fn(
+      input_sizes.data(),
+      input_sizes.size(),
+      logical_shape_result.data(),
+      logical_shape_result.size());
 
   // Allocate memory for stride result
-  std::vector<int64_t> stride_result(output_tensor_dim_);
+  std::vector<int64_t> logical_stride_result(pimpl_->output_tv->getLogicalDomain().size());
+  std::vector<int64_t> allocation_stride_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
 
-  // Run stride inference
-  pimpl_->stride_infer_fn(
-      shape_result.data(),
-      shape_result.size(),
-      stride_result.data(),
-      stride_result.size());
+  // Run output tensor logical stride inference
+  pimpl_->logical_stride_infer_fn(
+      logical_shape_result.data(),
+      logical_shape_result.size(),
+      logical_stride_result.data(),
+      logical_stride_result.size());
+  for(size_t i = 0; i < logical_stride_result.size(); i++){
+    std::cout << "logical_stride_result[" << i << "] = " << logical_stride_result[i] << std::endl;
+  }
+
+  // Run output tensor allocation stride inference
+  pimpl_->allocation_stride_infer_fn(
+      allocation_shape_result.data(),
+      allocation_shape_result.size(),
+      allocation_stride_result.data(),
+      allocation_stride_result.size());
+  for(size_t i = 0; i < allocation_stride_result.size(); i++){
+    std::cout << "allocation_stride_result[" << i << "] = " << allocation_stride_result[i] << std::endl;
+  }
 
   // Create the output tensor with the computed shape and strides
-  at::Tensor output_tensor =
-      at::empty_strided(shape_result, stride_result, input_tensors[0].options());
-  return output_tensor;
+  at::Tensor physical_output_tensor = at::empty_strided(allocation_shape_result, allocation_stride_result, input_tensors[0].options());
+  at::Tensor logical_output_tensor = at::as_strided(physical_output_tensor, logical_shape_result, logical_stride_result);
+  return logical_output_tensor;
 }
 
 } // namespace nvfuser

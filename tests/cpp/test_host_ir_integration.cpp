@@ -23,6 +23,7 @@ namespace hir {
 using testing::Contains;
 using HostIrEvaluatorTest = NVFuserTest;
 
+void print_iter_domain(const std::vector<IterDomain*>& iter_domain, const std::string& name);
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
 // using HostIrEvaluator.
 TEST_F(HostIrEvaluatorTest, LaunchKernel) {
@@ -31,8 +32,9 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   TensorView* in = makeSymbolicTensor(2);
   fusion.addInput(in);
 
-  TensorView* out = set(in);
+  TensorView* out = set(in)->merge(0, 1)->split(0, 2)->split(1, 2)->split(0, 2)->split(1, 2);
   fusion.addOutput(out);
+  out->printTransforms();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
@@ -53,6 +55,10 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  std::cout << "allocate: " << allocate->toString() << std::endl;
+  print_iter_domain(hic_out->getLoopDomain(), "loop domain");
+  print_iter_domain(hic_out->getMaybeAllocationDomain(), "allocation domain");
+  print_iter_domain(hic_out->getLogicalDomain(), "logical domain");
   auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,

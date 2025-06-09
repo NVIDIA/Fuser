@@ -62,7 +62,7 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   // [N, H, W, C]
   tv1->merge(1);
   // [N, H*W, C]
-  tv1->setAllocationDomain({tv1->axis(0), tv1->axis(1), tv1->axis(2)}, {true, true, true});
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true});
   print_iter_domain(tv1->getLoopDomain(), "Output Loop Domain");
   print_iter_domain(tv1->getLogicalDomain(), "Input Logical Domain");
   // LLVM JIT Compile
@@ -151,6 +151,7 @@ TEST_F(HostIrLLVMTest, Allocation4) {
   tv0->merge(1,2);
   // [N * H, W * C/4, 2, 2]
   TensorView* tv1 = set(tv0);
+  
   tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true, true});
 
   TensorView* tv2 = makeContigConcreteTensor({N, H, W});
