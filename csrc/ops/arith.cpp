@@ -2297,14 +2297,16 @@ TopKResult topk(
   out_domain.reserve(inp_domain.size());
 
   for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-    // TODO: nvfuser enumerate implementation is not correct, it should return signed ints instead.
+    // TODO: nvfuser enumerate implementation is not correct, it should return
+    // signed ints instead.
     if (index == (size_t)dim) {
       ExpressionEvaluator ee;
       PolymorphicValue ext = ee.evaluate(k);
 
       IterType iter_type;
       if (ext.hasValue()) {
-        iter_type = ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+        iter_type =
+            ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
       } else {
         iter_type =
             maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();

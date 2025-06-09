@@ -3216,9 +3216,8 @@ struct TopKOpRecord : RecordFunctor {
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
     if (auto other_topk = dynamic_cast<const TopKOpRecord*>(&other)) {
-      result = RecordFunctor::operator==(other) && k_ == other_topk->k_ &&
-          dim_ == other_topk->dim_ && largest_ == other_topk->largest_ &&
-          sorted_ == other_topk->sorted_;
+      result = RecordFunctor::operator==(other) && dim_ == other_topk->dim_ &&
+          largest_ == other_topk->largest_ && sorted_ == other_topk->sorted_;
     }
     return result;
   }
@@ -3243,8 +3242,8 @@ struct TopKOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::TopK,
-        serde::CreateTopK(builder, dim_, largest_, sorted_).Union()};
+        serde::RecordData::Sort,
+        serde::CreateSort(builder, dim_, largest_, sorted_).Union()};
   }
 
  private:
