@@ -5629,8 +5629,8 @@ TopKOp::TopKOp(
   addOutput(out_values);
   addOutput(out_indices);
   addInput(in);
+  addInput(k);
   addDataAttribute(dim);
-  addDataAttribute(k);
   addDataAttribute(largest);
   addDataAttribute(sorted);
 }
@@ -5639,7 +5639,7 @@ std::string TopKOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "( " << outValues()->toString() << ", "
                           << outIndices()->toString() << " ) = topk( "
-                          << in()->toString() << ", k = " << k()
+                          << in()->toString() << ", = " << k()
                           << ", dim = " << dim()
                           << ", largest = " << (isLargest() ? "True" : "False")
                           << ", sorted = " << (isSorted() ? "True" : "False")
@@ -5654,22 +5654,23 @@ std::string TopKOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> TopKOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(
-      inputs.size() == 1,
-      "TopKOp expects 1 input but received ",
-      inputs.size());
-
   const auto& in = inputs[0];
   NVF_ERROR(
       in.is<at::Tensor>(),
-      "TopKOp expects tensor input but got ",
+      "TopKOp expects tensor input at position 0 but got ",
       in.type().name());
+
+  const auto& k = inputs[1];
+  NVF_ERROR(
+      k.is<int64_t>(),
+      "TopKOp expects int64_t input at position 1 as k but got ",
+      k.type().name());
 
   // at::topk signature is:
   // std::tuple<Tensor, Tensor> topk(const Tensor &self, int64_t k, int64_t dim,
   // bool largest, bool sorted)
-  auto result =
-      at::topk(in.as<at::Tensor>(), k(), dim(), isLargest(), isSorted());
+  auto result = at::topk(
+      in.as<at::Tensor>(), k.as<int64_t>(), dim(), isLargest(), isSorted());
 
   // at::topk returns a tuple of (values, indices)
   return {std::get<0>(result), std::get<1>(result)};

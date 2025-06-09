@@ -861,6 +861,7 @@ def topk_generator(
             for largest, sorted_flag in itertools.product([True, False], repeat=2):
                 yield SampleInput(a, k, dim, largest, sorted_flag)
 
+
 def topk_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
@@ -873,7 +874,10 @@ def topk_error_generator(
     yield SampleInput(a, -5, 1, True, False), RuntimeError, "dim is out of bounds"
 
     # k is out of bounds
-    yield SampleInput(a, 1, 32, True, False), RuntimeError, "selected index k is out of bounds"
+    yield SampleInput(
+        a, 1, 32, True, False
+    ), RuntimeError, "selected index k is out of bounds"
+
 
 def index_select_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs

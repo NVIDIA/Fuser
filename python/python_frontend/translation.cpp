@@ -1163,9 +1163,9 @@ class FusionTranslator : public OptInConstDispatch {
         });
 
     fd_->defineRecord(new TopKOpRecord(
-        {fd_->recordingState(map_val_to_fd_index_.at(topkop->in()))},
+        {fd_->recordingState(map_val_to_fd_index_.at(topkop->in())),
+         fd_->recordingState(map_val_to_fd_index_.at(topkop->k()))},
         fd_outputs,
-        topkop->k(),
         topkop->dim(),
         topkop->isLargest(),
         topkop->isSorted()));

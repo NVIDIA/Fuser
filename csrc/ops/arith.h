@@ -728,7 +728,7 @@ NVF_API TensorView* argsort(
 
 NVF_API TopKResult topk(
     TensorView* v1,
-    int64_t k,
+    Val* k,
     int64_t dim = -1,
     bool largest = true,
     bool sorted = false);

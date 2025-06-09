@@ -667,8 +667,8 @@ void RecordFunctorFactory::registerAllParsers() {
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         data->dim(),
-        data->descending(),
-        data->stable());
+        data->bAttr0(),
+        data->bAttr1());
   };
   registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
 
@@ -677,10 +677,9 @@ void RecordFunctorFactory::registerAllParsers() {
     return new python_frontend::TopKOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
-        data->k(),
         data->dim(),
-        data->largest(),
-        data->sorted());
+        data->bAttr0(),
+        data->bAttr1());
   };
   registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }

@@ -2280,7 +2280,7 @@ TensorView* argsort(
 
 TopKResult topk(
     TensorView* inp,
-    int64_t k,
+    Val* k,
     int64_t dim,
     bool largest,
     bool sorted) {
@@ -2290,8 +2290,8 @@ TopKResult topk(
       out_values,
       out_indices,
       inp,
-      wrapDim(dim, inp->nDims()),
       k,
+      wrapDim(dim, inp->nDims()),
       largest,
       sorted);
   return {out->as<TensorView>(), out_indices->as<TensorView>()};

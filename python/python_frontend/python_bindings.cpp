@@ -3662,7 +3662,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "topk",
       [](FusionDefinition::Operators& self,
          Tensor arg,
-         int64_t k,
+         Scalar k,
          int64_t dim,
          bool largest,
          bool sorted) -> py::tuple {
@@ -3675,7 +3675,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor indices = fd->defineTensor(arg.dims);
 
         fd->defineRecord(new TopKOpRecord(
-            {fd->recordingState(arg())},
+            {fd->recordingState(arg()), fd->recordingState(k())},
             {fd->recordingState(values()), fd->recordingState(indices())},
             k,
             dim,

@@ -3197,7 +3197,6 @@ struct TopKOpRecord : RecordFunctor {
   TopKOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      int64_t k,
       int64_t dim,
       bool largest,
       bool sorted)
@@ -3206,7 +3205,6 @@ struct TopKOpRecord : RecordFunctor {
             std::move(_outputs),
             "ops.topk",
             serde::RecordType::TopKOp),
-        k_(k),
         dim_(dim),
         largest_(largest),
         sorted_(sorted) {}
@@ -3227,15 +3225,15 @@ struct TopKOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto output = topk(arg, k_, dim_, largest_, sorted_);
+    auto k = fd.getFusionState(args_.at(1).index);
+    auto output = topk(arg, k, dim_, largest_, sorted_);
     fd.setFusionState(outputs_.at(0).index, output.values);
     fd.setFusionState(outputs_.at(1).index, output.indices);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
-    os << ", k=" << k_ << ", dim=" << dim_
-       << ", largest=" << (largest_ ? "True" : "False")
+    os << ", dim=" << dim_ << ", largest=" << (largest_ ? "True" : "False")
        << ", sorted=" << (sorted_ ? "True" : "False");
     if (close_function) {
       os << ")";
@@ -3246,11 +3244,10 @@ struct TopKOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::TopK,
-        serde::CreateTopK(builder, k_, dim_, largest_, sorted_).Union()};
+        serde::CreateTopK(builder, dim_, largest_, sorted_).Union()};
   }
 
  private:
-  int64_t k_;
   int64_t dim_;
   bool largest_;
   bool sorted_;

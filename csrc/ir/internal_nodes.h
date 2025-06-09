@@ -2872,7 +2872,7 @@ class NVF_API TopKOp : public Expr {
       Val* out_values,
       Val* out_indices,
       Val* in,
-      int64_t k,
+      Val* k,
       int64_t dim,
       bool largest,
       bool sorted);
@@ -2898,17 +2898,17 @@ class NVF_API TopKOp : public Expr {
   Val* in() const {
     return input(0);
   }
-  int64_t k() const {
-    return attribute<int64_t>(0);
+  Val* k() const {
+    return input(1);
   }
   int64_t dim() const {
-    return attribute<int64_t>(1);
+    return attribute<int64_t>(0);
   }
   bool isLargest() const {
-    return attribute<bool>(2);
+    return attribute<bool>(1);
   }
   bool isSorted() const {
-    return attribute<bool>(3);
+    return attribute<bool>(2);
   }
 };
 

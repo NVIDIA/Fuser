@@ -130,7 +130,6 @@ union RecordData {
   Vector,
   Welford,
   Sort,
-  TopK,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -350,19 +349,11 @@ table Welford {
   axes: [long];
 }
 
-// Data for ArgsortOpRecord
+// Data for SortingBased
 table Sort {
   dim: long;
-  descending: bool;
-  stable: bool;
-}
-
-// Data for TopKOpRecord
-table TopK {
-  k: long;
-  dim: long;
-  descending: bool;
-  stable: bool;
+  bAttr0: bool;
+  bAttr1: bool;
 }
 
 // =====================================================================================
