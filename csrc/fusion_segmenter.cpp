@@ -4490,8 +4490,7 @@ void SegmentCandidateFinder::privatizeOps() {
   return;
 }
 
-void SegmentCandidateFinder::revertPrivatizedUpcastAndSqueeze(
-    SegmentedGroup* group) {
+void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
   // If a given consumer edge is a duplicate of another edge of the
   // same producer group, remove the given edge from both the producer
   // and consumer groups.
@@ -5126,7 +5125,7 @@ void SegmentCandidateFinder::finalize() {
   }
 
   for (auto group : segmented_fusion_->groups()) {
-    revertPrivatizedUpcastAndSqueeze(group);
+    revertPrivatizedOps(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
