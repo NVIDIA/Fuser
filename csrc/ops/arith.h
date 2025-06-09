@@ -710,4 +710,10 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
   return tensor(IrBuilder::arrayExpr(vals));
 }
 
+NVF_API TensorView* argsort(
+    TensorView* v1,
+    int64_t dim,
+    bool descending = false,
+    bool stable = false);
+
 } // namespace nvfuser

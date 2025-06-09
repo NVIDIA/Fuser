@@ -2822,4 +2822,45 @@ class EmbeddingFwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class NVF_API ArgsortOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ArgsortOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* in,
+      int64_t dim,
+      bool descending = false,
+      bool stable = false);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ArgsortOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+  Val* in() const {
+    return input(0);
+  }
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+  bool isDescending() const {
+    return attribute<bool>(1);
+  }
+  bool isStable() const {
+    return attribute<bool>(2);
+  }
+};
+
 } // namespace nvfuser

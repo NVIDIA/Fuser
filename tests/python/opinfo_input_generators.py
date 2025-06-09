@@ -813,6 +813,30 @@ def gather_generator(
         yield SampleInput(a, b, dim)
 
 
+def argsort_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # a.shape, dim
+    cases = (
+        ((128,), 0),
+        ((128, 7, 32), 0),
+        ((128, 7, 32), 1),
+        ((128, 7, 32), 2),
+        ((128, 7, 32), -1),
+        ((128, 7, 32), -2),
+        ((128, 7, 32), -3),
+    )
+
+    for shape, dim in cases:
+        a = make_arg(shape)
+        for descending, stable in itertools.product([True, False], repeat=2):
+            yield SampleInput(a, dim, descending, stable)
+
+
 def index_select_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

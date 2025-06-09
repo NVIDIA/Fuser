@@ -10,6 +10,8 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -122,7 +124,7 @@ std::string paramToString(
 } // namespace
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerGatherTest,
     // Create product of InOutMesh configurations and HostIrLowering options
     testing::Combine(
@@ -174,7 +176,7 @@ TEST_P(LowerScatterTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerScatterTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
@@ -227,7 +229,7 @@ TEST_P(LowerSendRecvTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerSendRecvTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
@@ -687,8 +689,7 @@ TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
 
 TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
   if (communicator_->size() < 2) {
-    GTEST_SKIP() << "This test exercises ReorderShardedAxisPass, and requires "
-                    "at least 2 devices.";
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
   }
 
   auto fusion = std::make_unique<Fusion>();
@@ -728,6 +729,49 @@ TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
       Contains(HeuristicIs(SchedulerType::PointWise)).Times(2));
 }
 
+TEST_P(LowerCollectiveTest, Allgather_NoncontiguousOutput) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Should pass with one GPU, but doesn't.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  out->setAllocationDomain({out->axis(1), out->axis(0)}, false);
+
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  EXPECT_TRUE(at::equal(out_tensor, unsharded_in_tensor));
+
+  EXPECT_LT(out_tensor.stride(0), out_tensor.stride(1))
+      << "`out` has been specified to be column major";
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::Communication)));
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerCollectiveTest,
@@ -742,4 +786,5 @@ INSTANTIATE_TEST_SUITE_P(
       ss << (enable_host_ir_lowering ? "_HostIr" : "_NonHostIr");
       return ss.str();
     }));
+
 } // namespace nvfuser

@@ -41,7 +41,8 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           SdpaFwdOp,
           SdpaBwdOp,
           EmbeddingFwdOp,
-          IndexPutAccumulateOp>(fusion)) {
+          IndexPutAccumulateOp,
+          ArgsortOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;
