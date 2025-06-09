@@ -594,7 +594,7 @@ class SegmentCandidateFinder {
   // For example we may start with:
   //  tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= sum(tv2); tv4=sum(tv2);
   // After the first round if privatization, we may have:
-  // tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= squeeze(tv1); 
+  // tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= squeeze(tv1);
   // tv4=sum(tv2); tv5=sum(tv3);
   // Futher privatization will then be able to:
   // tv1 = cast(tv0); tv2 = cast(tv0); tv3= squeeze(tv1);
@@ -604,7 +604,7 @@ class SegmentCandidateFinder {
   void findSegments();
 
   // Revert privatized upcast ops when not necessary
-  void revertPrivatizedUpcastAndSqueeze(SegmentedGroup* group);
+  void revertPrivatizedOps(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
