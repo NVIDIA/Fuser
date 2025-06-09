@@ -2869,7 +2869,8 @@ class NVF_API TopKOp : public Expr {
 
   TopKOp(
       IrBuilderPasskey,
-      Val* out,
+      Val* out_values,
+      Val* out_indices,
       Val* in,
       int64_t k,
       int64_t dim,
@@ -2888,8 +2889,11 @@ class NVF_API TopKOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  Val* out() const {
+  Val* outValues() const {
     return output(0);
+  }
+  Val* outIndices() const {
+    return output(1);
   }
   Val* in() const {
     return input(0);

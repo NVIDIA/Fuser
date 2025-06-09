@@ -2278,16 +2278,17 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
-TensorView* topk(
+std::array<TensorView*, 2> topk(
     TensorView* inp,
     int64_t k,
     int64_t dim,
     bool largest,
     bool sorted) {
-  Val* out = ops::newValLike(inp, inp->dtype());
+  Val* out_values = ops::newValLike(inp, inp->dtype());
+  Val* out_indices = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<TopKOp>(
-      out, inp, wrapDim(dim, inp->nDims()), k, largest, sorted);
-  return out->as<TensorView>();
+      out_values, out_indices, inp, wrapDim(dim, inp->nDims()), k, largest, sorted);
+  return {out->as<TensorView>(), out_indices->as<TensorView>()};
 }
 
 } // namespace nvfuser

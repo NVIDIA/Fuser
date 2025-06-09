@@ -716,7 +716,7 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
-NVF_API TensorView* topk(
+NVF_API std::array<TensorView*, 2> topk(
     TensorView* v1,
     int64_t k,
     int64_t dim = -1,

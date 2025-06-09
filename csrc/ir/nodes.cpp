@@ -5618,14 +5618,16 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
 
 TopKOp::TopKOp(
     IrBuilderPasskey passkey,
-    Val* out,
+    Val* out_values,
+    Val* out_indices,
     Val* in,
     int64_t dim,
     int64_t k,
     bool largest,
     bool sorted)
     : Expr(passkey) {
-  addOutput(out);
+  addOutput(out_values);
+  addOutput(out_indices);
   addInput(in);
   addDataAttribute(dim);
   addDataAttribute(k);
@@ -5635,7 +5637,7 @@ TopKOp::TopKOp(
 
 std::string TopKOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = topk( "
+  indent(ss, indent_size) << "( " << outValues()->toString() << ", " << outIndices()->toString() << " ) = topk( "
                           << in()->toString() << ", k = " << k()
                           << ", dim = " << dim()
                           << ", largest = " << (isLargest() ? "True" : "False")

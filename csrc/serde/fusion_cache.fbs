@@ -102,6 +102,7 @@ enum RecordType: int {
     Vector,
     WelfordOp,
     ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -129,6 +130,7 @@ union RecordData {
   Vector,
   Welford,
   Sort,
+  TopK,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -350,6 +352,14 @@ table Welford {
 
 // Data for ArgsortOpRecord
 table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  k: long;
   dim: long;
   descending: bool;
   stable: bool;
