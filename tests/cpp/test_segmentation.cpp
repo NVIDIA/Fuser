@@ -853,6 +853,91 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   }
 }
 
+// Unlike PrivatizeUpcast, verify replicated upcast ops are
+// consolidated back as they are grouped into the same segment
+/**
+ * Test case for verifying the correct segmentation and operation reversion
+ * in the presence of privatized upcast and squeeze operations in
+ * NVFuser.
+ *
+ * This test constructs a fusion graph with a sequence of tensor operations:
+ * - Symbolic tensor creation and broadcasting
+ * - Type casting (upcast) and squeeze
+ * - Reduction (sum) operations
+ *
+ * The test validates:
+ * - The fusion produces correct outputs for given random input tensors.
+ * - The segmented fusion produces exactly two segments.
+ * - Each segment contains either both an upcast and a squeeze operation, or
+ * neither; privatizaion will double these ops but they should be removed
+ * during privatization.
+ *
+ * This ensures that privatized upcast and squeeze operations are correctly
+ * reverted and handled during segmentation, maintaining correctness and
+ * expected segmentation behavior.
+ */
+TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = broadcast(tv0, {true, false, false});
+
+  auto tv2 = segment_set(tv1);
+
+  auto tv3 = set(tv2);
+  auto tv4 = castOp(DataType::Float, tv3);
+  auto tv5 = squeeze(tv4, {0});
+
+  auto tv6 = sum(tv5, {1});
+  fusion.addOutput(tv6);
+
+  auto tv7 = sum(tv5, {1});
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({16, 32}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  KernelArgumentHolder outputs;
+
+  // Make sure NVFUSER_DUMP=segmented_fusion works
+  {
+    DebugDumpOptionsGuard options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
+    std::ostringstream tmp_buf;
+    DebugStreamGuard debug_stream_guard(tmp_buf);
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  // There must be two segments
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  for (const auto group : runtime->fusionSegments()->groups()) {
+    int64_t num_upcast_ops = 0;
+    int64_t num_squeeze_ops = 0;
+    for (auto expr : group->exprs()) {
+      if (expr->isA<UnaryOp>() &&
+          expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast) {
+        // EXPECT_EQ(expr->input(0)->as<kir::TensorIndex>()->view()->name(), 3);
+        ++num_upcast_ops;
+      } else if (expr->isA<SqueezeOp>()) {
+        ++num_squeeze_ops;
+      } else {
+        continue;
+      }
+    }
+    EXPECT_TRUE(
+        (num_upcast_ops == 1 && num_squeeze_ops == 1) ||
+        (num_upcast_ops == 0 && num_squeeze_ops == 0));
+  }
+}
+
 TEST_F(SegmentationTest, ForwardFull) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
