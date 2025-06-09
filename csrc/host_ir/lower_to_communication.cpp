@@ -303,11 +303,17 @@ bool isLocalSizeOne(IterDomain* id) {
 
 std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
   NVF_ERROR(
+      isResharding(expr),
+      "getCommunicationInfo should only be called when `expr` is known to be a "
+      "communication. So `expr` should be resharding. Given: ",
+      expr);
+
+  NVF_ERROR(
       expr->isA<LoadStoreOp>() || expr->isA<ReductionOp>(),
       "getCommunicationInfo should only be called when `expr` is known to be a "
       "communication. So `expr` should be either a LoadStoreOp or a "
       "ReductionOp. Given: ",
-      expr->toString());
+      expr);
 
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
@@ -362,6 +368,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       if (p_sharded && c_sharded) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+        // TODO(#4604): This is problematic for 2D sharding.
         create_communication_info(
             CommunicationType::SendRecv, p_logical_id, c_logical_id);
       }
@@ -557,6 +564,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
         lowerToGather(input_tv, output_tv, backend, comms);
       }
     } else {
+      // TODO(#4604): This is problematic for 2D sharding.
       lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
     }
   }
