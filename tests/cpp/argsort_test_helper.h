@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <cuda_runtime.h>
 #include <cuda_bf16.h>
+#include <cuda_runtime.h>
 #include <cstdint>
 
 namespace nvfuser {
@@ -19,7 +19,7 @@ using nvfuser_index_t = int64_t;
 
 // Function declarations for launching argsort test kernels
 
-template<typename DataT>
+template <typename DataT>
 void launch_basic_argsort_test_kernel(
     cudaStream_t stream,
     DataT* input,
@@ -28,7 +28,7 @@ void launch_basic_argsort_test_kernel(
     int items_per_thread,
     bool descending);
 
-template<typename DataT>
+template <typename DataT>
 void launch_multi_dim_2d_argsort_test_kernel(
     cudaStream_t stream,
     DataT* input,
@@ -36,7 +36,7 @@ void launch_multi_dim_2d_argsort_test_kernel(
     int items_per_thread,
     bool descending);
 
-template<typename DataT>
+template <typename DataT>
 void launch_multi_dim_3d_argsort_test_kernel(
     cudaStream_t stream,
     DataT* input,
