@@ -89,6 +89,8 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   TensorView* out = set(in);
   out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
   fusion.addOutput(out);
+  print_iter_domain(in->getLogicalDomain(), "Input Logical Domain");
+  print_iter_domain(out->getLoopDomain(), "Output Loop Domain");
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
