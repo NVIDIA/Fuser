@@ -875,14 +875,15 @@ def topk_error_generator(
     yield SampleInput(a, 3, 3, True, False), RuntimeError, "Tried to access out of boundary index"
     yield SampleInput(a, 3, -4, True, False), RuntimeError, "Tried to access out of boundary index"
 
-    # negative k is out of bounds
+    # negative k size fails nvfuser shape inference.
     yield SampleInput(
         a, -5, 1, True, False
     ), RuntimeError, "Unexpected size of axis"
 
+    # error coming from aten fallback.
     yield SampleInput(
         a, 16, 1, True, False
-    ), RuntimeError, "Unexpected size of axis"
+    ), RuntimeError, "selected index k out of range"
 
 
 def index_select_generator(
