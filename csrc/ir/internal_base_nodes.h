@@ -717,7 +717,7 @@ class TensorDomain : public Val {
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
   static std::vector<std::optional<bool>> getContiguityFilledWith(
-      const std::vector<IterDomain*>& logical_domain,
+      const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 
   // pair is in order where second is the consumer of first

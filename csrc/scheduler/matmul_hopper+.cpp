@@ -595,6 +595,14 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
   return all_merged_roles;
 }
 
+int64_t HopperPlus::numCGAs() const {
+  const int64_t num_sms =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  return num_sms /
+      (params_->cluster_dims.x * params_->cluster_dims.y *
+       params_->cluster_dims.z);
+}
+
 void HopperPlus::inspectPrologues() const {
   for (TensorView* mma_result : mma_results_) {
     for (Val* v : mma_result->definition()->inputs()) {
@@ -674,25 +682,25 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
   }
 }
 
-void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
-  if (isBlackwell(params_->mma_macro)) {
-    mma_result->setMemoryType(MemoryType::Tensor);
-    // So far, we only support M128 Blackwell MMA macros. For these macros,
-    // Rows of the accumulator span all 128 lanes of TMem. That is, the
-    // allocation domain should be [Mi, (DimSep), ...other]
-    // We want to move Mi to the front of the domain.
-    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    auto item = allocation_domain[allocation_domain.size() - 3];
-    allocation_domain.erase(
-        allocation_domain.begin() + allocation_domain.size() - 3);
-    allocation_domain.insert(allocation_domain.begin(), item);
-    mma_result->setAllocationDomain(allocation_domain, true);
-    mma_result->setTMemDimSepPos(1);
-  } else {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
+void Blackwell::setMmaResultAllocationDomain(TensorView* mma_result) {
+  mma_result->setMemoryType(MemoryType::Tensor);
+  // So far, we only support M128 Blackwell MMA macros. For these macros,
+  // Rows of the accumulator span all 128 lanes of TMem. That is, the
+  // allocation domain should be [Mi, (DimSep), ...other]
+  // We want to move Mi to the front of the domain.
+  std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+  auto item = allocation_domain[allocation_domain.size() - 3];
+  allocation_domain.erase(
+      allocation_domain.begin() + allocation_domain.size() - 3);
+  allocation_domain.insert(allocation_domain.begin(), item);
+  mma_result->setAllocationDomain(allocation_domain, true);
+  mma_result->setTMemDimSepPos(1);
+}
+
+void Hopper::setMmaResultAllocationDomain(TensorView* mma_result) {
+  auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+      mma_result->getLoopDomain());
+  mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
 }
 
 void HopperPlus::scheduleMmaResults() {
@@ -755,10 +763,7 @@ void HopperPlus::scheduleMmaResults() {
   }
 }
 
-std::vector<TensorView*> HopperPlus::createTMemLoad() {
-  if (!isBlackwell(params_->mma_macro)) {
-    return {};
-  }
+std::vector<TensorView*> Blackwell::createTMemLoad() {
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -769,7 +774,7 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
   return tmem_ld_tvs;
 }
 
-int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+int64_t Blackwell::getLdTMemVectorizeFactor() const {
   const int64_t n_mma = getN(params_->mma_macro);
   int64_t tmem_vectorize_factor = 1;
   while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
@@ -778,7 +783,7 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
   return tmem_vectorize_factor / 2;
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
@@ -848,7 +853,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -890,15 +895,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
-  if (isBlackwell(params_->mma_macro)) {
-    scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  } else {
-    scheduleEpilogueWithoutSmemEpilogueHopper();
-  }
-}
-
-void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
@@ -1058,7 +1055,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
 
@@ -1161,14 +1158,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleEpilogueWithSmemEpilogueHopper();
-  } else {
-    scheduleEpilogueWithSmemEpilogueBlackwell();
-  }
-}
-
 void HopperPlus::scheduleEpilogue() {
   if (params_->use_smem_epilogue) {
     scheduleEpilogueWithSmemEpilogue();
@@ -1177,7 +1166,7 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSumHopper() {
+void Hopper::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1200,7 +1189,7 @@ void HopperPlus::scheduleSplitKSumHopper() {
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
 // Splitk_sum tv:
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
-void HopperPlus::scheduleSplitKSumBlackwell() {
+void Blackwell::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1224,14 +1213,6 @@ void HopperPlus::scheduleSplitKSumBlackwell() {
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
-void HopperPlus::scheduleSplitKSum() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleSplitKSumHopper();
-  } else {
-    scheduleSplitKSumBlackwell();
   }
 }
 

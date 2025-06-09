@@ -660,6 +660,17 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(buffer->data_as_Welford()->axes()));
   };
   registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
+
+  auto deserializeArgsortRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Sort();
+    return new python_frontend::ArgsortOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->descending(),
+        data->stable());
+  };
+  registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
