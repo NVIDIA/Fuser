@@ -3677,7 +3677,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new TopKOpRecord(
             {fd->recordingState(arg()), fd->recordingState(k())},
             {fd->recordingState(values()), fd->recordingState(indices())},
-            k,
             dim,
             largest,
             sorted));
