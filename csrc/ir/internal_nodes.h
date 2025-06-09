@@ -2863,6 +2863,17 @@ class NVF_API ArgsortOp : public Expr {
   }
 };
 
+//! TopK operation that finds the k largest or smallest elements
+//! along a specified dimension.
+//!
+//! This operation returns two outputs:
+//! - values: the k largest/smallest values along the specified dimension
+//! - indices: the indices of those values in the original tensor
+//!
+//! Parameters:
+//! - dim: dimension along which to find top-k elements
+//! - largest: if true, return largest elements; if false, return smallest
+//! - sorted: if true, return elements in sorted order
 class NVF_API TopKOp : public Expr {
  public:
   using Expr::Expr;

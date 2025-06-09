@@ -3193,6 +3193,15 @@ struct ArgsortOpRecord : RecordFunctor {
   bool stable_;
 };
 
+//! Record for TopK operation in fusion cache and Python frontend
+//!
+//! Stores the parameters needed to recreate a TopK operation:
+//! - dim: dimension along which to find top-k elements
+//! - largest: whether to find largest (true) or smallest (false) elements  
+//! - sorted: whether the output should be sorted
+//!
+//! The operation takes two inputs: the tensor and k (number of elements)
+//! and produces two outputs: values and indices tensors.
 struct TopKOpRecord : RecordFunctor {
   TopKOpRecord(
       std::vector<State> _args,
@@ -3242,8 +3251,8 @@ struct TopKOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::Sort,
-        serde::CreateSort(builder, dim_, largest_, sorted_).Union()};
+        serde::RecordData::TopK,
+        serde::CreateTopK(builder, dim_, largest_, sorted_).Union()};
   }
 
  private:
