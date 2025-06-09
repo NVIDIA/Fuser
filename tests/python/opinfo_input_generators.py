@@ -871,12 +871,17 @@ def topk_error_generator(
     )
 
     a = make_arg((128, 7, 32))
-    yield SampleInput(a, 10, 0, True, False), RuntimeError, "dim is out of bounds"
-    yield SampleInput(a, -5, 1, True, False), RuntimeError, "dim is out of bounds"
 
-    # k is out of bounds
+    yield SampleInput(a, 3, 3, True, False), RuntimeError, "dim is out of bounds"
+    yield SampleInput(a, 3, -4, True, False), RuntimeError, "dim is out of bounds"
+
+    # negative k is out of bounds
     yield SampleInput(
-        a, 1, 32, True, False
+        a, -5, 1, True, False
+    ), RuntimeError, "selected index k is out of bounds"
+
+    yield SampleInput(
+        a, 16, 1, True, False
     ), RuntimeError, "selected index k is out of bounds"
 
 

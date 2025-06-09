@@ -1076,13 +1076,13 @@ shape_ops.append(argsort_opinfo)
 topk_opinfo = OpInfo(
     lambda fd: fd.ops.topk,
     "topk",
-    # dtypes=(int_float_dtypes),
+    dtypes=(int_float_dtypes),
     sample_input_generator=topk_generator,
     error_input_generator=topk_error_generator,
     reference=torch.topk,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
-        ArgumentType.Constant,
+        ArgumentType.Symbolic,
         ArgumentType.Constant,
         ArgumentType.Constant,
         ArgumentType.Constant,
