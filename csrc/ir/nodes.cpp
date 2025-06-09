@@ -5616,4 +5616,62 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
 
+TopKOp::TopKOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in,
+    int64_t dim,
+    int64_t k,
+    bool largest,
+    bool sorted)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(dim);
+  addDataAttribute(k);
+  addDataAttribute(largest);
+  addDataAttribute(sorted);
+}
+
+std::string TopKOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = topk( "
+                          << in()->toString() << ", k = " << k()
+                          << ", dim = " << dim()
+                          << ", largest = " << (isLargest() ? "True" : "False")
+                          << ", sorted = " << (isSorted() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string TopKOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> TopKOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "TopKOp expects 1 input but received ",
+      inputs.size());
+
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "TopKOp expects tensor input but got ",
+      in.type().name());
+
+  // at::topk signature is:
+  // std::tuple<Tensor, Tensor> topk(const Tensor &self, int64_t k, int64_t dim,
+  // bool largest, bool sorted)
+  auto result =
+      at::topk(in.as<at::Tensor>(), k(), dim(), isLargest(), isSorted());
+
+  // at::topk returns a tuple of (values, indices)
+  return {std::get<0>(result), std::get<1>(result)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
+
 } // namespace nvfuser
