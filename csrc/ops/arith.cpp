@@ -2294,7 +2294,7 @@ TopKResult topk(
       wrapDim(dim, inp->nDims()),
       largest,
       sorted);
-  return {out->as<TensorView>(), out_indices->as<TensorView>()};
+  return {out_values->as<TensorView>(), out_indices->as<TensorView>()};
 }
 
 } // namespace nvfuser

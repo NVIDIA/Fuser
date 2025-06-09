@@ -5621,8 +5621,8 @@ TopKOp::TopKOp(
     Val* out_values,
     Val* out_indices,
     Val* in,
+    Val* k,
     int64_t dim,
-    int64_t k,
     bool largest,
     bool sorted)
     : Expr(passkey) {
@@ -5639,7 +5639,7 @@ std::string TopKOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "( " << outValues()->toString() << ", "
                           << outIndices()->toString() << " ) = topk( "
-                          << in()->toString() << ", = " << k()
+                          << in()->toString() << ", " << k()->toString()
                           << ", dim = " << dim()
                           << ", largest = " << (isLargest() ? "True" : "False")
                           << ", sorted = " << (isSorted() ? "True" : "False")
