@@ -28,13 +28,12 @@ template <
     int BLOCK_STATE_X,
     int BLOCK_STATE_Y,
     int BLOCK_STATE_Z,
-    bool Aligned,
     typename DataT,
     int ITEMS_PER_THREAD,
     typename BlockDimT>
 __device__ void blockArgsort(
-    DataT (&input_data)[ITEMS_PER_THREAD],
-    nvfuser_index_t (&indices)[ITEMS_PER_THREAD],
+    int64_t (&indices)[ITEMS_PER_THREAD],
+    const DataT (&input_data)[ITEMS_PER_THREAD],
     bool descending,
     DataT* shared_mem,
     BlockDimT block_dim) {
@@ -43,6 +42,12 @@ __device__ void blockArgsort(
       isSort(BLOCK_STATE_X) && isSort(BLOCK_STATE_Y) && isSort(BLOCK_STATE_Z),
       "For now, only all sort states are supported");
 
+  // Create temporary buffer for CUB operations since input_data is const
+  DataT temp_data[ITEMS_PER_THREAD];
+  for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+    temp_data[i] = input_data[i];
+  }
+
   // CUB BlockRadixSort setup - with proper multi-dimensional block support
   // CUB supports multi-dimensional blocks when BLOCK_DIM_Y and BLOCK_DIM_Z are
   // specified
@@ -50,7 +55,7 @@ __device__ void blockArgsort(
       DataT, // Key type
       BLOCK_DIM_X, // X dimension
       ITEMS_PER_THREAD, // Items per thread
-      nvfuser_index_t, // Value type (for key-value sorting)
+      int64_t, // Value type (for key-value sorting)
       4, // RADIX_BITS (default)
       true, // MEMOIZE_OUTER_SCAN (default for modern architectures)
       cub::BLOCK_SCAN_WARP_SCANS, // INNER_SCAN_ALGORITHM (default)
@@ -74,12 +79,12 @@ __device__ void blockArgsort(
   }
 
   // Perform key-value sorting using CUB
-  // Keys = input_data, Values = indices
+  // Keys = temp_data, Values = indices
   // After sorting, indices array contains argsort result
   if (descending) {
-    BlockRadixSort(temp_storage).SortDescending(input_data, indices);
+    BlockRadixSort(temp_storage).SortDescending(temp_data, indices);
   } else {
-    BlockRadixSort(temp_storage).Sort(input_data, indices);
+    BlockRadixSort(temp_storage).Sort(temp_data, indices);
   }
 }
 
