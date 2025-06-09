@@ -3972,4 +3972,3 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
-     
