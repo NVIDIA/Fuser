@@ -146,7 +146,7 @@ class WelfordResult {
 //! along which topk was performed has size k.
 class TopKResult {
  public:
-  TensorView* values; //!< The k largest/smallest values
+  TensorView* values = nullptr; //!< The k largest/smallest values
   TensorView* indices; //!< Indices of the values in the original tensor
 
   //! Constructor ensuring both outputs come from the same TopK operation
