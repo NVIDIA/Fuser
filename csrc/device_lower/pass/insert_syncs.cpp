@@ -1405,17 +1405,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
-        // For Hopper Ping-Pong Warp-Specialization, insert
-        // a mbarrier::arrive to next warp group to release CUDA Epilogue.
-        if (type == AsyncOpType::CpAsyncBulk &&
-            for_loop->circularBufferLoopStage() ==
-                CircularBufferLoopStage::ComputeWarp) {
-          HopperPingPongMbarriers* ping_pong_mbarriers =
-              GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
-                  for_loop->iter_domain());
-          if (ping_pong_mbarriers != nullptr) {
-            Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
-                /*next_warp_group=*/false, /*is_epilogue=*/true);
+        if (type == AsyncOpType::CpAsyncBulk) {
+          Expr* mbarrier_arrive = insertPingPongMbarrier();
+          if (mbarrier_arrive != nullptr) {
             sync_exprs.push_back(mbarrier_arrive);
           }
         }
@@ -1432,6 +1424,27 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     within_iter_loop_ = prev_within_iter_loop_;
     for_loop_stack_.pop_back();
     closeScope(prev_async_inputs);
+  }
+
+  // For Hopper Ping-Pong Warp-Specialization, insert
+  // a mbarrier::arrive to next warp group to release CUDA Epilogue.
+  Expr* insertPingPongMbarrier() {
+    auto compute_warp_iter =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::ComputeWarp;
+        });
+    if (compute_warp_iter == for_loops_.end()) {
+      return nullptr;
+    }
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            (*compute_warp_iter)->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return nullptr;
+    }
+    return ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/true);
   }
 };
 
