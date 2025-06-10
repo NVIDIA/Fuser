@@ -1304,6 +1304,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
     if (!pdim_map.hasWarpSpecialization()) {
       ss << "DefaultBlockDim()";
+    } else if (kernel_->summary()
+                   .circular_buffer_info.hasIndependentComputeWarpGroups()) {
+      // NOTE If there are independent compute warp groups, assume there is 128
+      // active threads per warp group.
+      // TODO Specify the actual shape of the independent warp group, rather
+      // than 128 threads in TIDx axis.
+      ss << "dim3(128, 1, 1)";
     } else {
       ss << "dim3("
          << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx)) << ", "
