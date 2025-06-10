@@ -16,6 +16,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <host_ir/lower_to_llvm.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
@@ -206,6 +207,38 @@ TEST_F(HostIrLLVMTest, Allocation5) {
   auto output_tensor = jit.allocateOutputTensor({t0});
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+}
+
+TEST_F(HostIrLLVMTest, DID_Split_Merge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int num_devices = 4;
+  int sharded_input_dim = 0;
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  std::vector<int64_t> input_shape = {2, 3, 2, num_devices};
+  input_shape[sharded_input_dim] = num_devices;
+
+  TensorView* tv0 = makeContigConcreteTensor(input_shape);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = add(tv1, tv1);
+  TensorView* tv3 = sum(tv2, {sharded_input_dim});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+  fusion->addOutput(tv3);
+
+  tv1->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
+  tv2->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
+  tv3->axis(-1)->parallelize(ParallelType::DIDx);
+
+  print_iter_domain(tv1->getLoopDomain(), "tv1 Loop Domain");
+  print_iter_domain(tv1->getLogicalDomain(), "tv1 Logical Domain");
+  print_iter_domain(tv1->getAllocationDomain(), "tv1 Allocation Domain");
+  print_iter_domain(tv2->getLoopDomain(), "tv2 Loop Domain");
+  print_iter_domain(tv2->getLogicalDomain(), "tv2 Logical Domain");
+  print_iter_domain(tv2->getAllocationDomain(), "tv2 Allocation Domain");
+  print_iter_domain(tv3->getLoopDomain(), "tv3 Loop Domain");
 }
 
 } // namespace hir
