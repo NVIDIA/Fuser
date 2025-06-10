@@ -1601,32 +1601,21 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>() ==
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>());
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          debug() << " Target  Ptr [self: 0x" << std::hex
-                  << (size_t)*fusion_op_.template target<
+          debug()
+              << " Target  Ptr [self: 0x" << std::hex
+              << (size_t)*fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "] [other: 0x" << std::hex
-                  << (size_t)*child_ptr->fusion_op_.template target<
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "] [other: 0x" << std::hex
+              << (size_t)*child_ptr->fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "]\n";
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
@@ -3197,7 +3186,7 @@ struct ArgsortOpRecord : RecordFunctor {
 //!
 //! Stores the parameters needed to recreate a TopK operation:
 //! - dim: dimension along which to find top-k elements
-//! - largest: whether to find largest (true) or smallest (false) elements  
+//! - largest: whether to find largest (true) or smallest (false) elements
 //! - sorted: whether the output should be sorted
 //!
 //! The operation takes two inputs: the tensor and k (number of elements)
