@@ -5649,12 +5649,12 @@ std::vector<PolymorphicValue> BatchedMMOp::evaluate(
 
   const auto& mat1 = inputs[0];
   const auto& mat2 = inputs[1];
-  
+
   NVF_ERROR(
       mat1.is<at::Tensor>(),
       "BatchedMMOp expects tensor input at position 0 but got ",
       mat1.type().name());
-  
+
   NVF_ERROR(
       mat2.is<at::Tensor>(),
       "BatchedMMOp expects tensor input at position 1 but got ",

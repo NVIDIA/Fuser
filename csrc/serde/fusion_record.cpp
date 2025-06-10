@@ -674,8 +674,7 @@ void RecordFunctorFactory::registerAllParsers() {
 
   auto deserializeBatchedMMRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::BatchedMMOpRecord(
-        parseStateArgs(buffer->args()),
-        parseStateArgs(buffer->outputs()));
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
   };
   registerParser(RecordType::BatchedMMOp, deserializeBatchedMMRecord);
 }

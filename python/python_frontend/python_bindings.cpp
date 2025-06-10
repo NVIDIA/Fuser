@@ -3660,12 +3660,14 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   nvf_ops.def(
       "bmm",
-      [](FusionDefinition::Operators& self, Tensor mat1, Tensor mat2) -> Tensor {
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2) -> Tensor {
         FUSER_PERF_SCOPE("Operators.bmm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        
+
         // Calculate output dimensions: [batch, m, n]
         // mat1: [batch, m, k], mat2: [batch, k, n]
         size_t output_dims = mat1.dims; // Should be 3

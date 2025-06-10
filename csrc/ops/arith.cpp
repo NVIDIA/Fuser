@@ -2284,7 +2284,7 @@ TensorView* bmm(TensorView* mat1, TensorView* mat2) {
       "BatchedMMOp expects mat1 to be 3-dimensional but got ",
       mat1->nDims(),
       " dimensions");
-  
+
   NVF_ERROR(
       mat2->nDims() == 3,
       "BatchedMMOp expects mat2 to be 3-dimensional but got ",
@@ -2294,19 +2294,19 @@ TensorView* bmm(TensorView* mat1, TensorView* mat2) {
   // Create output tensor with shape [batch, m, n]
   auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
   auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
-  
+
   std::vector<IterDomain*> out_domain;
   out_domain.reserve(3);
-  
+
   // Batch dimension - should be broadcast of mat1 and mat2 batch dims
   out_domain.push_back(
       mat1_domain[0]->isBroadcast() ? mat2_domain[0]->cloneWithoutRFactor()
                                     : mat1_domain[0]->cloneWithoutRFactor());
-  
+
   // M dimension from mat1
   out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
-  
-  // N dimension from mat2  
+
+  // N dimension from mat2
   out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
 
   TensorView* out = IrBuilder::create<TensorView>(

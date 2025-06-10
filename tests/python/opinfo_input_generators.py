@@ -1772,11 +1772,11 @@ def bmm_input_generator(
     # Test various batch sizes and matrix dimensions
     test_cases = [
         # (batch, m, k, n)
-        (2, 4, 3, 5),        # Small matrices
-        (1, 8, 8, 8),        # Square matrices
-        (4, 16, 32, 24),     # Medium matrices
-        (3, 1, 64, 1),       # Edge case: single row/column
-        (8, 128, 64, 96),    # Larger matrices
+        (2, 4, 3, 5),  # Small matrices
+        (1, 8, 8, 8),  # Square matrices
+        (4, 16, 32, 24),  # Medium matrices
+        (3, 1, 64, 1),  # Edge case: single row/column
+        (8, 128, 64, 96),  # Larger matrices
         (1, 256, 128, 192),  # Large single batch
     ]
 

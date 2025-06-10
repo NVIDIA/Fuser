@@ -3236,8 +3236,7 @@ struct BatchedMMOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::BatchedMM,
-        serde::CreateBatchedMM(builder).Union()};
+        serde::RecordData::BatchedMM, serde::CreateBatchedMM(builder).Union()};
   }
 };
 

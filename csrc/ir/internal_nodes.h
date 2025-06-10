@@ -2864,11 +2864,7 @@ class BatchedMMOp : public Expr {
  public:
   using Expr::Expr;
 
-  BatchedMMOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* mat1,
-      Val* mat2);
+  BatchedMMOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
