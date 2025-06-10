@@ -2117,12 +2117,12 @@ Expr* HopperPingPongMbarriers::createMbarrierWait(
   Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
   Val* two = IrBuilder::create<Val>(2, DataType::Index);
   Val* parity = IrBuilder::maybeCastExpr(
-      DataType::UInt64,
+      DataType::UInt32,
       SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two));
   kir::TensorIndex* mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
-  kir::MBarrierWait* mbarrier_wait =
-      IrBuilder::create<kir::MBarrierWait>(mbarrier_index, parity);
+  kir::MBarrierWaitParity* mbarrier_wait =
+      IrBuilder::create<kir::MBarrierWaitParity>(mbarrier_index, parity);
   return mbarrier_wait;
 }
 
