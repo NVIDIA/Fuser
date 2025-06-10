@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <alias_analysis.h>
-#include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/communication.h>
@@ -34,14 +33,6 @@ bool CommunicationScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Expected the expression to be resharding: ",
-        e->toString());
-    return false;
-  }
-
-  if (!HostIrLower::canLower(e)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        "Failed to lower the expression to host IR: ",
         e->toString());
     return false;
   }
