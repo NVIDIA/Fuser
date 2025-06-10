@@ -14,6 +14,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <algorithm>
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -21,18 +22,33 @@ namespace nvfuser {
 
 using TopkDeviceFuncTest = NVFuserTest;
 
-// Parameterized test fixture for comprehensive validation
-using TopkComprehensiveTest =
-    NVFuserFixtureParamTest<std::tuple<int, int, bool>>;
+template <typename DataT>
+std::vector<DataT> getVector(at::Tensor tensor) {
+  NVF_ERROR_EQ(tensor.dim(), 1);
+  if (tensor.dtype() == at::kBFloat16) {
+    tensor = tensor.to(at::kFloat);
+  }
+  auto cpu_tensor = tensor.cpu();
+  auto total_elements = tensor.size(0);
+  return std::vector<DataT>(
+      cpu_tensor.data_ptr<DataT>(),
+      cpu_tensor.data_ptr<DataT>() + total_elements);
+}
 
 // Helper function to validate topk correctness
 template <typename DataT>
 bool validateTopkOrder(
-    const std::vector<DataT>& input_data,
-    const std::vector<DataT>& output_values,
-    const std::vector<nvfuser_index_t>& output_indices,
+    const at::Tensor& input_tensor,
+    const at::Tensor& values_tensor,
+    const at::Tensor& indices_tensor,
     int k,
     bool largest = true) {
+  NVF_ERROR_EQ(cudaDeviceSynchronize(), cudaSuccess);
+
+  auto input_data = getVector<DataT>(input_tensor);
+  auto output_values = getVector<DataT>(values_tensor);
+  auto output_indices = getVector<int64_t>(indices_tensor);
+
   // Check that we have k valid results
   if (output_values.size() < k || output_indices.size() < k) {
     return false;
@@ -94,46 +110,26 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
       values_tensor.data_ptr<float>(),
-      indices_tensor.data_ptr<nvfuser_index_t>(),
+      indices_tensor.data_ptr<int64_t>(),
       BLOCK_SIZE,
       k,
       true);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  auto values_cpu = values_tensor.cpu();
-  auto indices_cpu = indices_tensor.cpu();
-  std::vector<float> output_values(
-      values_cpu.data_ptr<float>(),
-      values_cpu.data_ptr<float>() + total_elements);
-  std::vector<nvfuser_index_t> output_indices(
-      indices_cpu.data_ptr<nvfuser_index_t>(),
-      indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  EXPECT_TRUE(
-      validateTopkOrder(test_data, output_values, output_indices, k, true));
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, true));
 
   // Test smallest
   launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
       values_tensor.data_ptr<float>(),
-      indices_tensor.data_ptr<nvfuser_index_t>(),
+      indices_tensor.data_ptr<int64_t>(),
       BLOCK_SIZE,
       k,
       false);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  values_cpu = values_tensor.cpu();
-  indices_cpu = indices_tensor.cpu();
-  output_values.assign(
-      values_cpu.data_ptr<float>(),
-      values_cpu.data_ptr<float>() + total_elements);
-  output_indices.assign(
-      indices_cpu.data_ptr<nvfuser_index_t>(),
-      indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  EXPECT_TRUE(
-      validateTopkOrder(test_data, output_values, output_indices, k, false));
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, false));
 }
 
 // Variable k values test
@@ -160,23 +156,13 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
         values_tensor.data_ptr<float>(),
-        indices_tensor.data_ptr<nvfuser_index_t>(),
+        indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         k,
         true);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto values_cpu = values_tensor.cpu();
-    auto indices_cpu = indices_tensor.cpu();
-    std::vector<float> output_values(
-        values_cpu.data_ptr<float>(),
-        values_cpu.data_ptr<float>() + total_elements);
-    std::vector<nvfuser_index_t> output_indices(
-        indices_cpu.data_ptr<nvfuser_index_t>(),
-        indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(
-        validateTopkOrder(test_data, output_values, output_indices, k, true))
+    EXPECT_TRUE(validateTopkOrder<float>(
+        input_tensor, values_tensor, indices_tensor, k, true))
         << "Failed for k=" << k;
   }
 }
@@ -205,23 +191,13 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<double>(),
         values_tensor.data_ptr<double>(),
-        indices_tensor.data_ptr<nvfuser_index_t>(),
+        indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         k,
         true);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto values_cpu = values_tensor.cpu();
-    auto indices_cpu = indices_tensor.cpu();
-    std::vector<double> output_values(
-        values_cpu.data_ptr<double>(),
-        values_cpu.data_ptr<double>() + total_elements);
-    std::vector<nvfuser_index_t> output_indices(
-        indices_cpu.data_ptr<nvfuser_index_t>(),
-        indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(
-        validateTopkOrder(test_data, output_values, output_indices, k, true));
+    EXPECT_TRUE(validateTopkOrder<double>(
+        input_tensor, values_tensor, indices_tensor, k, true));
   }
 
   // Test int
@@ -241,23 +217,13 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int>(),
         values_tensor.data_ptr<int>(),
-        indices_tensor.data_ptr<nvfuser_index_t>(),
+        indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         k,
         true);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto values_cpu = values_tensor.cpu();
-    auto indices_cpu = indices_tensor.cpu();
-    std::vector<int> output_values(
-        values_cpu.data_ptr<int>(),
-        values_cpu.data_ptr<int>() + total_elements);
-    std::vector<nvfuser_index_t> output_indices(
-        indices_cpu.data_ptr<nvfuser_index_t>(),
-        indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(
-        validateTopkOrder(test_data, output_values, output_indices, k, true));
+    EXPECT_TRUE(validateTopkOrder<int>(
+        input_tensor, values_tensor, indices_tensor, k, true));
   }
 
   // Test int64_t
@@ -277,23 +243,38 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int64_t>(),
         values_tensor.data_ptr<int64_t>(),
-        indices_tensor.data_ptr<nvfuser_index_t>(),
+        indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         k,
         true);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto values_cpu = values_tensor.cpu();
-    auto indices_cpu = indices_tensor.cpu();
-    std::vector<int64_t> output_values(
-        values_cpu.data_ptr<int64_t>(),
-        values_cpu.data_ptr<int64_t>() + total_elements);
-    std::vector<nvfuser_index_t> output_indices(
-        indices_cpu.data_ptr<nvfuser_index_t>(),
-        indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
+    EXPECT_TRUE(validateTopkOrder<int64_t>(
+        input_tensor, values_tensor, indices_tensor, k, true));
+  }
 
-    EXPECT_TRUE(
-        validateTopkOrder(test_data, output_values, output_indices, k, true));
+  // Test bfloat16
+  {
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
+    auto values_tensor = at::empty(
+        {total_elements},
+        at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
+    auto indices_tensor = at::empty(
+        {total_elements},
+        at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
+    launchBasicTopkTestKernel<__nv_bfloat16, ITEMS_PER_THREAD>(
+        at::cuda::getCurrentCUDAStream(),
+        reinterpret_cast<__nv_bfloat16*>(input_tensor.data_ptr()),
+        reinterpret_cast<__nv_bfloat16*>(values_tensor.data_ptr()),
+        indices_tensor.data_ptr<int64_t>(),
+        BLOCK_SIZE,
+        k,
+        true);
+
+    EXPECT_TRUE(validateTopkOrder<float>(
+        input_tensor, values_tensor, indices_tensor, k, true));
   }
 }
 
@@ -322,22 +303,18 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
         values_tensor.data_ptr<float>(),
-        indices_tensor.data_ptr<nvfuser_index_t>(),
+        indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         k,
         true);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
+    // Validate correctness and verify all k values should be 3.0f
+    EXPECT_TRUE(validateTopkOrder<float>(
+        input_tensor, values_tensor, indices_tensor, k, true));
+
+    // Additional validation: all k values should be 3.0f
     auto values_cpu = values_tensor.cpu();
-    auto indices_cpu = indices_tensor.cpu();
-    std::vector<float> output_values(
-        values_cpu.data_ptr<float>(),
-        values_cpu.data_ptr<float>() + total_elements);
-    std::vector<nvfuser_index_t> output_indices(
-        indices_cpu.data_ptr<nvfuser_index_t>(),
-        indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    // All k values should be 3.0f
+    std::vector<float> output_values = getVector<float>(values_tensor);
     for (int i = 0; i < k; i++) {
       EXPECT_EQ(output_values[i], 3.0f) << "Value mismatch at position " << i;
     }
