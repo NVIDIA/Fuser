@@ -5668,11 +5668,11 @@ std::vector<PolymorphicValue> BatchedMMOp::evaluate(
 }
 
 IterDomain* BatchedMMOp::getKIDOfMat1() const {
-  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(1);
+  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(2);
 }
 
 IterDomain* BatchedMMOp::getKIDOfMat2() const {
-  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(2);
+  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(1);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BatchedMMOp)
