@@ -314,6 +314,30 @@ Verify if the merge is legit by traversing the exprs between output and input do
 
 TODO: Need to implement this function
 */
+
+int findMostUpmostParent(Val* val, bool is_inner_path, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
+  int potential_index = mapToInputDomain(boundary_vals, val, graph);
+  if(potential_index != -1){
+    return potential_index;
+  }
+  auto* def = val->definition();
+  if(def == nullptr){
+    return -1;
+  }
+  if(auto* split = def->as<Split>()){
+    return findMostUpmostParent(split->in(), is_inner_path, boundary_vals, graph);
+  }
+  else if(auto* merge = def->as<Merge>()){
+    if(is_inner_path){
+      return findMostUpmostParent(merge->inner(), is_inner_path, boundary_vals, graph);
+    }
+    else{
+      return findMostUpmostParent(merge->outer(), is_inner_path, boundary_vals, graph);
+    }
+  }
+  return -1;
+}
+
 Val* findLowestCommonAncestor(Val* left_val, Val* right_val) {
   if (!left_val || !right_val) {
     return nullptr;
@@ -392,27 +416,15 @@ bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
         return true;
       }
       else{
-        std::cerr << "Invalid path for split in ancestor level: " << split->toString() << std::endl;
-        std::cerr << "current: " << current->toString() << std::endl;
-        std::cerr << "inner: " << split->inner()->toString() << std::endl;
-        std::cerr << "outer: " << split->outer()->toString() << std::endl;
         return false;
       }
     }
     if (must_be_inner_path) {
       if (current != split->inner()){
-        std::cerr << "Invalid path for split in current level: " << split->toString() << std::endl;
-        std::cerr << "current: " << current->toString() << std::endl;
-        std::cerr << "inner: " << split->inner()->toString() << std::endl;
-        std::cerr << "outer: " << split->outer()->toString() << std::endl;
         return false;
       }
     } else {
       if (current != split->outer()){
-        std::cerr << "Invalid path for split in current level: " << split->toString() << std::endl;
-        std::cerr << "current: " << current->toString() << std::endl;
-        std::cerr << "outer: " << split->outer()->toString() << std::endl;
-        std::cerr << "inner: " << split->inner()->toString() << std::endl;
         return false;
       }
     }
@@ -435,32 +447,58 @@ bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
   return false;
 }
 
-bool verify(Expr* expr) {
-  // // This function only verifies Merge expressions.
-  // auto merge = dynamic_cast<Merge*>(expr);
-  // if (!merge) {
-  //   return true;
-  // }
+bool verify(Expr* expr, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
+  // This function only verifies Merge expressions.
+  auto merge = dynamic_cast<Merge*>(expr);
+  if (!merge) {
+    return true;
+  }
 
-  // Val* inner_val = merge->inner(); // Rightmost input
-  // Val* outer_val = merge->outer(); // Leftmost input
+  Val* inner_val = merge->inner(); // Rightmost input
+  Val* outer_val = merge->outer(); // Leftmost input
 
-  // // Find the lowest common ancestor.
-  // Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
-  // if (!ancestor) {
-  //   std::cerr << "No common ancestor found for merge: " << merge->toString() << std::endl;
-  //   // No common ancestor means they don't originate from a single split.
-  //   return false;
-  // }
+  // Find the lowest common ancestor.
+  Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
+  if (!ancestor) {
+    // case 1:
+    int outer_parent_rightmost = findMostUpmostParent(outer_val, true, boundary_vals, graph);
+    int inner_parent_leftmost = findMostUpmostParent(inner_val, false, boundary_vals, graph);
 
-  // // Verify that the path from the inner_val to the ancestor is exclusively
-  // // through "inner" or "rightmost" paths, and the path from the outer_val
-  // // is exclusively through "outer" or "leftmost" paths.
-  // bool inner_path_is_valid = tracePathToAncestor(inner_val, ancestor, true);
-  // bool outer_path_is_valid = tracePathToAncestor(outer_val, ancestor, false);
+    if(outer_parent_rightmost != -1 && inner_parent_leftmost != -1){
+      return std::abs(outer_parent_rightmost - inner_parent_leftmost) == 1;
+    }
 
-  // return inner_path_is_valid && outer_path_is_valid;
-  return true;
+    // case 2:
+    int outer_parent_leftmost = findMostUpmostParent(outer_val, false, boundary_vals, graph);
+    int inner_parent_rightmost = findMostUpmostParent(inner_val, true, boundary_vals, graph);
+
+    if (outer_parent_leftmost != -1 && inner_parent_rightmost != -1){
+      return std::abs(outer_parent_leftmost - inner_parent_rightmost) == 1;
+    }
+    
+    std::cerr << "No common ancestor found for merge: " << merge->toString() << std::endl;
+    return false;
+  }
+
+  // One of the inputs must be on an inner path, the other on an outer path.
+  // We check both combinations.
+
+  // Combination 1: inner_val is on inner path, outer_val is on outer path.
+  if (tracePathToAncestor(inner_val, ancestor, true) &&
+      tracePathToAncestor(outer_val, ancestor, false)) {
+    return true;
+  }
+
+  // Combination 2: inner_val is on outer path, outer_val is on inner path.
+  if (tracePathToAncestor(inner_val, ancestor, false) &&
+      tracePathToAncestor(outer_val, ancestor, true)) {
+    return true;
+  }
+
+  std::cerr
+      << "Merge validation failed: inputs are not on valid inner/outer paths."
+      << std::endl;
+  return false;
 }
 
 /*
@@ -517,7 +555,7 @@ void generate_stride_llvm_ir(
         auto* input_outer_val = merge_expr->outer()->as<Val>();
         int input_inner_potential_index = mapToInputDomain(boundary_vals, input_inner_val, graph);
         int input_outer_potential_index = mapToInputDomain(boundary_vals, input_outer_val, graph);
-        if(!verify(merge_expr->as<Expr>())){
+        if(!verify(merge_expr->as<Expr>(), boundary_vals, graph)){
           std::cerr << "Invalid merge expr: " << merge_expr->toString() << std::endl;
           exit(1);
         }
@@ -683,8 +721,8 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   builder.CreateRetVoid();
-  llvm::outs() << "=== LLVM IR ===\n";
-  Module->print(llvm::outs(), nullptr);
+  // llvm::outs() << "=== LLVM IR ===\n";
+  // Module->print(llvm::outs(), nullptr);
   return llvm::orc::ThreadSafeModule(std::move(Module), std::move(Context));
 }
 
@@ -762,8 +800,8 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   }
 
   builder.CreateRetVoid();
-  llvm::outs() << "=== LLVM IR ===\n";
-  Module->print(llvm::outs(), nullptr);
+  // llvm::outs() << "=== LLVM IR ===\n";
+  // Module->print(llvm::outs(), nullptr);
   return llvm::orc::ThreadSafeModule(std::move(Module), std::move(Context));
 }
 
@@ -867,13 +905,11 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
     llvm::errs() << "Error adding stride infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
   }
-  std::cout << "check point 1" << std::endl;
   // Look up the function pointers and store them
   pimpl_->logical_shape_infer_fn =
       ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<FuncType>();
   pimpl_->logical_stride_infer_fn =
       ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
-  std::cout << "check point 2" << std::endl;
 }
 
 at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
@@ -905,7 +941,6 @@ at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& in
       logical_shape_result.size(),
       logical_stride_result.data(),
       logical_stride_result.size());
-  std::cout << "check point 4" << std::endl;
 
   // Create the output tensor with the computed shape and strides
   at::Tensor allocated_tensor = at::empty_strided(logical_shape_result, logical_stride_result, input_tensors[0].options());
