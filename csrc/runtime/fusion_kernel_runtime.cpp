@@ -246,7 +246,12 @@ void FusionKernelRuntime::deserialize(
 
     // Initialize associated executors
     executors_[group_id] = ExecutorDispatch::makeExecutor(
-        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+        fusion_to_run.get(),
+        fusion_id_,
+        concrete_id_,
+        runtime_id_,
+        group_id,
+        sg->schedulerType());
 
     // Deserialize KernelExecutor; Otherwise use ExecutorDispatch
     if (auto ke =
@@ -850,7 +855,12 @@ void FusionKernelRuntime::compileKernel(
   } else {
     // Initialize associated executors
     executors_[group_id] = ExecutorDispatch::makeExecutor(
-        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+        fusion_to_run.get(),
+        fusion_id_,
+        concrete_id_,
+        runtime_id_,
+        group_id,
+        heuristic_params->scheduler_type);
 
     ExecutorDispatch::compile(
         executors_.at(group_id).get(),
