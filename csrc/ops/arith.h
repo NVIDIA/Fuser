@@ -122,8 +122,7 @@ NVF_API TensorView* reductionOpRaw(
 
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
-class WelfordResult {
- public:
+struct WelfordResult {
   TensorView* avg;
   TensorView* var_sum;
   TensorView* n;
@@ -144,7 +143,7 @@ class WelfordResult {
 //!
 //! Both tensors have the same shape as the input tensor, except the dimension
 //! along which topk was performed has size k.
-class TopKResult {
+struct TopKResult {
  public:
   TensorView* values = nullptr; //!< The k largest/smallest values
   TensorView* indices; //!< Indices of the values in the original tensor

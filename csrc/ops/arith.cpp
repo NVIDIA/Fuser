@@ -2304,27 +2304,29 @@ TopKResult topk(
   for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
     // TODO: nvfuser enumerate implementation is not correct, it should return
     // signed ints instead.
-    if (index == (size_t)dim) {
-      ExpressionEvaluator ee;
-      PolymorphicValue ext = ee.evaluate(k);
-
-      IterType iter_type;
-      if (ext.hasValue()) {
-        iter_type =
-            ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
-      } else {
-        iter_type =
-            maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
-      }
-      out_domain.push_back(
-          IterDomainBuilder(
-              inp->fusion()->zeroVal(),
-              SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
-              .iter_type(iter_type)
-              .build());
-    } else {
+    if (index != (size_t)dim) {
       out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+      continue;
     }
+
+    // Handling top k dimension, since the output extent is k.
+    ExpressionEvaluator ee;
+    PolymorphicValue ext = ee.evaluate(k);
+
+    IterType iter_type;
+    if (ext.hasValue()) {
+      iter_type =
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else {
+      iter_type =
+          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+    }
+    out_domain.push_back(
+        IterDomainBuilder(
+            inp->fusion()->zeroVal(),
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
+            .iter_type(iter_type)
+            .build());
   }
 
   TensorView* out_values = IrBuilder::create<TensorView>(
