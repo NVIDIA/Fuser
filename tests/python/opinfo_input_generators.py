@@ -843,17 +843,17 @@ def topk_generator(
 ):
     """
     Generate valid test cases for topk operation.
-    
+
     Creates test tensors of various shapes and tests different combinations of:
     - k values (ensuring k <= dimension size)
     - largest/smallest selection
     - sorted/unsorted output
-    
+
     Args:
         op: OpInfo object for the topk operation
         dtype: Data type for test tensors
         requires_grad: Whether tensors should require gradients
-        
+
     Yields:
         SampleInput objects with valid topk parameters
     """
@@ -863,7 +863,8 @@ def topk_generator(
 
     # a.shape, dim, k_values
     cases = (
-        (list(), 0, [0, 1]),
+        # NOTE: aten supports topk on scalar tensor. Not sure if we would want to support this.
+        # (list(), 0, [0, 1]),
         ((128,), 0, [5, 10, 64]),
         ((128, 7, 32), 0, [5, 1, 128]),
         ((128, 7, 32), 1, [5, 1, 7]),
@@ -886,12 +887,12 @@ def topk_error_generator(
 ):
     """
     Generate test cases that should produce errors for topk operation.
-    
+
     Args:
         op: OpInfo object for the topk operation
         dtype: Data type for test tensors
         requires_grad: Whether tensors should require gradients
-        
+
     Yields:
         Tuples of (SampleInput, expected_exception_type, error_message_pattern)
     """

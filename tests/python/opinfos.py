@@ -1078,6 +1078,7 @@ def topk_ref(tensor, k, dim, largest, sorted):
     """Reference implementation for topk using PyTorch."""
     return torch.topk(tensor, k, dim=dim, largest=largest, sorted=sorted)
 
+
 topk_opinfo = OpInfo(
     lambda fd: fd.ops.topk,
     "topk",
