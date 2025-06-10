@@ -60,8 +60,8 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    int64_t expect_dim =
+        std::ssize(TensorDomain::noReductions(tv->getLogicalDomain()));
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
