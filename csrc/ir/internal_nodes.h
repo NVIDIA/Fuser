@@ -2860,4 +2860,37 @@ class ArgsortOp : public Expr {
   }
 };
 
+class BatchedMMOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  BatchedMMOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* mat1,
+      Val* mat2);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BatchedMMOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* out() const {
+    return output(0);
+  }
+  Val* mat1() const {
+    return input(0);
+  }
+  Val* mat2() const {
+    return input(0);
+  }
+};
+
 } // namespace nvfuser
