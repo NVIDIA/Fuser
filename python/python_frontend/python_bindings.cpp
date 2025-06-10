@@ -3673,9 +3673,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t output_dims = mat1.dims; // Should be 3
         Tensor output = fd->defineTensor(output_dims);
 
-        fd->defineRecord(new BatchedMMOpRecord(
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
             {fd->recordingState(mat1()), fd->recordingState(mat2())},
             {fd->recordingState(output())}));
+            ("ops.bmm"),
+            serde::RecordType::Binary_TV,
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(bmm)));
 
         return output;
       },

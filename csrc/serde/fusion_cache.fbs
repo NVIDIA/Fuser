@@ -102,7 +102,6 @@ enum RecordType: int {
     Vector,
     WelfordOp,
     ArgsortOp,
-    BatchedMMOp,
 }
 
 // =====================================================================================
