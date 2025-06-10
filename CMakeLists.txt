@@ -737,6 +737,10 @@ if(BUILD_TEST)
   set_property(TARGET ${ARGSORT_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${ARGSORT_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${ARGSORT_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${ARGSORT_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)

@@ -6,9 +6,6 @@
  */
 // clang-format on
 
-// Warning: this file should not include any header from nvFuser or pytorch
-// (except raw headers). Compiling with nvcc requires avoiding complex headers.
-
 // Define nvfuser_index_t at global scope for runtime files
 using nvfuser_index_t = int64_t;
 
@@ -20,14 +17,15 @@ using nvfuser_index_t = int64_t;
 #include <runtime/index_utils.cu>
 
 #include <runtime/argsort.cu>
+
 // Standard C++ headers
-#include <cassert>
 #include <cstdint>
-#include <type_traits>
 
 // CUDA headers
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+
+#include <gtest/gtest.h>
 
 namespace nvfuser {
 
@@ -210,7 +208,7 @@ void launch_basic_argsort_test_kernel(
 #undef LAUNCH_KERNEL
 
   // If we get here, the combination is not supported
-  assert(false && "Unsupported block_size/items_per_thread combination");
+  FAIL() << "Unsupported block_size/items_per_thread combination";
 }
 
 template <typename DataT>
@@ -225,7 +223,7 @@ void launch_multi_dim_2d_argsort_test_kernel(
     multi_dim_2d_argsort_test_kernel<DataT, 2>
         <<<1, block_2d, 0, stream>>>(input, output_indices, descending);
   } else {
-    assert(false && "Unsupported items_per_thread for 2D block");
+    FAIL() << "Unsupported items_per_thread for 2D block";
   }
 }
 
@@ -241,7 +239,7 @@ void launch_multi_dim_3d_argsort_test_kernel(
     multi_dim_3d_argsort_test_kernel<DataT, 2>
         <<<1, block_3d, 0, stream>>>(input, output_indices, descending);
   } else {
-    assert(false && "Unsupported items_per_thread for 3D block");
+    FAIL() << "Unsupported items_per_thread for 3D block";
   }
 }
 
@@ -255,7 +253,7 @@ void launch_bfloat16_argsort_test_kernel(
     bfloat16_argsort_test_kernel<2>
         <<<1, 4, 0, stream>>>(input, output_indices, descending);
   } else {
-    assert(false && "Unsupported items_per_thread for bfloat16");
+    FAIL() << "Unsupported items_per_thread for bfloat16";
   }
 }
 
