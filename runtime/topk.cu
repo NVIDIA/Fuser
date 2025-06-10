@@ -26,6 +26,7 @@ constexpr __device__ bool isIter(int STATE) {
   return STATE == 1;
 }
 
+// TODO: We have exactly the same code in argsort.cu, we should refactor it.
 // Type utils for interoperability between our own half types and the
 // CUDA standard types (identical to argsort implementation)
 template <typename T>
@@ -64,6 +65,16 @@ struct CudaType<__bfloat> {
 // Block-parallel topk using CUB BlockRadixSort
 // Following nvFuser dimensional template parameter pattern like
 // fused_reduction.cu and argsort.cu
+//
+// For simplicity, we assume that:
+// - top_values: Output array containing top-K values per thread
+// - top_indices: Output array containing original indices of top-K values per
+// thread
+// - Each thread holds exactly ITEMS_PER_THREAD elements in both output arrays
+// - In the actual nvFuser-generated kernel, only the first k elements of each
+//   thread's output arrays should be used (via predication)
+// - This implementation sorts ALL elements and returns them in the output
+//   arrays, but the consuming kernel should only read the first k elements
 template <
     int BLOCK_DIM_X,
     int BLOCK_DIM_Y,
@@ -138,6 +149,13 @@ __device__ void blockTopK(
   }
 
   // Output arrays are already sorted in-place by CUB - no copying needed!
+
+  // IMPLEMENTATION NOTE: This test implementation populates ALL
+  // ITEMS_PER_THREAD elements in the output arrays with sorted results.
+  // However, in the actual nvFuser-generated kernel, only the first k elements
+  // should be consumed from each thread's output arrays (top_values[0..k-1] and
+  // top_indices[0..k-1]). The remaining elements beyond index k-1 should be
+  // ignored via predication.
 
   // Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
   // always produces sorted output. Future optimization could skip sorting

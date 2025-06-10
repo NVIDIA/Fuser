@@ -27,7 +27,7 @@ using TopkComprehensiveTest =
 
 // Helper function to validate topk correctness
 template <typename DataT>
-bool validate_topk_order(
+bool validateTopkOrder(
     const std::vector<DataT>& input_data,
     const std::vector<DataT>& output_values,
     const std::vector<nvfuser_index_t>& output_indices,
@@ -90,7 +90,7 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
   // Test largest
-  launch_basic_topk_test_kernel<float, ITEMS_PER_THREAD>(
+  launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
       values_tensor.data_ptr<float>(),
@@ -110,10 +110,10 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
   EXPECT_TRUE(
-      validate_topk_order(test_data, output_values, output_indices, k, true));
+      validateTopkOrder(test_data, output_values, output_indices, k, true));
 
   // Test smallest
-  launch_basic_topk_test_kernel<float, ITEMS_PER_THREAD>(
+  launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
       values_tensor.data_ptr<float>(),
@@ -133,7 +133,7 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
   EXPECT_TRUE(
-      validate_topk_order(test_data, output_values, output_indices, k, false));
+      validateTopkOrder(test_data, output_values, output_indices, k, false));
 }
 
 // Variable k values test
@@ -156,7 +156,7 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
 
   // Test different k values: 1, 2, 4, 8
   for (int k : {1, 2, 4, 8}) {
-    launch_basic_topk_test_kernel<float, ITEMS_PER_THREAD>(
+    launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
         values_tensor.data_ptr<float>(),
@@ -176,7 +176,7 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
         indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
     EXPECT_TRUE(
-        validate_topk_order(test_data, output_values, output_indices, k, true))
+        validateTopkOrder(test_data, output_values, output_indices, k, true))
         << "Failed for k=" << k;
   }
 }
@@ -201,7 +201,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
-    launch_basic_topk_test_kernel<double, ITEMS_PER_THREAD>(
+    launchBasicTopkTestKernel<double, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<double>(),
         values_tensor.data_ptr<double>(),
@@ -221,7 +221,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
     EXPECT_TRUE(
-        validate_topk_order(test_data, output_values, output_indices, k, true));
+        validateTopkOrder(test_data, output_values, output_indices, k, true));
   }
 
   // Test int
@@ -237,7 +237,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
-    launch_basic_topk_test_kernel<int, ITEMS_PER_THREAD>(
+    launchBasicTopkTestKernel<int, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int>(),
         values_tensor.data_ptr<int>(),
@@ -257,7 +257,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
     EXPECT_TRUE(
-        validate_topk_order(test_data, output_values, output_indices, k, true));
+        validateTopkOrder(test_data, output_values, output_indices, k, true));
   }
 
   // Test int64_t
@@ -273,7 +273,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
-    launch_basic_topk_test_kernel<int64_t, ITEMS_PER_THREAD>(
+    launchBasicTopkTestKernel<int64_t, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int64_t>(),
         values_tensor.data_ptr<int64_t>(),
@@ -293,7 +293,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         indices_cpu.data_ptr<nvfuser_index_t>() + total_elements);
 
     EXPECT_TRUE(
-        validate_topk_order(test_data, output_values, output_indices, k, true));
+        validateTopkOrder(test_data, output_values, output_indices, k, true));
   }
 }
 
@@ -318,7 +318,7 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
-    launch_basic_topk_test_kernel<float, ITEMS_PER_THREAD>(
+    launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
         values_tensor.data_ptr<float>(),
