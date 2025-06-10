@@ -1073,19 +1073,13 @@ argsort_opinfo = OpInfo(
 shape_ops.append(argsort_opinfo)
 
 
-# Create topk reference function that matches our interface
-def topk_ref(tensor, k, dim, largest, sorted):
-    """Reference implementation for topk using PyTorch."""
-    return torch.topk(tensor, k, dim=dim, largest=largest, sorted=sorted)
-
-
 topk_opinfo = OpInfo(
     lambda fd: fd.ops.topk,
     "topk",
     dtypes=(int_float_dtypes),
     sample_input_generator=topk_generator,
     error_input_generator=topk_error_generator,
-    reference=topk_ref,
+    reference=torch.topk,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,  # input tensor
         ArgumentType.Symbolic,  # k (number of elements)
