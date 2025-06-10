@@ -50,51 +50,6 @@ public:
     llvm::Value* llvm_stride = nullptr;   // LLVM Value for the calculated stride of this IterDomain
 };
 
-
-// Print all exprs between input and output domain
-void print_getExprsBetween(const std::vector<IterDomain*>& input_domain, 
-const std::vector<IterDomain*>& output_domain){
-   auto path = getExprsBetween<IRBFS>(
-                  {input_domain.begin(), input_domain.end()}, {output_domain.begin(), output_domain.end()}, false)
-                  .first;
-  for (const auto& [expr, direction] : path) {
-    std::cout<< "Expr: " << expr->toString() << " " << std::endl;
-  }
-}
-
-// Print all expr groups between input and output domain
-void print_getAllExprGroupsBetween(Fusion& fusion, const std::vector<IterDomain*>& in_loop_domain, 
-const std::vector<IterDomain*>& out_loop_domain){
-  IdModel id_model(&fusion);
-  const ValGraph& graph = id_model.buildExactGraph();
-  ValGroups tv0_loop_groups = graph.toGroups(in_loop_domain);
-  ValGroups tv1_loop_groups = graph.toGroups(out_loop_domain);
-  auto result =
-      getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups, true, Direction::Forward).first;
-  for(auto expr_group : result){
-    for(auto expr : *expr_group.first){
-      std::cout<< "Expr: " << expr->toString() << " ";  
-      auto val_inputs = expr->inputs();
-      std::cout << "Op: " << expr->getOpString() << " " << std::endl;
-      for(auto* val_input : val_inputs){
-        std::cout<< "Val: " << val_input->toString() << " ";
-      }
-      if(std::string(expr->getOpString()) == "Split"){
-        for(auto* output_value : expr->outputs()){
-          auto* out_domain = dynamic_cast<IterDomain*>(output_value);
-          if(out_domain->extent()->isConstInt()){
-            std::cout<< "non symbolic output_value: " << out_domain->extent()->toString() << " " << std::endl;
-          }
-          else{
-            std::cout<< "symbolic output_value: " << output_value->toString() << " " << std::endl;
-          }
-        }
-      }  
-      std::cout<<std::endl;
-    }
-  }
-}
-
 // Helper function to exit on error on LLVM JIT initialization
 template <typename T>
 T ExitOnErr(llvm::Expected<T> &&E) {
@@ -121,17 +76,8 @@ std::vector<Val*> domain2vals(const std::vector<IterDomain*>& domain){
   return vals;
 }
 
-// Helper function to cast vals to iter domains
-std::vector<IterDomain*> vals2domain(const std::vector<Val*>& domain){
-  std::vector<IterDomain*> vals;
-  for(auto* val : domain){
-    vals.push_back(dynamic_cast<IterDomain*>(val));
-  }
-  return vals;
-}
-
 // Helper function to map the current domain to the input domain strictly
-int mapToInputDomainStrict(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain){
+int isSameToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain){
   for(auto boundary_val : boundary_vals){
     if(boundary_val.second == current_domain){
       return boundary_val.first;
@@ -142,9 +88,9 @@ int mapToInputDomainStrict(std::unordered_map<int, Val*>& boundary_vals, Val* cu
 
 // Helper function to check if the current iter domain is alias to the input iter domain
 int mapToInputDomain(std::unordered_map<int, Val*>& boundary_vals, Val* current_domain, const ValGraph& exact_graph){
-  int strict_map_index = mapToInputDomainStrict(boundary_vals, current_domain);
-  if(strict_map_index != -1){
-    return strict_map_index;
+  int input_domain_index = isSameToInputDomain(boundary_vals, current_domain);
+  if(input_domain_index != -1){
+    return input_domain_index;
   }
   for(auto boundary_val : boundary_vals){ 
     if(exact_graph.disjointValSets().strictAreMapped(boundary_val.second, current_domain)){
@@ -160,7 +106,7 @@ Generate LLVM IR for a dependency graph
 By default, we assume it is in typological order, which means input values are ready to use
 
 */
-void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unordered_map<Val*,llvm::Value*>& val2llvm, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
+void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unordered_map<ValGroup,llvm::Value*>& val2llvm, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
   std::string op_string = std::string(expr->getOpString());
 
   // Perform the merge -> mul transformation
@@ -177,22 +123,22 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
     llvm::Value* input_inner_llvm_val = nullptr;
 
     if(input_outer_potential_index != -1){
-      input_outer_llvm_val = val2llvm[boundary_vals[input_outer_potential_index]];
+      input_outer_llvm_val = val2llvm[graph.toGroup(boundary_vals[input_outer_potential_index])];
     }
     else{
-      input_outer_llvm_val = val2llvm[merge_input_outer_val];
+      input_outer_llvm_val = val2llvm[graph.toGroup(merge_input_outer_val)];
     }
 
     if(input_inner_potential_index != -1){
-      input_inner_llvm_val = val2llvm[boundary_vals[input_inner_potential_index]];
+      input_inner_llvm_val = val2llvm[graph.toGroup(boundary_vals[input_inner_potential_index])];
     }
     else{
-      input_inner_llvm_val = val2llvm[merge_input_inner_val];
+      input_inner_llvm_val = val2llvm[graph.toGroup(merge_input_inner_val)];
     }
 
     result = builder.CreateMul(input_outer_llvm_val, input_inner_llvm_val, merge_output_val->toString());
 
-    val2llvm[merge_output_val] = result;
+    val2llvm[graph.toGroup(merge_output_val)] = result;
   }
   else if(op_string == "Split"){
     auto* split_expr = expr->as<Split>();
@@ -203,21 +149,21 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
     int input_potential_index = mapToInputDomain(boundary_vals, split_input_val, graph);
     llvm::Value* input_llvm_val = nullptr;
     if(input_potential_index != -1){
-      input_llvm_val = val2llvm[boundary_vals[input_potential_index]]; 
+      input_llvm_val = val2llvm[graph.toGroup(boundary_vals[input_potential_index])]; 
     }
     else{
-      input_llvm_val = val2llvm[split_input_val];
+      input_llvm_val = val2llvm[graph.toGroup(split_input_val)];
     }
 
     // Perform the split -> ceildiv transformation
     if(split_expr->innerSplit()){
       // inner = factor
       if(split_expr->factor()->isConstInt()){
-        val2llvm[split_output_inner_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
+        val2llvm[graph.toGroup(split_output_inner_val)] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
       }
       else{
-        if(val2llvm.find(split_expr->factor()) != val2llvm.end()){
-          val2llvm[split_output_inner_val] = val2llvm[split_expr->factor()];
+        if(val2llvm.find(graph.toGroup(split_expr->factor())) != val2llvm.end()){
+          val2llvm[graph.toGroup(split_output_inner_val)] = val2llvm[graph.toGroup(split_expr->factor())];
         }
         else{
           std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
@@ -227,18 +173,18 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
       // outer = input + 1
       llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
       // outer = (input + 1) + inner
-      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_inner_val], "sum_ab");
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[graph.toGroup(split_output_inner_val)], "sum_ab");
       // outer = (input + 1 + inner) / inner
-      val2llvm[split_output_outer_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_inner_val], split_output_outer_val->as<IterDomain>()->extent()->toString());
+      val2llvm[graph.toGroup(split_output_outer_val)] = builder.CreateUDiv(sum_ab, val2llvm[graph.toGroup(split_output_inner_val)], split_output_outer_val->as<IterDomain>()->extent()->toString());
     }
     else{
       // outer = factor
       if(split_expr->factor()->isConstInt()){
-        val2llvm[split_output_outer_val] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
+        val2llvm[graph.toGroup(split_output_outer_val)] = builder.getInt64(std::stoi(split_expr->factor()->toString()));
       }
       else{
-        if(val2llvm.find(split_expr->factor()) != val2llvm.end()){
-          val2llvm[split_output_outer_val] = val2llvm[split_expr->factor()];
+        if(val2llvm.find(graph.toGroup(split_expr->factor())) != val2llvm.end()){
+          val2llvm[graph.toGroup(split_output_outer_val)] = val2llvm[graph.toGroup(split_expr->factor())];
         }
         else{
           std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
@@ -248,9 +194,9 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
       // inner = input - 1
       llvm::Value* minus_1 = builder.CreateSub(input_llvm_val, builder.getInt64(1), "minus_1");
       // inner = (input - 1) + outer
-      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[split_output_outer_val], "sum_ab");
+      llvm::Value* sum_ab = builder.CreateAdd(minus_1, val2llvm[graph.toGroup(split_output_outer_val)], "sum_ab");
       // inner = (input - 1 + outer) / outer
-      val2llvm[split_output_inner_val] = builder.CreateUDiv(sum_ab, val2llvm[split_output_outer_val], split_output_inner_val->as<IterDomain>()->extent()->toString());
+      val2llvm[graph.toGroup(split_output_inner_val)] = builder.CreateUDiv(sum_ab, val2llvm[graph.toGroup(split_output_outer_val)], split_output_inner_val->as<IterDomain>()->extent()->toString());
     }
   }
   else{
@@ -264,21 +210,9 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
 Dumping all exprs between input and output domain, currently this is only used for shape inference
 
 */
-std::vector<Expr*> traverse_expr_group(const ValGraph& graph, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain){
-  ValGroups tv0_loop_groups = graph.toGroups(input_domain);
-  ValGroups tv1_loop_groups = graph.toGroups(output_domain);
-  auto result = getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
-  std::vector<Expr*> exprs;
-  for(auto expr_group : result){
-    for(auto expr : *expr_group.first){
-      exprs.push_back(expr);
-    }
-  }
-  return exprs;
-}
 
 void generate_all_shape_llvm_ir(const ValGraph& graph, std::vector<IterDomain*>& input_domain, std::vector<IterDomain*>& output_domain, 
-std::unordered_map<Val*, llvm::Value*>& val2llvm_val, std::unordered_map<int, Val*>& boundary_vals, llvm::IRBuilder<>& builder){
+std::unordered_map<ValGroup, llvm::Value*>& val2llvm_val, std::unordered_map<int, Val*>& boundary_vals, llvm::IRBuilder<>& builder){
   ValGroups tv0_loop_groups = graph.toGroups(input_domain);
   ValGroups tv1_loop_groups = graph.toGroups(output_domain);
   auto result = getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
@@ -489,7 +423,7 @@ Generate LLVM IR for stride inference
 */
 void generate_stride_llvm_ir(
     Val* current_val_to_process,
-    std::unordered_map<Val*, StrideInfo>& val2stride_map,
+    std::unordered_map<ValGroup, StrideInfo>& val2stride_map,
     llvm::IRBuilder<>& builder,
     std::unordered_map<int, Val*>& boundary_vals,
     llvm::Value*& running_stride_product,
@@ -505,15 +439,15 @@ void generate_stride_llvm_ir(
     // Check if the current val is a boundary val
     int cur_val_potential_index = mapToInputDomain(boundary_vals, current_val_to_process, graph);
     if(cur_val_potential_index != -1){
-      if(val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride == nullptr){
-        val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride = running_stride_product;
-        running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[cur_val_potential_index]].llvm_extent, "stride_root_val");
+      if(val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride == nullptr){
+        val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride = running_stride_product;
+        running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_extent, "stride_root_val");
       }
       return;
     }
 
     // Memoization: Already processed
-    if (val2stride_map.find(current_val_to_process) != val2stride_map.end() && val2stride_map[current_val_to_process].llvm_stride != nullptr) {
+    if (val2stride_map.find(graph.toGroup(current_val_to_process)) != val2stride_map.end() && val2stride_map[graph.toGroup(current_val_to_process)].llvm_stride != nullptr) {
         return;
     }
 
@@ -521,7 +455,7 @@ void generate_stride_llvm_ir(
 
     // Check if the current val is missing
     if (def_expr == nullptr) {
-        if (val2stride_map.find(current_val_to_process) == val2stride_map.end() || val2stride_map[current_val_to_process].llvm_stride == nullptr) {
+        if (val2stride_map.find(graph.toGroup(current_val_to_process)) == val2stride_map.end() || val2stride_map[graph.toGroup(current_val_to_process)].llvm_stride == nullptr) {
             std::cerr << "Warning: StrideInfo not pre-populated for root Val: "
                       << current_val_to_process->toString() << ". Its stride will be unknown." << std::endl;
         }
@@ -541,11 +475,11 @@ void generate_stride_llvm_ir(
           exit(1);
         }
         // Check if the inner val is a boundary val
-        if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_inner_potential_index]].llvm_extent, "stride_merge_inner_val");
+        if(input_inner_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_inner_potential_index])].llvm_stride == nullptr){
+          val2stride_map[graph.toGroup(boundary_vals[input_inner_potential_index])].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[input_inner_potential_index])].llvm_extent, "stride_merge_inner_val");
         }
-        else if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride != nullptr){
+        else if(input_inner_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_inner_potential_index])].llvm_stride != nullptr){
           return;
         }
         else{
@@ -553,11 +487,11 @@ void generate_stride_llvm_ir(
         }
 
         // Check if the outer val is a boundary val
-        if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_outer_potential_index]].llvm_extent, "stride_merge_outer_val");
+        if(input_outer_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_outer_potential_index])].llvm_stride == nullptr){
+          val2stride_map[graph.toGroup(boundary_vals[input_outer_potential_index])].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[input_outer_potential_index])].llvm_extent, "stride_merge_outer_val");
         }
-        else if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride != nullptr){
+        else if(input_outer_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_outer_potential_index])].llvm_stride != nullptr){
           // case where the outer val is already computed in previous dfs calls
           return;
         }
@@ -566,13 +500,13 @@ void generate_stride_llvm_ir(
         }
         
         // Extent of merged domain
-        if(val2stride_map[input_outer_val].llvm_extent == nullptr || val2stride_map[input_inner_val].llvm_extent == nullptr || val2stride_map[current_val_to_process].llvm_extent != nullptr){
+        if(val2stride_map[graph.toGroup(input_outer_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(input_inner_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(current_val_to_process)].llvm_extent != nullptr){
           return;
         }
         else{
-          val2stride_map[current_val_to_process].llvm_extent = builder.CreateMul(
-              val2stride_map[input_outer_val].llvm_extent,
-              val2stride_map[input_inner_val].llvm_extent,
+          val2stride_map[graph.toGroup(current_val_to_process)].llvm_extent = builder.CreateMul(
+              val2stride_map[graph.toGroup(input_outer_val)].llvm_extent,
+              val2stride_map[graph.toGroup(input_inner_val)].llvm_extent,
               current_val_to_process->toString() + "_merged_extent"
           );
         }
@@ -584,11 +518,9 @@ void generate_stride_llvm_ir(
         auto* output_outer_val = split_expr->outer()->as<Val>();
         int input_val_potential_index = mapToInputDomain(boundary_vals, input_val, graph);
 
-        if(input_val_potential_index != -1 && val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride == nullptr){
-          val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride = running_stride_product;
-          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_val_potential_index]].llvm_extent, "stride_split_input_val");
-        }
-        else if(input_val_potential_index != -1 && val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride != nullptr){
+        if(input_val_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_val_potential_index])].llvm_stride == nullptr){
+          val2stride_map[graph.toGroup(boundary_vals[input_val_potential_index])].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[input_val_potential_index])].llvm_extent, "stride_split_input_val");
           return;
         }
         else{
@@ -598,39 +530,45 @@ void generate_stride_llvm_ir(
         int64_t split_factor = stoi(split_expr->factor()->toString());
         if(split_expr->innerSplit()){
           if(split_expr->factor()->isConstInt()){
-            val2stride_map[output_inner_val].llvm_extent = builder.getInt64(split_factor);
+            val2stride_map[graph.toGroup(output_inner_val)].llvm_extent = builder.getInt64(split_factor);
           }
           else{
-            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
-              val2stride_map[output_inner_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            if(val2stride_map.find(graph.toGroup(split_expr->factor())) != val2stride_map.end()){
+              val2stride_map[graph.toGroup(output_inner_val)].llvm_extent = val2stride_map[graph.toGroup(split_expr->factor())].llvm_extent;
             }
             else{
               std::cerr << "Error: Inner split factor is not a constant and not found in val2stride_map" << std::endl;
               return;
             }
           }
-          val2stride_map[output_outer_val].llvm_extent = builder.CreateUDiv(
-            val2stride_map[input_val].llvm_extent,
-            val2stride_map[output_inner_val].llvm_extent,
+          if(val2stride_map[graph.toGroup(input_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(output_inner_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(output_outer_val)].llvm_extent != nullptr){
+            return;
+          }
+          val2stride_map[graph.toGroup(output_outer_val)].llvm_extent = builder.CreateUDiv(
+            val2stride_map[graph.toGroup(input_val)].llvm_extent,
+            val2stride_map[graph.toGroup(output_inner_val)].llvm_extent,
             output_outer_val->toString() + "_split_extent"
           );
         }
         else{
           if(split_expr->factor()->isConstInt()){
-            val2stride_map[output_outer_val].llvm_extent = builder.getInt64(split_factor);
+            val2stride_map[graph.toGroup(output_outer_val)].llvm_extent = builder.getInt64(split_factor);
           }
           else{
-            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
-              val2stride_map[output_outer_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            if(val2stride_map.find(graph.toGroup(split_expr->factor())) != val2stride_map.end()){
+              val2stride_map[graph.toGroup(output_outer_val)].llvm_extent = val2stride_map[graph.toGroup(split_expr->factor())].llvm_extent;
             }
             else{
               std::cerr << "Error: Outer split factor is not a constant and not found in val2stride_map" << std::endl;
               return;
             }
           }
-          val2stride_map[output_inner_val].llvm_extent = builder.CreateUDiv(
-            val2stride_map[input_val].llvm_extent,
-            val2stride_map[output_outer_val].llvm_extent,
+          if(val2stride_map[graph.toGroup(input_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(output_inner_val)].llvm_extent == nullptr || val2stride_map[graph.toGroup(output_outer_val)].llvm_extent != nullptr){
+            return;
+          }
+          val2stride_map[graph.toGroup(output_inner_val)].llvm_extent = builder.CreateUDiv(
+            val2stride_map[graph.toGroup(input_val)].llvm_extent,
+            val2stride_map[graph.toGroup(output_outer_val)].llvm_extent,
             output_inner_val->toString() + "_split_extent"
           );
         }
@@ -664,7 +602,7 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   llvm::Value* input_ptr = &*arg_it;
   llvm::Value* output_ptr = &*arg_it+2;
 
-  std::unordered_map<Val*, StrideInfo> val2stride;
+  std::unordered_map<ValGroup, StrideInfo> val2stride;
   std::unordered_map<int, Val*> boundary_vals;
   for(size_t i = 0; i < input_vals.size(); i++){
     boundary_vals[i] = input_vals[i];
@@ -677,14 +615,14 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
     auto* zero = builder.getInt64(i);
     auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
     auto* input_i_val = builder.CreateLoad(int64Ty, input_i_ptr, "val");
-    val2stride[input_vals[i]] = StrideInfo();
-    val2stride[input_vals[i]].llvm_extent = input_i_val;
+    val2stride[graph.toGroup(input_vals[i])] = StrideInfo();
+    val2stride[graph.toGroup(input_vals[i])].llvm_extent = input_i_val;
   }
 
   for(auto* val : output_vals){
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
-      val2stride[val] = val2stride[boundary_vals[index]];
+      val2stride[graph.toGroup(val)] = val2stride[graph.toGroup(boundary_vals[index])];
     }
   }
 
@@ -694,11 +632,11 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   for(long unsigned int i = 0; i < logical_domain.size(); i++){
-    if(val2stride[input_vals[i]].llvm_stride == nullptr){
+    if(val2stride[graph.toGroup(input_vals[i])].llvm_stride == nullptr){
       continue;
     }
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
-    builder.CreateStore(val2stride[input_vals[i]].llvm_stride, output_i_ptr);
+    builder.CreateStore(val2stride[graph.toGroup(input_vals[i])].llvm_stride, output_i_ptr);
   }
 
   builder.CreateRetVoid();
@@ -706,7 +644,6 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   // Module->print(llvm::outs(), nullptr);
   return llvm::orc::ThreadSafeModule(std::move(Module), std::move(Context));
 }
-
 
 /*
 
@@ -752,7 +689,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
   std::unordered_map<int, Val*> boundary_vals;
-  std::unordered_map<Val*, llvm::Value*> val2llvm_val;
+  std::unordered_map<ValGroup, llvm::Value*> val2llvm_val;
 
   // Initialize the input values, linking with llvm inputs
   for(size_t i = 0; i < input_domain.size(); i++){
@@ -760,7 +697,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
     auto* zero = builder.getInt64(i);
     auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
     auto* input_i_val = builder.CreateLoad(int64Ty, input_i_ptr, "val");
-    val2llvm_val[input_values[i]] = input_i_val;
+    val2llvm_val[graph.toGroup(input_values[i])] = input_i_val;
   }
 
   // Generate the shape llvm ir for all the exprs between input and output domain
@@ -770,14 +707,14 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   for(auto* val : output_values){
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
-      val2llvm_val[val] = val2llvm_val[boundary_vals[index]];
+      val2llvm_val[graph.toGroup(val)] = val2llvm_val[graph.toGroup(boundary_vals[index])];
     }
   }
 
   // Store the output values to the preallocated output buffer
   for(size_t i = 0; i < output_values.size(); i++){
     auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
-    builder.CreateStore(val2llvm_val[output_values[i]], output_i_ptr);
+    builder.CreateStore(val2llvm_val[graph.toGroup(output_values[i])], output_i_ptr);
   }
 
   builder.CreateRetVoid();

@@ -64,8 +64,6 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   tv1->merge(1);
   // [N, H*W, C]
   tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true});
-  print_iter_domain(tv1->getLoopDomain(), "Output Loop Domain");
-  print_iter_domain(tv1->getLogicalDomain(), "Input Logical Domain");
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(tv1);
@@ -90,14 +88,10 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   TensorView* out = set(in);
   out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
   fusion.addOutput(out);
-  print_iter_domain(in->getLogicalDomain(), "Input Logical Domain");
-  print_iter_domain(out->getLoopDomain(), "Output Loop Domain");
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({8,8,16,32,16}, options);
-  print_iter_domain(in->getLogicalDomain(), "Input Logical Domain");
-  print_iter_domain(out->getLoopDomain(), "Output Loop Domain");
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(out);
@@ -166,13 +160,10 @@ TEST_F(HostIrLLVMTest, Allocation4) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({N, H, W, C}, options);
   at::Tensor t1 = at::randn({N, H, W}, options);
-  std::cout << "check point 1" << std::endl;
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(tv4);
   tv4->setAllocationDomain(tv4->getLoopDomain(), {true, true, true, true});
-  std::cout << "check point 2" << std::endl;
-  tv4->printTransforms();
   // LLVM JIT Run Allocation
   auto output_tensor = jit.allocateOutputTensor({t0, t1});
 
@@ -193,9 +184,6 @@ TEST_F(HostIrLLVMTest, Allocation5) {
   tv1->merge(0,1);
   // notice the second parameter is the size of logical domain instead of allocation domain
   tv1->setAllocationDomain(tv1->getLoopDomain(),{true, true, true});
-  print_iter_domain(tv1->getLoopDomain(), "Output Loop Domain");
-  print_iter_domain(tv1->getLogicalDomain(), "Output Logical Domain");
-  print_iter_domain(tv1->getAllocationDomain(), "Output Allocation Domain");
   fusion.addOutput(tv1);
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -212,33 +200,33 @@ TEST_F(HostIrLLVMTest, Allocation5) {
 TEST_F(HostIrLLVMTest, DID_Split_Merge) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  const int num_devices = 4;
-  int sharded_input_dim = 0;
-  auto mesh = DeviceMesh::createForNumDevices(num_devices);
-  std::vector<int64_t> input_shape = {2, 3, 2, num_devices};
-  input_shape[sharded_input_dim] = num_devices;
+  const int d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
 
-  TensorView* tv0 = makeContigConcreteTensor(input_shape);
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+
   TensorView* tv1 = set(tv0);
-  TensorView* tv2 = add(tv1, tv1);
-  TensorView* tv3 = sum(tv2, {sharded_input_dim});
+  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  fusion->addOutput(tv2);
-  fusion->addOutput(tv3);
 
-  tv1->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
-  tv2->axis(sharded_input_dim)->parallelize(ParallelType::DIDx);
-  tv3->axis(-1)->parallelize(ParallelType::DIDx);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh, 0);
 
-  print_iter_domain(tv1->getLoopDomain(), "tv1 Loop Domain");
-  print_iter_domain(tv1->getLogicalDomain(), "tv1 Logical Domain");
-  print_iter_domain(tv1->getAllocationDomain(), "tv1 Allocation Domain");
-  print_iter_domain(tv2->getLoopDomain(), "tv2 Loop Domain");
-  print_iter_domain(tv2->getLogicalDomain(), "tv2 Logical Domain");
-  print_iter_domain(tv2->getAllocationDomain(), "tv2 Allocation Domain");
-  print_iter_domain(tv3->getLoopDomain(), "tv3 Loop Domain");
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  print_tensor_info(out_tensor);
 }
 
 } // namespace hir
