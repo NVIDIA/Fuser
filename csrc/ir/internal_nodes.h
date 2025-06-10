@@ -2879,13 +2879,13 @@ class BatchedMMOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 
   TensorView* out() const {
-    return output(0);
+    return output(0)->as<TensorView>();
   }
   TensorView* mat1() const {
-    return input(0);
+    return input(0)->as<TensorView>();
   }
   TensorView* mat2() const {
-    return input(1);
+    return input(1)->as<TensorView>();
   }
   IterDomain* getKIDOfMat1() const;
   IterDomain* getKIDOfMat2() const;
