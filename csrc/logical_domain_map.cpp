@@ -112,6 +112,17 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
+  } else if (
+      auto bmmop = dynamic_cast<BatchedMMOp*>(consumer_tv->definition())) {
+    if (producer_tv == bmmop->mat1()) {
+      // Indexing ID of index tv do not map to output.
+      non_mapping_ids.insert(bmmop->getKIDOfMat1());
+      has_consumer_id = true;
+    } else if (producer_tv == bmmop->mat2()) {
+      // indexing ID of value tv do not map to output.
+      non_mapping_ids.insert(bmmop->getKIDOfMat2());
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);

@@ -2887,6 +2887,8 @@ class BatchedMMOp : public Expr {
   Val* mat2() const {
     return input(1);
   }
+  IterDomain* getKIDOfMat1() const;
+  IterDomain* getKIDOfMat2() const;
 };
 
 } // namespace nvfuser
