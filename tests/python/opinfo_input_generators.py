@@ -1739,3 +1739,87 @@ def triu_error_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
         yield SampleInput(
             make_arg(shape),
         ), RuntimeError, f"input tensor for triu must have 2 or more dims, but got {len(shape)} dims"
+
+
+def bmm_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for batched matrix multiplication.
+
+    Creates test tensors of compatible shapes for BMM operation:
+    - mat1: [batch, m, k]
+    - mat2: [batch, k, n]
+    - result: [batch, m, n]
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+
+    Yields:
+        SampleInput objects with compatible BMM tensor pairs
+    """
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    # Test various batch sizes and matrix dimensions
+    test_cases = [
+        # (batch, m, k, n)
+        (2, 4, 3, 5),        # Small matrices
+        (1, 8, 8, 8),        # Square matrices
+        (4, 16, 32, 24),     # Medium matrices
+        (3, 1, 64, 1),       # Edge case: single row/column
+        (8, 128, 64, 96),    # Larger matrices
+        (1, 256, 128, 192),  # Large single batch
+    ]
+
+    for batch, m, k, n in test_cases:
+        mat1 = make_arg((batch, m, k))
+        mat2 = make_arg((batch, k, n))
+        yield SampleInput(mat1, mat2)
+
+
+def bmm_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate test cases that should produce errors for bmm operation.
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+
+    Yields:
+        Tuples of (SampleInput, expected_exception_type, error_message_pattern)
+    """
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # Wrong number of dimensions for mat1
+    yield SampleInput(
+        make_arg((4, 3)), make_arg((2, 3, 4))
+    ), RuntimeError, "BatchedMMOp expects mat1 to be 3-dimensional"
+
+    # Wrong number of dimensions for mat2
+    yield SampleInput(
+        make_arg((2, 4, 3)), make_arg((4, 5))
+    ), RuntimeError, "BatchedMMOp expects mat2 to be 3-dimensional"
+
+    # Mismatched batch sizes
+    yield SampleInput(
+        make_arg((2, 4, 3)), make_arg((3, 3, 5))
+    ), RuntimeError, "Batch sizes must match"
+
+    # Incompatible inner dimensions for matrix multiplication
+    yield SampleInput(
+        make_arg((2, 4, 3)), make_arg((2, 5, 6))
+    ), RuntimeError, "Inner dimensions must match"

@@ -1146,6 +1146,18 @@ class FusionTranslator : public OptInConstDispatch {
         argsortop->isStable()));
   }
 
+  // Map BatchedMMOp to python frontend
+  void handle(const BatchedMMOp* bmm_op) final {
+    TensorView* out_tv = bmm_op->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new BatchedMMOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat1())),
+         fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat2()))},
+        {fd_->recordingState(output())}));
+  }
+
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();

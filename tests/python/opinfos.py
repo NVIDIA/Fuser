@@ -55,6 +55,8 @@ from opinfo_input_generators import (
     linear_error_generator,
     triu_input_generator,
     triu_error_generator,
+    bmm_input_generator,
+    bmm_error_generator,
 )
 from nvfuser.testing.utils import (
     bool_int_dtypes,
@@ -1275,6 +1277,21 @@ matmul_opinfo = OpInfo(
     reference=torch.matmul,
 )
 matmul_ops.append(matmul_opinfo)
+
+bmm_opinfo = OpInfo(
+    lambda fd: fd.ops.bmm,
+    "bmm",
+    # bf16 needs Ampere or newer.
+    dtypes=(
+        (torch.float16, torch.bfloat16)
+        if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
+        else (torch.float16,)
+    ),
+    sample_input_generator=bmm_input_generator,
+    error_input_generator=bmm_error_generator,
+    reference=torch.bmm,
+)
+matmul_ops.append(bmm_opinfo)
 
 linear_ops = []
 

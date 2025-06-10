@@ -3193,6 +3193,54 @@ struct ArgsortOpRecord : RecordFunctor {
   bool stable_;
 };
 
+//! Record for BatchedMM operation in fusion cache and Python frontend
+//!
+//! Stores the parameters needed to recreate a batched matrix multiplication.
+//! This operation performs batch matrix multiplication between two 3D tensors.
+//!
+//! The operation takes two inputs: mat1 and mat2 (both 3D tensors)
+//! and produces one output: the result of batched matrix multiplication.
+struct BatchedMMOpRecord : RecordFunctor {
+  BatchedMMOpRecord(std::vector<State> _args, std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.bmm",
+            serde::RecordType::BatchedMMOp) {}
+  ~BatchedMMOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new BatchedMMOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    if (auto other_bmm = dynamic_cast<const BatchedMMOpRecord*>(&other)) {
+      return RecordFunctor::operator==(other);
+    }
+    return false;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto mat1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto mat2 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto output = bmm(mat1, mat2);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::BatchedMM,
+        serde::CreateBatchedMM(builder).Union()};
+  }
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

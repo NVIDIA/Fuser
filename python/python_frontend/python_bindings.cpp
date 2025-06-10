@@ -3658,6 +3658,46 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("stable") = false,
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "bmm",
+      [](FusionDefinition::Operators& self, Tensor mat1, Tensor mat2) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.bmm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        
+        // Calculate output dimensions: [batch, m, n]
+        // mat1: [batch, m, k], mat2: [batch, k, n]
+        size_t output_dims = mat1.dims; // Should be 3
+        Tensor output = fd->defineTensor(output_dims);
+
+        fd->defineRecord(new BatchedMMOpRecord(
+            {fd->recordingState(mat1()), fd->recordingState(mat2())},
+            {fd->recordingState(output())}));
+
+        return output;
+      },
+      R"(
+      Batched matrix multiplication.
+
+      Performs a batch of matrix multiplications. Each matrix in the batch
+      is multiplied by the corresponding matrix in the other batch.
+
+      Args:
+          mat1 (Tensor): First batch of matrices (3D tensor: batch x m x k)
+          mat2 (Tensor): Second batch of matrices (3D tensor: batch x k x n)
+
+      Returns:
+          Tensor: Result of batched matrix multiplication (3D tensor: batch x m x n)
+
+      Note:
+          Both input tensors must be 3-dimensional with the same batch size.
+          The inner dimensions must be compatible for matrix multiplication.
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::return_value_policy::reference);
+
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
