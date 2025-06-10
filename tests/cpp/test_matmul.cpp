@@ -5700,8 +5700,8 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   std::vector<c10::IValue> inputs = {t0, t1};
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(64, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(64, 256, 32);
+  gemm_tile.warp_tile = GemmTile(64, 256, 32);
 
   MatmulParams mparams;
   // Activate Ping-Pong schedule
