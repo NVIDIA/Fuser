@@ -4471,7 +4471,11 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
       auto new_expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
 
+      // make sure we don't have stale ops in privatized_ops_.
       update_privatized_ops(privatized_ops_, expr, new_expr);
+
+      // We read the inputs of expr so update it.
+      expr = new_expr;
 
       auto upcast_op = maybe_upcast_squeeze_out_tv->definition();
       privatized_ops_[upcast_op].insert(out_tv_clone->definition());
