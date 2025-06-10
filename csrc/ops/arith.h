@@ -139,14 +139,15 @@ class WelfordResult {
 //!
 //! Contains two TensorViews:
 //! - values: tensor containing the k largest/smallest values
-//! - indices: tensor containing the indices of those values in the original tensor
+//! - indices: tensor containing the indices of those values in the original
+//! tensor
 //!
 //! Both tensors have the same shape as the input tensor, except the dimension
 //! along which topk was performed has size k.
 class TopKResult {
  public:
-  TensorView* values;   //!< The k largest/smallest values
-  TensorView* indices;  //!< Indices of the values in the original tensor
+  TensorView* values; //!< The k largest/smallest values
+  TensorView* indices; //!< Indices of the values in the original tensor
 
   //! Constructor ensuring both outputs come from the same TopK operation
   explicit TopKResult(TensorView* in_values, TensorView* in_indices);
@@ -740,8 +741,10 @@ NVF_API TensorView* argsort(
 //!
 //! \param v1 Input tensor
 //! \param k Number of elements to return (must be non-negative integer)
-//! \param dim Dimension along which to find top-k elements (default: -1, last dim)
-//! \param largest If true, return largest elements; if false, return smallest (default: true)
+//! \param dim Dimension along which to find top-k elements (default: -1, last
+//! dim)
+//! \param largest If true, return largest elements; if false, return smallest
+//! (default: true)
 //! \param sorted If true, return elements in sorted order (default: false)
 //! \param maybe_symbolic Whether to allow symbolic shapes (default: true)
 //! \return TopKResult containing values and indices tensors
