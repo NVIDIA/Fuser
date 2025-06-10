@@ -671,12 +671,6 @@ void RecordFunctorFactory::registerAllParsers() {
         data->stable());
   };
   registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
-
-  auto deserializeBatchedMMRecord = [](const RecordFunctor* buffer) {
-    return new python_frontend::BatchedMMOpRecord(
-        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
-  };
-  registerParser(RecordType::BatchedMMOp, deserializeBatchedMMRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
