@@ -4413,6 +4413,44 @@ std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
   return upcasts_or_squeezes;
 }
 
+//!
+//!  Determines if any expanded dimensions in a TensorView need to be squeezed.
+//!
+//!  This function checks each dimension of the provided TensorView `x`
+//!  (excluding reductions) and determines if any dimension marked as `true` in
+//!  the `to_squeeze` vector is both expanded and needs to be squeezed. If at
+//!  least one such dimension exists, the function returns true; otherwise, it
+//!  returns false.
+//!
+//!  @param x Pointer to the TensorView whose dimensions are to be checked.
+//!  @param to_squeeze A boolean vector indicating which dimensions should be
+//!  considered for squeezing.
+//!                    Each element corresponds to a dimension in `x` (after
+//!                    reductions are removed). If an element is true, that
+//!                    dimension is a candidate for squeezing.
+//!  @return true if at least one expanded dimension needs to be squeezed, false
+//!  otherwise.
+//!
+bool needs_to_squeeze_expanded(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze) {
+  auto x_dom = x->domain()->noReductions();
+  const auto ndims = static_cast<int64_t>(x_dom.size());
+  for (const auto idx : arange(ndims)) {
+    // If the dimension is not expanded, no need to squeeze
+    if (!to_squeeze[idx]) {
+      continue;
+    }
+
+    // If the dimension is expanded, we need to squeeze it
+    if (x_dom[idx]->hasExpandedExtent()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 } // namespace
 
 bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
@@ -4465,7 +4503,10 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
             maybe_upcast_squeeze_out_tv->definition()->as<SqueezeOp>();
         out_tv_clone = squeeze(
             squeeze_op->input(0)->as<TensorView>(),
-            squeeze_op->getSqueezeDimFlags());
+            squeeze_op->getSqueezeDimFlags(),
+            needs_to_squeeze_expanded(
+                squeeze_op->input(0)->as<TensorView>(),
+                squeeze_op->getSqueezeDimFlags()));
       }
 
       auto new_expr = ir_utils::replaceValInExprInputs(
