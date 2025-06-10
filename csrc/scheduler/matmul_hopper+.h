@@ -171,6 +171,10 @@ class HopperPlus : public Common {
     }
   }
 
+  //! Computes the number of CGAs we can launch in a single wave on the current
+  //! device
+  int64_t numCGAs() const;
+
   //! Schedule the loads of all operands from global memory to shared memory.
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during

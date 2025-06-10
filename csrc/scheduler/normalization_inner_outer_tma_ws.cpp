@@ -671,9 +671,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       // domains are contiguous.
       auto can_vectorize = [](TensorView* input_tv) {
         const auto& contiguity = input_tv->domain()->contiguity();
-        const auto& logical_domain = input_tv->getLogicalDomain();
-        for (auto i : c10::irange(logical_domain.size())) {
-          if (logical_domain.at(i)->isBroadcast()) {
+        const auto& domain = input_tv->getMaybeAllocationDomain();
+        for (auto i : c10::irange(domain.size())) {
+          if (domain.at(i)->isBroadcast()) {
             continue;
           }
           if (!contiguity[i].has_value() || !contiguity[i].value()) {
