@@ -15,6 +15,8 @@
 #include <preseg_passes/propagate_shardings.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include <linked_hash_map.h>
+#include <transform_iter.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -302,6 +304,101 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
+void transformLoopDomain(
+  TensorView* tv,
+  const std::unordered_map<IterDomain*, IterDomain*>& target2replay,
+  const std::vector<Expr*>& transforms,
+  std::unordered_set<ParallelType> selected_parallel_types) {
+  
+  // Start with the original loop domain.
+  LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
+  for (IterDomain* id : tv->getLoopDomain()) {
+    transformed_loop.pushBack(id, std::monostate());
+  }
+
+  for (auto transform : transforms) {
+    Split* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(
+        split != nullptr,
+        "Expected a split transform producing the device id. Got: ",
+        transform);
+
+    IterDomain* ref = split->in();
+    NVF_ERROR(target2replay.find(ref) != target2replay.end(), "No mapping from ", ref, " to the mapped tv.");
+
+    IterDomain* mapped = target2replay.at(ref);
+    NVF_ERROR(!transformed_loop.contains(mapped), "Expected the input to be in the loop domain. Got: ", mapped);
+
+    auto it = transformed_loop.erase(mapped);
+    auto [outer, inner] = IterDomain::split(mapped, split->factor(), split->innerSplit(), false);
+
+    if (selected_parallel_types.count(split->outer()->getParallelType())) {
+      outer->parallelize(split->outer()->getParallelType());
+    }
+    if (selected_parallel_types.count(split->inner()->getParallelType())) {
+      inner->parallelize(split->inner()->getParallelType());
+    }
+    transformed_loop.insert(it, outer, std::monostate());
+    transformed_loop.insert(it, inner, std::monostate());
+  }
+  auto new_loop = std::views::keys(transformed_loop);
+  tv->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+void propagateDIDTransform(
+    const TensorView* ref,
+    TensorView* tv,
+    std::unordered_set<ParallelType> selected_parallel_types) {
+  tv->setDeviceMesh(ref->getDeviceMesh());
+
+  
+  std::vector<IterDomain*> did_ids;
+  for (auto id : tv->getLoopDomain()) {
+    if (id->isDeviceDim() &&
+        selected_parallel_types.count(id->getParallelType())) {
+      did_ids.push_back(id);
+    }
+  }
+
+  auto p_transforms = DependencyCheck::getAllExprsBetween(
+    {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+    {did_ids.begin(), did_ids.end()});
+
+  std::unordered_set<IterDomain*> p_logical_inputs;
+  auto all_p_deps = DependencyCheck::getAllValsBetween(
+    {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+    {did_ids.begin(), did_ids.end()});
+  for (auto p_dep : all_p_deps) {
+    if (std::find(ref->getLogicalDomain().begin(), ref->getLogicalDomain().end(), p_dep) !=
+        ref->getLogicalDomain().end()) {
+      p_logical_inputs.emplace(p_dep);
+    }
+  }
+
+  auto p2c = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(ref->domain(), tv->domain(), p_logical_inputs);
+
+  BestEffortReplay replay(
+      /*replay_domain=*/tv->getLoopDomain(),
+      /*target_domain=*/did_ids,
+      /*target2replay_map=*/p2c,
+      /*consumer_forwarding_map=*/{},
+      /*producer_forwarding_map=*/{},
+      /*skip_consumer_swizzle=*/false,
+      /*replay_swizzle=*/false,
+      /*replay_resize=*/false);
+
+  transformLoopDomain(tv, p2c, p_transforms, selected_parallel_types);
+}
+
+void propagateDIDTransform(
+    const TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    std::unordered_set<ParallelType> selected_parallel_types) {
+  for (auto tv : tvs) {
+    propagateDIDTransform(ref, tv, selected_parallel_types);
+  }
+}
+
 } // namespace
 
 // This presegmentation pass propagates shardings from fusion inputs to
@@ -360,15 +457,19 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         did_pos = shardViewOp(view_op, did_pos);
       }
 
-      // Propagate the DID loop split to the outputs without mesh.
+      // // Propagate the DID loop split to the outputs without mesh.
+      // propagateDIDTransform(
+      //     /*ref=*/ref_input,
+      //     /*tvs=*/outputs_without_mesh,
+      //     /*did_pos=*/did_pos,
+      //     PropagateDirection::kForward);
+
+      // // Apply parallelization on the outputs without mesh.
+      // shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
       propagateDIDTransform(
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
-          /*did_pos=*/did_pos,
-          PropagateDirection::kForward);
-
-      // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
+          /*selected_parallel_types=*/selected_parallel_types);
     }
   }
 
