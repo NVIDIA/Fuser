@@ -1,3 +1,10 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <fusion.h>
 #include <global_allocator.h>
 #include <host_ir/container.h>
@@ -307,6 +314,30 @@ Verify if the merge is legit by traversing the exprs between output and input do
 
 TODO: Need to implement this function
 */
+
+int findMostUpmostParent(Val* val, bool is_inner_path, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
+  int potential_index = mapToInputDomain(boundary_vals, val, graph);
+  if(potential_index != -1){
+    return potential_index;
+  }
+  auto* def = val->definition();
+  if(def == nullptr){
+    return -1;
+  }
+  if(auto* split = def->as<Split>()){
+    return findMostUpmostParent(split->in(), is_inner_path, boundary_vals, graph);
+  }
+  else if(auto* merge = def->as<Merge>()){
+    if(is_inner_path){
+      return findMostUpmostParent(merge->inner(), is_inner_path, boundary_vals, graph);
+    }
+    else{
+      return findMostUpmostParent(merge->outer(), is_inner_path, boundary_vals, graph);
+    }
+  }
+  return -1;
+}
+
 Val* findLowestCommonAncestor(Val* left_val, Val* right_val) {
   if (!left_val || !right_val) {
     return nullptr;
@@ -376,12 +407,27 @@ bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
 
   // Handle Split expressions: check if we are on the correct side.
   if (auto* split = def->as<Split>()) {
-    if (must_be_inner_path) {
-      if (current != split->inner()) return false; // Wrong side
-    } else {
-      if (current != split->outer()) return false; // Wrong side
-    }
     // Continue from the split's input
+    if(split->in() == ancestor){
+      if(split->outer() == current && must_be_inner_path){
+        return true;
+      }
+      else if(split->inner() == current && !must_be_inner_path){
+        return true;
+      }
+      else{
+        return false;
+      }
+    }
+    if (must_be_inner_path) {
+      if (current != split->inner()){
+        return false;
+      }
+    } else {
+      if (current != split->outer()){
+        return false;
+      }
+    }
     return tracePathToAncestor(split->in(), ancestor, must_be_inner_path);
   }
   // Handle Merge expressions: continue up the corresponding path.
@@ -401,31 +447,58 @@ bool tracePathToAncestor(Val* current, Val* ancestor, bool must_be_inner_path) {
   return false;
 }
 
-bool verify(Expr* expr) {
+bool verify(Expr* expr, std::unordered_map<int, Val*>& boundary_vals, const ValGraph& graph) {
   // This function only verifies Merge expressions.
-  // auto merge = dynamic_cast<Merge*>(expr);
-  // if (!merge) {
-  //   return true;
-  // }
+  auto merge = dynamic_cast<Merge*>(expr);
+  if (!merge) {
+    return true;
+  }
 
-  // Val* inner_val = merge->inner(); // Rightmost input
-  // Val* outer_val = merge->outer(); // Leftmost input
+  Val* inner_val = merge->inner(); // Rightmost input
+  Val* outer_val = merge->outer(); // Leftmost input
 
-  // // Find the lowest common ancestor.
-  // Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
-  // if (!ancestor) {
-  //   // No common ancestor means they don't originate from a single split.
-  //   return false;
-  // }
+  // Find the lowest common ancestor.
+  Val* ancestor = findLowestCommonAncestor(inner_val, outer_val);
+  if (!ancestor) {
+    // case 1:
+    int outer_parent_rightmost = findMostUpmostParent(outer_val, true, boundary_vals, graph);
+    int inner_parent_leftmost = findMostUpmostParent(inner_val, false, boundary_vals, graph);
 
-  // // Verify that the path from the inner_val to the ancestor is exclusively
-  // // through "inner" or "rightmost" paths, and the path from the outer_val
-  // // is exclusively through "outer" or "leftmost" paths.
-  // bool inner_path_is_valid = tracePathToAncestor(inner_val, ancestor, true);
-  // bool outer_path_is_valid = tracePathToAncestor(outer_val, ancestor, false);
+    if(outer_parent_rightmost != -1 && inner_parent_leftmost != -1){
+      return std::abs(outer_parent_rightmost - inner_parent_leftmost) == 1;
+    }
 
-  // return inner_path_is_valid && outer_path_is_valid;
-  return true;
+    // case 2:
+    int outer_parent_leftmost = findMostUpmostParent(outer_val, false, boundary_vals, graph);
+    int inner_parent_rightmost = findMostUpmostParent(inner_val, true, boundary_vals, graph);
+
+    if (outer_parent_leftmost != -1 && inner_parent_rightmost != -1){
+      return std::abs(outer_parent_leftmost - inner_parent_rightmost) == 1;
+    }
+    
+    std::cerr << "No common ancestor found for merge: " << merge->toString() << std::endl;
+    return false;
+  }
+
+  // One of the inputs must be on an inner path, the other on an outer path.
+  // We check both combinations.
+
+  // Combination 1: inner_val is on inner path, outer_val is on outer path.
+  if (tracePathToAncestor(inner_val, ancestor, true) &&
+      tracePathToAncestor(outer_val, ancestor, false)) {
+    return true;
+  }
+
+  // Combination 2: inner_val is on outer path, outer_val is on inner path.
+  if (tracePathToAncestor(inner_val, ancestor, false) &&
+      tracePathToAncestor(outer_val, ancestor, true)) {
+    return true;
+  }
+
+  std::cerr
+      << "Merge validation failed: inputs are not on valid inner/outer paths."
+      << std::endl;
+  return false;
 }
 
 /*
@@ -482,7 +555,7 @@ void generate_stride_llvm_ir(
         auto* input_outer_val = merge_expr->outer()->as<Val>();
         int input_inner_potential_index = mapToInputDomain(boundary_vals, input_inner_val, graph);
         int input_outer_potential_index = mapToInputDomain(boundary_vals, input_outer_val, graph);
-        if(!verify(merge_expr->as<Expr>())){
+        if(!verify(merge_expr->as<Expr>(), boundary_vals, graph)){
           std::cerr << "Invalid merge expr: " << merge_expr->toString() << std::endl;
           exit(1);
         }
@@ -600,7 +673,7 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
 
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_stride", Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
 
@@ -681,7 +754,7 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
   auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
-  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, name, Module.get());
+  auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_shape", Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
 
@@ -768,9 +841,7 @@ namespace nvfuser {
 // PIMPL implementation for HostIrLlvmJit
 struct HostIrLlvmJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  FuncType allocation_shape_infer_fn = nullptr;
   FuncType logical_shape_infer_fn = nullptr;
-  FuncType allocation_stride_infer_fn = nullptr;
   FuncType logical_stride_infer_fn = nullptr;
   TensorView* output_tv = nullptr;
 };
@@ -816,16 +887,10 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
         input_tv->getLogicalDomain().begin(),
         input_tv->getLogicalDomain().end());
   }
-  auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
-  auto output_logical_domain = output_tv->getLogicalDomain();
 
-  // JIT compile shape inference module
-  auto TSM_allocation_shape =
-      generate_infer_shape_module(input_logical_domains, output_allocation_domain, *fusion, "infer_allocation_shape_module");
-  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_shape))) {
-    llvm::errs() << "Error adding shape infer module to JIT: "
-                 << llvm::toString(std::move(Err)) << "\n";
-  }
+  auto output_logical_domain = output_tv->getLogicalDomain();
+  auto output_allocation_domain = output_tv->getMaybeAllocationDomain();
+
   auto TSM_logical_shape =
       generate_infer_shape_module(input_logical_domains, output_logical_domain, *fusion, "infer_logical_shape_module");
   if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_logical_shape))) {
@@ -840,44 +905,25 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
     llvm::errs() << "Error adding stride infer module to JIT: "
                  << llvm::toString(std::move(Err)) << "\n";
   }
-  auto TSM_allocation_stride =
-      generate_infer_stride_module(output_allocation_domain, output_allocation_domain, *fusion, "infer_allocation_stride_module");
-  if (auto Err = pimpl_->jit->addIRModule(std::move(TSM_allocation_stride))) {
-    llvm::errs() << "Error adding stride infer module to JIT: "
-                 << llvm::toString(std::move(Err)) << "\n";
-  }
-
   // Look up the function pointers and store them
-  pimpl_->allocation_shape_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_allocation_shape_module")).toPtr<FuncType>();
   pimpl_->logical_shape_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_logical_shape_module")).toPtr<FuncType>();
-  pimpl_->allocation_stride_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_allocation_stride_module")).toPtr<FuncType>();
+      ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<FuncType>();
   pimpl_->logical_stride_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_logical_stride_module")).toPtr<FuncType>();
+      ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
 }
 
 at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
   NVF_ERROR(
-      pimpl_->allocation_shape_infer_fn != nullptr && pimpl_->logical_shape_infer_fn != nullptr 
-      && pimpl_->allocation_stride_infer_fn != nullptr && pimpl_->logical_stride_infer_fn != nullptr
+      pimpl_->logical_shape_infer_fn != nullptr && pimpl_->logical_stride_infer_fn != nullptr
       && pimpl_->output_tv != nullptr,
       "JIT must be compiled before running.");
 
   // Allocate memory for shape result
-  std::vector<int64_t> allocation_shape_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
   std::vector<int64_t> logical_shape_result(pimpl_->output_tv->getLogicalDomain().size());
   std::vector<int64_t> input_sizes;
   for(auto& input_tensor : input_tensors){
     input_sizes.insert(input_sizes.end(), input_tensor.sizes().begin(), input_tensor.sizes().end());
   }
-  // Run output tensor allocation shape inference
-  pimpl_->allocation_shape_infer_fn(
-      input_sizes.data(),
-      input_sizes.size(),
-      allocation_shape_result.data(),
-      allocation_shape_result.size());
 
   // Run output tensor logical shape inference
   pimpl_->logical_shape_infer_fn(
@@ -888,7 +934,6 @@ at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& in
 
   // Allocate memory for stride result
   std::vector<int64_t> logical_stride_result(pimpl_->output_tv->getLogicalDomain().size());
-  std::vector<int64_t> allocation_stride_result(pimpl_->output_tv->getMaybeAllocationDomain().size());
 
   // Run output tensor logical stride inference
   pimpl_->logical_stride_infer_fn(
@@ -896,24 +941,10 @@ at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& in
       logical_shape_result.size(),
       logical_stride_result.data(),
       logical_stride_result.size());
-  for(size_t i = 0; i < logical_stride_result.size(); i++){
-    std::cout << "logical_stride_result[" << i << "] = " << logical_stride_result[i] << std::endl;
-  }
-
-  // Run output tensor allocation stride inference
-  pimpl_->allocation_stride_infer_fn(
-      allocation_shape_result.data(),
-      allocation_shape_result.size(),
-      allocation_stride_result.data(),
-      allocation_stride_result.size());
-  for(size_t i = 0; i < allocation_stride_result.size(); i++){
-    std::cout << "allocation_stride_result[" << i << "] = " << allocation_stride_result[i] << std::endl;
-  }
 
   // Create the output tensor with the computed shape and strides
-  at::Tensor physical_output_tensor = at::empty_strided(allocation_shape_result, allocation_stride_result, input_tensors[0].options());
-  at::Tensor logical_output_tensor = at::as_strided(physical_output_tensor, logical_shape_result, logical_stride_result);
-  return logical_output_tensor;
+  at::Tensor allocated_tensor = at::empty_strided(logical_shape_result, logical_stride_result, input_tensors[0].options());
+  return allocated_tensor;
 }
 
 } // namespace nvfuser

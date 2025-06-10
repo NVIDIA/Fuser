@@ -179,8 +179,33 @@ TEST_F(HostIrLLVMTest, Allocation4) {
   print_tensor_info(output_tensor);
 }
 
-TEST_F(HostIrLLVMTest, Allocate5) {
-  
+TEST_F(HostIrLLVMTest, Allocation5) {
+  int N = 32, H = 32, W = 32, C = 32;
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  tv0->merge(0,1);
+  tv0->split(2,4)->split(0,2);
+  auto tv1 = set(tv0);
+  tv1->commitLeafToLogical();
+  tv1->merge(0,1);
+  // notice the second parameter is the size of logical domain instead of allocation domain
+  tv1->setAllocationDomain(tv1->getLoopDomain(),{true, true, true});
+  print_iter_domain(tv1->getLoopDomain(), "Output Loop Domain");
+  print_iter_domain(tv1->getLogicalDomain(), "Output Logical Domain");
+  print_iter_domain(tv1->getAllocationDomain(), "Output Allocation Domain");
+  fusion.addOutput(tv1);
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({N, H, W, C}, options);
+
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
 }
 
 } // namespace hir
