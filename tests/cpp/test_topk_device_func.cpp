@@ -41,7 +41,7 @@ bool validateTopkOrder(
     const at::Tensor& input_tensor,
     const at::Tensor& values_tensor,
     const at::Tensor& indices_tensor,
-    int k,
+    int64_t k,
     bool largest = true) {
   NVF_ERROR_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
@@ -50,26 +50,27 @@ bool validateTopkOrder(
   auto output_indices = getVector<int64_t>(indices_tensor);
 
   // Check that we have k valid results
-  if (output_values.size() < k || output_indices.size() < k) {
+  if (static_cast<int64_t>(output_values.size()) < k ||
+      static_cast<int64_t>(output_indices.size()) < k) {
     return false;
   }
 
   // Check valid indices range
-  for (int i = 0; i < k; i++) {
+  for (int64_t i = 0; i < k; i++) {
     if (output_indices[i] < 0 || output_indices[i] >= input_data.size()) {
       return false;
     }
   }
 
   // Check values match indices
-  for (int i = 0; i < k; i++) {
+  for (int64_t i = 0; i < k; i++) {
     if (output_values[i] != input_data[output_indices[i]]) {
       return false;
     }
   }
 
   // Check sorting order of the k elements
-  for (int i = 1; i < k; i++) {
+  for (int64_t i = 1; i < k; i++) {
     if (largest) {
       // For largest, should be in descending order
       if (output_values[i] > output_values[i - 1]) {
