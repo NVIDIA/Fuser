@@ -54,6 +54,7 @@ public:
 template <typename T>
 T ExitOnErr(llvm::Expected<T> &&E) {
     if (!E) {
+        NVF_ERROR(false, "LLVM JIT Initialization Error: " + llvm::toString(E.takeError()));
         llvm::errs() << llvm::toString(E.takeError()) << "\n";
         exit(1);
     }
@@ -61,10 +62,11 @@ T ExitOnErr(llvm::Expected<T> &&E) {
 }
 
 inline void ExitOnErr(llvm::Error &&Err) {
-    if (Err) {
-        llvm::errs() << llvm::toString(std::move(Err)) << "\n";
-        exit(1);
-    }
+  if (Err) {
+    NVF_ERROR(false, "LLVM JIT Initialization Error: " + llvm::toString(std::move(Err)));
+    llvm::errs() << llvm::toString(std::move(Err)) << "\n";
+    exit(1);
+  }
 }
 
 // Helper function to cast iter domains to vals
@@ -166,8 +168,7 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
           val2llvm[graph.toGroup(split_output_inner_val)] = val2llvm[graph.toGroup(split_expr->factor())];
         }
         else{
-          std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
-          exit(1);
+          NVF_ERROR(false, "Missing factor val: " + split_expr->factor()->toString());
         }
       }
       // outer = input + 1
@@ -187,8 +188,7 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
           val2llvm[graph.toGroup(split_output_outer_val)] = val2llvm[graph.toGroup(split_expr->factor())];
         }
         else{
-          std::cerr << "Missing factor val: " << split_expr->factor()->toString() << std::endl;
-          exit(1);
+          NVF_ERROR(false, "LLVM Lowering Error: Missing factor val: " + split_expr->factor()->toString());
         }
       }
       // inner = input - 1
@@ -200,8 +200,7 @@ void generate_shape_llvm_ir(Expr* expr, llvm::IRBuilder<>& builder, std::unorder
     }
   }
   else{
-    std::cerr << "Unsupported op: " << op_string << std::endl;
-    exit(1);
+    NVF_ERROR(false, "LLVM Lowering Error: Unsupported op: " + op_string);
   }
 }
 
@@ -391,7 +390,7 @@ bool verify(Expr* expr, std::unordered_map<int, Val*>& boundary_vals, const ValG
       return std::abs(outer_parent_leftmost - inner_parent_rightmost) == 1;
     }
     
-    std::cerr << "No common ancestor found for merge: " << merge->toString() << std::endl;
+    NVF_ERROR(false, "LLVM Lowering Error: No common ancestor found for merge: " + merge->toString());
     return false;
   }
 
@@ -410,9 +409,7 @@ bool verify(Expr* expr, std::unordered_map<int, Val*>& boundary_vals, const ValG
     return true;
   }
 
-  std::cerr
-      << "Merge validation failed: inputs are not on valid inner/outer paths."
-      << std::endl;
+  NVF_ERROR(false, "LLVM Lowering Error: Merge validation failed: inputs are not on valid inner/outer paths.");
   return false;
 }
 
@@ -432,7 +429,7 @@ void generate_stride_llvm_ir(
 
     // Check if the current val is nullptr
     if (current_val_to_process == nullptr) {
-        std::cerr << "Error: generate_stride_llvm_ir called with nullptr Val." << std::endl;
+        NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
         return;
     }
 
@@ -458,8 +455,7 @@ void generate_stride_llvm_ir(
     // Check if the current val is missing
     if (def_expr == nullptr) {
         if (val2stride_map.find(graph.toGroup(current_val_to_process)) == val2stride_map.end() || val2stride_map[graph.toGroup(current_val_to_process)].llvm_stride == nullptr) {
-            std::cerr << "Warning: StrideInfo not pre-populated for root Val: "
-                      << current_val_to_process->toString() << ". Its stride will be unknown." << std::endl;
+            NVF_ERROR(false, "LLVM Lowering Error: StrideInfo not pre-populated for root Val: " + current_val_to_process->toString() + ". Its stride will be unknown.");
         }
         return;
     }
@@ -473,8 +469,7 @@ void generate_stride_llvm_ir(
         int input_inner_potential_index = mapToInputDomain(boundary_vals, input_inner_val, graph);
         int input_outer_potential_index = mapToInputDomain(boundary_vals, input_outer_val, graph);
         if(!verify(merge_expr->as<Expr>(), boundary_vals, graph)){
-          std::cerr << "Invalid merge expr: " << merge_expr->toString() << std::endl;
-          exit(1);
+          NVF_ERROR(false, "LLVM Lowering Error: Invalid merge expr: " + merge_expr->toString());
         }
         // Check if the inner val is a boundary val
         if(input_inner_potential_index != -1 && val2stride_map[graph.toGroup(boundary_vals[input_inner_potential_index])].llvm_stride == nullptr){
@@ -539,7 +534,7 @@ void generate_stride_llvm_ir(
               val2stride_map[graph.toGroup(output_inner_val)].llvm_extent = val2stride_map[graph.toGroup(split_expr->factor())].llvm_extent;
             }
             else{
-              std::cerr << "Error: Inner split factor is not a constant and not found in val2stride_map" << std::endl;
+              NVF_ERROR(false, "LLVM Lowering Error: Inner split factor is not a constant and not found in val2stride_map");
               return;
             }
           }
@@ -561,7 +556,7 @@ void generate_stride_llvm_ir(
               val2stride_map[graph.toGroup(output_outer_val)].llvm_extent = val2stride_map[graph.toGroup(split_expr->factor())].llvm_extent;
             }
             else{
-              std::cerr << "Error: Outer split factor is not a constant and not found in val2stride_map" << std::endl;
+              NVF_ERROR(false, "LLVM Lowering Error: Outer split factor is not a constant and not found in val2stride_map");
               return;
             }
           }
@@ -576,7 +571,7 @@ void generate_stride_llvm_ir(
         }
 
     } else { // Fallback for other ops (e.g., simple unary pass-through)
-        std::cerr << "Warning: Unhandled op_type '" << op_type << "' for Val ";
+        NVF_ERROR(false, "LLVM Lowering Error: Unhandled op_type '" + op_type + "' for Val " + current_val_to_process->toString());
     }
 }
 
