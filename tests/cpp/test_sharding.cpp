@@ -444,6 +444,29 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
 }
 
+TEST_F(ShardingTest, TransformMismatchSharding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+  int64_t d = mesh.size();
+
+  TensorView* tv0 = makeContigConcreteTensor({6 * d});
+  TensorView* tv1 = set (tv0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(0, 6);
+
+  debug() << "tv0" << tv0->domain()->toString() << std::endl;
+  debug() << "tv1" << tv1->domain()->toString() << std::endl;
+
+  auto replayed_domain = TransformReplay::replayCasP(tv1, tv0, -1).first;
+  debug() << "replayed_domain: " << replayed_domain->loop() << std::endl;
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     ShardingTest,
