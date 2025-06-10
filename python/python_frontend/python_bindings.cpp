@@ -3685,17 +3685,17 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       R"(
       Find the k largest or smallest elements along a dimension.
-      
+
       Args:
           arg (Tensor): Input tensor
           k (Scalar): Number of elements to return
           dim (int, optional): Dimension along which to find top-k. Defaults to -1.
           largest (bool, optional): If True, return largest elements. Defaults to True.
           sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
-          
+
       Returns:
-          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains 
-                                the k largest/smallest elements and indices contains 
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
                                 their positions in the original tensor.
       )",
       py::arg("arg"),

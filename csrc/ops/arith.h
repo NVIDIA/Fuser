@@ -746,7 +746,9 @@ NVF_API TensorView* argsort(
 //! \param largest If true, return largest elements; if false, return smallest
 //! (default: true)
 //! \param sorted If true, return elements in sorted order (default: false)
-//! \param maybe_symbolic Whether to allow symbolic shapes (default: true)
+//! \param maybe_symbolic If true, this would set the output on the top k
+//! IterDomain as IterType::Symbolic, instead of inheriting the iter type from
+//! inputs. (default: true)
 //! \return TopKResult containing values and indices tensors
 //!
 //! \note The output tensors have the same shape as the input, except the

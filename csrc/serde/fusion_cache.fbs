@@ -357,7 +357,7 @@ table Sort {
   stable: bool;
 }
 
-// Data for TopKOpRecord  
+// Data for TopKOpRecord
 table TopK {
   dim: long;
   largest: bool;
