@@ -918,10 +918,13 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   fusion_->manage("ldst_matrix_m_smem", (int64_t)64L);
   fusion_->manage("ldst_matrix_n_smem", (int64_t)64L);
 
-  // Propagate to (not including) the splitk output if there is a splitk
-  // else this is just mma_results_
+  // We will propagate backward from cached outputs to (not including) the
+  // splitk output if there is a splitk else this is just mma_results_. We will
+  // add cached tensors of epilogue inputs in the next step.
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+
+  // Schedule epilogue inputs
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     bool load_with_ldmatrix =
         params_->use_ldst_matrix && dataTypeSize(c_cache->dtype()) == 2;
@@ -1026,9 +1029,13 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       transformLikeMmaOutputWithoutK(tv);
     }
 
+    // Determine swizzle for TMA Store
+    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
+
     // Should not propagate if the dc is a mma output as the mma output has
     // already been scheduled.
     if (!dc_is_mma_result && !dc_is_splitk_sum) {
+      mma_utils::scheduleTMAStoreOuterSplit(dc, swizzle);
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           dc->getLoopDomain());
       dc->setLoopDomain(s.as<IterDomain*>());
@@ -1041,9 +1048,6 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType());
     }
-
-    // Determine swizzle for TMA Store
-    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
     // First, create loop domain that matches wgmma register accumulator using
     // original loop domain.
