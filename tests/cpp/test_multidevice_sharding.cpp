@@ -1035,13 +1035,17 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
   const int d = communicator_->size();
   const int64_t b = 2, s = 3, h = 8, e = 4;
 
   TensorView* tv0 = makeContigConcreteTensor({d * b, s, h * e});
   TensorView* tv1 = reshape(tv0, {d * b, s, h * e}, {d * b * s * h, e});
+  TensorView* tv2 = add(tv1, tv1);
   fusion->addInput(tv0);
-  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
   tv0->setDeviceMesh(mesh);
@@ -1053,7 +1057,7 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
-  EXPECT_TRUE(at::allclose(nvf_out, sharded_inp.view({b * s * h, e})));
+  EXPECT_TRUE(at::allclose(nvf_out, 2 * sharded_inp.view({b * s * h, e})));
 }
 
 TEST_F(MultiDeviceTest, AliasingRetainsSharding) {

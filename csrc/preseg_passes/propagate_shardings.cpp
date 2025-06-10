@@ -307,8 +307,7 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
 void transformLoopDomain(
   TensorView* tv,
   const std::unordered_map<IterDomain*, IterDomain*>& target2replay,
-  const std::vector<Expr*>& transforms,
-  std::unordered_set<ParallelType> selected_parallel_types) {
+  const std::vector<Expr*>& transforms) {
   
   // Start with the original loop domain.
   LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
@@ -324,20 +323,19 @@ void transformLoopDomain(
         transform);
 
     IterDomain* ref = split->in();
-    NVF_ERROR(target2replay.find(ref) != target2replay.end(), "No mapping from ", ref, " to the mapped tv.");
+    if (target2replay.find(ref) == target2replay.end()) {
+      debug() << "No mapping from " << ref << " to the mapped tv." << std::endl;
+      continue;
+    }
 
     IterDomain* mapped = target2replay.at(ref);
-    NVF_ERROR(!transformed_loop.contains(mapped), "Expected the input to be in the loop domain. Got: ", mapped);
+    NVF_ERROR(transformed_loop.contains(mapped), "Expected the input to be in the loop domain. Got: ", mapped);
 
-    auto it = transformed_loop.erase(mapped);
+    auto it = transformed_loop.erase(mapped).second;
     auto [outer, inner] = IterDomain::split(mapped, split->factor(), split->innerSplit(), false);
 
-    if (selected_parallel_types.count(split->outer()->getParallelType())) {
-      outer->parallelize(split->outer()->getParallelType());
-    }
-    if (selected_parallel_types.count(split->inner()->getParallelType())) {
-      inner->parallelize(split->inner()->getParallelType());
-    }
+    outer->parallelize(split->outer()->getParallelType());
+    inner->parallelize(split->inner()->getParallelType());
     transformed_loop.insert(it, outer, std::monostate());
     transformed_loop.insert(it, inner, std::monostate());
   }
@@ -345,49 +343,88 @@ void transformLoopDomain(
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
+bool isTransformEquivalent(Expr* transform, Expr* other) {
+  if (typeid(*transform) != typeid(*other)) {
+    return false;
+  }
+  if (auto split = dynamic_cast<Split*>(transform)) {
+    auto other_split = dynamic_cast<Split*>(other);
+    return split->factor()->sameAs(other_split->factor()) &&
+           split->innerSplit() == other_split->innerSplit();
+  }
+  return true;
+}
+
 void propagateDIDTransform(
     const TensorView* ref,
     TensorView* tv,
     std::unordered_set<ParallelType> selected_parallel_types) {
   tv->setDeviceMesh(ref->getDeviceMesh());
-
   
   std::vector<IterDomain*> did_ids;
-  for (auto id : tv->getLoopDomain()) {
+  for (auto id : ref->getLoopDomain()) {
     if (id->isDeviceDim() &&
         selected_parallel_types.count(id->getParallelType())) {
       did_ids.push_back(id);
     }
   }
 
+  if (did_ids.empty()) {
+    return;
+  }
+
   auto p_transforms = DependencyCheck::getAllExprsBetween(
     {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
     {did_ids.begin(), did_ids.end()});
-
+  
   std::unordered_set<IterDomain*> p_logical_inputs;
   auto all_p_deps = DependencyCheck::getAllValsBetween(
     {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
     {did_ids.begin(), did_ids.end()});
   for (auto p_dep : all_p_deps) {
-    if (std::find(ref->getLogicalDomain().begin(), ref->getLogicalDomain().end(), p_dep) !=
+    IterDomain* id = dynamic_cast<IterDomain*>(p_dep);
+    if (std::find(ref->getLogicalDomain().begin(), ref->getLogicalDomain().end(), id) !=
         ref->getLogicalDomain().end()) {
-      p_logical_inputs.emplace(p_dep);
+      p_logical_inputs.emplace(id);
     }
   }
 
-  auto p2c = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(ref->domain(), tv->domain(), p_logical_inputs);
+  std::unordered_map<IterDomain*, IterDomain*> p2c =
+      PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&p_logical_inputs);
 
-  BestEffortReplay replay(
-      /*replay_domain=*/tv->getLoopDomain(),
-      /*target_domain=*/did_ids,
-      /*target2replay_map=*/p2c,
-      /*consumer_forwarding_map=*/{},
-      /*producer_forwarding_map=*/{},
-      /*skip_consumer_swizzle=*/false,
-      /*replay_swizzle=*/false,
-      /*replay_resize=*/false);
+  for (auto& [p_logical, c_root] : p2c) {
+    auto c_transforms = DependencyCheck::getAllExprsBetween(
+      {c_root},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
 
-  transformLoopDomain(tv, p2c, p_transforms, selected_parallel_types);
+    // Obtain the loop axis to be sharded in the consumer following the
+    // outermost path.
+    IterDomain* c_outermost_id = c_root;
+    for (auto transform : c_transforms) {
+      if (transform->isA<Split>()) {
+        c_outermost_id = transform->as<Split>()->outer();
+      }
+      if (transform->isA<Merge>()) {
+        NVF_ERROR(
+            c_outermost_id == transform->as<Merge>()->outer(),
+            "Expected the sharding to be on the outer reshaped id.");
+        c_outermost_id = transform->as<Merge>()->out();
+      }
+    }
+    p2c[p_logical] = c_outermost_id;
+  }
+
+  debug() << "ref: " << ref->domain()->toString() << std::endl;
+  debug() << "tv: " << tv->domain()->toString() << std::endl;
+
+  for (auto transform: p_transforms) {
+    debug() << "p_transform: " << transform->toString() << std::endl;
+  }
+  for (auto& [p_logical, c_root] : p2c) {
+    debug() << "p_logical: " << p_logical->toString() << " c_root: " << c_root->toString() << std::endl;
+  }
+
+  transformLoopDomain(tv, p2c, p_transforms);
 }
 
 void propagateDIDTransform(
@@ -447,15 +484,15 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate(outputs_without_mesh);
 
-      // This restricts the transform propagation to only the relevant DID axis.
-      int64_t did_pos =
-          selectiveReorderDIDToFront(ref_input, selected_parallel_types);
+      // // This restricts the transform propagation to only the relevant DID axis.
+      // int64_t did_pos =
+      //     selectiveReorderDIDToFront(ref_input, selected_parallel_types);
 
-      if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
-        // Propagation of reshape will return how many DID axis were propagated.
-        // They are reordered behind non-propagated DID axis
-        did_pos = shardViewOp(view_op, did_pos);
-      }
+      // if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
+      //   // Propagation of reshape will return how many DID axis were propagated.
+      //   // They are reordered behind non-propagated DID axis
+      //   did_pos = shardViewOp(view_op, did_pos);
+      // }
 
       // // Propagate the DID loop split to the outputs without mesh.
       // propagateDIDTransform(
