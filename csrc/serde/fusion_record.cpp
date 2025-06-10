@@ -671,6 +671,17 @@ void RecordFunctorFactory::registerAllParsers() {
         data->stable());
   };
   registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
+
+  auto deserializeTopKRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TopK();
+    return new python_frontend::TopKOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->largest(),
+        data->sorted());
+  };
+  registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {

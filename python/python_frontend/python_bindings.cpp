@@ -3658,6 +3658,53 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("stable") = false,
       py::return_value_policy::reference);
 
+  nvf_ops.def(
+      "topk",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar k,
+         int64_t dim,
+         bool largest,
+         bool sorted) -> py::tuple {
+        FUSER_PERF_SCOPE("Operators.topk");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor values = fd->defineTensor(arg.dims);
+        Tensor indices = fd->defineTensor(arg.dims);
+
+        fd->defineRecord(new TopKOpRecord(
+            {fd->recordingState(arg()), fd->recordingState(k())},
+            {fd->recordingState(values()), fd->recordingState(indices())},
+            dim,
+            largest,
+            sorted));
+
+        return py::make_tuple(values, indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
+      py::return_value_policy::reference);
+
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
