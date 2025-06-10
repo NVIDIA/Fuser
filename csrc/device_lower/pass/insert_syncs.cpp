@@ -545,25 +545,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       Expr* wait_expr = getAsyncWait(async_type, /*keep_stages=*/0);
       ForLoop* sync_within_fl = insertSyncExpr(ops, expr, wait_expr, nullptr);
 
-      // For Hopper Ping-Pong Warp-Specialization, insert a mbarrier::arrive
-      // to next warp group to release TensorCores and mbarrier::wait for CUDA
-      // epilogue for this warp group.
-      if (async_type == AsyncOpType::WgMma && sync_within_fl != nullptr &&
-          sync_within_fl->circularBufferLoopStage() ==
-              CircularBufferLoopStage::ComputeWarp) {
-        HopperPingPongMbarriers* ping_pong_mbarriers =
-            GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
-                sync_within_fl->iter_domain());
-        if (ping_pong_mbarriers != nullptr) {
-          Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
-              /*next_warp_group=*/true, /*is_epilogue=*/false);
-          Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
-              /*next_warp_group=*/false, /*is_epilogue=*/true);
-          kir::ExprMutator::registerInsertAfter(
-              wait_expr, mbarrier_arrive, &sync_within_fl->body());
-          kir::ExprMutator::registerInsertAfter(
-              mbarrier_arrive, mbarrier_wait, &sync_within_fl->body());
-        }
+      if (async_type == AsyncOpType::WgMma && sync_within_fl != nullptr) {
+        insertPingPongMbarrier(wait_expr, sync_within_fl);
       }
 
       for (auto op : ops) {
@@ -632,6 +615,34 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
     }
+  }
+
+  // For Hopper Ping-Pong Warp-Specialization, insert a mbarrier::arrive
+  // to next warp group to release TensorCores and mbarrier::wait for CUDA
+  // epilogue for this warp group.
+  void insertPingPongMbarrier(Expr* wait_expr, ForLoop* sync_within_fl) {
+    auto compute_warp_iter =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::ComputeWarp;
+        });
+    if (compute_warp_iter == for_loops_.end()) {
+      return;
+    }
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            (*compute_warp_iter)->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return;
+    }
+    Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/false);
+    Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+        /*next_warp_group=*/false, /*is_epilogue=*/true);
+    kir::ExprMutator::registerInsertAfter(
+        wait_expr, mbarrier_arrive, &sync_within_fl->body());
+    kir::ExprMutator::registerInsertAfter(
+        mbarrier_arrive, mbarrier_wait, &sync_within_fl->body());
   }
 
   // Find where a sync needs to be inserted and insert the given sync.
