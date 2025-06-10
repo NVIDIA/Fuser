@@ -113,43 +113,6 @@ __global__ void multiDim3dArgsortTestKernel(
   }
 }
 
-// BFloat16 specific kernel
-template <int ITEMS_PER_THREAD>
-__global__ void bfloat16ArgsortTestKernel(
-    __nv_bfloat16* input,
-    int64_t* output_indices,
-    bool descending) {
-  __nv_bfloat16 thread_data[ITEMS_PER_THREAD];
-  int64_t thread_indices[ITEMS_PER_THREAD];
-
-  int thread_id = threadIdx.x;
-  int global_offset = thread_id * ITEMS_PER_THREAD;
-
-  // Load data for this thread
-  for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    thread_data[i] = input[global_offset + i];
-  }
-
-  nvfuser_runtime::argsort::
-      blockArgsort<4, 1, 1, 0, 0, 0, __nv_bfloat16, ITEMS_PER_THREAD>(
-          thread_indices, thread_data, descending, blockDim);
-
-  // Store results back to global memory
-  for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    output_indices[global_offset + i] = thread_indices[i];
-  }
-}
-
-__global__ void convert_float_to_bfloat16(
-    float* input_float,
-    __nv_bfloat16* output_bfloat,
-    int n) {
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  if (idx < n) {
-    output_bfloat[idx] = __float2bfloat16(input_float[idx]);
-  }
-}
-
 // Template launcher functions
 template <typename DataT>
 void launchBasicArgsortTestKernel(
@@ -167,8 +130,15 @@ void launchBasicArgsortTestKernel(
     return;                                                        \
   }
 
-  // Original configurations for other tests
+  // Block size 4
+  LAUNCH_KERNEL(4, 1)
   LAUNCH_KERNEL(4, 2)
+  LAUNCH_KERNEL(4, 3)
+  LAUNCH_KERNEL(4, 4)
+  LAUNCH_KERNEL(4, 5)
+  LAUNCH_KERNEL(4, 8)
+
+  // Original configurations for other tests
   LAUNCH_KERNEL(16, 4)
 
   // Block size 32
@@ -243,20 +213,6 @@ void launchMultiDim3dArgsortTestKernel(
   }
 }
 
-void launchBfloat16ArgsortTestKernel(
-    cudaStream_t stream,
-    __nv_bfloat16* input,
-    int64_t* output_indices,
-    int items_per_thread,
-    bool descending) {
-  if (items_per_thread == 2) {
-    bfloat16ArgsortTestKernel<2>
-        <<<1, 4, 0, stream>>>(input, output_indices, descending);
-  } else {
-    FAIL() << "Unsupported items_per_thread for bfloat16";
-  }
-}
-
 // Explicit template instantiations
 template void launchBasicArgsortTestKernel<float>(
     cudaStream_t stream,
@@ -285,6 +241,14 @@ template void launchBasicArgsortTestKernel<int>(
 template void launchBasicArgsortTestKernel<int64_t>(
     cudaStream_t stream,
     int64_t* input,
+    int64_t* output_indices,
+    int block_size,
+    int items_per_thread,
+    bool descending);
+
+template void launchBasicArgsortTestKernel<__nv_bfloat16>(
+    cudaStream_t stream,
+    __nv_bfloat16* input,
     int64_t* output_indices,
     int block_size,
     int items_per_thread,

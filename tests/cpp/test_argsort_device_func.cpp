@@ -13,6 +13,7 @@
 #include <tests/cpp/validator.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <cstdint>
 #include <vector>
 
 namespace nvfuser {
@@ -22,16 +23,34 @@ using ArgSortDeviceFuncTest = NVFuserTest;
 // Parameterized test fixture for comprehensive validation
 using ArgSortComprehensiveTest = NVFuserFixtureParamTest<std::pair<int, int>>;
 
+template <typename DataT>
+std::vector<DataT> getVector(at::Tensor tensor) {
+  NVF_ERROR_EQ(tensor.dim(), 1);
+  if (tensor.dtype() == at::kBFloat16) {
+    tensor = tensor.to(at::kFloat);
+  }
+  auto cpu_tensor = tensor.cpu();
+  auto total_elements = tensor.size(0);
+  return std::vector<DataT>(
+      cpu_tensor.data_ptr<DataT>(),
+      cpu_tensor.data_ptr<DataT>() + total_elements);
+}
+
 // Helper function to validate sorting correctness
 template <typename DataT>
 bool validateArgsortOrder(
-    const std::vector<DataT>& input_data,
-    const std::vector<nvfuser_index_t>& indices,
+    const at::Tensor& input_tensor,
+    const at::Tensor& indices_tensor,
     bool descending = false) {
-  int n = input_data.size();
+  NVF_ERROR_EQ(cudaDeviceSynchronize(), cudaSuccess);
+
+  auto input_data = getVector<DataT>(input_tensor);
+  auto indices = getVector<int64_t>(indices_tensor);
+
+  int64_t n = input_data.size();
 
   // Check valid range
-  for (int i = 0; i < n; i++) {
+  for (int64_t i = 0; i < n; i++) {
     if (indices[i] < 0 || indices[i] >= n) {
       return false;
     }
@@ -39,7 +58,7 @@ bool validateArgsortOrder(
 
   // Check permutation
   std::vector<bool> used(n, false);
-  for (int i = 0; i < n; i++) {
+  for (int64_t i = 0; i < n; i++) {
     if (used[indices[i]]) {
       return false;
     }
@@ -47,7 +66,7 @@ bool validateArgsortOrder(
   }
 
   // Check sorting order
-  for (int i = 1; i < n; i++) {
+  for (int64_t i = 1; i < n; i++) {
     DataT prev_val = input_data[indices[i - 1]];
     DataT curr_val = input_data[indices[i]];
 
@@ -71,11 +90,9 @@ TEST_F(ArgSortDeviceFuncTest, BasicArgsortFloat) {
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
 
-  std::vector<float> test_data = {
-      5.0f, 2.0f, 8.0f, 1.0f, 7.0f, 3.0f, 6.0f, 4.0f};
-
-  auto input_tensor = at::tensor(
-      test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto output_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -84,34 +101,23 @@ TEST_F(ArgSortDeviceFuncTest, BasicArgsortFloat) {
   launchBasicArgsortTestKernel<float>(
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
-      output_tensor.data_ptr<nvfuser_index_t>(),
+      output_tensor.data_ptr<int64_t>(),
       BLOCK_SIZE,
       ITEMS_PER_THREAD,
       false);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  auto output_cpu = output_tensor.cpu();
-  std::vector<nvfuser_index_t> output_indices(
-      output_cpu.data_ptr<nvfuser_index_t>(),
-      output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+  EXPECT_TRUE(validateArgsortOrder<float>(input_tensor, output_tensor, false));
 
   // Test descending
   launchBasicArgsortTestKernel<float>(
       at::cuda::getCurrentCUDAStream(),
       input_tensor.data_ptr<float>(),
-      output_tensor.data_ptr<nvfuser_index_t>(),
+      output_tensor.data_ptr<int64_t>(),
       BLOCK_SIZE,
       ITEMS_PER_THREAD,
       true);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  output_cpu = output_tensor.cpu();
-  output_indices.assign(
-      output_cpu.data_ptr<nvfuser_index_t>(),
-      output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-  EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, true));
+  EXPECT_TRUE(validateArgsortOrder<float>(input_tensor, output_tensor, true));
 }
 
 // Data type support test
@@ -122,10 +128,9 @@ TEST_F(ArgSortDeviceFuncTest, DataTypeSupport) {
 
   // Test double
   {
-    std::vector<double> test_data = {5.5, 2.1, 8.3, 1.7, 7.2, 3.9, 6.4, 4.8};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
     auto output_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -133,26 +138,22 @@ TEST_F(ArgSortDeviceFuncTest, DataTypeSupport) {
     launchBasicArgsortTestKernel<double>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<double>(),
-        output_tensor.data_ptr<nvfuser_index_t>(),
+        output_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         ITEMS_PER_THREAD,
         false);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto output_cpu = output_tensor.cpu();
-    std::vector<nvfuser_index_t> output_indices(
-        output_cpu.data_ptr<nvfuser_index_t>(),
-        output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+    EXPECT_TRUE(
+        validateArgsortOrder<double>(input_tensor, output_tensor, false));
   }
 
   // Test int
   {
-    std::vector<int> test_data = {5, 2, 8, 1, 7, 3, 6, 4};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+    auto input_tensor = at::randint(
+        -100,
+        100,
+        {total_elements},
+        at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
     auto output_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -160,26 +161,21 @@ TEST_F(ArgSortDeviceFuncTest, DataTypeSupport) {
     launchBasicArgsortTestKernel<int>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int>(),
-        output_tensor.data_ptr<nvfuser_index_t>(),
+        output_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         ITEMS_PER_THREAD,
         false);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto output_cpu = output_tensor.cpu();
-    std::vector<nvfuser_index_t> output_indices(
-        output_cpu.data_ptr<nvfuser_index_t>(),
-        output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+    EXPECT_TRUE(validateArgsortOrder<int>(input_tensor, output_tensor, false));
   }
 
   // Test int64_t
   {
-    std::vector<int64_t> test_data = {5L, 2L, 8L, 1L, 7L, 3L, 6L, 4L};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+    auto input_tensor = at::randint(
+        -100,
+        100,
+        {total_elements},
+        at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
     auto output_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -187,18 +183,34 @@ TEST_F(ArgSortDeviceFuncTest, DataTypeSupport) {
     launchBasicArgsortTestKernel<int64_t>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<int64_t>(),
-        output_tensor.data_ptr<nvfuser_index_t>(),
+        output_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
         ITEMS_PER_THREAD,
         false);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto output_cpu = output_tensor.cpu();
-    std::vector<nvfuser_index_t> output_indices(
-        output_cpu.data_ptr<nvfuser_index_t>(),
-        output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
+    EXPECT_TRUE(
+        validateArgsortOrder<int64_t>(input_tensor, output_tensor, false));
+  }
 
-    EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+  // Test bfloat16
+  {
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
+    auto output_tensor = at::empty(
+        {total_elements},
+        at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
+    launchBasicArgsortTestKernel<__nv_bfloat16>(
+        at::cuda::getCurrentCUDAStream(),
+        reinterpret_cast<__nv_bfloat16*>(input_tensor.data_ptr()),
+        output_tensor.data_ptr<int64_t>(),
+        BLOCK_SIZE,
+        ITEMS_PER_THREAD,
+        false);
+
+    EXPECT_TRUE(
+        validateArgsortOrder<float>(input_tensor, output_tensor, false));
   }
 }
 
@@ -209,26 +221,10 @@ TEST_F(ArgSortDeviceFuncTest, MultiDimensionalBlocks) {
   // Test 2D block: 4x2x1 (8 threads total)
   {
     const int total_elements = 8 * ITEMS_PER_THREAD;
-    std::vector<float> test_data = {
-        5.0f,
-        2.0f,
-        8.0f,
-        1.0f,
-        7.0f,
-        3.0f,
-        6.0f,
-        4.0f,
-        9.0f,
-        0.5f,
-        3.5f,
-        7.5f,
-        2.5f,
-        8.5f,
-        1.5f,
-        6.5f};
 
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
     auto output_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -236,42 +232,21 @@ TEST_F(ArgSortDeviceFuncTest, MultiDimensionalBlocks) {
     launchMultiDim2dArgsortTestKernel<float>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
-        output_tensor.data_ptr<nvfuser_index_t>(),
+        output_tensor.data_ptr<int64_t>(),
         ITEMS_PER_THREAD,
         false);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto output_cpu = output_tensor.cpu();
-    std::vector<nvfuser_index_t> output_indices(
-        output_cpu.data_ptr<nvfuser_index_t>(),
-        output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+    EXPECT_TRUE(
+        validateArgsortOrder<float>(input_tensor, output_tensor, false));
   }
 
   // Test 3D block: 2x2x2 (8 threads total)
   {
     const int total_elements = 8 * ITEMS_PER_THREAD;
-    std::vector<float> test_data = {
-        5.0f,
-        2.0f,
-        8.0f,
-        1.0f,
-        7.0f,
-        3.0f,
-        6.0f,
-        4.0f,
-        9.0f,
-        0.5f,
-        3.5f,
-        7.5f,
-        2.5f,
-        8.5f,
-        1.5f,
-        6.5f};
 
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
     auto output_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -279,54 +254,13 @@ TEST_F(ArgSortDeviceFuncTest, MultiDimensionalBlocks) {
     launchMultiDim3dArgsortTestKernel<float>(
         at::cuda::getCurrentCUDAStream(),
         input_tensor.data_ptr<float>(),
-        output_tensor.data_ptr<nvfuser_index_t>(),
+        output_tensor.data_ptr<int64_t>(),
         ITEMS_PER_THREAD,
         false);
-    ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-    auto output_cpu = output_tensor.cpu();
-    std::vector<nvfuser_index_t> output_indices(
-        output_cpu.data_ptr<nvfuser_index_t>(),
-        output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-    EXPECT_TRUE(validateArgsortOrder(test_data, output_indices, false));
+    EXPECT_TRUE(
+        validateArgsortOrder<float>(input_tensor, output_tensor, false));
   }
-}
-
-// BFloat16 support test
-TEST_F(ArgSortDeviceFuncTest, BFloat16Support) {
-  const int ITEMS_PER_THREAD = 2;
-  const int total_elements = 4 * ITEMS_PER_THREAD;
-
-  std::vector<float> test_data_float = {
-      5.0f, 2.0f, 8.0f, 1.0f, 7.0f, 3.0f, 6.0f, 4.0f};
-
-  // Create tensors and convert float to bfloat16
-  auto input_tensor = at::tensor(
-      test_data_float,
-      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
-  auto output_tensor = at::empty(
-      {total_elements},
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
-
-  // Launch argsort kernel
-  launchBfloat16ArgsortTestKernel(
-      at::cuda::getCurrentCUDAStream(),
-      reinterpret_cast<__nv_bfloat16*>(input_tensor.data_ptr()),
-      output_tensor.data_ptr<nvfuser_index_t>(),
-      ITEMS_PER_THREAD,
-      false);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
-
-  // Copy results back
-  auto output_cpu = output_tensor.cpu();
-  std::vector<nvfuser_index_t> output_indices(
-      output_cpu.data_ptr<nvfuser_index_t>(),
-      output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  // Validate against original float data (since bfloat16 conversion should
-  // preserve order)
-  EXPECT_TRUE(validateArgsortOrder(test_data_float, output_indices, false));
 }
 
 // Parameterized comprehensive validation test
@@ -342,12 +276,6 @@ TEST_P(ArgSortComprehensiveTest, ComprehensiveValidation) {
       {total_elements},
       at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
-  // Copy input data to CPU for validation
-  auto input_cpu = input_tensor.cpu();
-  std::vector<float> test_data(
-      input_cpu.data_ptr<float>(),
-      input_cpu.data_ptr<float>() + total_elements);
-
   // Test ascending
   launchBasicArgsortTestKernel<float>(
       at::cuda::getCurrentCUDAStream(),
@@ -356,14 +284,8 @@ TEST_P(ArgSortComprehensiveTest, ComprehensiveValidation) {
       BLOCK_SIZE,
       ITEMS_PER_THREAD,
       false);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  auto output_cpu = output_tensor.cpu();
-  std::vector<nvfuser_index_t> ascending_indices(
-      output_cpu.data_ptr<nvfuser_index_t>(),
-      output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  EXPECT_TRUE(validateArgsortOrder(test_data, ascending_indices, false));
+  EXPECT_TRUE(validateArgsortOrder<float>(input_tensor, output_tensor, false));
 
   // Test descending
   launchBasicArgsortTestKernel<float>(
@@ -373,14 +295,8 @@ TEST_P(ArgSortComprehensiveTest, ComprehensiveValidation) {
       BLOCK_SIZE,
       ITEMS_PER_THREAD,
       true);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
-  output_cpu = output_tensor.cpu();
-  std::vector<nvfuser_index_t> descending_indices(
-      output_cpu.data_ptr<nvfuser_index_t>(),
-      output_cpu.data_ptr<nvfuser_index_t>() + total_elements);
-
-  EXPECT_TRUE(validateArgsortOrder(test_data, descending_indices, true));
+  EXPECT_TRUE(validateArgsortOrder<float>(input_tensor, output_tensor, true));
 }
 
 // Instantiate parameterized tests

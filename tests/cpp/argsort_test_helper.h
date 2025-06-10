@@ -44,11 +44,4 @@ void launchMultiDim3dArgsortTestKernel(
     int items_per_thread,
     bool descending);
 
-void launchBfloat16ArgsortTestKernel(
-    cudaStream_t stream,
-    __nv_bfloat16* input,
-    int64_t* output_indices,
-    int items_per_thread,
-    bool descending);
-
 } // namespace nvfuser
