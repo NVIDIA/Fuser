@@ -51,10 +51,4 @@ void launchBfloat16ArgsortTestKernel(
     int items_per_thread,
     bool descending);
 
-void launch_convert_float_to_bfloat16(
-    cudaStream_t stream,
-    float* input_float,
-    __nv_bfloat16* output_bfloat,
-    int n);
-
 } // namespace nvfuser

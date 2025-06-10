@@ -257,17 +257,6 @@ void launchBfloat16ArgsortTestKernel(
   }
 }
 
-void launch_convert_float_to_bfloat16(
-    cudaStream_t stream,
-    float* input_float,
-    __nv_bfloat16* output_bfloat,
-    int n) {
-  int threads = 256;
-  int blocks = (n + threads - 1) / threads;
-  convert_float_to_bfloat16<<<blocks, threads, 0, stream>>>(
-      input_float, output_bfloat, n);
-}
-
 // Explicit template instantiations
 template void launchBasicArgsortTestKernel<float>(
     cudaStream_t stream,

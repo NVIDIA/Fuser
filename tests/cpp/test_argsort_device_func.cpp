@@ -298,28 +298,16 @@ TEST_F(ArgSortDeviceFuncTest, BFloat16Support) {
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = 4 * ITEMS_PER_THREAD;
 
-  // Test data as floats (will convert to bfloat16)
   std::vector<float> test_data_float = {
       5.0f, 2.0f, 8.0f, 1.0f, 7.0f, 3.0f, 6.0f, 4.0f};
 
   // Create tensors and convert float to bfloat16
-  auto temp_float_tensor = at::tensor(
+  auto input_tensor = at::tensor(
       test_data_float,
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto input_tensor = at::empty(
-      {total_elements},
       at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
   auto output_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
-
-  // Launch conversion kernel
-  launch_convert_float_to_bfloat16(
-      at::cuda::getCurrentCUDAStream(),
-      temp_float_tensor.data_ptr<float>(),
-      reinterpret_cast<__nv_bfloat16*>(input_tensor.data_ptr()),
-      total_elements);
-  ASSERT_EQ(cudaDeviceSynchronize(), cudaSuccess);
 
   // Launch argsort kernel
   launchBfloat16ArgsortTestKernel(
