@@ -716,4 +716,17 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
+//! Batched matrix multiplication
+//!
+//! Performs a batch of matrix multiplications. Each matrix in the batch
+//! is multiplied by the corresponding matrix in the other batch.
+//!
+//! \param mat1 First batch of matrices (3D tensor: batch x m x k)
+//! \param mat2 Second batch of matrices (3D tensor: batch x k x n)
+//! \return Result of batched matrix multiplication (3D tensor: batch x m x n)
+//!
+//! \note Both input tensors must be 3-dimensional with the same batch size.
+//!       The inner dimensions must be compatible for matrix multiplication.
+NVF_API TensorView* bmm(TensorView* mat1, TensorView* mat2);
+
 } // namespace nvfuser

@@ -2889,7 +2889,7 @@ class BatchedMMOp : public Expr {
     return input(0);
   }
   Val* mat2() const {
-    return input(0);
+    return input(1);
   }
 };
 

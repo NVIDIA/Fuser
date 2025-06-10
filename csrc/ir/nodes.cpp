@@ -5616,4 +5616,57 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
 
+BatchedMMOp::BatchedMMOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* mat1,
+    Val* mat2)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(mat1);
+  addInput(mat2);
+}
+
+std::string BatchedMMOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = bmm( "
+                          << mat1()->toString() << ", " << mat2()->toString()
+                          << " )\n";
+  return ss.str();
+}
+
+std::string BatchedMMOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BatchedMMOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 2,
+      "BatchedMMOp expects 2 inputs but received ",
+      inputs.size());
+
+  const auto& mat1 = inputs[0];
+  const auto& mat2 = inputs[1];
+  
+  NVF_ERROR(
+      mat1.is<at::Tensor>(),
+      "BatchedMMOp expects tensor input at position 0 but got ",
+      mat1.type().name());
+  
+  NVF_ERROR(
+      mat2.is<at::Tensor>(),
+      "BatchedMMOp expects tensor input at position 1 but got ",
+      mat2.type().name());
+
+  // at::bmm signature is:
+  // Tensor bmm(const Tensor &self, const Tensor &mat2)
+  auto result = at::bmm(mat1.as<at::Tensor>(), mat2.as<at::Tensor>());
+
+  return {result};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BatchedMMOp)
+
 } // namespace nvfuser

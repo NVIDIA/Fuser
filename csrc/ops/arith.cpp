@@ -2278,4 +2278,44 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
+TensorView* bmm(TensorView* mat1, TensorView* mat2) {
+  NVF_ERROR(
+      mat1->nDims() == 3,
+      "BatchedMMOp expects mat1 to be 3-dimensional but got ",
+      mat1->nDims(),
+      " dimensions");
+  
+  NVF_ERROR(
+      mat2->nDims() == 3,
+      "BatchedMMOp expects mat2 to be 3-dimensional but got ",
+      mat2->nDims(),
+      " dimensions");
+
+  // Create output tensor with shape [batch, m, n]
+  auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(3);
+  
+  // Batch dimension - should be broadcast of mat1 and mat2 batch dims
+  out_domain.push_back(
+      mat1_domain[0]->isBroadcast() ? mat2_domain[0]->cloneWithoutRFactor()
+                                    : mat1_domain[0]->cloneWithoutRFactor());
+  
+  // M dimension from mat1
+  out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
+  
+  // N dimension from mat2  
+  out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
+
+  TensorView* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      mat1->getDataType().value());
+
+  IrBuilder::create<BatchedMMOp>(out, mat1, mat2);
+  return out;
+}
+
 } // namespace nvfuser
