@@ -1,3 +1,11 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
 #include <cub/block/block_radix_sort.cuh>
 
 namespace nvfuser_runtime {

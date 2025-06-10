@@ -31,7 +31,7 @@ namespace nvfuser {
 
 // Test kernels for different configurations
 template <typename DataT, int BLOCK_SIZE, int ITEMS_PER_THREAD>
-__global__ void basic_argsort_test_kernel(
+__global__ void basicArgsortTestKernel(
     DataT* input,
     int64_t* output_indices,
     bool descending) {
@@ -59,7 +59,7 @@ __global__ void basic_argsort_test_kernel(
 
 // Multi-dimensional test kernels
 template <typename DataT, int ITEMS_PER_THREAD>
-__global__ void multi_dim_2d_argsort_test_kernel(
+__global__ void multiDim2dArgsortTestKernel(
     DataT* input,
     int64_t* output_indices,
     bool descending) {
@@ -86,7 +86,7 @@ __global__ void multi_dim_2d_argsort_test_kernel(
 }
 
 template <typename DataT, int ITEMS_PER_THREAD>
-__global__ void multi_dim_3d_argsort_test_kernel(
+__global__ void multiDim3dArgsortTestKernel(
     DataT* input,
     int64_t* output_indices,
     bool descending) {
@@ -115,7 +115,7 @@ __global__ void multi_dim_3d_argsort_test_kernel(
 
 // BFloat16 specific kernel
 template <int ITEMS_PER_THREAD>
-__global__ void bfloat16_argsort_test_kernel(
+__global__ void bfloat16ArgsortTestKernel(
     __nv_bfloat16* input,
     int64_t* output_indices,
     bool descending) {
@@ -152,7 +152,7 @@ __global__ void convert_float_to_bfloat16(
 
 // Template launcher functions
 template <typename DataT>
-void launch_basic_argsort_test_kernel(
+void launchBasicArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
     int64_t* output_indices,
@@ -162,7 +162,7 @@ void launch_basic_argsort_test_kernel(
 // Use a macro to reduce repetition for all combinations
 #define LAUNCH_KERNEL(BS, IPT)                                     \
   if (block_size == BS && items_per_thread == IPT) {               \
-    basic_argsort_test_kernel<DataT, BS, IPT>                      \
+    basicArgsortTestKernel<DataT, BS, IPT>                         \
         <<<1, BS, 0, stream>>>(input, output_indices, descending); \
     return;                                                        \
   }
@@ -212,7 +212,7 @@ void launch_basic_argsort_test_kernel(
 }
 
 template <typename DataT>
-void launch_multi_dim_2d_argsort_test_kernel(
+void launchMultiDim2dArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
     int64_t* output_indices,
@@ -220,7 +220,7 @@ void launch_multi_dim_2d_argsort_test_kernel(
     bool descending) {
   dim3 block_2d(4, 2, 1);
   if (items_per_thread == 2) {
-    multi_dim_2d_argsort_test_kernel<DataT, 2>
+    multiDim2dArgsortTestKernel<DataT, 2>
         <<<1, block_2d, 0, stream>>>(input, output_indices, descending);
   } else {
     FAIL() << "Unsupported items_per_thread for 2D block";
@@ -228,7 +228,7 @@ void launch_multi_dim_2d_argsort_test_kernel(
 }
 
 template <typename DataT>
-void launch_multi_dim_3d_argsort_test_kernel(
+void launchMultiDim3dArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
     int64_t* output_indices,
@@ -236,21 +236,21 @@ void launch_multi_dim_3d_argsort_test_kernel(
     bool descending) {
   dim3 block_3d(2, 2, 2);
   if (items_per_thread == 2) {
-    multi_dim_3d_argsort_test_kernel<DataT, 2>
+    multiDim3dArgsortTestKernel<DataT, 2>
         <<<1, block_3d, 0, stream>>>(input, output_indices, descending);
   } else {
     FAIL() << "Unsupported items_per_thread for 3D block";
   }
 }
 
-void launch_bfloat16_argsort_test_kernel(
+void launchBfloat16ArgsortTestKernel(
     cudaStream_t stream,
     __nv_bfloat16* input,
     int64_t* output_indices,
     int items_per_thread,
     bool descending) {
   if (items_per_thread == 2) {
-    bfloat16_argsort_test_kernel<2>
+    bfloat16ArgsortTestKernel<2>
         <<<1, 4, 0, stream>>>(input, output_indices, descending);
   } else {
     FAIL() << "Unsupported items_per_thread for bfloat16";
@@ -269,7 +269,7 @@ void launch_convert_float_to_bfloat16(
 }
 
 // Explicit template instantiations
-template void launch_basic_argsort_test_kernel<float>(
+template void launchBasicArgsortTestKernel<float>(
     cudaStream_t stream,
     float* input,
     int64_t* output_indices,
@@ -277,7 +277,7 @@ template void launch_basic_argsort_test_kernel<float>(
     int items_per_thread,
     bool descending);
 
-template void launch_basic_argsort_test_kernel<double>(
+template void launchBasicArgsortTestKernel<double>(
     cudaStream_t stream,
     double* input,
     int64_t* output_indices,
@@ -285,7 +285,7 @@ template void launch_basic_argsort_test_kernel<double>(
     int items_per_thread,
     bool descending);
 
-template void launch_basic_argsort_test_kernel<int>(
+template void launchBasicArgsortTestKernel<int>(
     cudaStream_t stream,
     int* input,
     int64_t* output_indices,
@@ -293,7 +293,7 @@ template void launch_basic_argsort_test_kernel<int>(
     int items_per_thread,
     bool descending);
 
-template void launch_basic_argsort_test_kernel<int64_t>(
+template void launchBasicArgsortTestKernel<int64_t>(
     cudaStream_t stream,
     int64_t* input,
     int64_t* output_indices,
@@ -301,14 +301,14 @@ template void launch_basic_argsort_test_kernel<int64_t>(
     int items_per_thread,
     bool descending);
 
-template void launch_multi_dim_2d_argsort_test_kernel<float>(
+template void launchMultiDim2dArgsortTestKernel<float>(
     cudaStream_t stream,
     float* input,
     int64_t* output_indices,
     int items_per_thread,
     bool descending);
 
-template void launch_multi_dim_3d_argsort_test_kernel<float>(
+template void launchMultiDim3dArgsortTestKernel<float>(
     cudaStream_t stream,
     float* input,
     int64_t* output_indices,

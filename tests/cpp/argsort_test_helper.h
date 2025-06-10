@@ -20,34 +20,34 @@ using nvfuser_index_t = int64_t;
 // Function declarations for launching argsort test kernels
 
 template <typename DataT>
-void launch_basic_argsort_test_kernel(
+void launchBasicArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
-    nvfuser_index_t* output_indices,
+    int64_t* output_indices,
     int block_size,
     int items_per_thread,
     bool descending);
 
 template <typename DataT>
-void launch_multi_dim_2d_argsort_test_kernel(
+void launchMultiDim2dArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
-    nvfuser_index_t* output_indices,
+    int64_t* output_indices,
     int items_per_thread,
     bool descending);
 
 template <typename DataT>
-void launch_multi_dim_3d_argsort_test_kernel(
+void launchMultiDim3dArgsortTestKernel(
     cudaStream_t stream,
     DataT* input,
-    nvfuser_index_t* output_indices,
+    int64_t* output_indices,
     int items_per_thread,
     bool descending);
 
-void launch_bfloat16_argsort_test_kernel(
+void launchBfloat16ArgsortTestKernel(
     cudaStream_t stream,
     __nv_bfloat16* input,
-    nvfuser_index_t* output_indices,
+    int64_t* output_indices,
     int items_per_thread,
     bool descending);
 
