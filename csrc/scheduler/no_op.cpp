@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>

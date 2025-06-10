@@ -9,7 +9,7 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
-#include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -24,22 +24,74 @@
 
 namespace nvfuser::preseg_passes {
 namespace {
+
+enum class ReshardPosition {
+  kBefore,
+  kAfter,
+};
+
 // TODO: We can either reshard the inputs of a resharding expression or
 // the outputs. Currently, we reshard the outputs when there is only one
 // input, otherwise we reshard the inputs. This heuristic should be smarter
 // and attempt to minimize communication.
 // We do no support resharding multi-output expressions. Fusions may contain
 // multi-output expressions if they don't require resharding.
-bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1 && expr->outputs().size() == 1;
+ReshardPosition whereToReshard(Expr* e) {
+  if (e->inputs().size() == 1 && e->outputs().size() == 1) {
+    return ReshardPosition::kAfter;
+  } else {
+    return ReshardPosition::kBefore;
+  }
+}
+
+// This is supposed to be a sufficient condition for `e` to be a communication.
+// However, the current implementation, forked from HostIrLower::canLower, is
+// merely a best effort.
+bool isLowerableToCommunication(Expr* e) {
+  if (auto* reduction = dynamic_cast<ReductionOp*>(e)) {
+    auto in = reduction->in()->as<TensorView>();
+    auto out = reduction->out()->as<TensorView>();
+    // get the reduced axis
+    std::vector<IterDomain*> reduction_axis;
+    std::copy_if(
+        out->getLogicalDomain().begin(),
+        out->getLogicalDomain().end(),
+        std::back_inserter(reduction_axis),
+        [](IterDomain* id) { return id->isReduction(); });
+    // check whether the reduction involves only one axis
+    if (reduction_axis.size() != 1) {
+      return false;
+    }
+
+    // We check whether the reduced axis is sharded on the input. I think this
+    // can be simplified to check only the output. However, we need to make
+    // sure sharding propagation and unit tests uses `rDID` instead of `r`.
+    const auto c2p_map =
+        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
+    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
+    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
+  }
+
+  if (auto* ldst = dynamic_cast<LoadStoreOp*>(e)) {
+    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
+  }
+
+  return false;
 }
 
 void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
-    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) ||
-        shouldReshardAfter(expr)) {
+    if (!isResharding(expr)) {
+      continue;
+    }
+
+    if (isLowerableToCommunication(expr)) {
+      continue;
+    }
+
+    if (whereToReshard(expr) != ReshardPosition::kBefore) {
       continue;
     }
 
@@ -89,8 +141,15 @@ void insertReshardingSetsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) ||
-        !shouldReshardAfter(expr)) {
+    if (!isResharding(expr)) {
+      continue;
+    }
+
+    if (isLowerableToCommunication(expr)) {
+      continue;
+    }
+
+    if (whereToReshard(expr) != ReshardPosition::kAfter) {
       continue;
     }
 
@@ -335,6 +394,13 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
   // insertReshardingSetsBefore is used.
   insertReshardingSetsAfter(fusion);
   insertReshardingSetsBefore(fusion);
+
+  // Validate
+  for (Expr* e : fusion->exprs()) {
+    if (isResharding(e)) {
+      getCommunicationInfo(e);
+    }
+  }
 }
 
 } // namespace nvfuser::preseg_passes

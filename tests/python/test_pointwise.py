@@ -359,7 +359,9 @@ def test_issue2853():
 
     with FusionDefinition() as fd:
         fusion_func(fd)
-    with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
+    with pytest.raises(
+        RuntimeError, match="KernelExecutor does not support the Fusion provided."
+    ):
         _ = fd.execute(inputs)
 
 
@@ -419,5 +421,7 @@ def test_single_segment_multi_device():
     with FusionDefinition() as fd:
         fusion_func(fd)
 
-    with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
+    with pytest.raises(
+        RuntimeError, match="KernelExecutor does not support the Fusion provided."
+    ):
         _ = fd.execute(inputs)

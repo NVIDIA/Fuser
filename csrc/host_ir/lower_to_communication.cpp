@@ -50,7 +50,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
 void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
@@ -77,7 +77,7 @@ void lowerToScatter(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 /*
@@ -89,7 +89,7 @@ need multiple Gathers if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -109,7 +109,7 @@ void lowerToGather(
         team,
         root,
         c10d::ReduceOp::RedOpType::UNUSED,
-        params.communicator_backend));
+        backend));
   }
 }
 
@@ -117,7 +117,7 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -129,7 +129,7 @@ void lowerToAllgather(
       team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -137,7 +137,7 @@ void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     DeviceIdxType root,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   NVF_ERROR(
@@ -153,7 +153,7 @@ void lowerToBroadcast(
       team,
       root,
       c10d::ReduceOp::RedOpType::UNUSED,
-      params.communicator_backend));
+      backend));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -163,7 +163,7 @@ void lowerToBroadcast(
 void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
@@ -177,7 +177,7 @@ void lowerToBroadcastOrSendRecv(
       receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
-    // we create as many Broadcast as that will be handled in parallel
+    // we create as many SendRecvs as that will be handled in parallel
     NVF_ERROR(
         sender_mesh.size() == receiver_mesh.size(),
         "the receiver and sender meshes have different sizes: ",
@@ -194,7 +194,7 @@ void lowerToBroadcastOrSendRecv(
           Team({sender, receiver}),
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
-          params.communicator_backend));
+          backend));
     }
   } else {
     // Either of the following two cases is happening.
@@ -207,7 +207,7 @@ void lowerToBroadcastOrSendRecv(
         input_tv,
         output_tv,
         /*root=*/sender_mesh.at(0),
-        params,
+        backend,
         comms);
   }
 }
@@ -216,7 +216,7 @@ void lowerToReduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -242,7 +242,7 @@ void lowerToReduce(
         team,
         root,
         reduce_op_type,
-        params.communicator_backend));
+        backend));
   }
 }
 
@@ -250,7 +250,7 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -262,14 +262,14 @@ void lowerToAllreduce(
       team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      params.communicator_backend));
+      backend));
 }
 
 void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
-    const HostIrLowerParams& params,
+    const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
@@ -282,7 +282,7 @@ void lowerToReduceScatter(
       /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      params.communicator_backend));
+      backend));
 }
 
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
@@ -301,14 +301,29 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
-std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
+CommunicationInfo getCommunicationInfo(Expr* expr) {
+  NVF_ERROR(
+      isResharding(expr),
+      "getCommunicationInfo should only be called when `expr` is known to be a "
+      "communication. So `expr` should be resharding. Given: ",
+      expr);
+
+  NVF_ERROR(
+      expr->isA<LoadStoreOp>() || expr->isA<ReductionOp>(),
+      "getCommunicationInfo should only be called when `expr` is known to be a "
+      "communication. So `expr` should be either a LoadStoreOp or a "
+      "ReductionOp. Given: ",
+      expr);
+
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
-  auto create_communication_info = [&](CommunicationType type,
-                                       IterDomain* p_sharded_id,
-                                       IterDomain* c_sharded_id) {
+  // Fill `communication_info` instead of returning the result, so we can catch
+  // errors when more than one DIDs have sharding changes.
+  auto fill_communication_info = [&](CommunicationType type,
+                                     IterDomain* p_sharded_id,
+                                     IterDomain* c_sharded_id) {
     NVF_ERROR(
         !communication_info.has_value(),
         "Expected at most one sharding change");
@@ -345,17 +360,22 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
-        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
-        continue;
+        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
       }
       if (!p_sharded && c_sharded) {
-        // Scatter
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
-        create_communication_info(
+        fill_communication_info(
             CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
-        continue;
       }
-    } else if (expr->isA<ReductionOp>()) {
+      if (p_sharded && c_sharded) {
+        IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
+        IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
+        // TODO(#4604): This is problematic for 2D sharding.
+        fill_communication_info(
+            CommunicationType::SendRecv, p_logical_id, c_logical_id);
+      }
+    } else {
+      NVF_ERROR(expr->isA<ReductionOp>());
       if (!p_sharded) {
         // Not a reduction based communication.
         continue;
@@ -365,7 +385,7 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allreduce
                                            : CommunicationType::Reduce;
-        create_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
+        fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
         continue;
       }
 
@@ -382,15 +402,17 @@ std::optional<CommunicationInfo> getCommunicationInfo(Expr* expr) {
       if (!c_it->second->isReduction()) {
         continue;
       }
-      create_communication_info(
+      fill_communication_info(
           CommunicationType::ReduceScatter,
           c2p_map.at(c_logical_id),
           c_logical_id);
-    } else {
-      NVF_THROW("Unsupported expression: ", expr->toString());
     }
   }
-  return communication_info;
+
+  if (!communication_info.has_value()) {
+    fill_communication_info(CommunicationType::Broadcast, nullptr, nullptr);
+  }
+  return *communication_info;
 }
 
 namespace {
@@ -408,6 +430,16 @@ Layout getCommunicationLayout(
     const CommunicationType type,
     IterDomain* sharded_id) {
   const Layout layout = canonicalizeLayout(tv)->contiguous();
+  // For the following communication types, the sharded_id does not have to be
+  // outermost in allocation domain. Nonetheless, `tv` still needs to be
+  // contiguous and therefore .contiguous() at the beginning of this function.
+  if (type == CommunicationType::Reduce ||
+      type == CommunicationType::Allreduce ||
+      type == CommunicationType::Broadcast ||
+      type == CommunicationType::SendRecv) {
+    return layout;
+  }
+
   const int64_t sharded_id_pos =
       posInDomain(layout.allocation_domain(), sharded_id);
   NVF_ERROR(
@@ -416,14 +448,6 @@ Layout getCommunicationLayout(
       sharded_id,
       ") not found in the allocation domain of the tensor view: ",
       tv);
-
-  // Reduction axis in reduce/allreduce does not have to be outermost in
-  // allocation domain. Nonetheless, `tv` still needs to be contiguous and
-  // therefore .contiguous() at the beginning of this function.
-  if (type == CommunicationType::Reduce ||
-      type == CommunicationType::Allreduce) {
-    return layout;
-  }
 
   if (isLocalSizeOne(sharded_id)) {
     // Parallelized dimension, broadcast, and reduction do not affect
@@ -450,22 +474,16 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
   auto* producer = expr->inputs().at(0)->as<TensorView>();
   auto* consumer = expr->outputs().at(0)->as<TensorView>();
 
-  // TODO(#4552): the caller should make sure Expr is a communication so
-  // getCommunicationInfo always returns a valid CommunicationInfo. Retry after
-  // #4552 is merged.
-  auto communication_info = getCommunicationInfo(expr);
-  if (!communication_info.has_value()) {
-    return true;
-  }
+  CommunicationInfo communication_info = getCommunicationInfo(expr);
 
   Layout p_layout = getCommunicationLayout(
-      producer, communication_info->type, communication_info->p_sharded_id);
+      producer, communication_info.type, communication_info.p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(producer), p_layout)) {
     return false;
   }
 
   Layout c_layout = getCommunicationLayout(
-      consumer, communication_info->type, communication_info->c_sharded_id);
+      consumer, communication_info.type, communication_info.c_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(consumer), c_layout)) {
     return false;
   }
@@ -474,19 +492,19 @@ bool isCommunicationLayoutCompliant(Expr* expr) {
 }
 
 std::vector<Expr*> convertSingleOpToCommunication(
-    Expr* c,
+    Expr* e,
     DeviceIdxType my_device_idx,
-    const HostIrLowerParams& params) {
-  FusionGuard fg(c->fusion());
+    const CommunicatorBackend backend) {
+  FusionGuard fg(e->fusion());
 
   std::vector<Expr*> comms;
   NVF_ERROR(
-      c->inputs().size() == 1 && c->input(0)->isA<TensorView>() &&
-          c->outputs().size() == 1 && c->output(0)->isA<TensorView>(),
+      e->inputs().size() == 1 && e->input(0)->isA<TensorView>() &&
+          e->outputs().size() == 1 && e->output(0)->isA<TensorView>(),
       "Input/Output must be single TensorView: ",
-      c);
-  auto* input_tv = c->input(0)->as<TensorView>();
-  auto* output_tv = c->output(0)->as<TensorView>();
+      e);
+  auto* input_tv = e->input(0)->as<TensorView>();
+  auto* output_tv = e->output(0)->as<TensorView>();
 
   input_tv->setMemoryType(MemoryType::Global);
   output_tv->setMemoryType(MemoryType::Global);
@@ -501,18 +519,12 @@ std::vector<Expr*> convertSingleOpToCommunication(
       isSharded(output_tv) && receiver_mesh.size() > 1;
 
   NVF_ERROR(
-      HostIrLower::canLower(c),
-      "Lowering expression ",
-      c->toString(),
-      " to communication is not supported");
-  NVF_ERROR(
-      isCommunicationLayoutCompliant(c),
+      isCommunicationLayoutCompliant(e),
       "Resharding on an inner axis is not lowerable ",
-      c->toString());
-  bool is_reduction = c->isA<ReductionOp>();
+      e->toString());
 
-  if (is_reduction) {
-    BinaryOpType op_type = c->as<ReductionOp>()->getReductionOpType();
+  if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
+    BinaryOpType op_type = reduce->getReductionOpType();
     NVF_ERROR(
         is_input_sharded || sender_mesh.size() == 1,
         "the comm input must be sharded in case of reduce.",
@@ -525,26 +537,31 @@ std::vector<Expr*> convertSingleOpToCommunication(
           "Insert a Set operation before or after the reduction to reshard ot "
           "another device mesh");
       lowerToReduceScatter(
-          input_tv, output_tv, op_type, params, comms, my_device_idx);
+          input_tv, output_tv, op_type, backend, comms, my_device_idx);
     } else {
       if (same_mesh) {
         lowerToAllreduce(
-            input_tv, output_tv, op_type, params, comms, my_device_idx);
+            input_tv, output_tv, op_type, backend, comms, my_device_idx);
       } else {
-        lowerToReduce(input_tv, output_tv, op_type, params, comms);
+        lowerToReduce(input_tv, output_tv, op_type, backend, comms);
       }
     }
   } else {
+    NVF_ERROR(
+        e->isA<LoadStoreOp>(),
+        "Expected a LoadStoreOp or a ReductionOp, but got: ",
+        e);
     if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, params, comms);
+      lowerToScatter(input_tv, output_tv, backend, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, params, comms, my_device_idx);
+        lowerToAllgather(input_tv, output_tv, backend, comms, my_device_idx);
       } else {
-        lowerToGather(input_tv, output_tv, params, comms);
+        lowerToGather(input_tv, output_tv, backend, comms);
       }
     } else {
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, params, comms);
+      // TODO(#4604): This is problematic for 2D sharding.
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, backend, comms);
     }
   }
 
