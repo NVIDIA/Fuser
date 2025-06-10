@@ -218,6 +218,14 @@ void getHeuristics(
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
 
+  // Set the newly added parameters for TMA warp specialized
+  rparams->is_non_circular_buffer_gmem_to_regs = true;
+  rparams->is_circular_buffer_regs_cached = true;
+
+  // Set the newly added parameters for TMA warp specialized
+  rparams->is_non_circular_buffer_gmem_to_regs = true;
+  rparams->is_circular_buffer_regs_cached = true;
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
@@ -630,9 +638,11 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // Unroll axis. Which requires the tma tensor alive until the end of the
     // computation and delays the next TMA load until the end of the
     // computation.
-    for (auto tv : smem_consumers) {
-      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
-        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+    if (rparams->is_circular_buffer_regs_cached) {
+      for (auto tv : smem_consumers) {
+        if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
+          tv_inline_pos_map.emplace(tv, tma_inline_pos);
+        }
       }
     }
 
