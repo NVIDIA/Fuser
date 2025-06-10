@@ -3675,7 +3675,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
             {fd->recordingState(mat1()), fd->recordingState(mat2())},
-            {fd->recordingState(output())}));
+            {fd->recordingState(output())},
             ("ops.bmm"),
             serde::RecordType::Binary_TV,
             static_cast<TensorView* (*)(TensorView*, TensorView*)>(bmm)));

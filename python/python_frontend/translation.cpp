@@ -1152,10 +1152,13 @@ class FusionTranslator : public OptInConstDispatch {
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(new BatchedMMOpRecord(
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
         {fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat1())),
          fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat2()))},
-        {fd_->recordingState(output())}));
+        {fd_->recordingState(output())},
+        ("ops.bmm"),
+        serde::RecordType::Binary_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*)>(bmm)));
   }
 
   // Map GatherOp to python frontend
