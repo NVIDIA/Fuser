@@ -51,7 +51,7 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
-  auto tv0 = makeContigTensor(3); // [N1, N2, H*W*C]
+  auto tv0 = makeContigTensor(3); // [N1, N2, H*W*C], which is logical domain
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -77,9 +77,12 @@ TEST_F(HostIrLLVMTest, Allocation1) {
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({n1, n2, h*w*c}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({n2*h*w*c, h*w*c, 1}));
 }
 
 TEST_F(HostIrLLVMTest, Allocation2) {
+  int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(5);
@@ -91,7 +94,7 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({8,8,16,32,16}, options);
+  at::Tensor t0 = at::randn({i1, i2, i3, i4, i5}, options);
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
   jit.compile(out);
@@ -101,23 +104,33 @@ TEST_F(HostIrLLVMTest, Allocation2) {
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({i1, i2, i3, i4, i5}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i2*i3*i4*i5, i3*i4*i5, i4*i5, i5, 1}));
 }
 
 TEST_F(HostIrLLVMTest, Allocation3) {
+  int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(5);
+  // [i1, i2, i3, i4, i5]
   fusion.addInput(in);
-  in->merge(0,1)->split(0,4)->merge(0,1)->split(0,2);
+  // [i1*i2, i3, i4, i5]
+  // in->merge(0,1)->split(0,4)->merge(0,1)->split(0,2);
+  // [i1*i2/2, 2, i3, i4, i5]
   TensorView* out = set(in);
-  out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
+  // out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
+  // [i1*i2/2, 2, i3, i4, i5]
   out->reorder({{1, 2, 3, 4, 0}});
+  out->printTransforms();
+  // [2, i3, i4, i5, i1*i2/2]
+  // [8,1,32*16*64,16*64,64,1]
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
   fusion.addOutput(out);
 
   // Input Tensor
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({8,8,16,32,16}, options);
+  at::Tensor t0 = at::randn({i1, i2, i3, i4, i5}, options);
 
   // LLVM JIT Compile
   HostIrLlvmJit jit(4);
@@ -128,6 +141,8 @@ TEST_F(HostIrLLVMTest, Allocation3) {
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({i1, i2, i3, i4, i5}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i3*i4*i2, i3*i4, i4, 1,i3*i4*i2*i1}));
 }
 
 TEST_F(HostIrLLVMTest, Allocation4) {
@@ -169,6 +184,8 @@ TEST_F(HostIrLLVMTest, Allocation4) {
 
   // Print Output Tensor Info
   print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({N, H, W, C}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({H*W*C, W*C, C, 1}));
 }
 
 TEST_F(HostIrLLVMTest, Allocation5) {
@@ -197,7 +214,7 @@ TEST_F(HostIrLLVMTest, Allocation5) {
   print_tensor_info(output_tensor);
 }
 
-TEST_F(HostIrLLVMTest, DID_Split_Merge) {
+TEST_F(HostIrLLVMTest, Allocation6) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const int d = 4;

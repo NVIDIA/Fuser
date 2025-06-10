@@ -439,6 +439,8 @@ void generate_stride_llvm_ir(
     // Check if the current val is a boundary val
     int cur_val_potential_index = mapToInputDomain(boundary_vals, current_val_to_process, graph);
     if(cur_val_potential_index != -1){
+      // TODO: If the iter domain is a broadcast domain, then we have multiple inputs values pointing to the same valgroup
+      assert(!boundary_vals[cur_val_potential_index]->as<IterDomain>()->isBroadcast());
       if(val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride == nullptr){
         val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride = running_stride_product;
         running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_extent, "stride_root_val");
