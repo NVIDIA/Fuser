@@ -5672,7 +5672,7 @@ IterDomain* BatchedMMOp::getKIDOfMat1() const {
 }
 
 IterDomain* BatchedMMOp::getKIDOfMat2() const {
-  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(1);
+  return TensorDomain::noReductions(mat2()->getLogicalDomain()).at(1);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BatchedMMOp)
