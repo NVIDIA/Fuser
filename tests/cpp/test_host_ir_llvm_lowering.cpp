@@ -115,16 +115,8 @@ TEST_F(HostIrLLVMTest, AllocationStrideInferReorder) {
   TensorView* in = makeSymbolicTensor(5);
   // [i1, i2, i3, i4, i5]
   fusion.addInput(in);
-  // [i1*i2, i3, i4, i5]
-  // in->merge(0,1)->split(0,4)->merge(0,1)->split(0,2);
-  // [i1*i2/2, 2, i3, i4, i5]
   TensorView* out = set(in);
-  // out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
-  // [i1*i2/2, 2, i3, i4, i5]
   out->reorder({{1, 2, 3, 4, 0}});
-  out->printTransforms();
-  // [2, i3, i4, i5, i1*i2/2]
-  // [8,1,32*16*64,16*64,64,1]
   out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
   fusion.addOutput(out);
 
