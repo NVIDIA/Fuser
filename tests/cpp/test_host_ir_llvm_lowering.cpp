@@ -47,7 +47,7 @@ void print_iter_domain(const std::vector<IterDomain*>& iter_domain, const std::s
   std::cout << std::endl;
 }
 
-TEST_F(HostIrLLVMTest, Allocation1) {
+TEST_F(HostIrLLVMTest, AllocationMergeSplit1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
@@ -81,7 +81,7 @@ TEST_F(HostIrLLVMTest, Allocation1) {
   EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({n2*h*w*c, h*w*c, 1}));
 }
 
-TEST_F(HostIrLLVMTest, Allocation2) {
+TEST_F(HostIrLLVMTest, AllocationMergeSplit2) {
   int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -108,7 +108,7 @@ TEST_F(HostIrLLVMTest, Allocation2) {
   EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i2*i3*i4*i5, i3*i4*i5, i4*i5, i5, 1}));
 }
 
-TEST_F(HostIrLLVMTest, Allocation3) {
+TEST_F(HostIrLLVMTest, AllocationStrideInferReorder) {
   int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -145,7 +145,7 @@ TEST_F(HostIrLLVMTest, Allocation3) {
   EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i3*i4*i2, i3*i4, i4, 1,i3*i4*i2*i1}));
 }
 
-TEST_F(HostIrLLVMTest, Allocation4) {
+TEST_F(HostIrLLVMTest, AllocationStrideInferBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   int N = 16, H = 16, W = 16, C = 16;
@@ -188,7 +188,7 @@ TEST_F(HostIrLLVMTest, Allocation4) {
   EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({H*W*C, W*C, C, 1}));
 }
 
-TEST_F(HostIrLLVMTest, Allocation5) {
+TEST_F(HostIrLLVMTest, AllocationLogicalShapeInfer) {
   int N = 32, H = 32, W = 32, C = 32;
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -214,7 +214,7 @@ TEST_F(HostIrLLVMTest, Allocation5) {
   print_tensor_info(output_tensor);
 }
 
-TEST_F(HostIrLLVMTest, Allocation6) {
+TEST_F(HostIrLLVMTest, AllocationDIDInit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   const int d = 4;
@@ -240,16 +240,36 @@ TEST_F(HostIrLLVMTest, Allocation6) {
   print_tensor_info(output_tensor);
   EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({5, 3}));
   EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({3, 1}));
+}
 
-  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, options);
-  // at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh, 0);
+TEST_F(HostIrLLVMTest, AllocationDIDSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
 
-  // FusionExecutorCache executor_cache(std::move(fusion));
-  // at::Tensor out_tensor =
-  //     executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  TensorView* tv0 = makeConcreteTensor({5, d * 3, d});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
 
-  // print_tensor_info(out_tensor);
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->axis(2)->parallelize(ParallelType::DIDy);
+  tv1->setDeviceMesh(mesh);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true,true});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({5, d * 3, d}, options);
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({5, 1, d}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({d, d, 1}));
 }
 
 } // namespace hir

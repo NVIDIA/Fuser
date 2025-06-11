@@ -671,7 +671,10 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   for(auto* val : output_vals){
-    if(val->as<IterDomain>()->getParallelType() == ParallelType::DIDx){
+    if(val->as<IterDomain>()->getParallelType() == ParallelType::DIDx || 
+    val->as<IterDomain>()->getParallelType() == ParallelType::DIDy ||
+    val->as<IterDomain>()->getParallelType() == ParallelType::DIDz
+    ){
       input_shape_preprocess(val->as<IterDomain>(), val2stride, boundary_vals, builder, graph);
     }
     auto index = mapToInputDomain(boundary_vals, val, graph);
