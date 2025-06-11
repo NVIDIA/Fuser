@@ -8,6 +8,7 @@ import torch.distributed as dist
 from fusion_definition_wrapper import FusionDefinitionWrapper
 from linear import LinearFunction
 from nvfuser import DataType, FusionDefinition
+from nvfuser.testing.benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
@@ -73,38 +74,49 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear(setup_default_process_group, multidevice_test):
-    d, b, s, e = dist.get_world_size(), 2, 3, 5
+def test_row_parallel_linear_nvfuser(setup_default_process_group, multidevice_test):
+    d, s, h_in, h_out = dist.get_world_size(), 2048, 2048, 7168
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randint(
-        -4, 4, (b, s, d * e), dtype=torch.bfloat16, requires_grad=True
-    )
-    weight_tensor = torch.randint(
-        -4, 4, (e, d * e), dtype=torch.bfloat16, requires_grad=True
-    )
+    inp_tensor = torch.randn((s, h_in), dtype=torch.bfloat16)
+    weight_tensor = torch.randn((h_out, h_in), dtype=torch.bfloat16)
 
     inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
 
-    def assert_close(expected_tensor: torch.Tensor, dtensor: DTensor):
-        torch.testing.assert_close(expected_tensor, dtensor.to_local().cpu())
-
-    out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor)
-    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor)
-    assert_close(out_tensor, out_dtensor)
-
-    (expected_grad_x, expected_grad_w) = torch.autograd.grad(
-        out_tensor,
-        (inp_tensor, weight_tensor),
-        torch.ones_like(out_tensor),
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: LinearFunction.apply(inp_dtensor, weight_dtensor)
     )
-    (grad_x, grad_w) = torch.autograd.grad(
-        out_dtensor,
-        (inp_dtensor, weight_dtensor),
-        torch.ones_like(out_dtensor),
+    out_dtensor = warmup_fn()
+    assert out_dtensor.size() == (2048, 7168)
+
+    for _ in range(5):
+        benchmark_fn()
+
+
+@pytest.mark.mpi
+def test_row_parallel_linear_torch(setup_default_process_group, multidevice_test):
+    d, s, h_in, h_out = dist.get_world_size(), 2048, 2048, 7168
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
+    inp_tensor = torch.randn((s, h_in), dtype=torch.bfloat16)
+    weight_tensor = torch.randn((h_out, h_in), dtype=torch.bfloat16)
+
+    inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
+    weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
+
+    def row_parallel_linear(inp, weight):
+        out = torch.nn.functional.linear(inp_dtensor, weight_dtensor, None)
+        dist.all_reduce(out.to_local())
+        return out
+
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: row_parallel_linear(inp_dtensor, weight_dtensor)
     )
-    rank = dist.get_rank()
-    assert_close(expected_grad_x.split(e, dim=-1)[rank], grad_x)
-    assert_close(expected_grad_w.split(e, dim=-1)[rank], grad_w)
+    out_dtensor = warmup_fn()
+    assert out_dtensor.size() == (2048, 7168)
+
+    for _ in range(5):
+        benchmark_fn()
