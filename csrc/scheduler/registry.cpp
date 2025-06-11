@@ -37,10 +37,13 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
   if (ir_utils::hasOpsOfType<
+          ScatterOp,
           SdpaFwdOp,
           SdpaBwdOp,
           EmbeddingFwdOp,
-          IndexPutAccumulateOp>(fusion)) {
+          IndexPutAccumulateOp,
+          ArgsortOp,
+          TopKOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;

@@ -401,7 +401,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not "
+          "allowed in allocation domain")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -586,7 +587,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not "
+          "allowed in allocation domain")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -728,7 +730,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not "
+          "allowed in allocation domain")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -1026,7 +1029,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "splitting one dimension into discontiguous dimensions is not allowed in allocation domain")));
+          "splitting one dimension into discontiguous dimensions is not "
+          "allowed in allocation domain")));
 
   auto cg_outputs = ke.run({t0});
 

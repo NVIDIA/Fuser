@@ -717,7 +717,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
           fusion->inputs().begin(),
           fusion->inputs().end(),
           [](Val* inp) { return inp->isA<TensorView>(); }),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 }
 
 namespace {
@@ -1492,7 +1493,8 @@ TensorView* scheduleReductionGeneral(
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   return reduction_scheduler_utils::scheduleReductionTV(

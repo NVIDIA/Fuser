@@ -8,21 +8,23 @@
 
 #include <ir/allocation_utils.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <linked_hash_map.h>
+#include <logical_domain_map.h>
 
 namespace nvfuser {
 
 int64_t Layout::size() const {
-  NVF_ERROR_EQ(allocation_domain.size(), contiguity.size());
-  return std::ssize(allocation_domain);
+  NVF_ERROR_EQ(allocation_domain_.size(), contiguity_.size());
+  return std::ssize(allocation_domain_);
 }
 
 std::string Layout::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "<allocation=["
-                          << toDelimitedString(allocation_domain)
+                          << toDelimitedString(allocation_domain_)
                           << "], contiguity=["
-                          << toDelimitedString(contiguity, /*delim=*/" ")
+                          << toDelimitedString(contiguity_, /*delim=*/" ")
                           << "]>";
   return ss.str();
 }
@@ -144,22 +146,96 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
     allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
   }
 
-  Layout layout;
+  std::vector<IterDomain*> canonicalized_allocation;
+  canonicalized_allocation.reserve(allocation.size());
+  std::vector<std::optional<bool>> canonicalized_contiguity;
+  canonicalized_contiguity.reserve(allocation.size());
   for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
-    layout.allocation_domain.push_back(alloc_id);
-    layout.contiguity.push_back(contiguity);
+    canonicalized_allocation.push_back(alloc_id);
+    canonicalized_contiguity.push_back(contiguity);
   }
 
   NVF_ERROR(
       std::is_permutation(
           tv->getLogicalDomain().begin(),
           tv->getLogicalDomain().end(),
-          layout.allocation_domain.begin(),
-          layout.allocation_domain.end()),
+          canonicalized_allocation.begin(),
+          canonicalized_allocation.end()),
       "This indicates that logical and allocation are not connected via "
       "transforms. This is most often caused by forgetting to concretize "
       "a fusion with dynamic reshapes.");
-  return layout;
+
+  return Layout(
+      std::move(canonicalized_allocation), std::move(canonicalized_contiguity));
+}
+
+Layout Layout::contiguous() const {
+  return Layout(
+      allocation_domain(),
+      TensorDomain::getContiguityFilledWith(allocation_domain(), true));
+}
+
+namespace {
+bool contiguityIsCompliant(
+    const std::optional<bool>& actual,
+    const std::optional<bool>& required) {
+  if (actual == true && required == false) {
+    return true;
+  }
+  return actual == required;
+}
+} // namespace
+
+bool isCompliantWith(const Layout& layout, const Layout& required) {
+  if (layout.allocation_domain() != required.allocation_domain()) {
+    // This can be relaxed by allowing broadcast dimensions to be ordered
+    // differently.
+    return false;
+  }
+
+  for (const auto i : arange(layout.size())) {
+    if (!contiguityIsCompliant(layout.contiguity(i), required.contiguity(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::optional<Layout> mapInLayoutToOutRoot(
+    const std::optional<Layout>& in_layout,
+    TensorView* in,
+    TensorView* out) {
+  if (!in_layout.has_value()) {
+    return std::nullopt;
+  }
+
+  if (!ir_utils::computePermutation(
+           in->getLogicalDomain(), in_layout->allocation_domain())
+           .has_value()) {
+    // Give up when `in`'s allocation domain is not an logical permutation. As
+    // an extension, we could map in_alloc to in_logical and apply the inverse
+    // mapping to out_root.
+    return std::nullopt;
+  }
+
+  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
+      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
+
+  std::vector<IterDomain*> out_allocation;
+  out_allocation.reserve(in_layout->size());
+  std::vector<std::optional<bool>> out_contiguity;
+  out_contiguity.reserve(in_layout->size());
+  for (auto&& [in_alloc_id, contiguity] :
+       zip(in_layout->allocation_domain(), in_layout->contiguity())) {
+    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
+    if (out_root_id == nullptr) {
+      // This can happen when in_alloc_id is of type reduction or squeezed out.
+      continue;
+    }
+    out_allocation.push_back(out_root_id);
+    out_contiguity.push_back(contiguity);
+  }
+  return Layout(std::move(out_allocation), std::move(out_contiguity));
 }
 
 } // namespace nvfuser

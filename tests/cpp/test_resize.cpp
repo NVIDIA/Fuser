@@ -1819,7 +1819,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
   auto kernel = ke->compiledKernel()->kernel();
   NVF_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
-      "Grid sync should not be used as slicing input should avoid input caching");
+      "Grid sync should not be used as slicing input should avoid input "
+      "caching");
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);

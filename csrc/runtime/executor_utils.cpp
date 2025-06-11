@@ -337,7 +337,8 @@ void validateAlignedVectorizedFusionInputOutput(
           stride == 0,
           "Dimension ",
           i,
-          " should be an expanded broadcasting, but it does not have stride zero.");
+          " should be an expanded broadcasting, but it does not have stride "
+          "zero.");
     }
 
     // If this domain is contiguous or size == 1, then not necessary to check
@@ -528,7 +529,8 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
           "\nAliased to: ",
           aliased_to->toString());
       NVF_THROW(
-          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
+          "Kernel found with output to output aliasing, this is unsupported at "
+          "this moment.\n",
           "Output: ",
           fusion->outputs()[output_idx]->toString(),
           "\nAliased to: ",
@@ -663,7 +665,8 @@ void validateIndexCasts(
   NVF_ERROR(
       calc.castsFromIndexAreSafe(),
       "Found unsafe casts from DataType::Index. ",
-      "This is likely because one coordinate of a TMA instruction overflowed Int32");
+      "This is likely because one coordinate of a TMA instruction overflowed "
+      "Int32");
 }
 
 } // namespace executor_utils

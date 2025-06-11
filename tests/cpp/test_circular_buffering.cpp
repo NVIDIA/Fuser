@@ -21,6 +21,8 @@ TEST_F(NVFuserTest, BarSyncWarpSpecializedPointwise) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
@@ -95,6 +97,8 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
@@ -177,6 +181,8 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
@@ -1094,6 +1100,7 @@ class TmaCircularBufferingTest
     // NOTE: Multiple of 16 required for inner dimension
     NVF_ERROR(tensor_inner_dim % 16 == 0);
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 
   bool testEnablesWarpSpecialization() {
@@ -1144,7 +1151,8 @@ class TmaCircularBufferingTest
     }
     if (tensor_inner_dim % bulk_inner_dim != 0) {
       return std::make_optional(
-          "If split output domain is loaded with 1D TMA, the split must be divisible.");
+          "If split output domain is loaded with 1D TMA, the split must be "
+          "divisible.");
     }
     if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
       return std::make_optional(
@@ -1210,6 +1218,8 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   TensorView* input = makeContigTensor(3);
   fusion->addInput(input);
@@ -1647,8 +1657,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 }
 
 TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
-  GTEST_SKIP()
-      << "Needs shared memory predicate, but current needsSharedMemoryPredicate() returns false";
+  GTEST_SKIP() << "Needs shared memory predicate, but current "
+                  "needsSharedMemoryPredicate() returns false";
 
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -2005,8 +2015,8 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   if (testEnablesTIDx()) {
-    GTEST_SKIP()
-        << "Warp Specialization with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+    GTEST_SKIP() << "Warp Specialization with TIDx used for both computation "
+                    "and load, requires TIDx to be a multiple of 128.";
     return;
   }
 
@@ -2148,8 +2158,8 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   if (testEnablesTIDx()) {
-    GTEST_SKIP()
-        << "Warp Specialization with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+    GTEST_SKIP() << "Warp Specialization with TIDx used for both computation "
+                    "and load, requires TIDx to be a multiple of 128.";
     return;
   }
 
@@ -2397,6 +2407,8 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
 
@@ -2458,6 +2470,8 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   auto [bdim, ws_pt] = GetParam();
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);

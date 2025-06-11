@@ -288,7 +288,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
               expr);
           NVF_CHECK(
               !id_bcasts[i],
-              "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
+              "Invalid broadcast and reduction combination, tried to "
+              "parallelize both with the same thread dim: ",
               inp);
         }
       }

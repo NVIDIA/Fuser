@@ -348,7 +348,8 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     if (godim > scheduler_utils::y_grid_limit) {
       NVF_ERROR(
           false,
-          "Shouldn't do grid reduction when the iteration dimension is larger than y_grid_limit. iteration dim: ",
+          "Shouldn't do grid reduction when the iteration dimension is larger "
+          "than y_grid_limit. iteration dim: ",
           total_iteration_numel);
       rparams->split_grid_dim_iter_dom_outer = true;
       gdimy = scheduler_utils::y_grid_limit;
@@ -857,7 +858,8 @@ bool isBetterThan(
     int64_t sm_count) {
   NVF_ERROR(
       block_params.grdim == 1,
-      "Only support compare block reduction heuristic with grid reduction not vice versa");
+      "Only support compare block reduction heuristic with grid reduction not "
+      "vice versa");
 
   // use block reduction if its SM usage >= 90% and its iter_unroll_factor is
   // equal or larger than grid reduction. These two conditions ensure high SM
@@ -1453,7 +1455,8 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
   auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
   NVF_ERROR(
       !tv_inps.empty(),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 
   auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
 
@@ -1574,7 +1577,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   TensorView* reference_tv = reduction_scheduler_utils::scheduleReductionTV(

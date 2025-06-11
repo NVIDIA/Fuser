@@ -144,7 +144,8 @@ static TensorView* factoryOutput(
     if (ext.hasValue()) {
       NVF_CHECK(
           ext.is<int64_t>(),
-          "Expected int extent argument to factory function but found constant value ",
+          "Expected int extent argument to factory function but found constant "
+          "value ",
           shi->toInlineString());
       iter_type =
           ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
@@ -1188,7 +1189,8 @@ TensorView* newForReduction(
       *(axes_set.rbegin()),
       ") is outside nDims (",
       orig_domain.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
+      "). Keep in mind reductions are relative to root domains, not modified "
+      "views.");
 
   auto reduced_axis_iter = axes_set.begin();
   for (const auto dim : arange(orig_domain.size())) {
@@ -1205,7 +1207,8 @@ TensorView* newForReduction(
       if (id->isBroadcast()) {
         NVF_CHECK(
             id->isImplicitBroadcast(),
-            "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+            "Cannot reduce an axis that is marked as broadcasted as it has an "
+            "undetermined size. Tried to reduce ID = ",
             id,
             " of tensor ",
             tv);
@@ -1260,12 +1263,15 @@ TensorView* reductionOpRaw(
 
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1360,12 +1366,15 @@ TensorView* reductionOp(
     DataType dtype /* DataType::Null */) {
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1571,8 +1580,10 @@ WelfordResult WelfordRaw(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1637,8 +1648,10 @@ WelfordResult Welford(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1733,6 +1746,11 @@ WelfordResult::WelfordResult(
   }
   NVF_ERROR(avg->definition()->sameAs(var_sum->definition()));
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
+}
+
+TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
+    : values(in_values), indices(in_indices) {
+  NVF_ERROR(values->definition()->sameAs(indices->definition()));
 }
 
 // COMPOUND OPERATIONS
@@ -2127,7 +2145,8 @@ static TensorView* newForMma(
         ax,
         ") is outside nDims (",
         orig_domain_a.size(),
-        "). Keep in mind reductions are relative to root domains, not modified views.");
+        "). Keep in mind reductions are relative to root domains, not modified "
+        "views.");
     is_reduction[ax] = true;
   }
   std::vector<IterDomain*> new_domain;
@@ -2145,7 +2164,8 @@ static TensorView* newForMma(
 
     NVF_CHECK(
         !(dim_is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+        "Cannot reduce an axis that is marked as broadcasted as it has an "
+        "undetermined size. Tried to reduce ID = ",
         id,
         " of tensor ",
         tv_a,
@@ -2207,7 +2227,8 @@ TensorView* fusedMultiplySum(
   //  mma as well, for maybe fusing bias in prolog.
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
   NVF_CHECK(
       init->dtype() == out->dtype(),
       "Init value dtype for fusedMultiplySum must match output.");
@@ -2250,6 +2271,74 @@ TensorView* tensor(Val* val) {
 
   IrBuilder::createInContainer<TensorConstruct>(val->container(), out, val);
   return out;
+}
+
+TensorView* argsort(
+    TensorView* inp,
+    int64_t dim,
+    bool descending,
+    bool stable) {
+  Val* out = ops::newValLike(inp, DataType::Int);
+  IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
+  return out->as<TensorView>();
+}
+
+TopKResult topk(
+    TensorView* inp,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted,
+    bool maybe_symbolic) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  dim = wrapDim(dim, std::ssize(inp_domain));
+
+  NVF_CHECK(
+      k->dtype() == DataType::Int,
+      "TopKOp expects int64_t input for k but got ",
+      k->dtype());
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(inp_domain.size());
+
+  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+    // TODO: nvfuser enumerate implementation is not correct, it should return
+    // signed ints instead.
+    if (index != (size_t)dim) {
+      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+      continue;
+    }
+
+    // Handling top k dimension, since the output extent is k.
+    ExpressionEvaluator ee;
+    PolymorphicValue ext = ee.evaluate(k);
+
+    IterType iter_type;
+    if (ext.hasValue()) {
+      iter_type =
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else {
+      iter_type =
+          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+    }
+    out_domain.push_back(
+        IterDomainBuilder(
+            inp->fusion()->zeroVal(),
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
+            .iter_type(iter_type)
+            .build());
+  }
+
+  TensorView* out_values = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  Val* out_indices = ops::newValLike(out_values, DataType::Int);
+
+  IrBuilder::create<TopKOp>(
+      out_values, out_indices, inp, k, dim, largest, sorted);
+  return TopKResult(
+      out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
 } // namespace nvfuser

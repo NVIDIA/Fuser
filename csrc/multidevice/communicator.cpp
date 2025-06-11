@@ -115,9 +115,9 @@ bool parseEnv(
   if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    LOG(INFO)
-        << "The environment variable NVFUSER_MASTER_PORT has not been specified. "
-        << "Set the master port to default: " << master_port;
+    LOG(INFO) << "The environment variable NVFUSER_MASTER_PORT has not been "
+                 "specified. "
+              << "Set the master port to default: " << master_port;
   }
 
   return true;

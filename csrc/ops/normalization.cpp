@@ -581,7 +581,8 @@ ForwardNormResult batch_norm(
       // Note: kTraining is true here!
       NVF_ERROR(
           kTraining,
-          "When running stats are provided, batch stats should only be computed during training");
+          "When running stats are provided, batch stats should only be "
+          "computed during training");
 
       auto rev_momentum =
           sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
@@ -608,7 +609,8 @@ ForwardNormResult batch_norm(
         auto input_to_cast = unary_op->input(0);
         NVF_ERROR(
             input_to_cast->isFusionInput(),
-            "IO_tensor batch_norm::running_stats can only updating input tensor to fusion");
+            "IO_tensor batch_norm::running_stats can only updating input "
+            "tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
         NVF_ERROR(
             rm_dtype.has_value(),

@@ -26,6 +26,8 @@ struct CompileParams {
   // struct without having to select a specific device. Otherwise the default
   // constructor will be deleted for the struct.
   std::optional<c10::Device> device = std::nullopt;
+  // Additional include paths to be added to the nvrtc compilation
+  std::vector<std::string> include_paths;
 
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
@@ -37,7 +39,8 @@ struct CompileParams {
         "cannot compare as the other index type is not defined");
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
-        enable_magic_zero == other.enable_magic_zero && device == other.device;
+        enable_magic_zero == other.enable_magic_zero &&
+        device == other.device && include_paths == other.include_paths;
   }
 
   bool operator!=(const CompileParams& other) const {

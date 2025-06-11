@@ -132,3 +132,47 @@ jobs:
     steps:
       - name: PR Agent combined action
         run: python /app/pr_agent/cli.py --pr_url ${{ github.event.pull_request.html_url }} combined
+
+  commit-sanity-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: reject files larger than 5 MB
+        run: |
+          max_bytes=$((5 * 1024 * 1024))
+          too_large=""
+
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          files=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}")
+
+          for file in $files; do
+            if [ -f "$file" ]; then
+              size=$(stat -c%s "$file")
+              if [ "$size" -gt "$max_bytes" ]; then
+                too_large+="$file ($size bytes)\n"
+              fi
+            fi
+          done
+
+          if [ -n "$too_large" ]; then
+            echo -e "❌ The following files are over 5MB:\n$too_large"
+            exit 1
+          else
+            echo "✅ No large files detected."
+          fi
+      - name: Check for files that match .gitignore but are tracked
+        run: |
+          # List tracked files that should be ignored
+          violating_files=$(git ls-files --cached --ignored --exclude-standard)
+
+          if [ -n "$violating_files" ]; then
+            echo "❌ The following files are committed but should be ignored by .gitignore:"
+            echo "$violating_files"
+            echo "Please remove them from version control:"
+            echo "  git rm --cached <file>"
+            exit 1
+          else
+            echo "✅ No ignored files are tracked. All good!"
+          fi
+      # - name: more sanity checks in case needed in the future

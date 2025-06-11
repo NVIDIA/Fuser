@@ -80,7 +80,7 @@ class HostIrEvaluator final : public OptOutDispatch {
  public:
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
-      Communicator* communicator = nullptr,
+      Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
   // Used by FusionExecutor, the main stack.

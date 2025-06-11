@@ -298,7 +298,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       int64_t num_threads_per_cta = lparams_.nThreads();
       NVF_ERROR(
           num_threads_per_cta % 128 == 0,
-          "The number of threads per CTA is not correctly set, check launch para",
+          "The number of threads per CTA is not correctly set, check launch "
+          "para",
           lparams_.toString());
 
       int64_t initial_reg_count =
@@ -447,8 +448,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (has_parallel_welford) {
           // Unpack shared mem pointer
           auto space_type = kernel_summary.largest_smem_data_type;
-          indent()
-              << "nvfuser_index_t block_size = blockDim.x*blockDim.y*blockDim.z;\n";
+          indent() << "nvfuser_index_t block_size = "
+                      "blockDim.x*blockDim.y*blockDim.z;\n";
           indent() << space_type << " *shared_mem_var = "
                    << "static_cast<" << space_type << "*>("
                    << "shared_mem);\n";
@@ -1280,6 +1281,108 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const ArgsortOp* aop) final {
+    NVF_ERROR(isAligned(), "Unaligned argsort not supported");
+
+    const auto& parallel_dimension_map =
+        kernel_->summary().parallel_dimension_map;
+
+    NVF_ERROR(aop->out()->isA<kir::TensorIndex>());
+    const auto output = aop->out()->as<kir::TensorIndex>();
+
+    auto sorted_logical_id = output->view()->getLogicalDomain().at(aop->dim());
+    auto sorted_ids = DependencyCheck::getAllValsBetween(
+        {sorted_logical_id},
+        {output->view()->getLoopDomain().begin(),
+         output->view()->getLoopDomain().end()});
+    std::vector<IterDomain*> sorted_loop_ids;
+    std::ranges::copy_if(
+        output->view()->getLoopDomain(),
+        std::back_inserter(sorted_loop_ids),
+        [&](IterDomain* id) {
+          return std::ranges::find(sorted_ids, id) != sorted_ids.end();
+        });
+
+    // At this moment, we only support argsort on thread parallelized
+    // dimensions. No serial dimension is allowed either.
+    ParallelTypeBitmap sorted_parallel_types;
+    for (auto id : sorted_loop_ids) {
+      NVF_ERROR(
+          isParallelTypeThreadDim(id->getParallelType()),
+          "Argsort on non-thread dimension is not supported");
+      sorted_parallel_types.set(id->getParallelType());
+    }
+
+    // TID parallel types must only be used for the sorted IDs with the static
+    // dimension.
+    ArgumentBuilder template_args;
+    for (const auto pt : kParallelTypeTIDs) {
+      // Unused parallel type should be just ignored
+      if (parallel_dimension_map.get(pt) == nullptr) {
+        template_args.arg(1); // BLOCK_DIM
+        continue;
+      }
+
+      // If a parallel type used in the fusion, it must be also used in the
+      // argsort.
+      NVF_ERROR(
+          sorted_parallel_types.get(pt),
+          "Parallel type ",
+          pt,
+          " used in the fusion must be also used in the argsort");
+      // Argsort only supports static dimension for now.
+      NVF_ERROR(
+          parallel_dimension_map.isExact(pt),
+          "Argsort only supports exact dimension for now");
+      auto pt_extent = parallel_dimension_map.get(pt);
+      NVF_ERROR(
+          pt_extent->isConstInt(),
+          "Argsort only supports constant dimension for now: ",
+          pt_extent->toInlineString());
+      template_args.arg(pt_extent->evaluate().as<int64_t>()); // BLOCK_DIM
+    }
+
+    for (const auto pt : kParallelTypeTIDs) {
+      if (parallel_dimension_map.get(pt) != nullptr) {
+        template_args.arg(0); // State::Sort
+      } else {
+        template_args.arg(1); // State::Iter
+      }
+    }
+
+    // TODO: support ITEMS_PER_THREAD > 1
+    constexpr int items_per_thread = 1;
+
+    const auto input = aop->in()->as<kir::TensorIndex>();
+
+    template_args.arg(input->dtype()); // DataT
+    template_args.arg(items_per_thread); // ITEMS_PER_THREAD
+
+    // Call the runtime argsort function
+    ArgumentBuilder func_args;
+    func_args.arg("*(int64_t(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append(")");
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(std::to_string(items_per_thread))
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append(")");
+    func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
+    func_args.arg(genComputeBlockDim());
+
+    indent() << genCall("argsort::blockArgsort", template_args, func_args)
+             << ";\n";
+  }
+
   std::string genLoadBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
@@ -1334,7 +1437,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         !parallel_types.hasBID(),
-        "Parallel broadcast across blocks should have been translated to a GridBroadcast IR node");
+        "Parallel broadcast across blocks should have been translated to a "
+        "GridBroadcast IR node");
 
     ArgumentBuilder template_args;
     for (const ParallelType pt : kParallelTypeTIDs) {
@@ -1467,7 +1571,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         !has_grid_reduce,
-        "ReductionOp does not support block parallelization. GridReductionOp must be used. ",
+        "ReductionOp does not support block parallelization. GridReductionOp "
+        "must be used. ",
         rop->toString());
 
     if (!has_block_reduce) {
@@ -2662,7 +2767,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     NVF_ERROR(
         parallel_types.hasBID(),
-        "GridBroadcast needs to be used with a broadcast op that is parallelized with the BID parallel types");
+        "GridBroadcast needs to be used with a broadcast op that is "
+        "parallelized with the BID parallel types");
 
     NVF_ERROR(grop->broadcast_buffer()->buffer()->isA<TensorView>());
     NVF_ERROR(grop->sync_buffer()->buffer()->isA<TensorView>());
@@ -3056,7 +3162,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 reduction_ids.value().first->getParallelType() ==
                     ParallelType::TIDx &&
                 reduction_ids.value().second == nullptr,
-            "Grouped warp reduction is only supported for TIDx reduction with no second dimension.");
+            "Grouped warp reduction is only supported for TIDx reduction with "
+            "no second dimension.");
         return genGroupedWarpReduction(
             (int)num_grouped_iterations,
             output,
@@ -3089,7 +3196,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       NVF_ERROR(
           !has_grid_reduce,
-          "GroupedReductionOp does not support block parallelization. GroupedGridReduction must be used. ",
+          "GroupedReductionOp does not support block parallelization. "
+          "GroupedGridReduction must be used. ",
           grouped_rop->toString());
 
       if (!has_block_reduce) {
@@ -3118,7 +3226,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const GroupedWelfordOp* grouped_wop) final {
     NVF_THROW(
-        "Should not reach here as grouped welford is only enabled for grid welford,",
+        "Should not reach here as grouped welford is only enabled for grid "
+        "welford,",
         " which is handled by its own handler");
   }
 

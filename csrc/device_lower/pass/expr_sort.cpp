@@ -1088,7 +1088,8 @@ bool ExprSegmentationSorter::interIterUpdate() {
     NVF_ERROR(
         !fallback_mode_enabled_,
         "Couldn't succcessfully sort out the fusion expressions. ",
-        "There are remaining connections of the hierarchical segmentation which should have been ",
+        "There are remaining connections of the hierarchical segmentation "
+        "which should have been ",
         "flattened to a single ordered group, or disjoint ordered groups.\n",
         toString());
     // We didn't finish, but we haven't tried the fallback, try again with that.
@@ -1359,9 +1360,9 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
   if (!both_empty) {
     if (producer_ca_domain.empty() || consumer_pa_domain.empty()) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as only either of producer CA or consumer PA domain is empty."
-            << std::endl;
+        debug() << "Not supported as only either of producer CA or consumer PA "
+                   "domain is empty."
+                << std::endl;
       }
       return false;
     }
@@ -1370,11 +1371,11 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
     if (!loopReady(producer_ca_domain.back()) ||
         !loopReady(consumer_pa_domain.back())) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as innermost loop dependencies are not yet resolved. "
-            << ". Producer ready: " << loopReady(producer_ca_domain.back())
-            << ". Consumer ready: " << loopReady(consumer_pa_domain.back())
-            << std::endl;
+        debug() << "Not supported as innermost loop dependencies are not yet "
+                   "resolved. "
+                << ". Producer ready: " << loopReady(producer_ca_domain.back())
+                << ". Consumer ready: " << loopReady(consumer_pa_domain.back())
+                << std::endl;
       }
       return false;
     }
@@ -1421,9 +1422,9 @@ bool ExprSegmentationSorter::supportedMerge(ExprGroup* sg1, ExprGroup* sg2) {
 
     if (!producer_consumer_mapped) {
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
-        debug()
-            << "Not supported as the producer CA and consumer CA domains are not mapped"
-            << std::endl;
+        debug() << "Not supported as the producer CA and consumer CA domains "
+                   "are not mapped"
+                << std::endl;
       }
       return false;
     }

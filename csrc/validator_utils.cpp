@@ -199,7 +199,8 @@ int64_t ReductionSizeMapper::getReductionSize(const TensorView* tv) {
       auto inferred_extent = expr_eval_.evaluate(id->extent());
       NVF_ERROR(
           inferred_extent.hasValue(),
-          "Couldn't figure out what the dimensions of a tensorview is in evaluation for validation. ",
+          "Couldn't figure out what the dimensions of a tensorview is in "
+          "evaluation for validation. ",
           id,
           " in ",
           tv);

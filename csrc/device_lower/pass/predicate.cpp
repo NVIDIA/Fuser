@@ -38,6 +38,11 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
     traverseAndInsert(exprs);
+    // For each OneDimTmaLoadExpectArrive, expect a corresponding
+    // OneDimTmaWaitParity.
+    NVF_ERROR(
+        !one_dim_tma_predicate_info_.isSet(),
+        "Unpaired OneDimTmaLoadExpectArrive detected.");
   }
 
   using kir::ExprMutator::handle;
@@ -57,7 +62,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
           NVF_ERROR(
               ite->thenBody().size() == 1,
-              "Expecting predicated body to only have one vectorized expression.");
+              "Expecting predicated body to only have one vectorized "
+              "expression.");
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
@@ -65,7 +71,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
-              "Vectorize predicate exprs only supported on tensor view operations.");
+              "Vectorize predicate exprs only supported on tensor view "
+              "operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,

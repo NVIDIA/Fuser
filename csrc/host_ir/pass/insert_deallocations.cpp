@@ -19,7 +19,8 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
-        "Expected hostir container to not have deallocate, but found one anyways");
+        "Expected hostir container to not have deallocate, but found one "
+        "anyways");
   });
   std::unordered_map<TensorView*, int64_t> last_use;
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {

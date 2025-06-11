@@ -52,6 +52,7 @@
 
 #include <cuda_runtime.h>
 
+#include <nvfuser_resources/argsort.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -572,7 +573,8 @@ void fillCompileOptions(
         TORCH_WARN(
             "ptxas optimization level manually set as ",
             val,
-            ", which could negatively affect performance. Try removing env variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
+            ", which could negatively affect performance. Try removing env "
+            "variable NVFUSER_JIT_OPT_LEVEL for optimal performance.");
       }
       if (compile_to_sass) {
         nvrtc_compile_driver.setOption("--ptxas-options");
@@ -582,7 +584,8 @@ void fillCompileOptions(
       }
     } else {
       TORCH_WARN_ONCE(
-          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but received ",
+          "acceptable range for NVFUSER_JIT_OPT_LEVEL is between 0 and 4, but "
+          "received ",
           val,
           ", ignoring the option");
     }
@@ -599,6 +602,10 @@ void fillCompileOptions(
     } else {
       module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
+  }
+
+  for (const auto& include_path : compile_params.include_paths) {
+    nvrtc_compile_driver.setOption("-I" + include_path);
   }
 }
 
@@ -704,13 +711,17 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
 
   createNvrtcProgram(program, func_name, full_src_code);
 
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  std::string canonical_func_name =
+      CompiledKernel::kernelNamespace() + "::" + func_name;
+
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcAddNameExpression(program, canonical_func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetLoweredName(
+      program, canonical_func_name.c_str(), &lowered_kernel_name));
   compiled_kernel->kernel_name = lowered_kernel_name;
   compiled_kernel->compile_log = log.str();
 
@@ -1028,10 +1039,12 @@ std::string getStructuredCodeFromExternalFiles(const int64_t fusion_id) {
         return token;
       }
     }
-    debug()
-        << "Didn't find requested external source code. Will use generated code!\n"
-        << "Number of source code files should equal the number of fusion segments.\n"
-        << "External source code filenames should be delineated with commas, e.g.: file1.cu,file2.cu.\n";
+    debug() << "Didn't find requested external source code. Will use generated "
+               "code!\n"
+            << "Number of source code files should equal the number of fusion "
+               "segments.\n"
+            << "External source code filenames should be delineated with "
+               "commas, e.g.: file1.cu,file2.cu.\n";
     return "";
   };
 
@@ -1117,12 +1130,22 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
 std::string _getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type,
-    std::string kernel_name) {
+    std::string kernel_name,
+    bool has_argsort = false) {
   // generating cuda code;
   std::string code = "";
   code += defineStdComplex();
-  code += std::string("namespace {\n") + defineTypes() +
-      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
+      "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
+      "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
+
+  if (has_argsort) {
+    code += nvfuser_resources::argsort_cu;
+  }
+
+  code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
+  code += kernel_str;
+  code += "\n} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernel_name
@@ -1175,6 +1198,13 @@ NVF_API CompiledKernel::CompiledKernel(
   lowered_->run();
   for (const auto& hook : post_lowering_hooks) {
     hook(lowered_->kernel());
+  }
+
+  // Add CUDA include path if fusion contains ArgsortOp. Note that
+  // this is a temporary measure. CUB header files need to be
+  // installed as part of the nvFuser installation.
+  if (lowered_->kernel()->summary().has_argsort) {
+    compile_params_.include_paths.push_back("/usr/local/cuda/include");
   }
 }
 
@@ -1301,7 +1331,8 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
 
   if (!kernel_summary.dynamic_lmem_allocations.empty()) {
     std::stringstream ss;
-    ss << "Allocations must be based on constant integers for local memory. However, found: ";
+    ss << "Allocations must be based on constant integers for local memory. "
+          "However, found: ";
     for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
       ss << alloc->buffer()->toString() << ", ";
     }
@@ -1345,7 +1376,10 @@ std::string CompiledKernel::getStructuredCode() const {
     return structured_code;
   }
   return _getStructuredCode(
-      kernelString(), kernel()->indexType(), kernelName());
+      kernelString(),
+      kernel()->indexType(),
+      kernelName(),
+      kernel()->summary().has_argsort);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
@@ -1426,7 +1460,8 @@ float RtcKernel::run(
   for (const auto& input : args) {
     NVF_ERROR(
         input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
-        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+        "Only CUDA tensors are supported for direct nvRTC launches at this "
+        "time.");
     auto input_tensor = input.as<at::Tensor>();
     data.emplace_back(tensorToBytes(
         input_tensor,
@@ -1512,7 +1547,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",

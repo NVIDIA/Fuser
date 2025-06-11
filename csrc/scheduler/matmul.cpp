@@ -70,8 +70,10 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   auto macro = mparams->mma_macro;
   if (isTuring(macro) || isAmpere(macro)) {
     schedule_matmul::AmpereMinus(fusion, mparams).run();
-  } else if (isHopper(macro) || isBlackwell(macro)) {
-    schedule_matmul::HopperPlus(fusion, mparams).run();
+  } else if (isHopper(macro)) {
+    schedule_matmul::Hopper(fusion, mparams).run();
+  } else if (isBlackwell(macro)) {
+    schedule_matmul::Blackwell(fusion, mparams).run();
   } else {
     NVF_THROW(
         "The matrix multiplication scheduler is unavailable for this macro: ",
@@ -99,7 +101,8 @@ void Common::translatePatterns() {
         NVF_ERROR(
             !found_reduction ||
                 !pattern.output->axis((int64_t)dim)->isReduction(),
-            "Mul+Sum patterns can only be translated on Hopper if the reduction dim is innermost");
+            "Mul+Sum patterns can only be translated on Hopper if the "
+            "reduction dim is innermost");
       }
     }
 

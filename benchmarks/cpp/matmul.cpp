@@ -403,7 +403,8 @@ static void NvFuserScheduler_Matmul(
 
   if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
     benchmark_state.SkipWithError(
-        "This Fusion includes broadcasts on the operands, which is not supported on Hopper+");
+        "This Fusion includes broadcasts on the operands, which is not "
+        "supported on Hopper+");
     return;
   }
 

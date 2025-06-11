@@ -307,15 +307,117 @@ std::vector<Expr*> processForLoopBodies(
     };
 
     for (auto* body_expr : for_loop->body().exprs()) {
+      // We have a special handling for when an axis pass from DIDx to Stream
+      // parallel type in one expression. This case should be lowered to a P2P
+      // Communication. For now, we only allow the "Linear Allgather" case,
+      // where tv0 [DIDx(i0), ...] and tv1=set(tv0) [Stream(i0), ...]. In this
+      // case, the set should be lowered to something like
+      //
+      // FOR StreamIdx in range(i0):
+      //   [...]
+      //   SetCurrentStream to Stream ( StreamIdx % numberOfStreams )
+      //   IF StreamIdx == rank: // This is the local copy
+      //     Tv1[StreamIdx, ...].copy_(Tv0[0, ...]) // the index 0 because Tv0
+      //     is sharded
+      //   ELSE:
+      //     Recv (buffer=Tv1[StreamIdx, ...], peer=StreamIdx)
+      //     Send (buffer=Tv0[0, ...], peer=StreamIdx)
+      //   [...]
+      bool needs_p2p_handling = false;
+
+      // Check if any input needs P2P handling
       for (auto* input :
            ir_utils::filterByType<TensorView>(body_expr->inputs())) {
-        processTensor(body_expr, input);
+        if (auto stream_idx =
+                findStreamAxisIndex(input, for_loop->iterDomain(), id_model);
+            stream_idx != -1) {
+          if (input->getLogicalDomain()[stream_idx]->isDeviceDim()) {
+            needs_p2p_handling = true;
+            break;
+          }
+        }
       }
-      for (auto* output :
-           ir_utils::filterByType<TensorView>(body_expr->outputs())) {
-        processTensor(body_expr, output);
+
+      if (needs_p2p_handling) {
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>() &&
+                body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
+            "expected a set operation but got ",
+            body_expr);
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>(),
+            "expected a Tv operation but got ",
+            body_expr);
+        auto* set_op = body_expr->as<LoadStoreOp>();
+        auto* input_tv = set_op->in()->as<TensorView>();
+        auto* output_tv = set_op->out()->as<TensorView>();
+        NVF_ERROR(
+            input_tv->axis(0)->isDeviceDim(),
+            "expected a sharded first axis on the input but got ",
+            input_tv);
+        NVF_ERROR(
+            output_tv->axis(0)->getParallelType() == ParallelType::Stream,
+            "expected a stream parallelized first axis on the output but got ",
+            output_tv);
+
+        auto* peer = for_loop->index();
+        auto* my_device_id =
+            IrBuilder::create<NamedScalar>("rank", DataType::Int);
+        auto* is_sending_to_self =
+            IrBuilder::create<kir::Predicate>(eq(peer, my_device_id));
+        auto if_then_else =
+            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+
+        auto [slicing_input, is_new] = tensor_slicing_cache.get(
+            input_tv,
+            /*dim=*/0,
+            /*index=*/FusionGuard::getCurFusion()->zeroVal());
+        auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+            output_tv, /*dim=*/0, /*index=*/for_loop->index());
+
+        auto* local_copy = IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+
+        if_then_else->thenBody().push_back(slicing_input);
+        if_then_else->thenBody().push_back(local_copy);
+
+        // Using Start/EndCoalescing here is important to 1) avoid hangs because
+        // of a wrong global order of send/recv and 2) enjoy full bi-directional
+        // bandwith.
+        auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+        auto recv = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::RECV,
+            slicing_output->out(),
+            /*peer*/ for_loop->index(),
+            CommunicatorBackend::kNccl);
+        auto send = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::SEND,
+            input_tv,
+            /*peer*/ for_loop->index(),
+            CommunicatorBackend::kNccl);
+        auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+        auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+        if_then_else->elseBody().push_back(start_coalescing);
+        if_then_else->elseBody().push_back(recv);
+        if_then_else->elseBody().push_back(send);
+        if_then_else->elseBody().push_back(end_coalescing);
+        if_then_else->elseBody().push_back(wait);
+
+        new_loop_body.push_back(slicing_output);
+        new_loop_body.push_back(if_then_else);
+      } else {
+        // Process inputs and outputs normally
+        for (auto* input :
+             ir_utils::filterByType<TensorView>(body_expr->inputs())) {
+          processTensor(body_expr, input);
+        }
+        for (auto* output :
+             ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+          processTensor(body_expr, output);
+        }
+        new_loop_body.push_back(body_expr);
       }
-      new_loop_body.push_back(body_expr);
     }
 
     for_loop->body().clear();

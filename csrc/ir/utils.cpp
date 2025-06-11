@@ -62,7 +62,8 @@ std::vector<int64_t> normalizeNew2Old(
           new2old.begin(),
           new2old.end(),
           [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
-      "New2Old axes are not within the number of dimensions of the provided domain.\t",
+      "New2Old axes are not within the number of dimensions of the provided "
+      "domain.\t",
       new2old);
 
   // Going to use sets, to see if any duplicate values are in the map.
@@ -109,7 +110,8 @@ std::vector<int64_t> normalizeOld2New(
             return entry.first < 0 || entry.first >= ndims ||
                 entry.second < 0 || entry.second >= ndims;
           }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
+      "Reorder axes are not within the number of dimensions of the provided "
+      "domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 

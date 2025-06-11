@@ -32,10 +32,12 @@ void MinimumDeviceVersion::dispatch(Val* val) {
 #elif (CUDA_VERSION >= 11080)
     ensureVersion(
         {9, 0},
-        "Fusion contains Float8_xxx values which was introduced in Hopper (9.0)");
+        "Fusion contains Float8_xxx values which was introduced in Hopper "
+        "(9.0)");
 #else
     NVF_ERROR(
-        "Fusion contains Float8_xxx values which was not supported in given CUDA version");
+        "Fusion contains Float8_xxx values which was not supported in given "
+        "CUDA version");
 #endif // (CUDA_VERSION >= 12010)
   }
   IterVisitor::dispatch(val);
@@ -67,7 +69,8 @@ void MinimumDeviceVersion::handle(LoadStoreOp* ls_op) {
       ls_op->opType() == LoadStoreOpType::CpAsyncBulk) {
     ensureVersion(
         {9, 0},
-        "LoadStoreOpType::CpAsyncBulk{TensorTile} requires Hopper (9.0) or newer");
+        "LoadStoreOpType::CpAsyncBulk{TensorTile} requires Hopper (9.0) or "
+        "newer");
   }
 }
 
@@ -79,7 +82,8 @@ void MinimumDeviceVersion::handle(TensorView* tv) {
   if (enable_register_sharing) {
     ensureVersion(
         {9, 0},
-        "Warp Specialized Circular Buffering uses the setmaxnreg ptx instruction, which requires Hopper (9.0)");
+        "Warp Specialized Circular Buffering uses the setmaxnreg ptx "
+        "instruction, which requires Hopper (9.0)");
   }
 }
 

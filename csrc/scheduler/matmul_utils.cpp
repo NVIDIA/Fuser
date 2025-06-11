@@ -305,16 +305,7 @@ void fillOptimalHopperTileSizes(
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
   constexpr int64_t reserved_mbarrier_bytes = 1024L;
-  for (int64_t cta_k = 256; cta_k > 0; cta_k -= 16) {
-    if ( // Only consider cta_k in 16, 32, 48, 64, 128, 192, 256
-        (cta_k > 64 && cta_k % 64 != 0) || cta_k > k + 15) {
-      // There is no reason to use a larger CTA tile than K + 15 since K+16
-      // would include an extra instruction which is unnecessary. We do allow
-      // cta_k larger than k though in order to catch cases like K=248 which we
-      // can compute in a single K=256 tile even though the last instruction
-      // tile is half empty.
-      continue;
-    }
+  for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
     for (const auto& [m_ratio, n_ratio] :
          std::vector<std::pair<int64_t, int64_t>>{
              {2L, 1L}, // coopA
@@ -607,7 +598,8 @@ std::string isMatmulFusionDefinitionSupported(
               1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           } else {
-            return "There is more than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
+            return "There is more than one fusion input that can be MMA "
+                   "operand (enable fuse_multiple_matmuls)";
           }
         } else {
           return "No candidate in fusion inputs for MMA operand";
@@ -675,7 +667,8 @@ std::string isMatmulFusionDefinitionSupported(
           TensorDomain::noReductions(
               TensorDomain::noDevices(pattern.A->getLogicalDomain()))
               .size()) {
-        return "Implicit broadcast in MatmulOp causes new non-consecutive N dimension";
+        return "Implicit broadcast in MatmulOp causes new non-consecutive N "
+               "dimension";
       }
     }
   }
@@ -777,7 +770,8 @@ class VectorizationCalculator {
     }
     NVF_ERROR(
         tv->isFusionOutput(),
-        "getSizesAndStrides should only be called with fusion inputs or outputs. Found ",
+        "getSizesAndStrides should only be called with fusion inputs or "
+        "outputs. Found ",
         tv->toString());
     // For outputs, compute sizes using ExpressionEvaluator, then compute
     // strides based on allocation domain, assuming contiguity as marked in
@@ -1204,7 +1198,8 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
                 std::numeric_limits<int32_t>::max() &&
             problem_shape[(size_t)MatmulDimRole::K] <=
                 std::numeric_limits<int32_t>::max(),
-        "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
+        "Cannot safely use TMA because one of the M, N, or K dimensions "
+        "overflows Int32");
     // TODO: Setting index type like this causes launch failure
     // mparams->cparams.index_type = PrimDataType::Int32;
   }
@@ -1272,7 +1267,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
                 " which is not a fusion input");
             if (!def->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()) {
               return "Operand " + operand->toString() +
-                  " must have only trivial prologue ops (set, broadcast, squeeze) but found " +
+                  " must have only trivial prologue ops (set, broadcast, "
+                  "squeeze) but found " +
                   def->toString();
             }
             tv = ir_utils::getTvInput(def);
@@ -1369,7 +1365,8 @@ std::string getMatmulRunTimeRejectReason(
         for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
           if (extent >= (1L << 31)) {
             std::stringstream ss;
-            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, "
+                  "but found "
                << extent;
             return ss.str();
           }

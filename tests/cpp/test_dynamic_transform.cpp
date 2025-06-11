@@ -727,7 +727,8 @@ TEST_F(DynamicTransformTest, DynamicTransformFusionExecutorCache) {
         "Second non-trivial reshape should not create new runtime");
     NVF_CHECK(
         num_concs == 2,
-        "Second non-trivial reshape should not create new concretization cache level");
+        "Second non-trivial reshape should not create new concretization cache "
+        "level");
   }
 }
 

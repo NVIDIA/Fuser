@@ -1092,7 +1092,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
     NVF_ERROR(
         (loop_id->isBlockDim() && !producer_id->isBlockDim()) ||
             (loop_id->isThreadDim() && !producer_id->isThread()),
-        "Found invalid parallelization that should have been detected by the parallel validation: loop ID: ",
+        "Found invalid parallelization that should have been detected by the "
+        "parallel validation: loop ID: ",
         loop_id->toString(),
         ", producer: ",
         producer_tv->toString());
@@ -2177,11 +2178,13 @@ bool shouldUseTensorIndexer(
     if (assert) {
       NVF_ERROR(
           !is_producer_ldmatrix_op,
-          "TensorIndexer required but not supported as the producer is produced by ldmatrix: ",
+          "TensorIndexer required but not supported as the producer is "
+          "produced by ldmatrix: ",
           producer->definition()->toString());
       NVF_ERROR(
           !is_producer_stmatrix_op_with_no_alloc_domain,
-          "TensorIndexer required but not supported as the producer is produced by stmatrix and it does not have allocation domain: ",
+          "TensorIndexer required but not supported as the producer is "
+          "produced by stmatrix and it does not have allocation domain: ",
           producer->definition()->toString());
       NVF_ERROR(
           rotated_loops.empty(),
@@ -2264,7 +2267,8 @@ kir::TensorIndex* Index::getProducerIndex(
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
         NVF_THROW(
-            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
+            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, "
+            "get ",
             items_per_thread);
       }
       IrBuilder::create<UnaryOp>(op, index, orig_index);

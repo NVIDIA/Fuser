@@ -143,7 +143,8 @@ class BackwardTraverseFromLogicalToAlloc {
         inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+        "splitting one dimension into discontiguous dimensions is not allowed "
+        "in allocation domain");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
     NVF_ERROR(active_ids_

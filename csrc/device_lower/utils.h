@@ -176,6 +176,15 @@ bool isTMAOrMMASmemTv(TensorView* tv);
 //! an input of an MmaOp, or the smem tv of TMA load/store.
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
 
+//! Get the stage_slice_position if it is defined in the WarpSpecialized
+//! circular buffer options struct.
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
 namespace lower_utils {

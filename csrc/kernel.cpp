@@ -50,7 +50,8 @@ class KernelIrScanner : private IrVisitor {
     NVF_ERROR(
         num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
             num_grouped_iterations == 8 || num_grouped_iterations == 16,
-        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 "
+        "iterations, but found ",
         num_grouped_iterations);
     return num_grouped_iterations;
   }
@@ -259,6 +260,10 @@ class KernelIrScanner : private IrVisitor {
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();
+  }
+
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
   }
 
   void handle(IfThenElse* ite) final {

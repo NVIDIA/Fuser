@@ -352,10 +352,10 @@ void handlePropagateError(
   }
 
   std::stringstream err_msg;
-  err_msg
-      << "When trying to propagate constant tensor sizes through the graph a conflict was found with "
-      << sizes.size()
-      << " different sizes across dimensions that are expected to match.\n";
+  err_msg << "When trying to propagate constant tensor sizes through the graph "
+             "a conflict was found with "
+          << sizes.size()
+          << " different sizes across dimensions that are expected to match.\n";
 
   // Track which size is associated with which TV and IterDomain
   std::unordered_map<
@@ -426,9 +426,9 @@ void handlePropagateError(
                   << (tv1_is_consumer ? tv2_error.str() : tv1_error.str());
           err_msg << "  For Consumer"
                   << (tv1_is_consumer ? tv1_error.str() : tv2_error.str());
-          err_msg
-              << "  With producer-consumer relationship through the expression: "
-              << relationship << "\n";
+          err_msg << "  With producer-consumer relationship through the "
+                     "expression: "
+                  << relationship << "\n";
         }
       }
     }
@@ -450,7 +450,8 @@ void handlePropagateError(
     err_msg
         << "Something went wrong trying to detect what went wrong!"
         << " There should have been ID's in TVs that should match, but don't."
-        << " Somehow IDs were registered with the exact graph that aren't used in the Fusion."
+        << " Somehow IDs were registered with the exact graph that aren't used "
+           "in the Fusion."
         << std::endl;
   }
 
