@@ -12,9 +12,11 @@ using nvfuser_index_t = int64_t;
 // nvFuser headers
 #include <tests/cpp/argsort_test_helper.h>
 
-// index_utils.cu needs to be included before argsort because of the dependency
+// Need to be included before argsort because of the dependency
 // from argsort
+namespace nvf {
 #include <runtime/index_utils.cu>
+} // namespace nvf
 
 #include <runtime/argsort.cu>
 
@@ -47,7 +49,7 @@ __global__ void basicArgsortTestKernel(
   }
 
   // Perform block-parallel argsort using the actual runtime implementation
-  nvfuser_runtime::argsort::
+  nvf::argsort::
       blockArgsort<BLOCK_SIZE, 1, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
           thread_indices, thread_data, descending, blockDim);
 
@@ -75,9 +77,8 @@ __global__ void multiDim2dArgsortTestKernel(
   }
 
   // Test 2D block: 4x2x1 (8 threads total) using actual runtime implementation
-  nvfuser_runtime::argsort::
-      blockArgsort<4, 2, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
-          thread_indices, thread_data, descending, blockDim);
+  nvf::argsort::blockArgsort<4, 2, 1, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
+      thread_indices, thread_data, descending, blockDim);
 
   // Store results back
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
@@ -103,9 +104,8 @@ __global__ void multiDim3dArgsortTestKernel(
   }
 
   // Test 3D block: 2x2x2 (8 threads total) using actual runtime implementation
-  nvfuser_runtime::argsort::
-      blockArgsort<2, 2, 2, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
-          thread_indices, thread_data, descending, blockDim);
+  nvf::argsort::blockArgsort<2, 2, 2, 0, 0, 0, DataT, ITEMS_PER_THREAD>(
+      thread_indices, thread_data, descending, blockDim);
 
   // Store results back
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
