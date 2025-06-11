@@ -164,7 +164,7 @@ static void NvFuserScheduler_DivMaxSoftDropBwd(
 
   // Some reason t1 isn't used, ignore it.
   bytes -=
-      t1.numel() * (int64_t)dataTypeSize(aten_to_data_type(t1.scalar_type()));
+      t1.numel() * dataTypeSizeByte(aten_to_data_type(t1.scalar_type()));
 
   benchmark_state.SetBytesProcessed(
       bytes * int64_t(benchmark_state.iterations()));

@@ -120,10 +120,10 @@ static void NvFuserScheduler_BatchNorm_nhwc_BWD(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (((3 * input.numel()) * int64_t(dataTypeSize(dtype))) +
+      (((3 * input.numel()) * dataTypeSizeByte(dtype)) +
        (run_mean.numel() + run_var.numel() + save_mean.numel() +
         save_var.numel() + weight.numel()) *
-           int64_t(dataTypeSize(DataType::Float))));
+           dataTypeSizeByte(DataType::Float)));
 }
 
 //------------------------------------------------------------------------------
@@ -201,10 +201,10 @@ static void Baseline_BatchNorm_nhwc_BWD(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (((3 * input.numel()) * int64_t(dataTypeSize(dtype))) +
+      (((3 * input.numel()) * dataTypeSizeByte(dtype)) +
        (run_mean.numel() + run_var.numel() + save_mean.numel() +
         save_var.numel() + weight.numel()) *
-           int64_t(dataTypeSize(DataType::Float))));
+           dataTypeSizeByte(DataType::Float)));
 }
 
 //------------------------------------------------------------------------------

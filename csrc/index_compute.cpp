@@ -2131,7 +2131,7 @@ Val* Index::getProducerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSize(*producer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*producer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
@@ -2236,7 +2236,7 @@ kir::TensorIndex* Index::getProducerIndex(
         NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             address_offset,
-            IrBuilder::create<Val>(dataTypeSize(*producer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(*producer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), address_offset);
@@ -2308,7 +2308,7 @@ Val* Index::getConsumerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*consumer->getDataType()), *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
@@ -2342,7 +2342,7 @@ kir::TensorIndex* Index::getConsumerIndex(
         NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             index,
-            IrBuilder::create<Val>(dataTypeSize(*consumer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(*consumer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), address_offset);

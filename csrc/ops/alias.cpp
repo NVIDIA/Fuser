@@ -44,8 +44,8 @@ TensorView* view(TensorView* x, DataType dtype) {
   }
 
   auto input_type = x->getDataType().value();
-  auto input_size = dataTypeSize(input_type);
-  auto newsize = dataTypeSize(dtype);
+  auto input_size = dataTypeSizeByte(input_type);
+  auto newsize = dataTypeSizeByte(dtype);
 
   if (input_size == newsize) {
     return bitCastOp(dtype, x);

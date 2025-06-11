@@ -1582,23 +1582,23 @@ std::optional<std::string> cast_func_str(
                         : std::nullopt;
 }
 
-int64_t dataTypeSize(DataType type) {
+int64_t dataTypeSizeBit(DataType type) {
   return std::visit(
       [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
-          return primDataTypeSize(dtype);
+          return primDataTypeSizeByte(dtype);
         } else if constexpr (std::is_same_v<T, PointerType>) {
           return sizeof(void*);
         } else if constexpr (std::is_same_v<T, ArrayType>) {
-          return dataTypeSize(*dtype.type) * dtype.size;
+          return dataTypeSizeBit(*dtype.type) * dtype.size;
         } else if constexpr (std::is_same_v<T, StructType>) {
           int64_t size = 0;
           for (const auto& field : dtype.fields) {
             if (!field.used_in_kernel) {
               continue;
             }
-            size += dataTypeSize(*field.type);
+            size += dataTypeSizeBit(*field.type);
           }
           return size;
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
@@ -1609,15 +1609,28 @@ int64_t dataTypeSize(DataType type) {
       type.type);
 }
 
-int64_t dataTypeSize(DataType type, DataType index_type) {
+
+int64_t dataTypeSizeByte(DataType type) {
+  int64_t bits = dataTypeSizeBit(type);
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
+}
+
+int64_t dataTypeSizeBit(DataType type, DataType index_type) {
   if (type == DataType::Index) {
     NVF_ERROR(
         index_type == DataType::Int32 || index_type == DataType::Int,
         "Invalid index type of ",
         index_type);
-    return dataTypeSize(index_type);
+    return dataTypeSizeBit(index_type);
   }
-  return dataTypeSize(type);
+  return dataTypeSizeBit(type);
+}
+
+int64_t dataTypeSizeByte(DataType type, DataType index_type) {
+  int64_t bits = dataTypeSizeBit(type, index_type);
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
 }
 
 std::ostream& operator<<(

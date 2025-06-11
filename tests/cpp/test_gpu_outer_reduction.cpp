@@ -459,7 +459,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   }
 
   NVF_CHECK(
-      dataTypeSize(DataType::Half) * params.vec * reduction_tvs.size() <= 16,
+      dataTypeSizeByte(DataType::Half) * params.vec * reduction_tvs.size() <= 16,
       "Invalid vectorization");
 
   auto reduction_tv = reduction_tvs.at(0);
@@ -1330,8 +1330,8 @@ bool shouldBePersistent(
   }
 
   const int64_t vec_factor = 16 /
-      std::max(dataTypeSize(dtype),
-               (use_weights ? dataTypeSize(weights_dtype) : 1));
+      std::max(dataTypeSizeByte(dtype),
+               (use_weights ? dataTypeSizeByte(weights_dtype) : 1));
 
   const int64_t num_threads = 256;
   const int64_t min_bdimx = 8;
@@ -1339,7 +1339,7 @@ bool shouldBePersistent(
   const int64_t max_gdimy =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   const int64_t pb_factor = ceilDiv(ceilDiv(N * HW * HW, max_bdimy), max_gdimy);
-  const int64_t req_reg_count = pb_factor * vec_factor * dataTypeSize(dtype) /
+  const int64_t req_reg_count = pb_factor * vec_factor * dataTypeSizeByte(dtype) /
       sizeof(int) *
       (is_bwd ? 2 : 1); // Two tensors are cached in the backward batchnorm
 

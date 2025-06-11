@@ -165,7 +165,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
       Val* num_columns = SimplifyingIrBuilder::ceilDivExpr(
           SimplifyingIrBuilder::mulExpr(
               productOfExtents(covered_tensor.column_allocation),
-              IrBuilder::create<Val>(dataTypeSize(tv->dtype()))),
+              IrBuilder::create<Val>(dataTypeSizeByte(tv->dtype()))),
           IrBuilder::create<Val>(4));
       covered_tensor.lane_offset = tv->fusion()->zeroVal(DataType::UInt16);
       covered_tensor.column_offset =

@@ -101,7 +101,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else if (ir_utils::isCpAsyncOp(ldst)) {
       auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
       auto vec_size =
-          ir_utils::getVectorizeSize(out_tv) * dataTypeSize(out_tv->dtype());
+          ir_utils::getVectorizeSize(out_tv) * dataTypeSizeByte(out_tv->dtype());
       std::stringstream ss;
       ss << "cp.async.";
       if (ldst->cacheOp() == CacheOp::AllLevels) {

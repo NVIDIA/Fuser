@@ -119,7 +119,7 @@ static void NvFuserScheduler_GeluBackwardReduction(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (iter_size * reduction_size * 3 + iter_size) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_GeluBackwardReduction(
@@ -176,7 +176,7 @@ static void Baseline_GeluBackwardReduction(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (iter_size * reduction_size * 3 + iter_size) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
