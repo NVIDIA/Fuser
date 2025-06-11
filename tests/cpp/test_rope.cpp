@@ -53,13 +53,13 @@ using MistralRopeTest = RopeTest;
 INSTANTIATE_TEST_SUITE_P(
     ,
     MistralRopeTest,
-    testing::Values(
-        RopeConfig{/*n_head=*/32,
-                   /*head_size=*/128,
-                   /*n_query_groups=*/8,
-                   /*rope_n_elem=*/128,
-                   /*n_batches=*/1,
-                   /*seq_length=*/4096}),
+    testing::Values(RopeConfig{
+        /*n_head=*/32,
+        /*head_size=*/128,
+        /*n_query_groups=*/8,
+        /*rope_n_elem=*/128,
+        /*n_batches=*/1,
+        /*seq_length=*/4096}),
     [](const testing::TestParamInfo<RopeConfig>& info) {
       return info.param.toCompactString();
     });
@@ -737,13 +737,13 @@ using Phi3RopeTest = RopeTest;
 INSTANTIATE_TEST_SUITE_P(
     ,
     Phi3RopeTest,
-    testing::Values(
-        RopeConfig{/*n_head=*/32,
-                   /*head_size=*/96,
-                   /*n_query_groups=*/32,
-                   /*rope_n_elem=*/128,
-                   /*n_batches=*/1,
-                   /*seq_length=*/8192}),
+    testing::Values(RopeConfig{
+        /*n_head=*/32,
+        /*head_size=*/96,
+        /*n_query_groups=*/32,
+        /*rope_n_elem=*/128,
+        /*n_batches=*/1,
+        /*seq_length=*/8192}),
     [](const testing::TestParamInfo<RopeConfig>& info) {
       return info.param.toCompactString();
     });

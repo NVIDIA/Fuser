@@ -333,12 +333,10 @@ TEST_F(AliasTest, DuplicateOutputsSegmentedFusion) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   // Verify aliasing among duplicated outputs
-  EXPECT_TRUE(
-      out_tensors[0].as<at::Tensor>().is_alias_of(
-          out_tensors[1].as<at::Tensor>()));
-  EXPECT_TRUE(
-      out_tensors[2].as<at::Tensor>().is_alias_of(
-          out_tensors[3].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(
+      out_tensors[1].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[2].as<at::Tensor>().is_alias_of(
+      out_tensors[3].as<at::Tensor>()));
 
   // Verify segmentation
   EXPECT_EQ(
@@ -571,15 +569,12 @@ TEST_F(AliasTest, DuplicateOutputsComplex) {
   ASSERT_EQ(out_tensors.size(), 4);
 
   // Verify aliases among outputs.
-  EXPECT_TRUE(
-      out_tensors[0].as<at::Tensor>().is_alias_of(
-          out_tensors[1].as<at::Tensor>()));
-  EXPECT_FALSE(
-      out_tensors[0].as<at::Tensor>().is_alias_of(
-          out_tensors[2].as<at::Tensor>()));
-  EXPECT_TRUE(
-      out_tensors[0].as<at::Tensor>().is_alias_of(
-          out_tensors[3].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(
+      out_tensors[1].as<at::Tensor>()));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(
+      out_tensors[2].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(
+      out_tensors[3].as<at::Tensor>()));
 
   // Verify output values.
   testValidate(
@@ -697,9 +692,8 @@ TEST_F(AliasTest, OutputAliasesAnotherOutput) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
   ASSERT_EQ(out_tensors.size(), 2);
-  EXPECT_TRUE(
-      out_tensors[1].as<at::Tensor>().is_alias_of(
-          out_tensors[0].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(
+      out_tensors[0].as<at::Tensor>()));
 }
 
 TEST_F(AliasTest, OutputNotAliasedByAnotherOutputShouldNotBeSegmented) {
@@ -1429,9 +1423,8 @@ TEST_F(AliasTest, QKVSplitBackprop) {
   auto out_tensors = executor_cache.runFusionWithInputs(args);
   testValidate(executor_cache.fusion(), out_tensors, args, __LINE__, __FILE__);
 
-  EXPECT_TRUE(
-      out_tensors[2].as<at::Tensor>().is_alias_of(
-          out_tensors[1].as<at::Tensor>()));
+  EXPECT_TRUE(out_tensors[2].as<at::Tensor>().is_alias_of(
+      out_tensors[1].as<at::Tensor>()));
 }
 
 TEST_F(AliasTest, Bookend_Issue2375) {
@@ -1571,11 +1564,10 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
   ASSERT_EQ(out_tensors.size(), 1);
 
   // Verify inplace update
-  EXPECT_TRUE(
-      out_tensors[0]
-          .as<at::Tensor>()
-          .as_strided({2, 3, 4}, {12, 4, 1})
-          .equal(in_tensor));
+  EXPECT_TRUE(out_tensors[0]
+                  .as<at::Tensor>()
+                  .as_strided({2, 3, 4}, {12, 4, 1})
+                  .equal(in_tensor));
 
   // Verify no segmentation
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());

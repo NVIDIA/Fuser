@@ -232,9 +232,8 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   if (LinearOp* linear_op = dynamic_cast<LinearOp*>(expr)) {
     // Use weights and bias before input.
-    return filterTvsWithMesh(
-        std::vector<TensorView*>(
-            {linear_op->inB(), linear_op->bias(), linear_op->inA()}));
+    return filterTvsWithMesh(std::vector<TensorView*>(
+        {linear_op->inB(), linear_op->bias(), linear_op->inA()}));
   }
 
   if (MatmulOp* matmul_op = dynamic_cast<MatmulOp*>(expr)) {

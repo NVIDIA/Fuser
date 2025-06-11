@@ -391,9 +391,8 @@ TEST_P(CommunicationTest, ReduceScatter) {
 
     // Create a tensor with integer values to avoid rounding error so we can
     // validate using `equal` for more confidence.
-    unsharded_input_tensor.copy_(
-        at::randint(
-            2, {num_devices, num_devices, kTensorSize}, tensor_options));
+    unsharded_input_tensor.copy_(at::randint(
+        2, {num_devices, num_devices, kTensorSize}, tensor_options));
 
     auto work = postSingleCommunication(
         communication,

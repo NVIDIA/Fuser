@@ -2212,9 +2212,9 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         KernelExecutor ke;
         ke.compile(&fusion, {t0}, {}, matmul_cparams);
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "TMA domain must be a view of the allocation "
-          "domain of the gmem tensor")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("TMA domain must be a view of the allocation "
+                               "domain of the gmem tensor")));
 }
 
 // Tests for the examples in doc/dev/tma.md

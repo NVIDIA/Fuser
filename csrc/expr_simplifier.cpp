@@ -2236,9 +2236,8 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
       IrBuilder::create<BinaryOp>(
           divmod->getBinaryOpType(), term1, divisible_term, rhs);
       new_inputs.emplace_back(simplifyDivisibleDivMod(term1, context));
-      new_inputs.emplace_back(
-          IrBuilder::create<Val>(promoteType(
-              *sum_of_other_terms->getDataType(), *rhs->getDataType())));
+      new_inputs.emplace_back(IrBuilder::create<Val>(promoteType(
+          *sum_of_other_terms->getDataType(), *rhs->getDataType())));
       IrBuilder::create<BinaryOp>(
           divmod->getBinaryOpType(), new_inputs[1], sum_of_other_terms, rhs);
       auto output = IrBuilder::create<Val>(inferDtypes(new_inputs));

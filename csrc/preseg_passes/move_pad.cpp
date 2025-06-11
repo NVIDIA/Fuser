@@ -40,9 +40,8 @@ bool isSimplePadOp(PadOp* pad) {
   }
   std::vector<Val*> pad_widths = pad->getPadWidths();
   return std::all_of(pad_widths.begin(), pad_widths.end(), [](Val* pad_val) {
-    return simplifyExpr(
-               SimplifyingIrBuilder::geExpr(
-                   pad_val, pad_val->fusion()->zeroVal()))
+    return simplifyExpr(SimplifyingIrBuilder::geExpr(
+                            pad_val, pad_val->fusion()->zeroVal()))
         ->isTrue();
   });
 }
@@ -73,10 +72,9 @@ bool isSamePadOp(Expr* use, PadOp* p) {
              SimplifyingIrBuilder::eqExpr(
                  use_pad->getPadWidths(idx).first, p->getPadWidths(idx).first))
              ->isTrue() ||
-        !simplifyExpr(
-             SimplifyingIrBuilder::eqExpr(
-                 use_pad->getPadWidths(idx).second,
-                 p->getPadWidths(idx).second))
+        !simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                          use_pad->getPadWidths(idx).second,
+                          p->getPadWidths(idx).second))
              ->isTrue()) {
       return false;
     }
@@ -279,13 +277,12 @@ TensorView* replayConcretePad(
     IterDomain* merged_root_id =
         IterDomainBuilder(inp_id).is_rfactor_domain(true).build();
     merged_root_ids.push_back(merged_root_id);
-    merged_logical_ids.push_back(
-        IterDomain::resize(
-            merged_root_id,
-            left_pad,
-            right_pad,
-            /*mark_as_rfactor=*/true,
-            ref_iter_type.at(i)->getIterType()));
+    merged_logical_ids.push_back(IterDomain::resize(
+        merged_root_id,
+        left_pad,
+        right_pad,
+        /*mark_as_rfactor=*/true,
+        ref_iter_type.at(i)->getIterType()));
   }
 
   auto* new_out = IrBuilder::create<TensorView>(

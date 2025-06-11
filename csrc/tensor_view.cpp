@@ -881,9 +881,8 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
-    tv->setDomain(
-        IrBuilder::create<TensorDomain>(
-            tv->getLogicalDomain(), new_id, new_contig));
+    tv->setDomain(IrBuilder::create<TensorDomain>(
+        tv->getLogicalDomain(), new_id, new_contig));
   }
 
   // Split tensor view into 2 parts
@@ -1068,11 +1067,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
-  consumer->setDomain(
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          new_logical_domain,
-          TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
+      container(),
+      new_logical_domain,
+      TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
@@ -1326,18 +1324,16 @@ void TensorView::clearReductionIterDomains() {
   if (new_alloc == new_logical) {
     // if new allocation domain is identical to new logical domain, we don't
     // need to specify allocation domain
-    setDomain(
-        IrBuilder::createInContainer<TensorDomain>(
-            container(), new_logical, new_contig));
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_logical, new_contig));
   } else {
-    setDomain(
-        IrBuilder::createInContainer<TensorDomain>(
-            container(),
-            std::vector<IterDomain*>(),
-            new_logical,
-            new_alloc,
-            new_logical,
-            new_contig));
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(),
+        std::vector<IterDomain*>(),
+        new_logical,
+        new_alloc,
+        new_logical,
+        new_contig));
   }
 }
 
@@ -1437,20 +1433,18 @@ void TensorView::commitLeafToLogical() {
       ir_utils::consumerTvsOf(this).empty(),
       "Changing the logical domain of an intermediate tensor is not supported "
       "yet");
-  setDomain(
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          domain_->maybeRoot(),
-          domain_->loop(),
-          domain_->allocation(),
-          domain_->loop(),
-          // TODO: If needed, we can let commitLeafToLogical to take a parameter
-          // to allow customizing contiguity. But there is no such need now, so
-          // I will just fill the contiguity with true.
-          TensorDomain::getContiguityFilledWith(
-              (domain_->hasAllocation() ? domain_->allocation()
-                                        : domain_->loop()),
-              true)));
+  setDomain(IrBuilder::createInContainer<TensorDomain>(
+      container(),
+      domain_->maybeRoot(),
+      domain_->loop(),
+      domain_->allocation(),
+      domain_->loop(),
+      // TODO: If needed, we can let commitLeafToLogical to take a parameter
+      // to allow customizing contiguity. But there is no such need now, so
+      // I will just fill the contiguity with true.
+      TensorDomain::getContiguityFilledWith(
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
+          true)));
 }
 
 void TensorView::setTMemDimSepPos(int64_t pos) {

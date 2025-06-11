@@ -567,12 +567,11 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
   // visit the missing split output, iS6, does not seem to make sense.
 
   // Make sure iS6 is not reachable from iS5
-  EXPECT_FALSE(
-      getExprsBetween<IRPermissiveBFS>(
-          {iS5},
-          {iS6},
-          /*require_all_to_visited=*/false)
-          .second);
+  EXPECT_FALSE(getExprsBetween<IRPermissiveBFS>(
+                   {iS5},
+                   {iS6},
+                   /*require_all_to_visited=*/false)
+                   .second);
 }
 
 using FindAllExprsTest = NVFuserTest;

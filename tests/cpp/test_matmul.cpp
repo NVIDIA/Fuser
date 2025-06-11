@@ -135,9 +135,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmul) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -198,9 +197,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBroadcastBatch) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref =
       atMatmul(
@@ -256,9 +254,8 @@ TEST_P(MatmulTestWithLayout, AmperePrologueFusionBroadcast) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -317,9 +314,8 @@ TEST_P(MatmulTestWithLayout, AmpereProloguePointwise) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.sin().to(at::kFloat),
@@ -378,9 +374,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBFloat16) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -441,9 +436,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulPipelineGmem) {
             LaunchParams(),
             matmul_cparams));
     ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            ke.compiledKernel()->kernel()));
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -555,9 +549,8 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
             LaunchParams(),
             matmul_cparams));
     ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            ke.compiledKernel()->kernel()));
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -657,9 +650,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
             LaunchParams(),
             matmul_cparams));
     ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            ke.compiledKernel()->kernel()));
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -947,9 +939,8 @@ TEST_F(MatmulTest, MatmulMatmulAmpere) {
       8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // relaxed check for now, err accumulation is significant.
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.1, 0.1));
 }
@@ -1325,9 +1316,8 @@ TEST_F(MatmulTest, MatmulSoftmaxMatmulAmpere) {
       8, 0, ke.compile(&fusion, {t0, t1, t2}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto g1 = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
   auto sg1 = at::_softmax(g1, -1, false);
   auto gsg1 = sg1.matmul(t2.t().to(at::kFloat));
@@ -1376,9 +1366,8 @@ TEST_P(MatmulTestWithLayout, TuringMatmul) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -1523,9 +1512,8 @@ TEST_F(MatmulTest, AmpereMatmulTNCpAsync) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
@@ -1692,9 +1680,8 @@ TEST_F(MatmulTest, AmpereStridedBatchedMatmulTN) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // ref implementation:
   auto ref_t0 = t0.permute({0, 2, 1, 3})
                     .contiguous()
@@ -1865,9 +1852,8 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
 
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref =
       at::native::view(t0, {M, K}).to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
@@ -2050,9 +2036,8 @@ TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
 
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
@@ -2108,9 +2093,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2164,9 +2148,8 @@ TEST_P(MatmulTestWithLayout, TuringMatmulLargeLoad) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2237,9 +2220,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck4warp) {
               matmul_cparams));
       EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run({inputs.first, inputs.second});
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-              ke.compiledKernel()->kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
       NVF_CHECK(
@@ -2317,9 +2299,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck8warp) {
                 LaunchParams(),
                 matmul_cparams));
         ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-        ASSERT_FALSE(
-            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-                ke.compiledKernel()->kernel()));
+        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+            ke.compiledKernel()->kernel()));
         auto cg_outputs = ke.run({inputs.first, inputs.second});
         auto tref = atMatmul(
             inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2389,9 +2370,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulTileCheck6warp) {
             LaunchParams(),
             matmul_cparams));
     ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            ke.compiledKernel()->kernel()));
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     auto cg_outputs = ke.run({inputs.first, inputs.second});
     auto tref = atMatmul(
         inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2450,9 +2430,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoadLargeK) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -2502,9 +2481,8 @@ TEST_P(MatmulTestWithLayout, AmpereSplitKLikeStridedBatchedMatmul) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto tref = splitkLikeAtMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
@@ -2600,9 +2578,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
 
     // check bank conflicts
     ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-    ASSERT_FALSE(
-        PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-            ke.compiledKernel()->kernel()));
+    ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+        ke.compiledKernel()->kernel()));
     // (0.001, 0.001) passed on local A100 but failed on CI A100
     NVF_CHECK(
         at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.01, 0.01),
@@ -2741,9 +2718,8 @@ TEST_F(MatmulTest, AmpereMatmulSmemEpiloguePromotionRequiredA100) {
 
   // check bank conflicts
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.01, 0.01),
@@ -2841,9 +2817,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueCast) {
   tref = tref.to(at::kHalf);
   // check bank conflicts
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.01, 0.01),
@@ -2938,9 +2913,8 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogueRelu) {
 
   // check bank conflicts
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   // (0.001, 0.001) passed on local A100 but failed on CI A100
   NVF_CHECK(
       at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.01, 0.01),
@@ -3016,16 +2990,14 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitK_CUDA) {
           7, 5, ke.compile(&fusion, {inputs.first, inputs.second}));
       EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run({inputs.first, inputs.second});
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-              ke.compiledKernel()->kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atMatmul(
           inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
       // Relax tolerance for larger sum due to large K
-      NVF_CHECK(
-          at::allclose(
-              cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
+      NVF_CHECK(at::allclose(
+          cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
     }
   }
 }
@@ -3082,16 +3054,14 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
           7, 5, ke.compile(&fusion, {t0, t1, bias}));
       EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       auto cg_outputs = ke.run({t0, t1, bias});
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-              ke.compiledKernel()->kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto tref = atBiasEpilogue(
           atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout), bias);
 
       // Relax tolerance for larger sum due to large K
-      NVF_CHECK(
-          at::allclose(
-              cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
+      NVF_CHECK(at::allclose(
+          cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
     }
   }
 }
@@ -3142,16 +3112,14 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       KernelExecutor ke;
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, {t0, t1}));
       ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-              ke.compiledKernel()->kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto cg_outputs = ke.run({t0, t1});
       auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
       // Relax tolerance for larger sum due to large K
-      NVF_CHECK(
-          at::allclose(
-              cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
+      NVF_CHECK(at::allclose(
+          cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
     }
   }
 }
@@ -3208,17 +3176,15 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
           7, 5, ke.compile(&fusion, {t0, t1, bias}));
       ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-      ASSERT_FALSE(
-          PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-              ke.compiledKernel()->kernel()));
+      ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+          ke.compiledKernel()->kernel()));
       auto cg_outputs = ke.run({t0, t1, bias});
       auto tref = atBiasEpilogue(
           atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout), bias);
 
       // Relax tolerance for larger sum due to large K
-      NVF_CHECK(
-          at::allclose(
-              cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
+      NVF_CHECK(at::allclose(
+          cg_outputs[0].as<at::Tensor>(), tref, 1e-6 * K, 1e-6 * K));
     }
   }
 }
@@ -3276,9 +3242,8 @@ TEST_F(MatmulTest, ReproIssue1808) {
           LaunchParams(),
           matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
@@ -3429,9 +3394,8 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
             0,
             ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams));
         ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-        ASSERT_FALSE(
-            PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-                ke.compiledKernel()->kernel()));
+        ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+            ke.compiledKernel()->kernel()));
         auto outputs = ke.run(inputs);
 
         EXPECT_TRUE(
@@ -3488,9 +3452,8 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto tref = at::reshape(
       at::linear(
@@ -3553,9 +3516,8 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto Apermuted = t0.permute({{1, 2}}).reshape({M1 * M2, K});
   auto tref = at::linear(Apermuted.to(at::kFloat), t1.to(at::kFloat))
@@ -3618,9 +3580,8 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto Bpermuted = t1.permute({{1, 2}}).reshape({N1 * N2, K});
   auto tref = at::linear(t0.to(at::kFloat), Bpermuted.to(at::kFloat))
@@ -3677,9 +3638,8 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
       8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
   auto cg_outputs = ke.run({t0, t1});
   auto tref =
       at::matmul(t0.to(at::kFloat), at::permute(t1.to(at::kFloat), {0, 2, 1}));
@@ -3955,14 +3915,12 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
@@ -4013,14 +3971,12 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
@@ -4076,14 +4032,12 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
@@ -4139,14 +4093,12 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 struct MLPBenchmarkTestParams {
@@ -4244,14 +4196,12 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
@@ -4296,14 +4246,12 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
@@ -4349,9 +4297,8 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(
@@ -4415,14 +4362,12 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(
       at::allclose(cg_outputs[1].as<at::Tensor>(), tv11_ref, 1e-2, 1e-2));
 }
@@ -4486,14 +4431,12 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
   NVF_CHECK(at::allclose(cg_outputs[1].as<at::Tensor>(), tv11_ref, 1e-2, 1e-2));
 }
 
@@ -4572,19 +4515,16 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   // TODO: Some of these are failing, perhaps due to improper syncing of
   // horizontally fused kernels?
-  EXPECT_TRUE(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(
-      at::allclose(
-          cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(
       at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
 }
@@ -4666,17 +4606,14 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run({t0, t1, t2});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
   NVF_CHECK(at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
 }
 
@@ -4721,14 +4658,12 @@ TEST_P(MLPBenchmarkTest, BatchGEMM) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -4826,9 +4761,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
       << ke.lastLaunchParams().bdimy();
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
@@ -4887,9 +4821,8 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   auto cg_outputs = ke.run({t0, t1});
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 // Test that we can compile matmul kernels with both 32-bit and 64-bit indexing,
@@ -5273,9 +5206,8 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(
@@ -5354,9 +5286,8 @@ TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(
@@ -5436,9 +5367,8 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(
@@ -5576,9 +5506,8 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       << ke.lastLaunchParams().bdimy();
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/4159
@@ -5629,14 +5558,12 @@ TEST_F(HopperMatmulTest, HSS_NT_SplitKTMAStore) {
     EXPECT_EQ(output_ways, 2);
   }
   auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(
-      PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-          ke.compiledKernel()->kernel()));
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  NVF_CHECK(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 } // namespace nvfuser

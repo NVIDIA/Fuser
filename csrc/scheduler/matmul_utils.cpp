@@ -697,11 +697,10 @@ class VectorizationCalculator {
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
         broadcast_graph_(broadcast_graph),
-        dim_ordering_(
-            mma_utils::canonicalDimOrdering(
-                tensor_roles,
-                dim_roles_,
-                broadcast_graph_)) {}
+        dim_ordering_(mma_utils::canonicalDimOrdering(
+            tensor_roles,
+            dim_roles_,
+            broadcast_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =

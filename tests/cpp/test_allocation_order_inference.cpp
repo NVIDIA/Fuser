@@ -327,9 +327,8 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   auto cg_outputs = executor_cache.runFusionWithInputs({in_nhwc});
   auto ref_out = in_nhwc.relu();
 
-  EXPECT_TRUE(
-      cg_outputs[0].as<at::Tensor>().is_contiguous(
-          at::MemoryFormat::ChannelsLast));
+  EXPECT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
   EXPECT_TRUE(ref_out.allclose(cg_outputs[0].as<at::Tensor>()));
 }
 

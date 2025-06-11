@@ -593,8 +593,8 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       for (auto id : id_inputs) {
         // Collect backward pass results from this expression if they are
         //  made available in by this expression.
-        auto idx_it = index_map_.find(
-            GpuLower::current()->caMap()->getConcreteMappedID(
+        auto idx_it =
+            index_map_.find(GpuLower::current()->caMap()->getConcreteMappedID(
                 id, IdMappingMode::EXACT));
 
         if (idx_it != index_map_.end()) {

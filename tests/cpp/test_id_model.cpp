@@ -160,9 +160,8 @@ class IdModelTester : public LoopPromotionMapBuilderCallback {
         updateValGroupIdMap(iel_promotion_map, this->iel_graph);
   }
 
-  void postStep3(
-      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
-      override {
+  void postStep3(const std::unordered_map<ValGroup, IterDomain*>&
+                     loop_promotion_map) override {
     s3_loop_graph = id_model->idGraph(IdMappingMode::LOOP);
     s3_loop_promotion_map =
         updateValGroupIdMap(loop_promotion_map, s3_loop_graph);
@@ -175,9 +174,8 @@ class IdModelTester : public LoopPromotionMapBuilderCallback {
         updateValGroupIdMap(iel_promotion_map, this->iel_graph);
   }
 
-  void postStep5(
-      const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
-      override {
+  void postStep5(const std::unordered_map<ValGroup, IterDomain*>&
+                     loop_promotion_map) override {
     s5_loop_graph = id_model->idGraph(IdMappingMode::LOOP);
     s5_loop_promotion_map =
         updateValGroupIdMap(loop_promotion_map, s5_loop_graph);
@@ -1005,27 +1003,26 @@ TEST_F(IdModelTest, LoopPromotion4) {
 
   // Check Step 3 results. See the design doc for the expected results
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s3_reference_map = {
-          // 4, 6, 8 -> 8
-          {std::unordered_set<Val*>{
-               tv2->getLogicalDomain().at(0),
-               tv3->getLogicalDomain().at(0),
-               tv4->getLogicalDomain().at(0)},
-           tv4->getLogicalDomain().at(0)},
-          // 5, 7, 9 -> 9
-          {std::unordered_set<Val*>{
-               tv2->getLogicalDomain().at(1),
-               tv3->getLogicalDomain().at(1),
-               tv4->getLogicalDomain().at(1)},
-           tv4->getLogicalDomain().at(1)},
-          // 10, 13, 19 -> 10
-          {std::unordered_set<Val*>{id10, id13, id19}, id10},
-          // 11, 14, 20, 25 -> 11
-          {std::unordered_set<Val*>{
-               tv2->axis(0), tv3->axis(0), tv4->axis(0), id25},
-           id11},
-          // 21, 26 -> 26
-          {std::unordered_set<Val*>{tv2->axis(1), id26}, id26}};
+      s3_reference_map = {// 4, 6, 8 -> 8
+                          {std::unordered_set<Val*>{
+                               tv2->getLogicalDomain().at(0),
+                               tv3->getLogicalDomain().at(0),
+                               tv4->getLogicalDomain().at(0)},
+                           tv4->getLogicalDomain().at(0)},
+                          // 5, 7, 9 -> 9
+                          {std::unordered_set<Val*>{
+                               tv2->getLogicalDomain().at(1),
+                               tv3->getLogicalDomain().at(1),
+                               tv4->getLogicalDomain().at(1)},
+                           tv4->getLogicalDomain().at(1)},
+                          // 10, 13, 19 -> 10
+                          {std::unordered_set<Val*>{id10, id13, id19}, id10},
+                          // 11, 14, 20, 25 -> 11
+                          {std::unordered_set<Val*>{
+                               tv2->axis(0), tv3->axis(0), tv4->axis(0), id25},
+                           id11},
+                          // 21, 26 -> 26
+                          {std::unordered_set<Val*>{tv2->axis(1), id26}, id26}};
 
   checkStep3Results(tester, s3_reference_map);
 
@@ -1034,11 +1031,10 @@ TEST_F(IdModelTest, LoopPromotion4) {
   auto id28 = getChildIdByName(id10, 28);
 
   std::vector<std::pair<std::unordered_set<Val*>, IterDomain*>>
-      s4_reference_map = {
-          // 20 -> 27
-          {std::unordered_set<Val*>{tv2->axis(0)}, id27},
-          // 21 -> 28
-          {std::unordered_set<Val*>{tv2->axis(1)}, id28}};
+      s4_reference_map = {// 20 -> 27
+                          {std::unordered_set<Val*>{tv2->axis(0)}, id27},
+                          // 21 -> 28
+                          {std::unordered_set<Val*>{tv2->axis(1)}, id28}};
 
   checkStep4Results(tester, s4_reference_map);
 

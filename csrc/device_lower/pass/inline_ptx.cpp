@@ -59,10 +59,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{/*volatile=*/true,
-                                /*memory=*/wait->memory(),
-                                /*readable_outputs=*/{},
-                                /*immediate_inputs=*/{0}}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/wait->memory(),
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -121,10 +122,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
-              kir::Asm::Options{/*volatile=*/true,
-                                /*memory=*/false,
-                                /*readable_outputs=*/{},
-                                /*immediate_inputs=*/{2}}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/false,
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{2}}));
     } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
       const auto& tmem_info = GpuLower::current()->tmemInfo();
       std::stringstream ptx_ss;
@@ -327,10 +329,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
             inst_ss.str(),
             std::vector<Val*>{mma->out()},
             inputs,
-            kir::Asm::Options{/*volatile=*/true,
-                              /*memory=*/false,
-                              /*readable_outputs=*/{0},
-                              /*immediate_inputs=*/{3, 4, 5, 6}}));
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{0},
+                /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
@@ -387,9 +390,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 idesc,
                 enable_input_d,
             },
-            kir::Asm::Options{/*volatile=*/true,
-                              /*memory=*/false,
-                              /*readable_outputs=*/{0}}));
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{0}}));
   }
 
   void handle(MmaOp* mma) final {
@@ -434,10 +438,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
-            kir::Asm::Options{/*volatile=*/true,
-                              /*memory=*/false,
-                              /*readable_outputs=*/{},
-                              /*immediate_inputs=*/{0}}));
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{},
+                /*immediate_inputs=*/{0}}));
   }
 
   void handle(kir::AllocTMem* alloc) final {

@@ -630,9 +630,8 @@ class AnalyzeViewTransformation {
       if (new_view_index < (int64_t)new_view_.size() &&
           current_size % new_view_.at(new_view_index) == 0) {
         // Insert split to generate the next new_view domain.
-        view_transforms_.push_back(
-            std::make_shared<SplitTransform>(
-                transform_view_index, new_view_.at(new_view_index)));
+        view_transforms_.push_back(std::make_shared<SplitTransform>(
+            transform_view_index, new_view_.at(new_view_index)));
         current_size /= new_view_.at(new_view_index);
         NVF_ERROR(current_size > 1, "This should be unreachable.");
         // Update transform and new since a split doesn't increment from the

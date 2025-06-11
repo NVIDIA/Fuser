@@ -144,21 +144,18 @@ class RNGInserter : public kir::ExprMutator {
             SimplifyingIrBuilder::neExpr(
                 rng_offset_, std::get<0>(rop_offset_tuple)))));
 
-    ite->thenBody().push_back(
-        IrBuilder::create<TernaryOp>(
-            TernaryOpType::Philox,
-            rng_result_,
-            rop->getRNGSeedVal(),
-            std::get<0>(rop_subseq_tuple),
-            std::get<0>(rop_offset_tuple)));
+    ite->thenBody().push_back(IrBuilder::create<TernaryOp>(
+        TernaryOpType::Philox,
+        rng_result_,
+        rop->getRNGSeedVal(),
+        std::get<0>(rop_subseq_tuple),
+        std::get<0>(rop_offset_tuple)));
 
-    ite->thenBody().push_back(
-        IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, rng_subseq_, std::get<0>(rop_subseq_tuple)));
+    ite->thenBody().push_back(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, rng_subseq_, std::get<0>(rop_subseq_tuple)));
 
-    ite->thenBody().push_back(
-        IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, rng_offset_, std::get<0>(rop_offset_tuple)));
+    ite->thenBody().push_back(IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, rng_offset_, std::get<0>(rop_offset_tuple)));
 
     kir::ExprMutator::registerInsertBefore(rop, ite);
     if (rop->inputs().size() == 4) {

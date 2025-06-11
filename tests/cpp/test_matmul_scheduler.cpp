@@ -2861,11 +2861,10 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulFusionTest,
-    ::testing::ValuesIn(
-        std::vector<std::pair<bool, bool>>{
-            {false, false},
-            {true, false},
-            {true, true}}),
+    ::testing::ValuesIn(std::vector<std::pair<bool, bool>>{
+        {false, false},
+        {true, false},
+        {true, true}}),
     [](const testing::TestParamInfo<std::pair<bool, bool>>& info) {
       bool fuse = info.param.first;
       bool horiz_fuse = info.param.second;

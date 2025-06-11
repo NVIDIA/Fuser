@@ -425,9 +425,8 @@ IndexingParameters getPredicateInitialIndexParameters(
               .prefetch;
       bool is_same =
           (rotated_loops.count(db_loop)
-               ? cur_index->sameAs(
-                     SimplifyingIrBuilder::addExpr(
-                         db_loop->indexOrStartIfTrivial(), db_loop->step()))
+               ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
+                     db_loop->indexOrStartIfTrivial(), db_loop->step()))
                : cur_index == db_loop->indexOrStartIfTrivial());
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
@@ -761,9 +760,8 @@ void LoopIndexingAnalysis::constructLoopDomains() {
   // will complain for not having all outputs of the traversal.
   for (auto id : ir_utils::filterByType<IterDomain>(all_ids_from_root)) {
     if (id->uses().empty()) {
-      loop_domains_.pushBack(
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              id, IdMappingMode::EXACT));
+      loop_domains_.pushBack(GpuLower::current()->caMap()->getConcreteMappedID(
+          id, IdMappingMode::EXACT));
     }
   }
 }

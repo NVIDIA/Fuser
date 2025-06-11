@@ -2812,9 +2812,8 @@ TEST_F(ReshapeTest, CyclicReshape) {
       executor_cache.getMostRecentKernelRuntime()->fusionSegments();
   for (const auto group : segmented_fusion->groups()) {
     auto segment_fusion = segmented_fusion->makeFusion(group).second;
-    EXPECT_FALSE(
-        registry_utils::SchedulerTopologyChecker::hasCyclicReshape(
-            segment_fusion.get()));
+    EXPECT_FALSE(registry_utils::SchedulerTopologyChecker::hasCyclicReshape(
+        segment_fusion.get()));
   }
 }
 

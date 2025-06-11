@@ -432,10 +432,9 @@ void makeTile(AbstractMatmulTensor& abten, const GemmTile& tile_sizes) {
         group_index * num_split_axes + index_within_group;
 
     // Add pair {idx_before, idx_after} to re-order map.
-    reorder_map_old_to_new.insert(
-        std::make_pair(
-            idx - split_tile_dimension_size,
-            index_after_reorder - split_tile_dimension_size));
+    reorder_map_old_to_new.insert(std::make_pair(
+        idx - split_tile_dimension_size,
+        index_after_reorder - split_tile_dimension_size));
   }
 
   // Apply the re-order map to abstract tensor
@@ -847,11 +846,10 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   // a TMA load definition and without any MmaOp use.
   if (producer->definition() != nullptr &&
       ir_utils::isCpAsyncBulkLoad(producer->definition())) {
-    NVF_ERROR(
-        std::all_of(
-            consumer->uses().begin(), consumer->uses().end(), [](Expr* e) {
-              return !e->isA<MmaOp>();
-            }));
+    NVF_ERROR(std::all_of(
+        consumer->uses().begin(), consumer->uses().end(), [](Expr* e) {
+          return !e->isA<MmaOp>();
+        }));
     return false;
   }
 

@@ -786,10 +786,8 @@ ForwardingInfo::ForwardingInfo(
   // We have root axes in active_tv that don't exist in the inactive tensor,
   // now forward those to include all id's in active_tv comprised of only axes
   // not in the inactive tensor.
-  auto active_tv_history = StmtSort::getExprsTo(
-      std::vector<Val*>(
-          active_tv->domain()->loop().begin(),
-          active_tv->domain()->loop().end()));
+  auto active_tv_history = StmtSort::getExprsTo(std::vector<Val*>(
+      active_tv->domain()->loop().begin(), active_tv->domain()->loop().end()));
 
   auto isInForwardIdSet = [&forwarded_ids](IterDomain* input_id) {
     return forwarded_ids.count(input_id) > 0;

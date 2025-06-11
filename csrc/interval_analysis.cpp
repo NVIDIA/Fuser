@@ -301,7 +301,7 @@ int64_t BoundedInt::countCommonHighBits() const {
 // stacking (without flipping) the negative values at the right side of the
 // positive values, we can apply the same algorithm regardless of signedness.
 #define DEFINE_BITWISE_BINARY_OP(op)                                        \
-  BoundedInt BoundedInt::operator op(const BoundedInt& other) const {       \
+  BoundedInt BoundedInt::operator op(const BoundedInt & other) const {      \
     /* New interval has this many fixed bits */                             \
     int64_t var_bits =                                                      \
         64L - std::min(countCommonHighBits(), other.countCommonHighBits()); \

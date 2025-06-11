@@ -128,9 +128,8 @@ INSTANTIATE_TEST_SUITE_P(
     LowerGatherTest,
     // Create product of InOutMesh configurations and HostIrLowering options
     testing::Combine(
-        testing::ValuesIn(
-            std::vector<InOutMesh>(
-                {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
         testing::Bool()),
     paramToString);
 
@@ -180,9 +179,8 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     LowerScatterTest,
     testing::Combine(
-        testing::ValuesIn(
-            std::vector<InOutMesh>(
-                {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
         testing::Bool()),
     paramToString);
 
@@ -234,9 +232,8 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     LowerSendRecvTest,
     testing::Combine(
-        testing::ValuesIn(
-            std::vector<InOutMesh>(
-                {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
         testing::Bool()),
     paramToString);
 

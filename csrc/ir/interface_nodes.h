@@ -407,9 +407,8 @@ class NVF_API TensorView : public Val {
   }
 
   void setContiguity(bool contig) {
-    setContiguity(
-        TensorDomain::getContiguityFilledWith(
-            getMaybeAllocationDomain(), contig));
+    setContiguity(TensorDomain::getContiguityFilledWith(
+        getMaybeAllocationDomain(), contig));
   }
 
   const std::vector<std::optional<bool>>& getContiguity() const {

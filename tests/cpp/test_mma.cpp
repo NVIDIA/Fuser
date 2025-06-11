@@ -1152,9 +1152,8 @@ auto mmaSSParamsGenerator(const auto& all_macros) {
                   std::make_tuple(macro, dtype, layout, swizzle_a, swizzle_b));
             } else {
               if (lcg_parkmiller % dilute == 0) {
-                params.push_back(
-                    std::make_tuple(
-                        macro, dtype, layout, swizzle_a, swizzle_b));
+                params.push_back(std::make_tuple(
+                    macro, dtype, layout, swizzle_a, swizzle_b));
               }
               lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
             }

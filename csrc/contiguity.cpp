@@ -600,9 +600,8 @@ ContigIDs::ContigIDs(
       p2c_id_map_(std::move(p2c_id_map)),
       ignore_indexability_(ignore_indexability),
       ignore_consistent_ordering_(ignore_consistent_ordering),
-      consistent_transform_info_(
-          std::make_unique<const OrderedIdInformation>(
-              OrderedIdInformation::get(ids, alloc_domain, concrete_info_))),
+      consistent_transform_info_(std::make_unique<const OrderedIdInformation>(
+          OrderedIdInformation::get(ids, alloc_domain, concrete_info_))),
       non_divisible_id_info_(ids, alloc_domain, divisible_splits_) {
   build(ids);
 }

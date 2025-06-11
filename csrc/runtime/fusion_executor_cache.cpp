@@ -484,15 +484,14 @@ void FusionExecutorCache::deserialize(
           ".");
 
       // 2. Construct new FusionKernelRuntime
-      device_runtimes.emplace_back(
-          std::make_unique<FusionKernelRuntime>(
-              std::move(conc_fusion),
-              args,
-              fb_fusion_kernel_runtime,
-              std::nullopt,
-              fusion_id_,
-              fb_device_runtimes->concrete_id(),
-              device_runtimes.size()));
+      device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
+          std::move(conc_fusion),
+          args,
+          fb_fusion_kernel_runtime,
+          std::nullopt,
+          fusion_id_,
+          fb_device_runtimes->concrete_id(),
+          device_runtimes.size()));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the KernelExecutor objects.
@@ -666,16 +665,15 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
       }
     }
     FusionGuard fg(conc_fusion.get());
-    kernel_runtimes.emplace_back(
-        std::make_unique<FusionKernelRuntime>(
-            std::move(conc_fusion),
-            args,
-            /*serde_buffer=*/nullptr,
-            forced_index_type,
-            fusion_id_,
-            conc_info_id_map_.at(device_concrete_key),
-            kernel_runtimes.size(),
-            auto_schedule_));
+    kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
+        std::move(conc_fusion),
+        args,
+        /*serde_buffer=*/nullptr,
+        forced_index_type,
+        fusion_id_,
+        conc_info_id_map_.at(device_concrete_key),
+        kernel_runtimes.size(),
+        auto_schedule_));
     kernel_runtime = kernel_runtimes.back().get();
 
     if (profiling_) {

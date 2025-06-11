@@ -86,9 +86,8 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 
   // Compute exact_types_
   for (auto [ptype, concrete_id] : all_concrete_ids) {
-    auto expr_val = simplifyExpr(
-                        SimplifyingIrBuilder::eqExpr(
-                            dim_map_.at(ptype), concrete_id->extent()))
+    auto expr_val = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                                     dim_map_.at(ptype), concrete_id->extent()))
                         ->value();
     if (!expr_val.hasValue() || !expr_val.as<bool>()) {
       exact_types_.erase(ptype);
@@ -125,10 +124,9 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   }
 
   auto expr_val =
-      simplifyExpr(
-          SimplifyingIrBuilder::eqExpr(
-              SimplifyingIrBuilder::modExpr(tidx_dim, warp_size_val),
-              tidx_dim->container()->zeroVal()))
+      simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                       SimplifyingIrBuilder::modExpr(tidx_dim, warp_size_val),
+                       tidx_dim->container()->zeroVal()))
           ->value();
 
   // If already multiple of warp, nothing to do
@@ -142,8 +140,8 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   if (warp_info.is_tidx_single_warp) {
     dim_map_.at(ParallelType::TIDx) = warp_size_val;
   } else {
-    dim_map_.at(ParallelType::TIDx) = simplifyExpr(
-        SimplifyingIrBuilder::mulExpr(
+    dim_map_.at(ParallelType::TIDx) =
+        simplifyExpr(SimplifyingIrBuilder::mulExpr(
             SimplifyingIrBuilder::ceilDivExpr(tidx_dim, warp_size_val),
             warp_size_val));
   }

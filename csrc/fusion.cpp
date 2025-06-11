@@ -91,9 +91,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 
   for (auto [k, v] : from->managed_named_data_) {
     if (v.first.has_value()) {
-      to->managed_named_data_.insert(
-          std::make_pair(
-              k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
+      to->managed_named_data_.insert(std::make_pair(
+          k, std::make_pair(v.second(ir_cloner, v.first), v.second)));
     }
   }
 

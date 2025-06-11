@@ -118,9 +118,8 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
   for (auto index : arange(num_merged_dim)) {
-    EXPECT_TRUE(
-        logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
-            inputs[index]));
+    EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
+        inputs[index]));
   }
 }
 

@@ -672,9 +672,8 @@ std::optional<std::vector<int64_t>> computePermutation(
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
   for (const T& out_element : out) {
-    permutation.push_back(
-        std::distance(
-            in.begin(), std::find(in.begin(), in.end(), out_element)));
+    permutation.push_back(std::distance(
+        in.begin(), std::find(in.begin(), in.end(), out_element)));
   }
   return permutation;
 }
@@ -687,9 +686,8 @@ std::vector<T> applyPermutation(
 
   std::vector<int64_t> identity(permutation.size());
   std::iota(identity.begin(), identity.end(), 0);
-  NVF_CHECK(
-      std::is_permutation(
-          permutation.begin(), permutation.end(), identity.begin()));
+  NVF_CHECK(std::is_permutation(
+      permutation.begin(), permutation.end(), identity.begin()));
 
   std::vector<T> out;
   out.reserve(permutation.size());
