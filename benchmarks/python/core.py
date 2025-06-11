@@ -320,7 +320,7 @@ def run_benchmark(
         return fd.execute(inputs, profile=not BENCHMARK_CONFIG["with_nsys"])
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-    
+
     try:
         outputs = nvf_benchmark.pedantic(
             benchmark_fn,
@@ -333,6 +333,8 @@ def run_benchmark(
             nvf_benchmark.set_metrics(inputs, outputs, iobytes)
         return outputs
     except Exception as e:
-        raise RuntimeError(f"Exception when running {benchmark_fn.__name__}: {e}") from e
+        raise RuntimeError(
+            f"Exception when running {benchmark_fn.__name__}: {e}"
+        ) from e
     finally:
         nvf_benchmark.cleanup()

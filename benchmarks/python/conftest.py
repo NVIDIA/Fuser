@@ -98,6 +98,8 @@ def pytest_configure(config):
 
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
+    if config.getoption("--with-nsys"):
+        BENCHMARK_CONFIG["with_nsys"] = True
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
