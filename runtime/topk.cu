@@ -67,9 +67,9 @@ struct CudaType<__bfloat> {
 // fused_reduction.cu and argsort.cu
 //
 // For simplicity, we assume that:
-// - top_values: Output array containing top-K values per thread
-// - top_indices: Output array containing original indices of top-K values per
+// - top_values: Output array containing ITEMS_PER_THREAD top-K values per
 // thread
+// - top_indices: Output array containing original indices of top-K values
 // - Each thread holds exactly ITEMS_PER_THREAD elements in both output arrays
 // - In the actual nvFuser-generated kernel, only the first k elements of each
 //   thread's output arrays should be used (via predication)
