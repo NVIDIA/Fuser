@@ -293,30 +293,23 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
 std::vector<TensorView*> getGroupedReductionPersistentTvs(
     Fusion* fusion,
-    TensorView* start_tv,
+    TensorView* inner_bcast_tv,
     const std::vector<TensorView*>& reduction_tvs) {
   std::vector<TensorView*> res;
   // Get all fusion outputs that are consumers of reduction tvs
   const auto& reduction_to_output = DependencyCheck::getAllOutputsOf(
       {reduction_tvs.begin(), reduction_tvs.end()});
-
   std::unordered_set<TensorView*> p_of_reductions;
   std::unordered_set<TensorView*> c_of_reductions;
   for (auto output : reduction_to_output) {
     auto chains_to_output =
-        DependencyCheck::getAllDependencyChains(start_tv, output);
+        DependencyCheck::getAllDependencyChains(inner_bcast_tv, output);
     for (auto chain : chains_to_output) {
       auto tv_chain = ir_utils::filterByType<TensorView>(chain);
       bool is_reduction_chain =
           std::any_of(tv_chain.begin(), tv_chain.end(), [](TensorView* tv) {
             return tv->hasReduction();
           });
-
-      // std::cout << "\nis_reduction_chain: " << is_reduction_chain << std::endl;
-      // for(auto tv : tv_chain){
-      //   std::cout << "tv: " << tv->toString() << std::endl;
-      // }
-
       if (is_reduction_chain) {
         for (auto tv : tv_chain) {
           // Don't include tvs pass reduction since we only want to find tvs
@@ -332,10 +325,10 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
     }
   }
   for (auto tv : p_of_reductions) {
-    // must exists in both set, not same as start_tv, and
+    // must exists in both set, not same as inner_bcast_tv, and
     // has multiple consumers, i.e., exclude chain unary ops from
-    // start_tv to the actual persistent tv.
-    if (c_of_reductions.count(tv) &&
+    // inner_bcast_tv to the actual persistent tv.
+    if (c_of_reductions.count(tv) && tv != inner_bcast_tv &&
         ir_utils::consumerTvsOf(tv).size() > 1) {
       res.push_back(tv);
     }

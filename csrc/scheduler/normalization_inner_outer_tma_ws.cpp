@@ -834,45 +834,23 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       int64_t last_iter_dim = rparams->computation_warp_groups > 1
           ? tma_inline_pos + 1
           : tma_inline_pos;
-      const auto& persistent_buffers = rparams->smem_persistent_buffers;
       for (auto cached_tv : cached_inputs) {
-        std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
-        auto input_tv = ir_utils::getSoleProducerTv(cached_tv);
-        // skip tvs that are already treated as persistent buffers
-        if (std::any_of(
-                persistent_buffers.begin(),
-                persistent_buffers.end(),
-                [&input_tv](TensorView* tv) {
-                  return tv->name() == input_tv->name();
-                })) {
-          continue;
-        }
-        // find tvs should be persistent due to grouped reduction
-        const auto& grouped_reduction_persistent_tvs =
-            inner_outer_utils::getGroupedReductionPersistentTvs(
-                fusion, cached_tv, reduction_tvs);
-        for (auto gp_tv : grouped_reduction_persistent_tvs) {
-          std::cout << "gp_tv: " << gp_tv->toString() << std::endl;
-          tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
-        }
-
-        // find broadcast tvs can be vectorized
         if (!cached_tv->hasBroadcast() ||
             !is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
           continue;
         }
-        if (can_vectorize(input_tv)) {
+        if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
         }
+        const auto& grouped_reduction_persistent_tvs =
+            inner_outer_utils::getGroupedReductionPersistentTvs(
+                fusion, cached_tv, reduction_tvs);
+        for (auto gp_tv : grouped_reduction_persistent_tvs) {
+          tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
+        }
       }
-
-      // for(auto tv : fusion->allTvs()) {
-      //   if(tv->name() == 59){
-      //     tv_inline_pos_map.emplace(tv, last_iter_dim);
-      //   }
-      // }
     }
 
     std::unordered_set<TensorView*> exclude_tvs;

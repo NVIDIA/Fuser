@@ -108,7 +108,7 @@ std::vector<TensorView*> sortProjectableBufferInputs(
 // (3) tvs in both sets are considered persistent.
 std::vector<TensorView*> getGroupedReductionPersistentTvs(
     Fusion* fusion,
-    TensorView* start_tv,
+    TensorView* inner_bcast_tv,
     const std::vector<TensorView*>& reduction_tvs);
 
 } // namespace inner_outer_utils
