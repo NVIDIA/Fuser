@@ -172,6 +172,20 @@ void HopperPlus::validate() const {
         "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
         "Kernels");
   }
+  NVF_CHECK(
+      params_->tile_sizes.epilogue_tile.m == -1 ||
+          params_->tile_sizes.warp_tile.m %
+                  params_->tile_sizes.epilogue_tile.m ==
+              0,
+      "Expected m dimension for warp_tile to be divisible by epilogue_tile.");
+  NVF_CHECK(
+      params_->tile_sizes.epilogue_tile.n == -1 ||
+          params_->tile_sizes.warp_tile.n %
+                  params_->tile_sizes.epilogue_tile.n ==
+              0,
+      "Expected n dimension for warp_tile to be divisible by epilogue_tile.");
+  // TODO: add a check for minimum size of epilogue tile based on stmatrix
+  // constraints
 }
 
 void HopperPlus::run() {
