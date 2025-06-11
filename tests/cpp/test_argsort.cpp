@@ -48,24 +48,13 @@ class ArgsortTestBasicExecution
 
     // Create test input data with appropriate tensor options
     at::TensorOptions options;
-    at::Tensor input;
-
-    if (data_type == DataType::Float) {
-      options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      input = at::randn({4, 8}, options);
-    } else if (data_type == DataType::Half) {
-      options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-      input = at::randn({4, 8}, options);
-    } else if (data_type == DataType::BFloat16) {
-      options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-      input = at::randn({4, 8}, options);
-    } else if (data_type == DataType::Int) {
-      options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-      // For integer types, use randint to avoid floating point values
-      input = at::randint(-100, 100, {4, 8}, options);
-    } else {
-      NVF_ERROR(false, "Unsupported data type for ArgSortTestBasicExecution");
-    }
+    at::Tensor input =
+        at::randint(
+            -100,
+            100,
+            {4, 8},
+            at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0))
+            .to(data_type_to_aten(data_type));
 
     for (auto tv : {tv1, tv2, tv3}) {
       tv->axis(0)->parallelize(ParallelType::BIDx);

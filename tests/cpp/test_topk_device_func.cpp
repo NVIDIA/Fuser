@@ -57,7 +57,8 @@ bool validateTopkOrder(
 
   // Check valid indices range
   for (int64_t i = 0; i < k; i++) {
-    if (output_indices[i] < 0 || output_indices[i] >= input_data.size()) {
+    if (output_indices[i] < 0 ||
+        output_indices[i] >= static_cast<int64_t>(input_data.size())) {
       return false;
     }
   }
@@ -84,6 +85,28 @@ bool validateTopkOrder(
     }
   }
 
+  // Check that the returned values are actually the true top-k elements
+  // Sort the input data to get the expected top-k values
+  std::vector<DataT> sorted_input = input_data;
+  if (largest) {
+    std::sort(sorted_input.begin(), sorted_input.end(), std::greater<DataT>());
+  } else {
+    std::sort(sorted_input.begin(), sorted_input.end());
+  }
+
+  // Extract the expected top-k values
+  std::vector<DataT> expected_topk(
+      sorted_input.begin(), sorted_input.begin() + k);
+
+  // Extract the actual returned values (first k elements)
+  std::vector<DataT> actual_topk(
+      output_values.begin(), output_values.begin() + k);
+
+  // Compare the expected and actual top-k values
+  if (expected_topk != actual_topk) {
+    return false;
+  }
+
   return true;
 }
 
@@ -94,11 +117,12 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
   const int k = 3;
 
-  std::vector<float> test_data = {
-      5.0f, 2.0f, 8.0f, 1.0f, 7.0f, 3.0f, 6.0f, 4.0f};
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
 
-  auto input_tensor = at::tensor(
-      test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  // Note that the output arrays are the same size as the input array
+  // since the CUB-based topk requires the same size of output arrays.
   auto values_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
@@ -139,11 +163,9 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
 
-  std::vector<float> test_data = {
-      7.0f, 3.0f, 9.0f, 1.0f, 5.0f, 8.0f, 2.0f, 6.0f};
-
-  auto input_tensor = at::tensor(
-      test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto values_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
@@ -175,12 +197,15 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
   const int k = 3;
 
+  auto input_tensor = at::randint(
+      -100,
+      100,
+      {total_elements},
+      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
   // Test double
   {
-    std::vector<double> test_data = {5.5, 2.1, 8.3, 1.7, 7.2, 3.9, 6.4, 4.8};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    auto input_tensor_cast = input_tensor.to(at::kDouble);
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
@@ -190,7 +215,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
     launchBasicTopkTestKernel<double, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
-        input_tensor.data_ptr<double>(),
+        input_tensor_cast.data_ptr<double>(),
         values_tensor.data_ptr<double>(),
         indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
@@ -198,15 +223,12 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         true);
 
     EXPECT_TRUE(validateTopkOrder<double>(
-        input_tensor, values_tensor, indices_tensor, k, true));
+        input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
   // Test int
   {
-    std::vector<int> test_data = {5, 2, 8, 1, 7, 3, 6, 4};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+    auto input_tensor_cast = input_tensor.to(at::kInt);
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
@@ -216,7 +238,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
     launchBasicTopkTestKernel<int, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
-        input_tensor.data_ptr<int>(),
+        input_tensor_cast.data_ptr<int>(),
         values_tensor.data_ptr<int>(),
         indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
@@ -224,15 +246,12 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         true);
 
     EXPECT_TRUE(validateTopkOrder<int>(
-        input_tensor, values_tensor, indices_tensor, k, true));
+        input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
   // Test int64_t
   {
-    std::vector<int64_t> test_data = {5L, 2L, 8L, 1L, 7L, 3L, 6L, 4L};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+    auto input_tensor_cast = input_tensor.to(at::kLong);
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
@@ -242,7 +261,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
     launchBasicTopkTestKernel<int64_t, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
-        input_tensor.data_ptr<int64_t>(),
+        input_tensor_cast.data_ptr<int64_t>(),
         values_tensor.data_ptr<int64_t>(),
         indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
@@ -250,14 +269,12 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         true);
 
     EXPECT_TRUE(validateTopkOrder<int64_t>(
-        input_tensor, values_tensor, indices_tensor, k, true));
+        input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
   // Test bfloat16
   {
-    auto input_tensor = at::randn(
-        {total_elements},
-        at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
+    auto input_tensor_cast = input_tensor.to(at::kBFloat16);
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
@@ -267,7 +284,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
     launchBasicTopkTestKernel<__nv_bfloat16, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
-        reinterpret_cast<__nv_bfloat16*>(input_tensor.data_ptr()),
+        reinterpret_cast<__nv_bfloat16*>(input_tensor_cast.data_ptr()),
         reinterpret_cast<__nv_bfloat16*>(values_tensor.data_ptr()),
         indices_tensor.data_ptr<int64_t>(),
         BLOCK_SIZE,
@@ -275,7 +292,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         true);
 
     EXPECT_TRUE(validateTopkOrder<float>(
-        input_tensor, values_tensor, indices_tensor, k, true));
+        input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 }
 
