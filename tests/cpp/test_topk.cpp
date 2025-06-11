@@ -27,9 +27,8 @@ class TopKTest : public NVFuserTest {
 };
 
 // Parameterized test fixture for BasicExecution with different data types
-class TopKTestBasicExecution 
-    : public TopKTest,
-      public ::testing::WithParamInterface<DataType> {
+class TopKTestBasicExecution : public TopKTest,
+                               public ::testing::WithParamInterface<DataType> {
  protected:
   void runBasicExecutionTest(DataType data_type) {
     Fusion fusion;
@@ -39,16 +38,18 @@ class TopKTestBasicExecution
     std::vector<int64_t> shape = {4, 8};
     auto tv0 = makeContigConcreteTensor(shape, data_type);
     fusion.addInput(tv0);
-    
+
     auto tv1 = set(tv0);
     // Create topk operation along dimension 1, k=3, largest=true, sorted=true
     // Create k as a constant Val (not a fusion input)
     auto k_val = IrBuilder::create<Val>(3L, DataType::Int);
     auto topk_result = topk(tv1, k_val, 1, /*largest=*/true, /*sorted=*/true);
-    auto tv_values = set(topk_result.values);
-    auto tv_indices = set(topk_result.indices);
-    fusion.addOutput(tv_values);
-    fusion.addOutput(tv_indices);
+    auto tv_values = topk_result.values;
+    auto tv_indices = topk_result.indices;
+    auto tv_values_out = set(tv_values);
+    auto tv_indices_out = set(tv_indices);
+    fusion.addOutput(tv_values_out);
+    fusion.addOutput(tv_indices_out);
 
     // Create test input data with appropriate tensor options
     at::TensorOptions options;
@@ -72,7 +73,8 @@ class TopKTestBasicExecution
     }
 
     // Parallelization strategy - all tensors get same parallelization
-    for (auto tv : {tv1, tv_values, tv_indices}) {
+    for (auto tv :
+         {tv1, tv_values, tv_indices, tv_values_out, tv_indices_out}) {
       tv->axis(0)->parallelize(ParallelType::BIDx);
       tv->axis(1)->parallelize(ParallelType::TIDx);
     }
@@ -113,4 +115,4 @@ INSTANTIATE_TEST_SUITE_P(
       return std::string("Unknown");
     });
 
-} // namespace nvfuser 
+} // namespace nvfuser

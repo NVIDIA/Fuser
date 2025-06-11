@@ -1282,7 +1282,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const ArgsortOp* aop) final {
-    NVF_ERROR(isAligned(), "Unaligned argsort not supported");
+    NVF_ERROR(isAligned(), "Argsort with divergent threads not supported");
 
     const auto& parallel_dimension_map =
         kernel_->summary().parallel_dimension_map;
@@ -1416,7 +1416,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const TopKOp* top) final {
-    NVF_ERROR(isAligned(), "Unaligned topk not supported");
+    NVF_ERROR(isAligned(), "Topk with divergent threads not supported");
 
     const auto& parallel_dimension_map =
         kernel_->summary().parallel_dimension_map;
@@ -1468,10 +1468,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "Parallel type ",
           pt,
           " used in the fusion must be also used in the topk");
+
       // TopK only supports static dimension for now.
-      NVF_ERROR(
-          parallel_dimension_map.isExact(pt),
-          "TopK only supports exact dimension for now");
+      // TODO: Verify the extent of the parallelized ID is equal to
+      // pt_extent. Can be done here, but should be done as part of
+      // the lowering verification.
       auto pt_extent = parallel_dimension_map.get(pt);
       NVF_ERROR(
           pt_extent->isConstInt(),

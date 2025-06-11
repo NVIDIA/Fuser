@@ -1687,4 +1687,19 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
 }
 
+std::vector<IterDomain*> getDependentIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies) {
+  auto vals = getValsBetween<IRBFS>(
+      {domain.begin(), domain.end()},
+      {dependencies.begin(), dependencies.end()});
+
+  std::vector<IterDomain*> dependent_ids;
+  std::ranges::copy_if(
+      domain, std::back_inserter(dependent_ids), [&](IterDomain* id) {
+        return std::ranges::find(vals, id) != vals.end();
+      });
+  return dependent_ids;
+}
+
 } // namespace nvfuser::ir_utils

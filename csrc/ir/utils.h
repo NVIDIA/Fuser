@@ -839,4 +839,8 @@ class TVDomainGuard {
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
 
+std::vector<IterDomain*> getDependentIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies);
+
 } // namespace nvfuser::ir_utils

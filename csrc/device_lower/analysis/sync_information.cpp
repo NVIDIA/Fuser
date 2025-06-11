@@ -69,6 +69,26 @@ void validateParallelizationOfTensor(TensorView* tv) {
       thread_pred.limited_types.toString());
 }
 
+bool allowIncoherentDependency(
+    TensorView* consumer_tv,
+    IterDomain* consumer_id,
+    TensorView* producer_tv,
+    IterDomain* producer_id) {
+  auto def = consumer_tv->definition();
+  NVF_ERROR(def != nullptr);
+
+  if (auto topk = dynamic_cast<TopKOp*>(def)) {
+    auto topk_loop_ids = ir_utils::getDependentIds(
+        consumer_tv->getLoopDomain(),
+        {consumer_tv->getLogicalDomain().at(topk->dim())});
+    if (std::ranges::find(topk_loop_ids, consumer_id) != topk_loop_ids.end()) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 } // namespace
 
 SyncMap::SyncMap(Fusion* fusion) {
@@ -318,6 +338,12 @@ SyncMap::SyncMap(Fusion* fusion) {
           // When the producer axis is not parallelized, no sync is
           // necessary
           if (!producer_parallelized) {
+            continue;
+          }
+
+          // Certain operations resolve data dependencies by
+          // themselves, thus not requiring a RAW sync
+          if (allowIncoherentDependency(consumer, c_id, producer, p_id)) {
             continue;
           }
 
