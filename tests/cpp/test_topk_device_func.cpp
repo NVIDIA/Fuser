@@ -85,6 +85,28 @@ bool validateTopkOrder(
     }
   }
 
+  // Check that the returned values are actually the true top-k elements
+  // Sort the input data to get the expected top-k values
+  std::vector<DataT> sorted_input = input_data;
+  if (largest) {
+    std::sort(sorted_input.begin(), sorted_input.end(), std::greater<DataT>());
+  } else {
+    std::sort(sorted_input.begin(), sorted_input.end());
+  }
+
+  // Extract the expected top-k values
+  std::vector<DataT> expected_topk(
+      sorted_input.begin(), sorted_input.begin() + k);
+
+  // Extract the actual returned values (first k elements)
+  std::vector<DataT> actual_topk(
+      output_values.begin(), output_values.begin() + k);
+
+  // Compare the expected and actual top-k values
+  if (expected_topk != actual_topk) {
+    return false;
+  }
+
   return true;
 }
 
