@@ -95,11 +95,9 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
   const int k = 3;
 
-  std::vector<float> test_data = {
-      5.0f, 2.0f, 8.0f, 1.0f, 7.0f, 3.0f, 6.0f, 4.0f};
-
-  auto input_tensor = at::tensor(
-      test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto values_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
@@ -140,11 +138,9 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
 
-  std::vector<float> test_data = {
-      7.0f, 3.0f, 9.0f, 1.0f, 5.0f, 8.0f, 2.0f, 6.0f};
-
-  auto input_tensor = at::tensor(
-      test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
   auto values_tensor = at::empty(
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
@@ -178,10 +174,9 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
   // Test double
   {
-    std::vector<double> test_data = {5.5, 2.1, 8.3, 1.7, 7.2, 3.9, 6.4, 4.8};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
+    auto input_tensor = at::randn(
+        {total_elements},
+        at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0));
@@ -204,10 +199,11 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
   // Test int
   {
-    std::vector<int> test_data = {5, 2, 8, 1, 7, 3, 6, 4};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+    auto input_tensor = at::randint(
+        -100,
+        100,
+        {total_elements},
+        at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
@@ -230,10 +226,11 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
 
   // Test int64_t
   {
-    std::vector<int64_t> test_data = {5L, 2L, 8L, 1L, 7L, 3L, 6L, 4L};
-
-    auto input_tensor = at::tensor(
-        test_data, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+    auto input_tensor = at::randint(
+        -100,
+        100,
+        {total_elements},
+        at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
     auto values_tensor = at::empty(
         {total_elements},
         at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
