@@ -70,7 +70,8 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
               EmbeddingFwdOp,
               IndexPutAccumulateOp,
               ArgsortOp,
-              BatchedMMOp>()) {
+              BatchedMMOp,
+              TopKOp>()) {
     return true;
   }
 

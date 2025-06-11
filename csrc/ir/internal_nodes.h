@@ -2891,4 +2891,64 @@ class BatchedMMOp : public Expr {
   IterDomain* getKIDOfMat2() const;
 };
 
+//! TopK operation that finds the k largest or smallest elements
+//! along a specified dimension.
+//!
+//! This operation returns two outputs:
+//! - values: the k largest/smallest values along the specified dimension
+//! - indices: the indices of those values in the original tensor
+//!
+//! Parameters:
+//! - dim: dimension along which to find top-k elements
+//! - largest: if true, return largest elements; if false, return smallest
+//! - sorted: if true, return elements in sorted order
+class NVF_API TopKOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  TopKOp(
+      IrBuilderPasskey,
+      Val* out_values,
+      Val* out_indices,
+      Val* in,
+      Val* k,
+      int64_t dim,
+      bool largest,
+      bool sorted);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "TopKOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  Val* outValues() const {
+    return output(0);
+  }
+  Val* outIndices() const {
+    return output(1);
+  }
+  Val* in() const {
+    return input(0);
+  }
+  Val* k() const {
+    return input(1);
+  }
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+  bool isLargest() const {
+    return attribute<bool>(1);
+  }
+  bool isSorted() const {
+    return attribute<bool>(2);
+  }
+};
+
 } // namespace nvfuser

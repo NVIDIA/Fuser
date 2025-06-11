@@ -88,6 +88,7 @@ bool isTvOp(const Expr* expr) {
       (expr->isOneOf<
           ArgsortOp,
           BatchedMMOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
