@@ -800,27 +800,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // unrolled, the tv is scheduled as: [I/Unroll/BIDy, BIDy, Unroll, ...],
     // the unrolled domain, axis-2, can be vectorized.
     if (group_inner_reduction) {
-      auto is_redu_mapped_to_bcast = [](TensorView* redu_tv,
-                                        TensorView* bcast_tv) {
-        if (bcast_tv->nDims() != redu_tv->nDims()) {
-          return false;
-        }
-        for (int i = 0; i < bcast_tv->nDims(); i++) {
-          if ((redu_tv->axis(i)->isReduction() ||
-               redu_tv->axis(i)->isRFactorProduct()) &&
-              !bcast_tv->axis(i)->isBroadcast()) {
-            return false;
-          }
-        }
-        return true;
-      };
-
       // Heuristic ensures the iteration dim is divisible by the unroll
       // factor. Here, we only need to further confirm all the iteration
       // domains are contiguous.
       auto can_vectorize = [](TensorView* input_tv) {
         const auto& contiguity = input_tv->domain()->contiguity();
-        const auto& logical_domain = input_tv->getLogicalDomain();
+        const auto& logical_domain = input_tv->getMaybeAllocationDomain();
         for (auto i : c10::irange(logical_domain.size())) {
           if (logical_domain.at(i)->isBroadcast()) {
             continue;
@@ -834,20 +819,20 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       int64_t last_iter_dim = rparams->computation_warp_groups > 1
           ? tma_inline_pos + 1
           : tma_inline_pos;
-      const auto& persistent_buffers = rparams->smem_persistent_buffers;
       for (auto cached_tv : cached_inputs) {
         std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
-        auto input_tv = ir_utils::getSoleProducerTv(cached_tv);
-        // skip tvs that are already treated as persistent buffers
-        if (std::any_of(
-                persistent_buffers.begin(),
-                persistent_buffers.end(),
-                [&input_tv](TensorView* tv) {
-                  return tv->name() == input_tv->name();
-                })) {
+        // skip smem tvs as they are TMA loaded and already special inlined
+        if (cached_tv->getMemoryType() == MemoryType::Shared) {
           continue;
         }
-        // find tvs should be persistent due to grouped reduction
+        // skip tvs that are already vectorized
+        if (cached_tv->axis(-1)->getParallelType() == ParallelType::Vectorize) {
+          continue;
+        }
+
+        // find tvs should be persistent due to grouped reduction.
+        // inline before iter unrolled dim to ensure accessible for both
+        // loops before and after iter grouped reduction.
         const auto& grouped_reduction_persistent_tvs =
             inner_outer_utils::getGroupedReductionPersistentTvs(
                 fusion, cached_tv, reduction_tvs);
@@ -856,23 +841,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
 
-        // find broadcast tvs can be vectorized
-        if (!cached_tv->hasBroadcast() ||
-            !is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
-          continue;
-        }
-        if (can_vectorize(input_tv)) {
+        if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
         }
       }
-
-      // for(auto tv : fusion->allTvs()) {
-      //   if(tv->name() == 59){
-      //     tv_inline_pos_map.emplace(tv, last_iter_dim);
-      //   }
-      // }
     }
 
     std::unordered_set<TensorView*> exclude_tvs;
