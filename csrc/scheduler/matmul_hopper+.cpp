@@ -995,7 +995,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
-      do_epilogue_tile_split(c_cache);
+      do_epilogue_tile_split(reg_tv);
 
       // Schedule the loop and allocation domain of LdMatrix like the
       // accumulation register TensorView of wgmma.
