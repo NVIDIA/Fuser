@@ -216,34 +216,6 @@ void HopperPlus::run() {
   setUpCircularBuffering();
 }
 
-void HopperPlus::schedulePingPong(
-    TensorView* tv,
-    std::vector<MatmulDimRole>& outer_dim_roles) const {
-  NVF_ERROR(tv != nullptr);
-
-  // Split inner-most non-K dimension by number of compute warp groups
-  int64_t Mo_pos = findFirstRole(outer_dim_roles, MatmulDimRole::M);
-  int64_t No_pos = findFirstRole(outer_dim_roles, MatmulDimRole::N);
-
-  constexpr int64_t num_compute_warp_groups = 2;
-  NVF_ERROR(std::max(Mo_pos, No_pos) >= 0);
-  if (Mo_pos < No_pos) {
-    // split: [M, N/2, 2]
-    tv->split(No_pos, num_compute_warp_groups);
-    if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
-      tv->axis(No_pos + 1)->parallelize(ParallelType::TIDy);
-    }
-    outer_dim_roles.insert(outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
-  } else {
-    // split: [N, M/2, 2]
-    tv->split(Mo_pos, num_compute_warp_groups);
-    if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
-      tv->axis(Mo_pos + 1)->parallelize(ParallelType::TIDy);
-    }
-    outer_dim_roles.insert(outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
-  }
-}
-
 std::vector<MatmulDimRole> HopperPlus::reorderBlockTileTraversal(
     TensorView* tv,
     const std::vector<MatmulDimRole>& outer_dim_roles) const {
@@ -503,11 +475,6 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
     merged_roles = mma_utils::makeTile(
         tv, params_->tile_sizes.cta_tile, orig_merged_roles);
 
-    if (isPingPong()) {
-      // TODO Return new merged_roles instead of modifying directly
-      schedulePingPong(tv, merged_roles);
-    }
-
     merged_roles = reorderBlockTileTraversal(tv, merged_roles);
   }
 
@@ -623,7 +590,33 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      tv->split(num_device_dims_, numCGAs());
+      if (isCooperative()) {
+        tv->split(num_device_dims_, numCGAs());
+      } else {
+        // Schedule TensorViews for Ping-Pong schedule; Only for Hopper
+        // Create iterDomain for the number of compute warp groups
+        // Parallelize all TensorViews except TMA Loads with ParallelType::TIDy
+        constexpr int64_t num_compute_warp_groups = 2;
+        int64_t outer_split = numCGAs() * num_compute_warp_groups;
+
+        // outer
+        tv->split(num_device_dims_, outer_split);
+        // outer / (num_cgas * num_wgs), (num_cgas * num_wgs)
+
+        tv->split(num_device_dims_ + 1, numCGAs());
+        // outer / (num_cgas * num_wgs), num_wgs, num_cgas
+
+        if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::TIDy);
+        }
+        // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas
+
+        // Reorder so num_sms axis is in the same position as cooperative
+        tv->reorder(
+            {{num_device_dims_ + 1, num_device_dims_ + 2},
+             {num_device_dims_ + 2, num_device_dims_ + 1}});
+        // outer / (num_cgas * num_wgs), num_cgas, num_wgs (TIDy)
+      }
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
