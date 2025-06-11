@@ -8,15 +8,24 @@ import atexit
 import sys
 
 try:
-    import cxxfilt
-    def demangle_kernel_name(mangled_name):
-        try:
-            return cxxfilt.demangle(mangled_name)
-        except:
-            return mangled_name  # Return original if demangling fails
+    from cupti import cupti
 except ImportError:
-    def demangle_kernel_name(mangled_name):
-        return mangled_name  # Return original if cxxfilt not available
+    print("CUPTI not installed. Installing cupti-python...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "cupti-python"])
+    from cupti import cupti
+
+
+# try:
+#     import cxxfilt
+#     def demangle_kernel_name(mangled_name):
+#         try:
+#             return cxxfilt.demangle(mangled_name)
+#         except:
+#             return mangled_name  # Return original if demangling fails
+# except ImportError:
+#     def demangle_kernel_name(mangled_name):
+#         return mangled_name  # Return original if cxxfilt not available
 
 # Base class for all timers used by pytest-benchmark.
 class Timer:
@@ -67,7 +76,7 @@ class CuptiProfiler:
     def func_buffer_completed(self, activities: list[cupti.ActivityAPI]):
         for activity in activities:
             duration = (activity.end - activity.start) / 1e9
-            self.profiler_output[demangle_kernel_name(activity.name)] = duration
+            self.profiler_output[activity.name] = duration
     
     def __init__(self):
         if CuptiProfiler._subscriber_handle is not None:
