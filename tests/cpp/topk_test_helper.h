@@ -10,6 +10,7 @@
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#include <torch/torch.h>
 #include <cstdint>
 
 namespace nvfuser {
@@ -46,5 +47,14 @@ void launchMultiDim3dTopkTestKernel(
     int64_t* output_indices,
     int k,
     bool largest);
+
+// Helper function to validate topk correctness
+template <typename DataT>
+bool validateTopkOrder(
+    const at::Tensor& input_tensor,
+    const at::Tensor& values_tensor,
+    const at::Tensor& indices_tensor,
+    int64_t k,
+    bool largest = true);
 
 } // namespace nvfuser

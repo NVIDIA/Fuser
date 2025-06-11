@@ -757,6 +757,7 @@ endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/validator.cpp
   )
