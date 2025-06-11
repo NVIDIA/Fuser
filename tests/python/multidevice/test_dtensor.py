@@ -5,6 +5,7 @@
 import pytest
 import torch
 import torch.distributed as dist
+from enum import Enum, auto
 from fusion_definition_wrapper import FusionDefinitionWrapper
 from linear import LinearFunction
 from nvfuser import DataType, FusionDefinition
@@ -73,50 +74,75 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
     assert_close(expected_grad_w.split(e, dim=0)[rank], grad_w)
 
 
-@pytest.mark.mpi
-def test_row_parallel_linear_nvfuser(setup_default_process_group, multidevice_test):
-    d, s, h_in, h_out = dist.get_world_size(), 2048, 2048, 7168
-
-    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
-
-    inp_tensor = torch.randn((s, h_in), dtype=torch.bfloat16)
-    weight_tensor = torch.randn((h_out, h_in), dtype=torch.bfloat16)
-
-    inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
-    weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
-
-    warmup_fn, benchmark_fn = get_benchmark_fns(
-        lambda: LinearFunction.apply(inp_dtensor, weight_dtensor)
-    )
-    out_dtensor = warmup_fn()
-    assert out_dtensor.size() == (2048, 7168)
-
-    for _ in range(5):
-        benchmark_fn()
+class Executor(Enum):
+    # https://docs.pytorch.org/docs/stable/distributed.tensor.parallel.html
+    TORCH_TP = auto()
+    NVFUSER = auto()
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear_torch(setup_default_process_group, multidevice_test):
-    d, s, h_in, h_out = dist.get_world_size(), 2048, 2048, 7168
+@pytest.mark.parametrize(
+    "executor",
+    [Executor.TORCH_TP, Executor.NVFUSER],
+    ids=lambda e: e.name,
+)
+def test_row_parallel_linear(
+    setup_default_process_group, multidevice_test, executor: Executor
+):
+    d, s, k, h, h_intermediate = dist.get_world_size(), 2048, 8, 7168, 2048
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
-    inp_tensor = torch.randn((s, h_in), dtype=torch.bfloat16)
-    weight_tensor = torch.randn((h_out, h_in), dtype=torch.bfloat16)
+    inp = torch.randn((s * k, h), dtype=torch.bfloat16)
+    up_weight = torch.randn((h_intermediate, h), dtype=torch.bfloat16)
+    down_weight = torch.randn((h, h_intermediate), dtype=torch.bfloat16)
 
-    inp_dtensor = dist.tensor.distribute_tensor(inp_tensor, mesh, [Shard(-1)])
-    weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(-1)])
+    inp = DTensor.from_local(inp, mesh, [Replicate()])
+    up_weight = dist.tensor.distribute_tensor(up_weight, mesh, [Shard(0)])
+    down_weight = dist.tensor.distribute_tensor(down_weight, mesh, [Shard(-1)])
+    tokens_per_expert = [
+        897,
+        923,
+        858,
+        892,
+        875,
+        872,
+        870,
+        862,
+        847,
+        807,
+        848,
+        2048,
+        481,
+        148,
+        50,
+        9,
+        1,
+        2048,
+        2048,
+    ]
+    assert sum(tokens_per_expert) == s * k
 
-    def row_parallel_linear(inp, weight):
-        out = torch.nn.functional.linear(inp_dtensor, weight_dtensor, None)
-        dist.all_reduce(out.to_local())
-        return out
+    def model():
+        expert_outs = []
+        offset = 0
+        for num_tokens in tokens_per_expert:
+            expert_out = inp[offset : offset + num_tokens]
+            match executor:
+                case Executor.TORCH_TP:
+                    expert_out = torch.nn.functional.linear(expert_out, up_weight)
+                    expert_out = torch.nn.functional.linear(expert_out, down_weight)
+                    dist.all_reduce(expert_out.to_local())
+                case Executor.NVFUSER:
+                    expert_out = LinearFunction.apply(expert_out, up_weight)
+                    expert_out = LinearFunction.apply(expert_out, down_weight)
+            expert_outs.append(expert_out)
+            offset += num_tokens
+        return torch.cat(expert_outs, dim=0)
 
-    warmup_fn, benchmark_fn = get_benchmark_fns(
-        lambda: row_parallel_linear(inp_dtensor, weight_dtensor)
-    )
+    warmup_fn, benchmark_fn = get_benchmark_fns(model)
     out_dtensor = warmup_fn()
-    assert out_dtensor.size() == (2048, 7168)
+    assert out_dtensor.size() == (s * k, h)
 
     for _ in range(5):
         benchmark_fn()
