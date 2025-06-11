@@ -67,13 +67,20 @@ struct GemmTile {
 struct MatMulTileOptions {
   GemmTile cta_tile = GemmTile(128, 128, 32);
   GemmTile warp_tile = GemmTile(64, 64, 32);
+  //! For Hopper+, when using TMA (use_smem_epilogue), the epilogue tile size
+  //! determines how much data is written between block syncs. Setting this to a
+  //! small size means we will require less shared memory for the epilogue, but
+  //! we will require more loop iterations and thus more synchronization. The
+  //! epilogue tile must divide the cta tile evenly.
+  GemmTile epilogue_tile = GemmTile(-1, -1, -1);
 
   MatMulTileOptions() = default;
   MatMulTileOptions(GemmTile cta_tile_, GemmTile warp_tile_)
       : cta_tile(cta_tile_), warp_tile(warp_tile_) {}
 
   bool operator==(const MatMulTileOptions& other) const {
-    return cta_tile == other.cta_tile && warp_tile == other.warp_tile;
+    return cta_tile == other.cta_tile && warp_tile == other.warp_tile &&
+        epilogue_tile == other.epilogue_tile;
   }
 };
 
