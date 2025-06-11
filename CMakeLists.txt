@@ -293,7 +293,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-set(BUILD_LLVM ON)
 if(BUILD_LLVM)
   # Add LLVM JIT related dependencies
   find_package(LLVM 18.1 REQUIRED CONFIG)
