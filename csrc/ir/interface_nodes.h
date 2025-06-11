@@ -36,7 +36,6 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
