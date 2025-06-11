@@ -16,7 +16,12 @@ from nvfuser.benchmark_utils import FusionProfileTimer, CuptiTimer
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
 # --benchmark-num-inputs=num_inputs
-BENCHMARK_CONFIG = {"rounds": 10, "warmup_rounds": 1, "num_inputs": None}
+BENCHMARK_CONFIG = {
+    "rounds": 10,
+    "warmup_rounds": 1,
+    "num_inputs": None,
+    "with_nsys": False,
+}
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
@@ -102,17 +107,17 @@ class NVFBenchmark:
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
         self.device = device
-        self.benchmark = benchmark_fixture
 
-        # Modify the default timer.
-        if device == "cuda":
-            benchmark_fixture._timer = CuptiTimer()
-        else:
-            benchmark_fixture._timer = FusionProfileTimer()
-        # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
-        # calibration using subsequent timer calls produces invalid results.
-        # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
-        benchmark_fixture._precisions[benchmark_fixture._timer] = precision
+        if not BENCHMARK_CONFIG["with_nsys"]:
+            # Modify the default timer.
+            if device == "cuda":
+                benchmark_fixture._timer = CuptiTimer()
+            else:
+                benchmark_fixture._timer = FusionProfileTimer()
+            # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
+            # calibration using subsequent timer calls produces invalid results.
+            # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
+            benchmark_fixture._precisions[benchmark_fixture._timer] = precision
 
         self.benchmark = benchmark_fixture
 
@@ -131,7 +136,8 @@ class NVFBenchmark:
         self._timer.set_fd(fd)
 
     def cleanup(self):
-        self._timer.cleanup()
+        if not BENCHMARK_CONFIG["with_nsys"]:
+            self._timer.cleanup()
 
     def set_metrics(
         self,
@@ -305,7 +311,7 @@ def run_benchmark(
         return fd.execute(inputs, profile=True)
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-    
+
     try:
         outputs = nvf_benchmark.pedantic(
             benchmark_fn,
@@ -318,6 +324,8 @@ def run_benchmark(
             nvf_benchmark.set_metrics(inputs, outputs, iobytes)
         return outputs
     except Exception as e:
-        raise RuntimeError(f"Exception when running {benchmark_fn.__name__}: {e}") from e
+        raise RuntimeError(
+            f"Exception when running {benchmark_fn.__name__}: {e}"
+        ) from e
     finally:
         nvf_benchmark.cleanup()
