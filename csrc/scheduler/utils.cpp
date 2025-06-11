@@ -2662,7 +2662,8 @@ int64_t getReductionSmemWorkspace(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
+    dtype_size =
+        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is

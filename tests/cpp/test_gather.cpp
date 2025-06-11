@@ -1105,15 +1105,17 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   // Make sure takeAlongAxis is in the persistent group
   for (const auto group : kernel_runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::InnerPersistent) {
-      NVF_CHECK(std::any_of(
-          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<GatherOp>();
-          }));
+      NVF_CHECK(
+          std::any_of(
+              group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+                return expr->isA<GatherOp>();
+              }));
     } else {
-      NVF_CHECK(std::none_of(
-          group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<GatherOp>();
-          }));
+      NVF_CHECK(
+          std::none_of(
+              group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
+                return expr->isA<GatherOp>();
+              }));
     }
   }
 

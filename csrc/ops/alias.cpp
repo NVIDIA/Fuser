@@ -1248,11 +1248,12 @@ TensorView* repeat(
     IterDomain* new_id = nullptr;
 
     if (repeat_times.at(i) > 1 && inp_id->isBroadcast()) {
-      new_id = IterDomainBuilder(inp_id)
-                   .extent(IrBuilder::create<Val>(
-                       repeat_times.at(i), DataType::Index))
-                   .iter_type(IterType::Iteration)
-                   .build();
+      new_id =
+          IterDomainBuilder(inp_id)
+              .extent(
+                  IrBuilder::create<Val>(repeat_times.at(i), DataType::Index))
+              .iter_type(IterType::Iteration)
+              .build();
     } else {
       new_id = inp_id->cloneWithoutRFactor();
     }

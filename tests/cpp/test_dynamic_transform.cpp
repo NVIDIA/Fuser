@@ -396,23 +396,25 @@ TEST_F(DynamicTransformTest, DynamicTransform7) {
 
   std::vector<ShapeInfo> patterns;
 
-  patterns.push_back(ShapeInfo{
-      .ref_transform = {{{3, 4}, {4, 3}}},
-      .equal_transforms =
-          {{{{3, 4}, {4, 3}}}, {{{2, 8}, {4, 4}}}, {{{3, 8}, {4, 6}}}},
-      .different_transforms = {{{{3, 4}, {2, 6}}}}});
+  patterns.push_back(
+      ShapeInfo{
+          .ref_transform = {{{3, 4}, {4, 3}}},
+          .equal_transforms =
+              {{{{3, 4}, {4, 3}}}, {{{2, 8}, {4, 4}}}, {{{3, 8}, {4, 6}}}},
+          .different_transforms = {{{{3, 4}, {2, 6}}}}});
 
-  patterns.push_back(ShapeInfo{
-      .ref_transform = {{{3, 4}, {12}, {1, 4, 3}}},
-      .equal_transforms =
-          {
-              {{{3, 4}, {12}, {1, 4, 3}}},
-              {{{5, 8}, {40}, {1, 4, 10}}},
-          },
-      .different_transforms = {
-          {{{3, 4}, {12}, {4, 1, 3}}},
-          {{{3, 4}, {12}, {4, 3, 1}}},
-      }});
+  patterns.push_back(
+      ShapeInfo{
+          .ref_transform = {{{3, 4}, {12}, {1, 4, 3}}},
+          .equal_transforms =
+              {
+                  {{{3, 4}, {12}, {1, 4, 3}}},
+                  {{{5, 8}, {40}, {1, 4, 10}}},
+              },
+          .different_transforms = {
+              {{{3, 4}, {12}, {4, 1, 3}}},
+              {{{3, 4}, {12}, {4, 3, 1}}},
+          }});
 
   for (const auto& pattern : patterns) {
     const auto& ref_transform = pattern.ref_transform;

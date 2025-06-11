@@ -372,8 +372,9 @@ class WarSyncInserter : private kir::ExprMutator {
       mem_info.ca_loop = ca_loop;
       auto entry_it =
           smem_allocations_
-              .insert(std::make_pair(
-                  maybe_aliased_tv, std::vector<WarMemoryInfo>({mem_info})))
+              .insert(
+                  std::make_pair(
+                      maybe_aliased_tv, std::vector<WarMemoryInfo>({mem_info})))
               .first;
       return entry_it->second.back();
     } else if (
@@ -1233,10 +1234,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       if (ir_utils::isCpAsyncBulkStore(expr)) {
         continue;
       }
-      NVF_ERROR(std::all_of(
-          expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-            return warp_specialized_async_inputs_in_current_scope_.count(val);
-          }));
+      NVF_ERROR(
+          std::all_of(
+              expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+                return warp_specialized_async_inputs_in_current_scope_.count(
+                    val);
+              }));
       NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
     }
 

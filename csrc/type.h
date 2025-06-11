@@ -482,8 +482,9 @@ inline DataType getDataType(const PolymorphicValue& value) {
     } else if constexpr (std::is_same_v<T, Opaque>) {
       if (value.is<T>()) {
         const auto& opaque = value.as<T>();
-        dtype = DataType(OpaqueType{
-            .type_info = opaque.any().type(), .size = opaque.size()});
+        dtype = DataType(
+            OpaqueType{
+                .type_info = opaque.any().type(), .size = opaque.size()});
       }
     }
   });

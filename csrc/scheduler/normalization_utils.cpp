@@ -685,7 +685,7 @@ int64_t partialReductionBufferSize(
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
             dataTypeSizeByte(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
@@ -1007,7 +1007,8 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
     max_dtype_size = std::max(
         max_dtype_size,
-        dataTypeSizeByte(tv->getDataType().value(), runtime_info.getIndexType()));
+        dataTypeSizeByte(
+            tv->getDataType().value(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to

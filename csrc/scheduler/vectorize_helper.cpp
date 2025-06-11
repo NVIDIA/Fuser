@@ -836,8 +836,9 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
   while (!logical_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
-                          .getTvToContigMergeOfInnerSizeMap());
+    mappers.push_back(
+        ContiguousInnerDimensionsMapper::map(ref, logical_dom)
+            .getTvToContigMergeOfInnerSizeMap());
     logical_dom.erase(logical_dom.begin());
   }
   return mappers;
@@ -926,9 +927,10 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     }
   };
 
-  const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
-      reference_tv->getLogicalDomain().begin() + break_point,
-      reference_tv->getLogicalDomain().end()});
+  const ValGroups ref_vec_groups = graph.toGroups(
+      std::vector<Val*>{
+          reference_tv->getLogicalDomain().begin() + break_point,
+          reference_tv->getLogicalDomain().end()});
 
   // For each of Resize exprs, if it's reachable from the reference
   // vectorized IDs without visiting the Resize expr itself, its

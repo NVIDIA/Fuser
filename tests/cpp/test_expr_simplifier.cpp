@@ -389,8 +389,9 @@ Val* parse(const char* str) {
           expect_val,
           "Syntax error: not expecting function call but get ",
           token_str);
-      op_stack.push_back(FunctionCall{
-          last_lparen_pos, token_str.substr(0, token_str.size() - 1)});
+      op_stack.push_back(
+          FunctionCall{
+              last_lparen_pos, token_str.substr(0, token_str.size() - 1)});
       last_lparen_pos = op_stack.size() - 1;
     } else if (token_str == ",") {
       NVF_CHECK(!expect_val, "Syntax error: not expecting comma");

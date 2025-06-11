@@ -260,8 +260,9 @@ class WelfordVectorizer : public kir::ExprMutator {
     // Allocate a boolean scalar for cond
     auto pred_var = defineScalar(DataType::Bool);
 
-    registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
-        LoadStoreOpType::Set, pred_var, conditional));
+    registerInsertBeforeInnerMostLoop(
+        IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set, pred_var, conditional));
 
     auto vectorized_wop = applyVectorizeTransformation(wop, pred_var);
 
@@ -336,15 +337,17 @@ class WelfordVectorizer : public kir::ExprMutator {
           IrBuilder::create<UnaryOp>(UnaryOpType::Cast, count_increment, pred));
     }
 
-    registerInsertBeforeInnerMostLoop(IrBuilder::create<BinaryOp>(
-        BinaryOpType::Add, new_count, hoisted_count, count_increment));
+    registerInsertBeforeInnerMostLoop(
+        IrBuilder::create<BinaryOp>(
+            BinaryOpType::Add, new_count, hoisted_count, count_increment));
 
     // float new_count_float;
     auto new_count_float = defineScalar(data_type);
 
     // new_count_float = (float)new_count;
-    registerInsertBeforeInnerMostLoop(IrBuilder::create<UnaryOp>(
-        UnaryOpType::Cast, new_count_float, new_count));
+    registerInsertBeforeInnerMostLoop(
+        IrBuilder::create<UnaryOp>(
+            UnaryOpType::Cast, new_count_float, new_count));
 
     // float reciprocal;
     auto reciprocal = defineScalar(data_type);
@@ -362,10 +365,11 @@ class WelfordVectorizer : public kir::ExprMutator {
       registerInsertBeforeInnerMostLoop(reciprocal_expr);
     } else {
       // Initialize reciprocal as 0;
-      registerInsertBeforeInnerMostLoop(IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Set,
-          reciprocal,
-          GpuLower::current()->kernel()->zeroVal()));
+      registerInsertBeforeInnerMostLoop(
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set,
+              reciprocal,
+              GpuLower::current()->kernel()->zeroVal()));
 
       // if (pred) reciprocal = 1 / new_count_float;
       auto reciprocal_ite = IrBuilder::create<kir::IfThenElse>(

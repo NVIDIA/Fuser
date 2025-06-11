@@ -1609,7 +1609,6 @@ int64_t dataTypeSizeBit(DataType type) {
       type.type);
 }
 
-
 int64_t dataTypeSizeByte(DataType type) {
   int64_t bits = dataTypeSizeBit(type);
   NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");

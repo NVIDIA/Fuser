@@ -89,8 +89,9 @@ void LoopNestGenerator::handle(Expr* expr) {
           " cannot lower ",
           out->getValType().value());
 
-      pushFront(IrBuilder::create<kir::Allocate>(
-          out, MemoryType::Local, GpuLower::current()->kernel()->oneVal()));
+      pushFront(
+          IrBuilder::create<kir::Allocate>(
+              out, MemoryType::Local, GpuLower::current()->kernel()->oneVal()));
     }
     return;
   }

@@ -736,8 +736,8 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
             continue;
           }
 
-          auto backward_tv_chains =
-              tvChains(DependencyCheck::getAllDependencyChains(
+          auto backward_tv_chains = tvChains(
+              DependencyCheck::getAllDependencyChains(
                   input_of_forward_running_consumer, forward_running_consumer));
 
           for (auto backward_tv_chain : backward_tv_chains) {

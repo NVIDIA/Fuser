@@ -95,7 +95,7 @@ int64_t partialOuterReductionBufferSize(
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
             dataTypeSizeByte(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;

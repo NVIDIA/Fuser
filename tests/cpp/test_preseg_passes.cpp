@@ -1170,8 +1170,9 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   auto t0 = at::randn({2, 3, 4}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 

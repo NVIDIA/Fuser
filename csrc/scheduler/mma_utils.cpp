@@ -69,8 +69,8 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
       ab_factor * dataTypeSizeByte(data_types[0]);
   const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
       ab_factor * dataTypeSizeByte(data_types[1]);
-  const int64_t smem_c =
-      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSizeByte(data_types[2]);
+  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+      dataTypeSizeByte(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
 }
@@ -432,9 +432,10 @@ void makeTile(AbstractMatmulTensor& abten, const GemmTile& tile_sizes) {
         group_index * num_split_axes + index_within_group;
 
     // Add pair {idx_before, idx_after} to re-order map.
-    reorder_map_old_to_new.insert(std::make_pair(
-        idx - split_tile_dimension_size,
-        index_after_reorder - split_tile_dimension_size));
+    reorder_map_old_to_new.insert(
+        std::make_pair(
+            idx - split_tile_dimension_size,
+            index_after_reorder - split_tile_dimension_size));
   }
 
   // Apply the re-order map to abstract tensor
@@ -846,10 +847,11 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   // a TMA load definition and without any MmaOp use.
   if (producer->definition() != nullptr &&
       ir_utils::isCpAsyncBulkLoad(producer->definition())) {
-    NVF_ERROR(std::all_of(
-        consumer->uses().begin(), consumer->uses().end(), [](Expr* e) {
-          return !e->isA<MmaOp>();
-        }));
+    NVF_ERROR(
+        std::all_of(
+            consumer->uses().begin(), consumer->uses().end(), [](Expr* e) {
+              return !e->isA<MmaOp>();
+            }));
     return false;
   }
 
@@ -2397,7 +2399,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSizeByte(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.

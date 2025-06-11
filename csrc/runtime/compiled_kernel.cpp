@@ -1090,8 +1090,9 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
           })) {
     return true;
   } else if (!input_dependencies.empty()) {
-    VectorOfUniqueEntries<Expr*> all_exprs(DependencyCheck::getAllExprsBetween(
-        input_dependencies.set(), output_extents));
+    VectorOfUniqueEntries<Expr*> all_exprs(
+        DependencyCheck::getAllExprsBetween(
+            input_dependencies.set(), output_extents));
 
     VectorOfUniqueEntries<Val*> meta_data_outputs;
     for (auto meta_data_op :

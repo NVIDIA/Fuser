@@ -593,8 +593,8 @@ void IndexCompute::collectIndexIntoPermissiveMap(
       for (auto id : id_inputs) {
         // Collect backward pass results from this expression if they are
         //  made available in by this expression.
-        auto idx_it =
-            index_map_.find(GpuLower::current()->caMap()->getConcreteMappedID(
+        auto idx_it = index_map_.find(
+            GpuLower::current()->caMap()->getConcreteMappedID(
                 id, IdMappingMode::EXACT));
 
         if (idx_it != index_map_.end()) {
@@ -2131,7 +2131,8 @@ Val* Index::getProducerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(*producer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*producer->getDataType()),
+              *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
@@ -2308,7 +2309,8 @@ Val* Index::getConsumerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSizeByte(*consumer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*consumer->getDataType()),
+              *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {

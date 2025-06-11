@@ -226,7 +226,8 @@ bool fillDefaultAmpereHeuristic(
     NVF_ERROR(op_it != tensor_roles.end());
     int64_t min_size_bytes = 128LL;
     for (const TensorView* operand : op_it->second) {
-      min_size_bytes = std::min(min_size_bytes, dataTypeSizeByte(operand->dtype()));
+      min_size_bytes =
+          std::min(min_size_bytes, dataTypeSizeByte(operand->dtype()));
     }
     return min_size_bytes;
   };
@@ -379,7 +380,8 @@ void maximizeHopperOperandStages(
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
-      max_operand_smem -= dataTypeSizeByte(out->dtype()) * cta_tile.m * cta_tile.n;
+      max_operand_smem -=
+          dataTypeSizeByte(out->dtype()) * cta_tile.m * cta_tile.n;
     }
   }
 
@@ -695,10 +697,11 @@ class VectorizationCalculator {
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
         broadcast_graph_(broadcast_graph),
-        dim_ordering_(mma_utils::canonicalDimOrdering(
-            tensor_roles,
-            dim_roles_,
-            broadcast_graph_)) {}
+        dim_ordering_(
+            mma_utils::canonicalDimOrdering(
+                tensor_roles,
+                dim_roles_,
+                broadcast_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =

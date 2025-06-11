@@ -216,8 +216,9 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
   for (int64_t i = static_cast<int64_t>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
-    NVF_ERROR(GpuLower::current()->caMap()->areMapped(
-        loop_id, loop->iter_domain(), IdMappingMode::PERMISSIVE));
+    NVF_ERROR(
+        GpuLower::current()->caMap()->areMapped(
+            loop_id, loop->iter_domain(), IdMappingMode::PERMISSIVE));
     IterDomain* concrete_loop_id =
         GpuLower::current()->caMap()->getConcreteMappedID(
             loop_id, IdMappingMode::EXACT);

@@ -63,7 +63,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSizeByte(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -1223,7 +1224,9 @@ void AmpereMinus::scheduleSplitKSum() {
         // vectorized reads/writes instead. Note that we reorder such that the
         // axes are in order UR TIDx V.
         splitk_sum->split(
-            -2, 16 / dataTypeSizeByte(splitk_sum->dtype()), /*inner_split=*/true);
+            -2,
+            16 / dataTypeSizeByte(splitk_sum->dtype()),
+            /*inner_split=*/true);
         splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
         splitk_sum->reorder({{-4, -3}});
         // In this case, we have [... iUR iTx rBz iS]

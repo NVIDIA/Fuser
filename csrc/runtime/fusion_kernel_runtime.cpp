@@ -37,13 +37,14 @@ namespace {
 PolymorphicValue convertMetadataArg(PolymorphicValue arg) {
   if (arg.is<at::Tensor>()) {
     if (const auto& tensor = arg.as<at::Tensor>(); tensor.is_cuda()) {
-      auto meta_tensor = at::Tensor(at::detail::empty_strided_meta(
-          tensor.sizes(),
-          tensor.strides(),
-          tensor.scalar_type(),
-          c10::nullopt,
-          c10::Device(c10::DeviceType::Meta, 0),
-          c10::nullopt));
+      auto meta_tensor = at::Tensor(
+          at::detail::empty_strided_meta(
+              tensor.sizes(),
+              tensor.strides(),
+              tensor.scalar_type(),
+              c10::nullopt,
+              c10::Device(c10::DeviceType::Meta, 0),
+              c10::nullopt));
       return std::move(meta_tensor);
     }
   }

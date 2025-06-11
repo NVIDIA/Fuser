@@ -290,9 +290,10 @@ TensorView* rFactorHelper(
 
   auto rf_tvs = reduction_tv->rFactor(axes, out_tvs);
 
-  return rf_tvs.at(std::distance(
-      out_tvs.begin(),
-      std::find(out_tvs.begin(), out_tvs.end(), reduction_tv)));
+  return rf_tvs.at(
+      std::distance(
+          out_tvs.begin(),
+          std::find(out_tvs.begin(), out_tvs.end(), reduction_tv)));
 }
 
 namespace {
@@ -531,14 +532,16 @@ class ValReplacementMutator : public OptOutMutator {
               expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
                 return output->isA<IterDomain>();
               })) {
-        NVF_ERROR(std::all_of(
-            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
-              return output->isA<IterDomain>();
-            }));
-        NVF_ERROR(std::all_of(
-            expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
-              return input->isA<IterDomain>();
-            }));
+        NVF_ERROR(
+            std::all_of(
+                expr->outputs().begin(),
+                expr->outputs().end(),
+                [](Val* output) { return output->isA<IterDomain>(); }));
+        NVF_ERROR(
+            std::all_of(
+                expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
+                  return input->isA<IterDomain>();
+                }));
         continue;
       }
 
@@ -1577,7 +1580,8 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSizeByte(*inp_prim_type), primDataTypeSizeByte(*out_prim_type));
+      primDataTypeSizeByte(*inp_prim_type),
+      primDataTypeSizeByte(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {

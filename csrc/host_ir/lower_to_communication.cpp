@@ -70,14 +70,15 @@ void lowerToScatter(
   DeviceIdxType root = *it;
 
   Team team = receiver_mesh.vector();
-  comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Scatter,
-      output_tv,
-      input_tv,
-      team,
-      root,
-      c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+  comms.push_back(
+      IrBuilder::create<Communication>(
+          CommunicationType::Scatter,
+          output_tv,
+          input_tv,
+          team,
+          root,
+          c10d::ReduceOp::RedOpType::UNUSED,
+          backend));
 }
 
 /*
@@ -102,14 +103,15 @@ void lowerToGather(
     if (!sender_mesh.has(root)) {
       team.push_back(root);
     }
-    comms.push_back(IrBuilder::create<Communication>(
-        CommunicationType::Gather,
-        output_tv,
-        input_tv,
-        team,
-        root,
-        c10d::ReduceOp::RedOpType::UNUSED,
-        backend));
+    comms.push_back(
+        IrBuilder::create<Communication>(
+            CommunicationType::Gather,
+            output_tv,
+            input_tv,
+            team,
+            root,
+            c10d::ReduceOp::RedOpType::UNUSED,
+            backend));
   }
 }
 
@@ -122,14 +124,15 @@ void lowerToAllgather(
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
-  comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Allgather,
-      output_tv,
-      input_tv,
-      team,
-      /*root=*/-1,
-      c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+  comms.push_back(
+      IrBuilder::create<Communication>(
+          CommunicationType::Allgather,
+          output_tv,
+          input_tv,
+          team,
+          /*root=*/-1,
+          c10d::ReduceOp::RedOpType::UNUSED,
+          backend));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -146,14 +149,15 @@ void lowerToBroadcast(
   if (!mesh.has(root)) {
     team.push_back(root);
   }
-  comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Broadcast,
-      output_tv,
-      input_tv,
-      team,
-      root,
-      c10d::ReduceOp::RedOpType::UNUSED,
-      backend));
+  comms.push_back(
+      IrBuilder::create<Communication>(
+          CommunicationType::Broadcast,
+          output_tv,
+          input_tv,
+          team,
+          root,
+          c10d::ReduceOp::RedOpType::UNUSED,
+          backend));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -187,14 +191,15 @@ void lowerToBroadcastOrSendRecv(
     for (auto i : c10::irange(sender_mesh.size())) {
       const DeviceIdxType sender = sender_mesh.at(i);
       const DeviceIdxType receiver = receiver_mesh.at(i);
-      comms.push_back(IrBuilder::create<Communication>(
-          CommunicationType::SendRecv,
-          output_tv,
-          input_tv,
-          Team({sender, receiver}),
-          /*root=*/sender,
-          c10d::ReduceOp::RedOpType::UNUSED,
-          backend));
+      comms.push_back(
+          IrBuilder::create<Communication>(
+              CommunicationType::SendRecv,
+              output_tv,
+              input_tv,
+              Team({sender, receiver}),
+              /*root=*/sender,
+              c10d::ReduceOp::RedOpType::UNUSED,
+              backend));
     }
   } else {
     // Either of the following two cases is happening.
@@ -235,14 +240,15 @@ void lowerToReduce(
     if (!sender_mesh.has(root)) {
       team.push_back(root);
     }
-    comms.push_back(IrBuilder::create<Communication>(
-        CommunicationType::Reduce,
-        output_tv,
-        input_tv,
-        team,
-        root,
-        reduce_op_type,
-        backend));
+    comms.push_back(
+        IrBuilder::create<Communication>(
+            CommunicationType::Reduce,
+            output_tv,
+            input_tv,
+            team,
+            root,
+            reduce_op_type,
+            backend));
   }
 }
 
@@ -255,14 +261,15 @@ void lowerToAllreduce(
     DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
-  comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Allreduce,
-      output_tv,
-      input_tv,
-      team,
-      /*root=*/-1,
-      getC10dReduceOpType(op_type),
-      backend));
+  comms.push_back(
+      IrBuilder::create<Communication>(
+          CommunicationType::Allreduce,
+          output_tv,
+          input_tv,
+          team,
+          /*root=*/-1,
+          getC10dReduceOpType(op_type),
+          backend));
 }
 
 void lowerToReduceScatter(
@@ -275,14 +282,15 @@ void lowerToReduceScatter(
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
 
-  comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::ReduceScatter,
-      output_tv,
-      input_tv,
-      /*team=*/team,
-      /*root=*/-1,
-      getC10dReduceOpType(op_type),
-      backend));
+  comms.push_back(
+      IrBuilder::create<Communication>(
+          CommunicationType::ReduceScatter,
+          output_tv,
+          input_tv,
+          /*team=*/team,
+          /*root=*/-1,
+          getC10dReduceOpType(op_type),
+          backend));
 }
 
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {

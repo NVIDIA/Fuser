@@ -970,8 +970,9 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);

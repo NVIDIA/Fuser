@@ -196,9 +196,9 @@ bool DomainMap::areAllTargetIdsCoveredBy(
     std::for_each(
         all_producer_sets.vector().begin(),
         all_producer_sets.vector().end(),
-        [&source_ids,
-         this](const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
-                   producer_set_ptr) {
+        [&source_ids, this](
+            const std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>&
+                producer_set_ptr) {
           IterDomain* producer_id = producer_set_ptr->front();
           if (ca_map_.uniqueExactDefinitions(producer_id).empty()) {
             source_ids.push_back(producer_id);

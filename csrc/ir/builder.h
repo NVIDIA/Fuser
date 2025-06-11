@@ -143,10 +143,11 @@ class IrBuilder {
     std::vector<StructType::FieldInfo> field_infos;
     field_infos.reserve(fields.size());
     for (auto& field : fields) {
-      field_infos.emplace_back(StructType::FieldInfo{
-          field.first,
-          std::make_shared<DataType>(field.second->dtype()),
-          true});
+      field_infos.emplace_back(
+          StructType::FieldInfo{
+              field.first,
+              std::make_shared<DataType>(field.second->dtype()),
+              true});
     }
     DataType dtype =
         StructType::make<T>(std::move(field_infos), std::move(name));

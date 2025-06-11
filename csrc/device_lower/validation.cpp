@@ -994,8 +994,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *=
-      dataTypeSizeByte(*output->getDataType(), GpuLower::current()->indexType());
+  byte_size *= dataTypeSizeByte(
+      *output->getDataType(), GpuLower::current()->indexType());
 
   switch (ldst->cacheOp()) {
     case CacheOp::Global:

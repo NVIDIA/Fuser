@@ -1418,8 +1418,8 @@ int64_t GroupedGridWelford::getSmemBufferSize(
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz * dataTypeSizeByte(out_tv->getDataType().value()) *
-        2 +
+    return bdimx * bdimy * bdimz *
+        dataTypeSizeByte(out_tv->getDataType().value()) * 2 +
         bdimx * bdimy * bdimz *
         dataTypeSizeByte(DataType::Index, kernel->indexType());
   }

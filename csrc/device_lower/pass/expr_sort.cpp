@@ -895,8 +895,9 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     auto producer_val = edge->producer_val;
     auto consumer_val = edge->consumer_val;
 
-    edges_.push_back(std::make_unique<ExprGroupConnections>(
-        from, joined_groups, producer_val, consumer_val));
+    edges_.push_back(
+        std::make_unique<ExprGroupConnections>(
+            from, joined_groups, producer_val, consumer_val));
 
     joined_groups->addProducerEdge(edges_.back().get());
     from->addConsumerEdge(edges_.back().get());
@@ -909,8 +910,9 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
     auto producer_val = edge->producer_val;
     auto consumer_val = edge->consumer_val;
 
-    edges_.push_back(std::make_unique<ExprGroupConnections>(
-        joined_groups, to, producer_val, consumer_val));
+    edges_.push_back(
+        std::make_unique<ExprGroupConnections>(
+            joined_groups, to, producer_val, consumer_val));
     joined_groups->addConsumerEdge(edges_.back().get());
     edge->to->addProducerEdge(edges_.back().get());
   }
@@ -1545,8 +1547,9 @@ void ExprSegmentationSorter::sort() {
       }
 
       auto inp_def_group = expr2group.at(inp->definition());
-      edges_.push_back(std::make_unique<ExprGroupConnections>(
-          inp_def_group, expr_group, inp, out));
+      edges_.push_back(
+          std::make_unique<ExprGroupConnections>(
+              inp_def_group, expr_group, inp, out));
       expr_group->addProducerEdge(edges_.back().get());
       inp_def_group->addConsumerEdge(edges_.back().get());
     }

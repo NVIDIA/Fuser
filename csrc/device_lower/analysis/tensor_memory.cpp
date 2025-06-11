@@ -335,9 +335,10 @@ getThreadParallelTypesMergedByContiguity(const Expr* expr) {
     Val* extent_in_loop_domain = pt_in_loop_domain->extent();
     // If we can not symbolically prove that the extents are the same, then
     // we assume that they are not the same.
-    prev_exact = simplifyExpr(SimplifyingIrBuilder::eqExpr(
-                                  pt_extent, extent_in_loop_domain))
-                     ->isTrue();
+    prev_exact =
+        simplifyExpr(
+            SimplifyingIrBuilder::eqExpr(pt_extent, extent_in_loop_domain))
+            ->isTrue();
   }
   std::reverse(contiguity.begin(), contiguity.end());
 
