@@ -5427,9 +5427,9 @@ TEST_F(BlackwellMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
-  mparams.use_smem_epilogue = true;
+  // mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
-  mparams.promote_prologue_smem_reuse = true;
+  // mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
