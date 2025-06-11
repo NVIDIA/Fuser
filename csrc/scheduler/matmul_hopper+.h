@@ -190,6 +190,10 @@ class HopperPlus : public Common {
   virtual void setMmaResultAllocationDomain(TensorView* mma_result) = 0;
   void scheduleMmaResults();
 
+  //! Create an epilogue tile in order to pipeline the TMA operations in the
+  //! epilogue
+  void doEpilogueTileSplit(TensorView*) const;
+
   virtual void scheduleEpilogueWithoutSmemEpilogue() = 0;
   virtual void scheduleEpilogueWithSmemEpilogue() = 0;
   void scheduleEpilogue();
