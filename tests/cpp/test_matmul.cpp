@@ -5619,4 +5619,67 @@ TEST_F(HopperMatmulTest, MisalignedReadTMAStore) {
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/4485
+TEST_F(HopperMatmulTest, ReproIllegalAccessStmatrix) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 18944, K = 16;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // K, M
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(dtype, tv2);
+
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({K, M, 1}, options);
+  auto t1 = at::randn({K, 1, N}, options);
+  auto out_ref =
+      at::matmul(t0.squeeze().t().to(at::kFloat), t1.squeeze().to(at::kFloat))
+          .to(at::kHalf);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size.a = 8;
+  mparams.supported_vec_size.b = 8;
+  mparams.supported_vec_size.epilogue = 8;
+  mparams.circular_buffer_options.circular_buffer_smem_write = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 1;
+  mparams.tile_sizes.cta_tile = {256, 128, 16};
+  mparams.tile_sizes.warp_tile = {128, 128, 16};
+  mparams.tile_sizes.epilogue_tile = {128, 16, -1};
+  mparams.mma_macro = MmaMacroEncode{MmaMacroEncode::Arch::Hopper, 64, 128, 16};
+  // Use TMA but no circular buffering
+  mparams.async_gmem_load_operands = true;
+  mparams.use_smem_epilogue = true;
+  mparams.promote_prologue_smem_reuse = false;
+  mparams.splitk_factor = 1;
+  mparams.cparams.index_type = DataType::Int32;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+  EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[0].as<at::Tensor>(), out_ref, 1e-3 * K, 1e-4 * K))
+      << " max absolute error is "
+      << (cg_outputs[0].as<at::Tensor>() - out_ref).abs().amax().item();
+}
+
 } // namespace nvfuser
