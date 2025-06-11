@@ -232,7 +232,14 @@ TEST_F(HostIrLLVMTest, Allocation6) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  tv1->printTransforms();
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({5, d * 3}, options);
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({5, 3}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({3, 1}));
 
   // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, options);
