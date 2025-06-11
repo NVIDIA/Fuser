@@ -5546,14 +5546,14 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   std::vector<c10::IValue> inputs = {t0, t1};
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(64, 256, 32);
-  gemm_tile.warp_tile = GemmTile(64, 256, 32);
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(128, 128, 64);
 
   MatmulParams mparams;
   // Activate Ping-Pong schedule
   mparams.buffering_loop_level = MatmulParams::BufferingLoopLevel::WarpTiles;
   mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
@@ -5564,7 +5564,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   // TODO reduced share memory aliasing because of persistent scheduling
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 6;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
