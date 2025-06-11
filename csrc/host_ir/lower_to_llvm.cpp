@@ -41,7 +41,12 @@ namespace nvfuser {
 Helper Data Structures & Functions
 
 */
-using FuncType = void (*)(const int64_t* input, int64_t input_len, int64_t* output, int64_t output_len);
+
+using ShapeInferFunc = void (*)(const int64_t* input_tensor_shape, int64_t input_tensor_shape_buffer_size, 
+int64_t* output_tensor_shape, int64_t output_tensor_shape_buffer_size);
+
+using StrideInferFunc = void (*)(const int64_t* output_tensor_shape, int64_t output_tensor_shape_buffer_size, int64_t* output_tensor_stride, 
+int64_t output_tensor_stride_buffer_size, int64_t* sharded_output_tensor_shape, int64_t sharded_output_tensor_shape_buffer_size);
 
 // Dependency graph entry for the stride inference
 struct StrideInfo {
@@ -221,6 +226,55 @@ std::unordered_map<ValGroup, llvm::Value*>& val2llvm_val, std::unordered_map<int
     }
   }
 }
+
+/*
+
+Update the extent of each input shape using the DID values in allocation domain
+
+Currently we only assume:
+1. DID comes from split expressions
+2. DID is constant in the allocation domain
+
+*/
+
+void input_shape_preprocess(IterDomain* iter_domain, std::unordered_map<ValGroup, StrideInfo>& val2stride, 
+std::unordered_map<int, Val*>& boundary_vals, llvm::IRBuilder<>& builder, const ValGraph& graph){
+  std::stack<Val*> val_stack;
+  val_stack.push(iter_domain);
+  llvm::Value* did_val = nullptr;
+  if(iter_domain->extent()->isConstInt()){
+    did_val = builder.getInt64(stoi(iter_domain->extent()->toString()));
+  }
+  else{
+    NVF_ERROR(false,"DIDx extent is not constant");
+  }
+  while(!val_stack.empty()){
+    Val* current_val = val_stack.top();
+    val_stack.pop();
+    if(current_val->definition() == nullptr){
+      continue;
+    }
+    if(auto* split = current_val->definition()->as<Split>()){
+      int potential_index = mapToInputDomain(boundary_vals, split->in(), graph);
+      if(potential_index != -1){
+        if(val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent != nullptr){
+          val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent = builder.CreateUDiv(val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent, did_val, "did_mul");
+        }
+        return;
+      }
+      else{
+        val_stack.push(split->in());
+      }
+    }
+    else if(auto* merge = current_val->definition()->as<Merge>()){
+      NVF_ERROR(false,"Merge is not supported for DIDx" + merge->toString());
+    }
+    else{
+      NVF_ERROR(false,"LLVM Lowering Error: Unknown expression type: " + current_val->definition()->toString());
+    }
+  }
+}
+
 
 /*
 
@@ -437,7 +491,7 @@ void generate_stride_llvm_ir(
     int cur_val_potential_index = mapToInputDomain(boundary_vals, current_val_to_process, graph);
     if(cur_val_potential_index != -1){
       // TODO: If the iter domain is a broadcast domain, then we have multiple inputs values pointing to the same valgroup
-      assert(!boundary_vals[cur_val_potential_index]->as<IterDomain>()->isBroadcast());
+      NVF_ERROR(!boundary_vals[cur_val_potential_index]->as<IterDomain>()->isBroadcast(), "LLVM Lowering Error: Broadcast domain is not supported in stride inference");
       if(val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride == nullptr){
         val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_stride = running_stride_product;
         running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[graph.toGroup(boundary_vals[cur_val_potential_index])].llvm_extent, "stride_root_val");
@@ -588,7 +642,7 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   auto* int64Ty = llvm::Type::getInt64Ty(*ctx);
   auto* ptrTy = llvm::PointerType::getUnqual(int64Ty);
 
-  auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty}, false);
+  auto* funcTy = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), {ptrTy, int64Ty, ptrTy, int64Ty, ptrTy, int64Ty}, false);
   auto* func = llvm::Function::Create(funcTy, llvm::Function::ExternalLinkage, "infer_stride", Module.get());
   auto* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
   builder.SetInsertPoint(entry);
@@ -596,9 +650,9 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   std::vector<Val*> input_vals = domain2vals(logical_domain);
   std::vector<Val*> output_vals = domain2vals(allocation_domain);
   auto arg_it = func->arg_begin();
-  llvm::Value* input_ptr = &*arg_it;
-  llvm::Value* output_ptr = &*arg_it+2;
-
+  llvm::Value* input_shape_buffer_ptr = &*arg_it;
+  llvm::Value* output_stride_buffer_ptr = &*arg_it+2;
+  llvm::Value* output_shape_buffer_ptr = &*arg_it+4;
   std::unordered_map<ValGroup, StrideInfo> val2stride;
   std::unordered_map<int, Val*> boundary_vals;
   for(size_t i = 0; i < input_vals.size(); i++){
@@ -610,13 +664,19 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   
   for(long unsigned int i = 0; i < input_vals.size(); i++){
     auto* zero = builder.getInt64(i);
-    auto* input_i_ptr = builder.CreateGEP(int64Ty, input_ptr, zero, "ptr");
+    auto* input_i_ptr = builder.CreateGEP(int64Ty, input_shape_buffer_ptr, zero, "ptr");
     auto* input_i_val = builder.CreateLoad(int64Ty, input_i_ptr, "val");
     val2stride[graph.toGroup(input_vals[i])] = StrideInfo();
     val2stride[graph.toGroup(input_vals[i])].llvm_extent = input_i_val;
   }
 
   for(auto* val : output_vals){
+    if(val->as<IterDomain>()->getParallelType() == ParallelType::DIDx || 
+    val->as<IterDomain>()->getParallelType() == ParallelType::DIDy ||
+    val->as<IterDomain>()->getParallelType() == ParallelType::DIDz
+    ){
+      input_shape_preprocess(val->as<IterDomain>(), val2stride, boundary_vals, builder, graph);
+    }
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
       val2stride[graph.toGroup(val)] = val2stride[graph.toGroup(boundary_vals[index])];
@@ -625,6 +685,12 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
 
   llvm::Value* running_stride_product = builder.getInt64(1);
   for(auto it = allocation_domain.rbegin(); it != allocation_domain.rend(); ++it){
+    auto iter_domain = (*it)->as<IterDomain>();
+    // currently we only assume DID domain comes from all split expressions
+    // thus we only need to update the extent by dividing 
+    if(iter_domain->getParallelType() == ParallelType::DIDx){
+      continue;
+    }
     generate_stride_llvm_ir(*it, val2stride, builder, boundary_vals, running_stride_product, graph);
   }
 
@@ -632,8 +698,12 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
     if(val2stride[graph.toGroup(input_vals[i])].llvm_stride == nullptr){
       continue;
     }
-    auto* output_i_ptr = builder.CreateGEP(int64Ty, output_ptr, builder.getInt64(i), "ptr");
-    builder.CreateStore(val2stride[graph.toGroup(input_vals[i])].llvm_stride, output_i_ptr);
+    // inferred stride
+    auto* output_stride_i_ptr = builder.CreateGEP(int64Ty, output_stride_buffer_ptr, builder.getInt64(i), "ptr");
+    builder.CreateStore(val2stride[graph.toGroup(input_vals[i])].llvm_stride, output_stride_i_ptr);
+    // corrected shape
+    auto* output_shape_i_ptr = builder.CreateGEP(int64Ty, output_shape_buffer_ptr, builder.getInt64(i), "ptr");
+    builder.CreateStore(val2stride[graph.toGroup(input_vals[i])].llvm_extent, output_shape_i_ptr);
   }
 
   builder.CreateRetVoid();
@@ -720,32 +790,6 @@ llvm::orc::ThreadSafeModule generate_infer_shape_module(std::vector<IterDomain*>
   return llvm::orc::ThreadSafeModule(std::move(Module), std::move(Context));
 }
 
-// JIT add module wrapper function
-std::unique_ptr<llvm::orc::LLJIT> llvm_jit_init(int num_threads){
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  auto JIT = ExitOnErr(llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
-  return JIT;
-}
-
-// Allocate the output tensor based on the shape and stride inference
-at::Tensor aten_output_allocation(FuncType shape_infer_func, FuncType stride_infer_func, const at::Tensor& input, int64_t output_tensor_dim) { 
-  std::vector<int64_t> shape_result(output_tensor_dim);
-  auto start_time = std::chrono::high_resolution_clock::now();
-  shape_infer_func(input.sizes().data(), input.sizes().size(), shape_result.data(), shape_result.size());
-  auto end_time = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> shape_infer_time = end_time - start_time;
-  std::cout << "Shape infer time: " << std::chrono::duration_cast<std::chrono::microseconds>(shape_infer_time).count() << " microseconds" << std::endl;
-  std::vector<int64_t> stride_result(output_tensor_dim);
-  start_time = std::chrono::high_resolution_clock::now();
-  stride_infer_func(shape_result.data(), shape_result.size(), stride_result.data(), stride_result.size());
-  end_time = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double> stride_infer_time = end_time - start_time;
-  std::cout << "Stride infer time: " << std::chrono::duration_cast<std::chrono::microseconds>(stride_infer_time).count() << " microseconds" << std::endl;
-  at::Tensor output_tensor = at::empty_strided(shape_result, stride_result, input.options());
-  return output_tensor;
-}
-
 template llvm::orc::ExecutorAddr nvfuser::ExitOnErr<llvm::orc::ExecutorAddr>(llvm::Expected<llvm::orc::ExecutorAddr> &&E);
 
 } // namespace nvfuser
@@ -756,8 +800,8 @@ namespace nvfuser {
 // PIMPL implementation for HostIrLlvmJit
 struct HostIrLlvmJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  FuncType logical_shape_infer_fn = nullptr;
-  FuncType logical_stride_infer_fn = nullptr;
+  ShapeInferFunc logical_shape_infer_fn = nullptr;
+  StrideInferFunc logical_stride_infer_fn = nullptr;
   TensorView* output_tv = nullptr;
 };
 
@@ -822,9 +866,9 @@ void HostIrLlvmJit::compile(TensorView* output_tv) {
   }
   // Look up the function pointers and store them
   pimpl_->logical_shape_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<FuncType>();
+      ExitOnErr(pimpl_->jit->lookup("infer_shape")).toPtr<ShapeInferFunc>();
   pimpl_->logical_stride_infer_fn =
-      ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<FuncType>();
+      ExitOnErr(pimpl_->jit->lookup("infer_stride")).toPtr<StrideInferFunc>();
 }
 
 at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& input_tensors) {
@@ -849,16 +893,19 @@ at::Tensor HostIrLlvmJit::allocateOutputTensor(const std::vector<at::Tensor>& in
 
   // Allocate memory for stride result
   std::vector<int64_t> logical_stride_result(pimpl_->output_tv->getLogicalDomain().size());
+  std::vector<int64_t> logical_sharded_shape_result(pimpl_->output_tv->getLogicalDomain().size());
 
   // Run output tensor logical stride inference
   pimpl_->logical_stride_infer_fn(
       logical_shape_result.data(),
       logical_shape_result.size(),
       logical_stride_result.data(),
-      logical_stride_result.size());
+      logical_stride_result.size(),
+      logical_sharded_shape_result.data(),
+      logical_sharded_shape_result.size());
 
   // Create the output tensor with the computed shape and strides
-  at::Tensor allocated_tensor = at::empty_strided(logical_shape_result, logical_stride_result, input_tensors[0].options());
+  at::Tensor allocated_tensor = at::empty_strided(logical_sharded_shape_result, logical_stride_result, input_tensors[0].options());
   return allocated_tensor;
 }
 

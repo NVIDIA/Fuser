@@ -35,9 +35,6 @@ class HostIrLlvmJit {
  private:
   struct LlvmJitImpl; // The PIMPL forward declaration
   std::unique_ptr<LlvmJitImpl> pimpl_;
-
-  // Store info from compile to run
-  int64_t output_tensor_dim_ = 0;
 };
 
 } // namespace nvfuser
