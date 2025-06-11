@@ -137,6 +137,9 @@ struct KernelSummary {
 
   //! Do we have any argsort op?
   bool has_argsort = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
 };
 
 class KernelPerformanceProfile {
