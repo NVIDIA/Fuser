@@ -224,6 +224,53 @@ std::unordered_map<ValGroup, llvm::Value*>& val2llvm_val, std::unordered_map<int
 
 /*
 
+Update the extent of each input shape using the DID values in allocation domain
+Currently we only assume DID comes from split expressions
+We also assume DID is constant in the allocation domain
+
+*/
+
+void input_shape_preprocess(IterDomain* iter_domain, std::unordered_map<ValGroup, StrideInfo>& val2stride, 
+std::unordered_map<int, Val*>& boundary_vals, llvm::IRBuilder<>& builder, const ValGraph& graph){
+  std::stack<Val*> val_stack;
+  val_stack.push(iter_domain);
+  llvm::Value* did_val = nullptr;
+  if(iter_domain->extent()->isConstInt()){
+    did_val = builder.getInt64(stoi(iter_domain->extent()->toString()));
+  }
+  else{
+    assert(false,"DIDx extent is not constant");
+  }
+  while(!val_stack.empty()){
+    Val* current_val = val_stack.top();
+    val_stack.pop();
+    if(current_val->definition() == nullptr){
+      continue;
+    }
+    if(auto* split = current_val->definition()->as<Split>()){
+      int potential_index = mapToInputDomain(boundary_vals, split->in(), graph);
+      if(potential_index != -1){
+        if(val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent != nullptr){
+          val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent = builder.CreateUDiv(val2stride[graph.toGroup(boundary_vals[potential_index])].llvm_extent, did_val, "did_mul");
+        }
+        return;
+      }
+      else{
+        val_stack.push(split->in());
+      }
+    }
+    else if(auto* merge = current_val->definition()->as<Merge>()){
+      assert(false,"Merge is not supported for DIDx");
+    }
+    else{
+      NVF_ERROR(false,"LLVM Lowering Error: Unknown expression type: " + current_val->definition()->toString());
+    }
+  }
+}
+
+
+/*
+
 Verify if the merge is legit by traversing the exprs between output and input domain
 
 TODO: Need to implement this function
@@ -617,6 +664,9 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
   }
 
   for(auto* val : output_vals){
+    if(val->as<IterDomain>()->getParallelType() == ParallelType::DIDx){
+      input_shape_preprocess(val->as<IterDomain>(), val2stride, boundary_vals, builder, graph);
+    }
     auto index = mapToInputDomain(boundary_vals, val, graph);
     if(index != -1){
       val2stride[graph.toGroup(val)] = val2stride[graph.toGroup(boundary_vals[index])];
@@ -625,6 +675,12 @@ llvm::orc::ThreadSafeModule generate_infer_stride_module(std::vector<IterDomain*
 
   llvm::Value* running_stride_product = builder.getInt64(1);
   for(auto it = allocation_domain.rbegin(); it != allocation_domain.rend(); ++it){
+    auto iter_domain = (*it)->as<IterDomain>();
+    // currently we only assume DID domain comes from all split expressions
+    // thus we only need to update the extent by dividing 
+    if(iter_domain->getParallelType() == ParallelType::DIDx){
+      continue;
+    }
     generate_stride_llvm_ir(*it, val2stride, builder, boundary_vals, running_stride_product, graph);
   }
 

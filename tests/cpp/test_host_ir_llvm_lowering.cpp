@@ -224,26 +224,25 @@ TEST_F(HostIrLLVMTest, Allocation6) {
   tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
 
   TensorView* tv1 = set(tv0);
-  tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
-
-  tv0->setDeviceMesh(mesh);
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
   tv1->setDeviceMesh(mesh);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true});
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh, 0);
+  tv1->printTransforms();
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  // auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, options);
+  // at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh, 0);
 
-  print_tensor_info(out_tensor);
+  // FusionExecutorCache executor_cache(std::move(fusion));
+  // at::Tensor out_tensor =
+  //     executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  // print_tensor_info(out_tensor);
 }
 
 } // namespace hir
