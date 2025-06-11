@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-from cupti import cupti
 import atexit
 import sys
 
