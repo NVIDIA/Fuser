@@ -937,14 +937,25 @@ void HopperPlus::doEpilogueTileSplit(TensorView* tv) const {
   //   [..., Mo, No, Mi, Ni]           (ping-pong)
   // We will split the Mw/Nw axis (cooperative) or Mo/No (ping-pong) axes to
   // form the epilogue tile
-  tv->merge(-4, -2);
-  tv->merge(-2, -1);
-  //   [..., (Mo * No), Mw * Mi, Nw * Ni]
-  tv->split(-2, ldst_matrix_smem_m);
-  tv->split(-1, ldst_matrix_smem_n);
-  //   [..., (Mo * No), Mn, Me, Nn, Ne]
-  tv->reorder({{-3, -2}});
-  //   [..., (Mo * No), Mn, Nn, Me, Ne]
+  if (ldst_matrix_smem_m != params_->tile_sizes.warp_tile.m) {
+    //   [..., (Mo * No), Mw, Nw, Mi, Ni]
+    tv->merge(-4, -2);
+    //   [..., (Mo * No), Mw * Mi, Nw, Ni]
+    tv->split(-3, ldst_matrix_smem_m);
+    //   [..., (Mo * No), Mn, Me, Nw, Ni]
+    tv->reorder({{-3, -2}});
+    //   [..., (Mo * No), Mn, Nw, Me, Ni]
+  }
+  if (ldst_matrix_smem_n != params_->tile_sizes.warp_tile.n) {
+    //   [..., (Mo * No), Mn, Nw, Me, Ni]
+    tv->merge(-3, -1);
+    //   [..., (Mo * No), Mn, Nw * Ni, Me]
+    tv->split(-2, ldst_matrix_smem_n);
+    //   [..., (Mo * No), Mn, Nn, Ne, Me]
+    tv->reorder({{-2, -1}});
+    //   [..., (Mo * No), Mn, Nn, Me, Ne]
+  }
+  tv->printTransforms();
 }
 
 void Hopper::scheduleEpilogueWithSmemEpilogue() {
