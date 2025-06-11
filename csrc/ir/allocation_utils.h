@@ -14,13 +14,36 @@
 #include <ir/internal_base_nodes.h>
 
 namespace nvfuser {
+
 // With respect to the logical domain. `allocation_domain` must be a
 // permutation of the corresponding logcial domain, and `contiguity` must be of
 // the same length as `allocation`. See canonicalizeLayout for how we handle DID
 // loop splits.
-struct Layout {
-  std::vector<IterDomain*> allocation_domain;
-  std::vector<std::optional<bool>> contiguity;
+class Layout {
+ public:
+  Layout(
+      std::vector<IterDomain*> allocation_domain,
+      std::vector<std::optional<bool>> contiguity)
+      : allocation_domain_(std::move(allocation_domain)),
+        contiguity_(std::move(contiguity)) {
+    NVF_ERROR_EQ(allocation_domain_.size(), contiguity_.size());
+  }
+
+  const std::vector<IterDomain*>& allocation_domain() const {
+    return allocation_domain_;
+  }
+
+  IterDomain* allocation_domain(int64_t i) const {
+    return allocation_domain_.at(i);
+  }
+
+  const std::vector<std::optional<bool>>& contiguity() const {
+    return contiguity_;
+  }
+
+  std::optional<bool> contiguity(int64_t i) const {
+    return contiguity_.at(i);
+  }
 
   // The size of `allocation_domain` and therefore the size of `contiguity`.
   int64_t size() const;
@@ -30,6 +53,10 @@ struct Layout {
   // Returns a new Layout that has the same allocation domain but `true`
   // contiguity.
   Layout contiguous() const;
+
+ private:
+  std::vector<IterDomain*> allocation_domain_;
+  std::vector<std::optional<bool>> contiguity_;
 };
 
 // Computes `Split`'s output contiguity. Returns the outer contiguity and then
