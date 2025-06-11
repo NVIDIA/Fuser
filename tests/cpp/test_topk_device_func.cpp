@@ -57,7 +57,8 @@ bool validateTopkOrder(
 
   // Check valid indices range
   for (int64_t i = 0; i < k; i++) {
-    if (output_indices[i] < 0 || output_indices[i] >= input_data.size()) {
+    if (output_indices[i] < 0 ||
+        output_indices[i] >= static_cast<int64_t>(input_data.size())) {
       return false;
     }
   }
