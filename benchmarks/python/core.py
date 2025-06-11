@@ -11,7 +11,7 @@ from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from nvfuser.benchmark_utils import TorchProfileTimer, FusionProfileTimer, CuptiTimer
+from nvfuser.benchmark_utils import FusionProfileTimer, CuptiTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -320,17 +320,19 @@ def run_benchmark(
         return fd.execute(inputs, profile=not BENCHMARK_CONFIG["with_nsys"])
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-    outputs = nvf_benchmark.pedantic(
-        benchmark_fn,
-        setup=setup,
-        rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=warmup_rounds,
-    )
-
-    if device == "cuda":
-        # Record additional metrics (IOBytes, Bandwidth)
-        nvf_benchmark.set_metrics(inputs, outputs, iobytes)
-        # Stop torch.profiler instance
+    
+    try:
+        outputs = nvf_benchmark.pedantic(
+            benchmark_fn,
+            setup=setup,
+            rounds=BENCHMARK_CONFIG["rounds"],
+            warmup_rounds=warmup_rounds,
+        )
+        if device == "cuda":
+            # Record additional metrics (IOBytes, Bandwidth)
+            nvf_benchmark.set_metrics(inputs, outputs, iobytes)
+        return outputs
+    except Exception as e:
+        raise RuntimeError(f"Exception when running {benchmark_fn.__name__}: {e}") from e
+    finally:
         nvf_benchmark.cleanup()
-
-    return outputs
