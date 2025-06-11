@@ -1587,7 +1587,7 @@ int64_t dataTypeSizeBit(DataType type) {
       [](auto&& dtype) -> int64_t {
         using T = std::decay_t<decltype(dtype)>;
         if constexpr (std::is_same_v<T, PrimDataType>) {
-          return primDataTypeSizeByte(dtype);
+          return primDataTypeSizeBit(dtype);
         } else if constexpr (std::is_same_v<T, PointerType>) {
           return sizeof(void*);
         } else if constexpr (std::is_same_v<T, ArrayType>) {
