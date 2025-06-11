@@ -5566,4 +5566,57 @@ TEST_F(HopperMatmulTest, HSS_NT_SplitKTMAStore) {
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/3602
+TEST_F(HopperMatmulTest, MisalignedReadTMAStore) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  constexpr int64_t M = 16896, N = 128, K = 16;
+
+  TensorView* a = makeContigConcreteTensor({-1, 1, -1}, DataType::Half);
+  TensorView* b = makeContigConcreteTensor({1, -1, -1}, DataType::Half);
+  TensorView* c = fusedMultiplySum(a, b, {-1});
+  TensorView* out = castOp(DataType::Half, c);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto a_ref = at::randn({M, 1, K}, options);
+  auto b_ref = at::randn({1, N, K}, options);
+  auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 16);
+  gemm_tile.warp_tile = GemmTile(64, 64, 16);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = false;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 0;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = false;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(fusion.get(), &mparams);
+
+  std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), inputs);
+  auto cg_outputs = ke.run(inputs);
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 } // namespace nvfuser
