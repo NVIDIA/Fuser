@@ -223,6 +223,10 @@ class HopperPlus : public Common {
   // are used for epilogue operations (mma is fully async, and it only needs
   // one thread).
   int64_t getNumEpilogueWarpGroups() const;
+
+  // Get the circular buffer type: pipelined or warp-specialized?
+  // If warp-specialized, on which parallel type? Do we want register sharing?
+  CircularBufferType getCircularBufferType() const;
 };
 
 class Hopper : public HopperPlus {

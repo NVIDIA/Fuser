@@ -1261,31 +1261,8 @@ int64_t HopperPlus::getNumEpilogueWarpGroups() const {
   return num_math_warp_groups;
 }
 
-void HopperPlus::setUpCircularBuffering() {
-  // Propagate mma output swizzle and parallelization down the DAG
-  if (params_->circular_buffer_options.circular_buffer_smem_write) {
-    NVF_ERROR(
-        params_->circular_buffer_options.smem_circular_buffer_stage > 1,
-        "Invalid buffer stage config")
-    if (params_->circular_buffer_options.smem_circular_buffer_stage > 2) {
-      NVF_ERROR(
-          params_->async_gmem_load_operands,
-          "Circular buffer only supports async load");
-    }
-    NVF_CHECK(
-        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap >
-                0 &&
-            params_->circular_buffer_options
-                    .smem_circular_buffer_prefetch_gap <=
-                params_->circular_buffer_options.smem_circular_buffer_stage,
-        "smem_circular_buffer_prefetch_gap is ",
-        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
-        " but is expected to be positive and not greater than number of "
-        "stages: ",
-        params_->circular_buffer_options.smem_circular_buffer_stage);
-
-    CircularBufferType cb_type;
-    switch (params_->circular_buffering_strategy) {
+CircularBufferType HopperPlus::getCircularBufferType() const {
+  switch (params_->circular_buffering_strategy) {
       case MatmulParams::CircularBufferingStrategy::Pipelined: {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
@@ -1313,6 +1290,33 @@ void HopperPlus::setUpCircularBuffering() {
         break;
       }
     }
+  return cb_type;
+}
+
+void HopperPlus::setUpCircularBuffering() {
+  // Propagate mma output swizzle and parallelization down the DAG
+  if (params_->circular_buffer_options.circular_buffer_smem_write) {
+    NVF_ERROR(
+        params_->circular_buffer_options.smem_circular_buffer_stage > 1,
+        "Invalid buffer stage config")
+    if (params_->circular_buffer_options.smem_circular_buffer_stage > 2) {
+      NVF_ERROR(
+          params_->async_gmem_load_operands,
+          "Circular buffer only supports async load");
+    }
+    NVF_CHECK(
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap >
+                0 &&
+            params_->circular_buffer_options
+                    .smem_circular_buffer_prefetch_gap <=
+                params_->circular_buffer_options.smem_circular_buffer_stage,
+        "smem_circular_buffer_prefetch_gap is ",
+        params_->circular_buffer_options.smem_circular_buffer_prefetch_gap,
+        " but is expected to be positive and not greater than number of "
+        "stages: ",
+        params_->circular_buffer_options.smem_circular_buffer_stage);
+
+    CircularBufferType cb_type = getCircularBufferType();
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,
@@ -1345,17 +1349,7 @@ void Blackwell::setUpCircularBuffering() {
         params_->circular_buffer_options.mma_circular_buffer_stage > 0,
         "Invalid buffer stage config")
 
-    CircularBufferType cb_type;
-    switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined: {
-        cb_type = (CircularBufferType)Pipelined(false);
-        break;
-      }
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-        break;
-      }
-    }
+    CircularBufferType cb_type = getCircularBufferType();
     for (TensorView* mma_result : mma_results_) {
       mma_result->circularBuffer(
           params_->circular_buffer_options.mma_circular_buffer_stage,
