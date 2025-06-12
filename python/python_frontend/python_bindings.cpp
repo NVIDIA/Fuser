@@ -3667,6 +3667,14 @@ void initNvFuserPythonBindings(PyObject* module) {
         FUSER_PERF_SCOPE("Operators.bmm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            mat1.dims == 3 && mat2.dims == 3,
+            "bmm expects 3D tensors but got ",
+            mat1.dims,
+            "D and ",
+            mat2.dims,
+            "D tensors");
+
         FusionDefinition* fd = self.fusion_definition;
         // Calculate output dimensions: [batch, m, n]
         // mat1: [batch, m, k], mat2: [batch, k, n]
@@ -3676,9 +3684,9 @@ void initNvFuserPythonBindings(PyObject* module) {
         fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
             {fd->recordingState(mat1()), fd->recordingState(mat2())},
             {fd->recordingState(output())},
-            ("ops.bmm"),
+            ("ops.linear"),
             serde::RecordType::Binary_TV,
-            static_cast<TensorView* (*)(TensorView*, TensorView*)>(bmm)));
+            static_cast<TensorView* (*)(TensorView*, TensorView*)>(linear)));
 
         return output;
       },
