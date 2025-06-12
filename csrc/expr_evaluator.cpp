@@ -148,11 +148,11 @@ void ExpressionEvaluator::bindTensorDomain(
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
   if (tv->dtype() == DataType::Float4_e2m1) {
-    if (!logical_domain.empty()) {
+    if (!logical_sizes.empty()) {
       // PyTorch does not natively support fp4. We represent fp4 tensor
       // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
       // We need to adjust the logical domain to reflect this.
-      logical_domain[logical_domain.size() - 1] *= 2;
+      logical_sizes[logical_sizes.size() - 1] *= 2;
     }
   }
   for (auto i : arange(t.dim())) {
