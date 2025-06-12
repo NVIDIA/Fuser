@@ -6,8 +6,6 @@
  */
 // clang-format on
 #include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
 #include <device_lower/lower2device.h>
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
@@ -20,6 +18,8 @@
 #include <tests/cpp/topk_test_helper.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+
+#include <gtest/gtest.h>
 
 namespace nvfuser {
 
