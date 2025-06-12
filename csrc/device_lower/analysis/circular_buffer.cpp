@@ -432,7 +432,7 @@ void CircularBufferInfo::setCircularBufferOptions(
   std::cout << "setCircularBufferOptions: " << std::endl;
   std::cout << "id: " << id->toString() << std::endl;
   std::cout << "concrete_loop_id: " << concrete_loop_id->toString() << std::endl;
-  std::cout << "opt: " << opt.toString() << std::endl;
+  std::cout << "opt: " << opt << std::endl;
   NVF_ERROR(concrete_loop_id != nullptr);
 
   auto maybe_existing_depth_it =
