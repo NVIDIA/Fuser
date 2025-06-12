@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
+#include <tests/cpp/topk_test_helper.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -72,7 +73,13 @@ class TopKTestBasicExecution : public TopKTest,
     auto outputs = ke.run({input});
 
     // Verify the dual outputs
-    testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    // testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+    EXPECT_TRUE(validateTopkOrder(
+        input,
+        outputs[0].as<at::Tensor>(),
+        outputs[1].as<at::Tensor>(),
+        3,
+        true));
   }
 };
 

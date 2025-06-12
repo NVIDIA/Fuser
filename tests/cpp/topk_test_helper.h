@@ -19,7 +19,6 @@ namespace nvfuser {
 using nvfuser_index_t = int64_t;
 
 // Function declarations for launching topk test kernels
-
 template <typename DataT, int ITEMS_PER_THREAD>
 void launchBasicTopkTestKernel(
     cudaStream_t stream,
@@ -48,12 +47,13 @@ void launchMultiDim3dTopkTestKernel(
     int k,
     bool largest);
 
-// Helper function to validate topk correctness
-template <typename DataT>
+// Check the result of:
+//
+// values_tensor, indices_tensor = topk(input_tensor, -1, k, largest)
 bool validateTopkOrder(
-    const at::Tensor& input_tensor,
-    const at::Tensor& values_tensor,
-    const at::Tensor& indices_tensor,
+    at::Tensor input_tensor,
+    at::Tensor values_tensor,
+    at::Tensor indices_tensor,
     int64_t k,
     bool largest = true);
 

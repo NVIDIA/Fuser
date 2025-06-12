@@ -50,8 +50,8 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       k,
       true);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, true));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true));
 
   // Test smallest
   launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
@@ -63,8 +63,8 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       k,
       false);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, false));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, false));
 }
 
 // Variable k values test
@@ -94,8 +94,8 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<float>(
-        input_tensor, values_tensor, indices_tensor, k, true))
+    EXPECT_TRUE(
+        validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true))
         << "Failed for k=" << k;
   }
 }
@@ -132,7 +132,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<double>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -155,7 +155,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<int>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -178,7 +178,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<int64_t>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -201,7 +201,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<float>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 }
@@ -237,7 +237,7 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
         true);
 
     // Validate correctness and verify all k values should be 3.0f
-    EXPECT_TRUE(validateTopkOrder<float>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor, values_tensor, indices_tensor, k, true));
 
     // Additional validation: all k values should be 3.0f
