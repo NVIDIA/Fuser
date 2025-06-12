@@ -2757,13 +2757,15 @@ TEST_F(NVFuserTest, BitCeilKernel) {
   EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
 }
 
-using Float4E2m1TestParams = std::tuple<int64_t>;
+// Vectorize factor, dynamic_shape
+using Float4E2m1TestParams = std::tuple<int64_t, bool>;
 
 class Float4E2m1Test : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
  protected:
   int64_t vectorize_factor;
+  bool dynamic_shape;
   void SetUp() {
-    std::tie(vectorize_factor) = GetParam();
+    std::tie(vectorize_factor, dynamic_shape) = GetParam();
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
   }
 };
@@ -2772,8 +2774,7 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // TensorView* tv0 = makeContigTensor(1, DataType::Float4_e2m1);
-  TensorView* tv0 = makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
+  TensorView* tv0 = dynamic_shape ? makeContigTensor(1, DataType::Float4_e2m1) : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2802,10 +2803,10 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     Float4E2m1Test,
-    testing::Values(1, 2, 4, 8, 16, 32),
+    testing::Combine(testing::Values(1, 2, 4, 8, 16, 32), testing::Values(false, true)),
     [](const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
-      const auto& [vectorize_factor] = info.param;
-      return "Vectorize" + std::to_string(vectorize_factor);
+      const auto& [vectorize_factor, dynamic_shape] = info.param;
+      return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" + std::to_string(dynamic_shape);
     });
 
 TEST_F(NVFuserTest, BitCeilEval) {
