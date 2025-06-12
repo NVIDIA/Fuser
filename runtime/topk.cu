@@ -38,14 +38,29 @@ struct CudaType {
   }
 };
 
+template <typename T>
+struct NvFuserType {
+  using type = T;
+
+  __device__ inline static T get(const T& t) {
+    return t;
+  }
+};
+
 #ifdef __NVFUSER_HAS_HALF__
 template <>
 struct CudaType<__half> {
   using type = __nv_half;
 
-  __device__ inline static typename CudaType<__half>::type get(
-      const __half& t) {
+  __device__ inline static type get(const __half& t) {
     return __ushort_as_half(__NVFUSER_HALF_TO_CUS(t));
+  }
+};
+template <>
+struct NvFuserType<__half> {
+  __device__ inline static __half get(
+      const typename CudaType<__half>::type& t) {
+    return *(reinterpret_cast<const __half*>(&t));
   }
 };
 #endif // __NVFUSER_HAS_HALF__
@@ -55,9 +70,15 @@ template <>
 struct CudaType<__bfloat> {
   using type = __nv_bfloat16;
 
-  __device__ inline static typename CudaType<__bfloat>::type get(
-      const __bfloat& t) {
+  __device__ inline static type get(const __bfloat& t) {
     return __ushort_as_bfloat16(__NVFUSER_BFLOAT_TO_CUS(t));
+  }
+};
+template <>
+struct NvFuserType<__bfloat> {
+  __device__ inline static __bfloat get(
+      const typename CudaType<__bfloat>::type& t) {
+    return *(reinterpret_cast<const __bfloat*>(&t));
   }
 };
 #endif // __NVFUSER_HAS_BFLOAT__
@@ -101,9 +122,10 @@ __device__ void blockTopK(
           (isSort(BLOCK_STATE_Z) || BLOCK_DIM_Z == 1),
       "For now, active TID dimensions must participate in sorting");
 
-  // Initialize output arrays directly (no temporary buffers needed)
+  // Create temporary buffer for CUB operations since input_data is const
+  typename CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    top_values[i] = CudaType<DataT>::get(input_data[i]);
+    temp_data[i] = CudaType<DataT>::get(input_data[i]);
   }
 
   // CUB BlockRadixSort setup - with proper multi-dimensional block support
@@ -142,13 +164,17 @@ __device__ void blockTopK(
   // After sorting, top_indices array contains mapping to original positions
   if (largest) {
     // For k largest elements, sort in descending order
-    BlockRadixSort(temp_storage).SortDescending(top_values, top_indices);
+    BlockRadixSort(temp_storage).SortDescending(temp_data, top_indices);
   } else {
     // For k smallest elements, sort in ascending order
-    BlockRadixSort(temp_storage).Sort(top_values, top_indices);
+    BlockRadixSort(temp_storage).Sort(temp_data, top_indices);
   }
 
-  // Output arrays are already sorted in-place by CUB - no copying needed!
+  // Copy to outputs. This could be avoided if we used nv_bfloat16
+  // instead of our own custom bfloat16
+  for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+    top_values[i] = NvFuserType<DataT>::get(temp_data[i]);
+  }
 
   // IMPLEMENTATION NOTE: This test implementation populates ALL
   // ITEMS_PER_THREAD elements in the output arrays with sorted results.

@@ -1282,7 +1282,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const ArgsortOp* aop) final {
-    NVF_ERROR(isAligned(), "Unaligned argsort not supported");
+    NVF_ERROR(isAligned(), "Argsort with divergent threads not supported");
 
     const auto& parallel_dimension_map =
         kernel_->summary().parallel_dimension_map;
@@ -1413,6 +1413,139 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
          << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz)) << ")";
     }
     return ss.str();
+  }
+
+  void handle(const TopKOp* top) final {
+    NVF_ERROR(isAligned(), "Topk with divergent threads not supported");
+
+    const auto& parallel_dimension_map =
+        kernel_->summary().parallel_dimension_map;
+
+    // TopKOp has dual outputs: values and indices
+    NVF_ERROR(top->outValues()->isA<kir::TensorIndex>());
+    NVF_ERROR(top->outIndices()->isA<kir::TensorIndex>());
+    const auto output_values = top->outValues()->as<kir::TensorIndex>();
+    const auto output_indices = top->outIndices()->as<kir::TensorIndex>();
+
+    auto sorted_logical_id =
+        output_values->view()->getLogicalDomain().at(top->dim());
+    auto sorted_ids = DependencyCheck::getAllValsBetween(
+        {sorted_logical_id},
+        {output_values->view()->getLoopDomain().begin(),
+         output_values->view()->getLoopDomain().end()});
+    std::vector<IterDomain*> sorted_loop_ids;
+    std::ranges::copy_if(
+        output_values->view()->getLoopDomain(),
+        std::back_inserter(sorted_loop_ids),
+        [&](IterDomain* id) {
+          return std::ranges::find(sorted_ids, id) != sorted_ids.end();
+        });
+
+    // At this moment, we only support topk on thread parallelized
+    // dimensions. No serial dimension is allowed either.
+    ParallelTypeBitmap sorted_parallel_types;
+    for (auto id : sorted_loop_ids) {
+      NVF_ERROR(
+          isParallelTypeThreadDim(id->getParallelType()),
+          "TopK on non-thread dimension is not supported");
+      sorted_parallel_types.set(id->getParallelType());
+    }
+
+    // TID parallel types must only be used for the sorted IDs with the static
+    // dimension.
+    ArgumentBuilder template_args;
+    for (const auto pt : kParallelTypeTIDs) {
+      // Unused parallel type should be just ignored
+      if (parallel_dimension_map.get(pt) == nullptr) {
+        template_args.arg(1); // BLOCK_DIM
+        continue;
+      }
+
+      // If a parallel type used in the fusion, it must be also used in the
+      // topk.
+      NVF_ERROR(
+          sorted_parallel_types.get(pt),
+          "Parallel type ",
+          pt,
+          " used in the fusion must be also used in the topk");
+
+      // TopK only supports static dimension for now.
+      // TODO: Verify the extent of the parallelized ID is equal to
+      // pt_extent. Can be done here, but should be done as part of
+      // the lowering verification.
+      auto pt_extent = parallel_dimension_map.get(pt);
+      NVF_ERROR(
+          pt_extent->isConstInt(),
+          "TopK only supports constant dimension for now: ",
+          pt_extent->toInlineString());
+      template_args.arg(pt_extent->evaluate().as<int64_t>()); // BLOCK_DIM
+    }
+
+    for (const auto pt : kParallelTypeTIDs) {
+      if (parallel_dimension_map.get(pt) != nullptr) {
+        template_args.arg(0); // State::Sort
+      } else {
+        template_args.arg(1); // State::Iter
+      }
+    }
+
+    // TODO: support ITEMS_PER_THREAD > 1
+    constexpr int items_per_thread = 1;
+
+    const auto input = top->in()->as<kir::TensorIndex>();
+
+    template_args.arg(input->dtype()); // DataT
+    template_args.arg(items_per_thread); // ITEMS_PER_THREAD
+
+    // Call the runtime topk function with dual outputs
+    ArgumentBuilder func_args;
+
+    // First argument: top_values output array
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(output_values) + ".array + " +
+            genInline(output_values->index()))
+        .append(")");
+
+    // Second argument: top_indices output array
+    func_args.arg("*(int64_t(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(output_indices) + ".array + " +
+            genInline(output_indices->index()))
+        .append(")");
+
+    // Third argument: input data array
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(std::to_string(items_per_thread))
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append(")");
+
+    // Fourth argument: k value
+    func_args.arg(genInline(top->k()));
+
+    // Fifth argument: largest flag
+    func_args.arg(top->isLargest() ? "true" : "false");
+
+    // Sixth argument: sorted flag
+    func_args.arg(top->isSorted() ? "true" : "false");
+
+    // Seventh argument: block dimensions
+    func_args.arg(genComputeBlockDim());
+
+    indent() << genCall("topk::blockTopK", template_args, func_args) << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
