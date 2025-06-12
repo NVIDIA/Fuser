@@ -256,7 +256,7 @@ KernelArgumentHolder allocateOutputs(
       auto alloc_tensor = at::native::empty_strided_cuda(
           out_info.shape_info.logical_sizes,
           out_info.shape_info.logical_strides,
-          out_info.type,
+          data_type_to_aten(out_info.type),
           c10::nullopt,
           device,
           c10::nullopt);

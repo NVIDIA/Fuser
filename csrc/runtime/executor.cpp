@@ -1151,18 +1151,18 @@ KernelArgumentHolder KernelExecutor::run(
           // to reset to zero upon completion of the kernel, or if we have
           // enabled the option (unsafe)
           intermediate_buffer = contigZeroedTensor(
-              unexpanded_sizes, buf_info.type, compiled_kernel_->device());
+              unexpanded_sizes, data_type_to_aten(buf_info.type), compiled_kernel_->device());
         } else {
           intermediate_buffer = at::zeros(
               unexpanded_sizes,
               at::TensorOptions()
-                  .dtype(buf_info.type)
+                  .dtype(data_type_to_aten(buf_info.type))
                   .device(compiled_kernel_->device()));
         }
       } else {
         intermediate_buffer = at::native::empty_cuda(
             unexpanded_sizes,
-            buf_info.type,
+            data_type_to_aten(buf_info.type),
             c10::nullopt,
             compiled_kernel_->device(),
             c10::nullopt);
@@ -1656,7 +1656,7 @@ GlobalBufferInfo KernelExecutor::deserialize(
 
   info.shape_info = shape_info;
 
-  info.type = serde::mapToAtenDtype(buffer->dtype());
+  info.type = buffer->dtype();
   info.zero_init = buffer->zero_init();
   info.resets_to_zero = buffer->resets_to_zero();
   info.is_profile_buffer = buffer->is_profile_buffer();
