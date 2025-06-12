@@ -167,13 +167,14 @@ void validateCircularBufferedTensor(const TensorView* tv) {
       producer->toString());
 
   // Not strictly necessary, but only gmem -> smem or local and smem -> local
-  // are allowed.
+  // or ? -> tmem are allowed.
   const auto p_mem_type = producer->getMemoryType();
   const auto c_mem_type = tv->getMemoryType();
   NVF_ERROR(
       (p_mem_type == MemoryType::Global &&
        (c_mem_type == MemoryType::Shared || c_mem_type == MemoryType::Local)) ||
-          (p_mem_type == MemoryType::Shared && c_mem_type == MemoryType::Local),
+          (p_mem_type == MemoryType::Shared && c_mem_type == MemoryType::Local) ||
+          c_mem_type == MemoryType::Tensor,
       "Invalid tensor to circular-buffer: ",
       tv->toString(),
       ". Producer memory type: ",
