@@ -417,7 +417,58 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
           "Because of tiling, we expect repeated roles");
       for (int64_t i :
            std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-        tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+        int64_t inner_axis = i + (almost_outer_mnk_pos - outer_mnk_pos);
+        PolymorphicValue inner_extent =
+            tv->axis(inner_axis)->extent()->evaluate();
+        if (inner_extent.hasValue() && inner_extent.as<int64_t>() == 1L) {
+          // Special case: static shapes
+          // Suppose we have static shapes M=512, N=128 K=256 and our config is
+          // cluster_dims={1, 1, 1}, cta_tile={128, 256, 64}, column major.
+          // This is the case in the AllocationDomainTest.BasicMatmul test.
+          // Then we will normally do the following non-persistent schedule for
+          // the N dimensions:
+          //
+          //      iS22{128}             <--- Original logical ID (static shape)
+          //      /      \
+          //  iS113{1}   iS114{256}     <--- CGA tile split
+          //     \      /     \
+          //      \  iS117{1}  iS118{256}  <--- CTA tile split
+          //       \    |
+          //    iblockIdx.y121{1}       <--- Merge to create BIDy dimension
+          //
+          // This looks innocent, but when building the AlmostExact graph, we
+          // map IDs involved in merges where the right-hand ID has constant
+          // extent 1. In this case, that means we map iS113 with iS117 and
+          // iblockIdx.y121, and we map iS22 with iS114 and iS118. This is an
+          // error because the CGA tile split in this case is not trivial (it is
+          // non-divisible).
+          //
+          // To avoid cases like this, we simply avoid that merge when we detect
+          // that the inner extent (of iS117) is 1. In order to avoid problems
+          // in downstream scheduling, we merge that dimension back in here:
+          //
+          //                 iS22{128}        <--- Original logical ID (static
+          //                 shape)
+          //                 /     \
+          //  iblockIdx.y113{1}   iS114{256}     <--- CGA tile split
+          //                       /       \
+          //                    iS117{1}  iS118{256}  <--- CTA tile split
+          //                       \       /
+          //                       iS130{256}  <--- Get rid of CGA dim
+          //
+          int64_t sibling_axis = inner_axis + 1;
+          while (sibling_axis < merged_roles.size() &&
+                 merged_roles.at(sibling_axis) != merged_roles.at(i)) {
+            ++sibling_axis;
+          }
+          NVF_ERROR(
+              sibling_axis < merged_roles.size(),
+              "Could not find sibling axis to merge");
+          tv->merge(inner_axis, sibling_axis);
+          merged_roles.erase(merged_roles.begin() + (size_t)sibling_axis);
+          continue;
+        }
+        tv->merge(i, inner_axis);
         merged_roles.erase(merged_roles.begin() + (size_t)i);
       }
       break;
