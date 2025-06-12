@@ -1263,7 +1263,7 @@ int64_t HopperPlus::getNumEpilogueWarpGroups() const {
 
 CircularBufferType HopperPlus::getCircularBufferType() const {
   switch (params_->circular_buffering_strategy) {
-    case MatmulParams::CircularBufferingStrategy::Pipelined: 
+    case MatmulParams::CircularBufferingStrategy::Pipelined:
       return (CircularBufferType)Pipelined(false);
     case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
       if (getNumEpilogueWarpGroups() == 1) {
