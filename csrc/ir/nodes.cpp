@@ -5635,25 +5635,6 @@ std::string BatchedMMOp::toString(int indent_size) const {
   return ss.str();
 }
 
-TopKOp::TopKOp(
-    IrBuilderPasskey passkey,
-    Val* out_values,
-    Val* out_indices,
-    Val* in,
-    Val* k,
-    int64_t dim,
-    bool largest,
-    bool sorted)
-    : Expr(passkey) {
-  addOutput(out_values);
-  addOutput(out_indices);
-  addInput(in);
-  addInput(k);
-  addDataAttribute(dim);
-  addDataAttribute(largest);
-  addDataAttribute(sorted);
-}
-
 std::string BatchedMMOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
@@ -5695,6 +5676,25 @@ IterDomain* BatchedMMOp::getKIDOfMat2() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BatchedMMOp)
+
+TopKOp::TopKOp(
+    IrBuilderPasskey passkey,
+    Val* out_values,
+    Val* out_indices,
+    Val* in,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted)
+    : Expr(passkey) {
+  addOutput(out_values);
+  addOutput(out_indices);
+  addInput(in);
+  addInput(k);
+  addDataAttribute(dim);
+  addDataAttribute(largest);
+  addDataAttribute(sorted);
+}
 
 std::string TopKOp::toString(int indent_size) const {
   std::stringstream ss;
@@ -5738,5 +5738,123 @@ std::vector<PolymorphicValue> TopKOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
+
+GroupedMMOp::GroupedMMOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* mat1,
+    Val* mat2,
+    Val* offsets)
+    : Expr(passkey) {
+  NVF_ERROR(
+      out->getValType().value() == ValType::TensorView,
+      "Output must be a TensorView");
+  NVF_ERROR(
+      mat1->getValType().value() == ValType::TensorView,
+      "First input must be a TensorView");
+  NVF_ERROR(
+      mat2->getValType().value() == ValType::TensorView,
+      "Second input must be a TensorView");
+  NVF_ERROR(
+      offsets->getValType().value() == ValType::TensorView,
+      "Offsets must be a TensorView");
+  addOutput(out);
+  addInput(mat1);
+  addInput(mat2);
+  addInput(offsets);
+}
+
+std::string GroupedMMOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "GroupedMMOp(\n";
+  ++indent_size;
+  indent(ss, indent_size) << out()->toString() << " = mm_grouped(\n";
+  indent(ss, indent_size + 1) << "mat1=" << mat1()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "mat2=" << mat2()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "offsets=" << offsets()->toString() << ")\n";
+  --indent_size;
+  indent(ss, indent_size) << ")\n";
+  return ss.str();
+}
+
+std::string GroupedMMOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedMMOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 3,
+      "GroupedMMOp expects 3 inputs but received ",
+      inputs.size());
+
+  const auto& mat1 = inputs[0];
+  const auto& mat2 = inputs[1];
+  const auto& offsets = inputs[2];
+
+  NVF_ERROR(
+      mat1.is<at::Tensor>(),
+      "GroupedMMOp expects tensor input at position 0 but got ",
+      mat1.type().name());
+
+  NVF_ERROR(
+      mat2.is<at::Tensor>(),
+      "GroupedMMOp expects tensor input at position 1 but got ",
+      mat2.type().name());
+
+  NVF_ERROR(
+      offsets.is<at::Tensor>(),
+      "GroupedMMOp expects tensor input at position 2 but got ",
+      offsets.type().name());
+
+  // Get the offsets as a CPU tensor
+  auto offsets_cpu = offsets.as<at::Tensor>().cpu();
+  auto num_groups = offsets_cpu.numel() - 1;
+
+  // Initialize output tensor
+  auto mat1_tensor = mat1.as<at::Tensor>();
+  auto mat2_tensor = mat2.as<at::Tensor>();
+  auto output_tensor = at::zeros_like(mat1_tensor);
+
+  // Perform grouped matrix multiplication
+  for (int64_t i = 0; i < num_groups; i++) {
+    auto start_idx = offsets_cpu[i].item<int64_t>();
+    auto end_idx = offsets_cpu[i + 1].item<int64_t>();
+
+    auto mat1_slice = mat1_tensor.narrow(0, start_idx, end_idx - start_idx);
+    auto mat2_slice = mat2_tensor.narrow(0, start_idx, end_idx - start_idx);
+    auto output_slice = output_tensor.narrow(0, start_idx, end_idx - start_idx);
+
+    output_slice.copy_(at::bmm(mat1_slice, mat2_slice));
+  }
+
+  return {output_tensor};
+}
+
+IterDomain* GroupedMMOp::getKIDOfMat1() const {
+  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(2);
+}
+
+IterDomain* GroupedMMOp::getKIDOfMat2() const {
+  return TensorDomain::noReductions(mat2()->getLogicalDomain()).at(1);
+}
+
+std::optional<IterDomain*> GroupedMMOp::getGIDOfMat1() const {
+  auto domains = TensorDomain::noReductions(mat1()->getLogicalDomain());
+  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+}
+
+std::optional<IterDomain*> GroupedMMOp::getGIDOfMat2() const {
+  auto domains = TensorDomain::noReductions(mat2()->getLogicalDomain());
+  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+}
+
+std::optional<IterDomain*> GroupedMMOp::getGIDOfOutput() const {
+  auto domains = TensorDomain::noReductions(out()->getLogicalDomain());
+  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMMOp)
 
 } // namespace nvfuser

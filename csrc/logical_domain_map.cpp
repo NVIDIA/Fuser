@@ -351,6 +351,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // TODO: Add support for GroupedMMOp
   if (GroupedMMOp * op =
           dynamic_cast<GroupedMMOp*>(consumer_tv_->definition())) {
+    (void)op;
     NVF_ERROR(false, "GroupedMMOp is not supported yet. Please use EmbeddingFwdOp instead.");
   }
 
