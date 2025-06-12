@@ -87,7 +87,7 @@ template <
 __device__ void loadGenericVolatile(
     typename MaybeVolatile<scalar_t, is_volatile_to>::type* to,
     typename MaybeVolatile<scalar_t, is_volatile_from>::type* from) {
-  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size;
+  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size * sizeof(scalar_t);
   static_assert(vec_size_bit % 8 == 0, "vec_size_bit must be a multiple of 8");
   switch (vec_size_bit) {
     // Reinterpret cast like this with volatile types only works for C++
@@ -125,7 +125,7 @@ template <typename scalar_t, int vec_size, bool is_volatile>
 __device__ void loadLocalToGlobal(
     typename MaybeVolatile<scalar_t, is_volatile>::type* to,
     scalar_t* from) {
-  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size;
+  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size * sizeof(scalar_t);
   static_assert(vec_size_bit % 8 == 0, "vec_size_bit must be a multiple of 8");
   switch (vec_size_bit) {
     case 8:
@@ -205,7 +205,7 @@ template <typename scalar_t, int vec_size, bool is_volatile, CacheOp cache_op>
 __device__ void loadGlobalToLocal(
     scalar_t* to,
     typename MaybeVolatile<scalar_t, is_volatile>::type* from) {
-  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size;
+  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size * sizeof(scalar_t);
   static_assert(vec_size_bit % 8 == 0, "vec_size_bit must be a multiple of 8");
   switch (vec_size_bit) {
     case 8:
@@ -248,7 +248,7 @@ template <
 __device__ void loadGlobalToGlobal(
     typename MaybeVolatile<scalar_t, is_volatile_to>::type* to,
     typename MaybeVolatile<scalar_t, is_volatile_from>::type* from) {
-  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size;
+  constexpr int64_t vec_size_bit = std::is_same_v<scalar_t, e2m1> ? vec_size * 4 : vec_size * sizeof(scalar_t);
   static_assert(vec_size_bit % 8 == 0, "vec_size_bit must be a multiple of 8");
   switch (vec_size_bit) {
     // Reinterpret cast like this with volatile types only works for C++
