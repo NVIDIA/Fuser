@@ -59,3 +59,12 @@ foo.bin
 .DS_Store
 
 test_log*
+
+# Skip files created commonly during development
+.lintrunner.private.toml
+compile_commands.json
+
+# Skip nsight files that are created during perf debugging
+*.sqlite
+*.nsys-rep
+*.ncu-rep

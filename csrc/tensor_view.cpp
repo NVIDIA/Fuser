@@ -1398,7 +1398,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
 
   NVF_ERROR(
       axis(-1)->extent()->evaluate().as<int64_t>() <=
-          (getBytesFromSwizzle(swizzle) / dataTypeSize(dtype)),
+          (getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype)),
       "The inner dimension of the box cannot be more than swizzle")
 
   // [..., K, N(16)] -> [..., KO(2), KI(8), N(16)]
@@ -1412,7 +1412,7 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
 
   // [..., KO(2), KIO(2), KII(4), N(16)] ->
   // [..., KO(2), KIO(2), KII(4), NIO(2), NII(8)]
-  split(-1, (core_matrix_width_bytes / dataTypeSize(dtype)));
+  split(-1, (core_matrix_width_bytes / dataTypeSizeByte(dtype)));
 
   this->swizzle(SwizzleType::XOR, -4, -2);
 }
@@ -1439,9 +1439,9 @@ void TensorView::commitLeafToLogical() {
       domain_->loop(),
       domain_->allocation(),
       domain_->loop(),
-      // TODO: If needed, we can let commitLeafToLogical to take a parameter to
-      // allow customizing contiguity. But there is no such need now, so I will
-      // just fill the contiguity with true.
+      // TODO: If needed, we can let commitLeafToLogical to take a parameter
+      // to allow customizing contiguity. But there is no such need now, so
+      // I will just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(
           (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));

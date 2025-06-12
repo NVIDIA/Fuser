@@ -2612,7 +2612,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming B numel times size(dtype) is a multiple of 16 so that
           // this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     } else {
@@ -2623,13 +2623,13 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming for B and C that numel times size(dtype) is a multiple
           // of 16 so that this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
+                  dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()) +
               smem_allocs.at(2)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+                  dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(
           smem_allocs.at(1)->address()->evaluate(),
           smem_allocs.at(2)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     }
   }
@@ -3661,6 +3661,8 @@ class HopperMatmulTest : public HopperBase {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
+
+using BlackwellMatmulTest = BlackwellBase;
 
 // 2 math group, non-persistent, non-warp specialized, no CGA
 // TODO: This could be in HopperMatmulTest::SetUp() instead
@@ -5341,6 +5343,158 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  mparams.tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  // TODO reduced share memory aliasing because of persistent scheduling
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  // TODO Fix std::get variant error in expression evaluator because of linear
+  // index
+  // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[0].as<at::Tensor>(), tv11_ref, 5e-2, 1e-1));
+}
+
+TEST_F(BlackwellMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 8192, N = 8192, K = 8192;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = fusedMultiplySum(tv0, tv1, {2});
+  auto tv4 = add(tv3, tv2);
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto t2 = at::randn({M, N}, options);
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze(), t2);
+
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Blackwell1CTA_128_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  mparams.tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  // TODO reduced share memory aliasing because of persistent scheduling
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  // TODO Fix std::get variant error in expression evaluator because of linear
+  // index
+  // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 5e-2, 5e-2));
+}
+
+TEST_F(BlackwellMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 8192, N = 8192, K = 8192;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = fusedMultiplySum(tv0, tv1, {2});
+  auto tv4 = castOp(DataType::Float, tv3);
+  auto tv5 = neg(tv4);
+  auto tv6 = exp(tv5);
+  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
+  auto tv8 = reciprocal(tv7);
+  auto tv9 = mul(tv4, tv8);
+  auto tv10 = mul(tv9, tv2);
+  auto tv11 = castOp(DataType::BFloat16, tv10);
+  fusion.addOutput(tv11);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto t2 = at::randn({M, N}, options);
+
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze());
+  auto tv4_ref = tv3_ref.to(at::kFloat);
+  auto tv11_ref =
+      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * t2).to(at::kBFloat16);
+
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(128, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Blackwell1CTA_128_256_16;
   mparams.tile_sizes = gemm_tile;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;

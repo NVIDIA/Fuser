@@ -375,6 +375,14 @@ void IndexLowering::handle(const ScatterOp* sop) {
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
+void IndexLowering::handle(const ArgsortOp* aop) {
+  const auto in = lowerSrcIndex(aop->in(), aop->out());
+  const auto out = lowerDstIndex(aop->out());
+  pushBack(IrBuilder::create<ArgsortOp>(
+      out, in, aop->dim(), aop->isDescending(), aop->isStable()));
+  GpuLower::current()->propagateExprInfo(aop, back());
+}
+
 void IndexLowering::handle(const SelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;
@@ -1690,7 +1698,7 @@ Val* hardCodedSharedMemoryIndexForLdStMatrix(
   Val* smem_index = nullptr;
 
   NVF_ERROR(
-      dataTypeSize(smem_tv->dtype()) == 2,
+      dataTypeSizeByte(smem_tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
   NVF_ERROR(getSwizzle(smem_tv) == MmaInputSmemSwizzle::None);
@@ -1957,7 +1965,7 @@ Val* hardCodedSharedMemoryIndexForLdStMatrixSwizzle(
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
-      dataTypeSize(smem_tv->dtype()) == 2,
+      dataTypeSizeByte(smem_tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
   MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
@@ -2119,7 +2127,7 @@ Val* indexTMemLdSt(
       SimplifyingIrBuilder::mulExpr(
           column_index,
           IrBuilder::create<Val>(
-              dataTypeSize(consumer_tv->dtype()), DataType::Index)),
+              dataTypeSizeByte(consumer_tv->dtype()), DataType::Index)),
       IrBuilder::create<Val>(4, DataType::Index));
   column_index =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
@@ -2254,8 +2262,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
         as_type = ArrayType{
             std::make_shared<DataType>(
-                dataTypeSize(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
-                                                       : DataType::UInt32),
+                dataTypeSizeByte(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
+                                                           : DataType::UInt32),
             (size_t)ir_utils::getTMemLdStVectorizeSize(
                 ldst->out()->as<TensorView>())};
       }
@@ -2466,7 +2474,8 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 //    stride of `linear`.
 Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto swizzle = ir_utils::getSwizzleMode(tv);
-  auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
+  auto swizzle_size =
+      getBytesFromSwizzle(swizzle) / dataTypeSizeByte(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
   auto inner = getInnerMmaLoopGroup(tv, mma);
@@ -2480,7 +2489,7 @@ Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
-  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSizeByte(tv->dtype()));
 }
 
 // Compute the "stride_bytes" in the matrix descriptor of Mma. The stride
@@ -2581,7 +2590,7 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   auto stride = lower_utils::proveLinearAndGetStride(
       id_graph, outer_of_tiling, alloc_domain);
   NVF_ERROR(stride != nullptr, "Could not get the stride of tiling");
-  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
+  return SimplifyingIrBuilder::mulExpr(stride, dataTypeSizeByte(tv->dtype()));
 }
 
 namespace {
@@ -2705,7 +2714,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   pushBack(mma_indexed);
   if (mma->isBlackwell()) {
     pushBack(IrBuilder::create<kir::Asm>(
-        "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+        "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster."
+        "b64",
         std::vector<Val*>{},
         std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
             GpuLower::current()->mbarrierMap().at(mma))},

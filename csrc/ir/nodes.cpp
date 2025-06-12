@@ -523,7 +523,8 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::BitCast:
       NVF_CHECK(
-          dataTypeSize(input(0)->dtype()) == dataTypeSize(out()->dtype()),
+          dataTypeSizeByte(input(0)->dtype()) ==
+              dataTypeSizeByte(out()->dtype()),
           "BitCast only works for types of the same size");
       if (isComplexType(input(0)->dtype()) &&
           std::holds_alternative<ArrayType>(out()->dtype().type)) {
@@ -5615,5 +5616,67 @@ std::vector<PolymorphicValue> ArgsortOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
+
+TopKOp::TopKOp(
+    IrBuilderPasskey passkey,
+    Val* out_values,
+    Val* out_indices,
+    Val* in,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted)
+    : Expr(passkey) {
+  addOutput(out_values);
+  addOutput(out_indices);
+  addInput(in);
+  addInput(k);
+  addDataAttribute(dim);
+  addDataAttribute(largest);
+  addDataAttribute(sorted);
+}
+
+std::string TopKOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "( " << outValues()->toString() << ", "
+                          << outIndices()->toString() << " ) = topk( "
+                          << in()->toString() << ", " << k()->toString()
+                          << ", dim = " << dim()
+                          << ", largest = " << (isLargest() ? "True" : "False")
+                          << ", sorted = " << (isSorted() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string TopKOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> TopKOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "TopKOp expects tensor input at position 0 but got ",
+      in.type().name());
+
+  const auto& k = inputs[1];
+  NVF_ERROR(
+      k.is<int64_t>(),
+      "TopKOp expects int64_t input at position 1 as k but got ",
+      k.type().name());
+
+  // at::topk signature is:
+  // std::tuple<Tensor, Tensor> topk(const Tensor &self, int64_t k, int64_t dim,
+  // bool largest, bool sorted)
+  auto result = at::topk(
+      in.as<at::Tensor>(), k.as<int64_t>(), dim(), isLargest(), isSorted());
+
+  // at::topk returns a tuple of (values, indices)
+  return {std::get<0>(result), std::get<1>(result)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
 
 } // namespace nvfuser

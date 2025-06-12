@@ -729,10 +729,35 @@ if(BUILD_TEST)
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+
+  set(ARGSORT_TEST_KERNELS "argsort_test_kernels")
+  add_library(${ARGSORT_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/argsort_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${ARGSORT_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${ARGSORT_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${ARGSORT_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${ARGSORT_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
+
+  set(TOPK_TEST_KERNELS "topk_test_kernels")
+  add_library(${TOPK_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/topk_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${TOPK_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${TOPK_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${TOPK_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TOPK_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/validator.cpp
   )
@@ -777,6 +802,21 @@ if(BUILD_TEST)
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
 
+  set(ARGSORT_TEST_SRCS)
+  list(APPEND ARGSORT_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort_device_func.cpp
+  )
+  add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_argsort)
+
+  set(TOPK_TEST_SRCS)
+  list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
+  )
+  add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_topk)
+
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
@@ -805,7 +845,7 @@ if(BUILD_TEST)
   list(APPEND TEST_BINARIES tutorial_multidevice)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
-  list(APPEND TEST_BINARIES test_view)
+  list(APPEND TEST_BINARIES test_reshape)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -972,6 +1012,7 @@ endif()
 # nvfuser runtime files
 set(NVFUSER_RUNTIME_FILES)
 list(APPEND NVFUSER_RUNTIME_FILES
+  ${NVFUSER_ROOT}/runtime/argsort.cu
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
