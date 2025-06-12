@@ -1285,6 +1285,108 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const ArgsortOp* aop) final {
+    NVF_ERROR(isAligned(), "Unaligned argsort not supported");
+
+    const auto& parallel_dimension_map =
+        kernel_->summary().parallel_dimension_map;
+
+    NVF_ERROR(aop->out()->isA<kir::TensorIndex>());
+    const auto output = aop->out()->as<kir::TensorIndex>();
+
+    auto sorted_logical_id = output->view()->getLogicalDomain().at(aop->dim());
+    auto sorted_ids = DependencyCheck::getAllValsBetween(
+        {sorted_logical_id},
+        {output->view()->getLoopDomain().begin(),
+         output->view()->getLoopDomain().end()});
+    std::vector<IterDomain*> sorted_loop_ids;
+    std::ranges::copy_if(
+        output->view()->getLoopDomain(),
+        std::back_inserter(sorted_loop_ids),
+        [&](IterDomain* id) {
+          return std::ranges::find(sorted_ids, id) != sorted_ids.end();
+        });
+
+    // At this moment, we only support argsort on thread parallelized
+    // dimensions. No serial dimension is allowed either.
+    ParallelTypeBitmap sorted_parallel_types;
+    for (auto id : sorted_loop_ids) {
+      NVF_ERROR(
+          isParallelTypeThreadDim(id->getParallelType()),
+          "Argsort on non-thread dimension is not supported");
+      sorted_parallel_types.set(id->getParallelType());
+    }
+
+    // TID parallel types must only be used for the sorted IDs with the static
+    // dimension.
+    ArgumentBuilder template_args;
+    for (const auto pt : kParallelTypeTIDs) {
+      // Unused parallel type should be just ignored
+      if (parallel_dimension_map.get(pt) == nullptr) {
+        template_args.arg(1); // BLOCK_DIM
+        continue;
+      }
+
+      // If a parallel type used in the fusion, it must be also used in the
+      // argsort.
+      NVF_ERROR(
+          sorted_parallel_types.get(pt),
+          "Parallel type ",
+          pt,
+          " used in the fusion must be also used in the argsort");
+      // Argsort only supports static dimension for now.
+      NVF_ERROR(
+          parallel_dimension_map.isExact(pt),
+          "Argsort only supports exact dimension for now");
+      auto pt_extent = parallel_dimension_map.get(pt);
+      NVF_ERROR(
+          pt_extent->isConstInt(),
+          "Argsort only supports constant dimension for now: ",
+          pt_extent->toInlineString());
+      template_args.arg(pt_extent->evaluate().as<int64_t>()); // BLOCK_DIM
+    }
+
+    for (const auto pt : kParallelTypeTIDs) {
+      if (parallel_dimension_map.get(pt) != nullptr) {
+        template_args.arg(0); // State::Sort
+      } else {
+        template_args.arg(1); // State::Iter
+      }
+    }
+
+    // TODO: support ITEMS_PER_THREAD > 1
+    constexpr int items_per_thread = 1;
+
+    const auto input = aop->in()->as<kir::TensorIndex>();
+
+    template_args.arg(input->dtype()); // DataT
+    template_args.arg(items_per_thread); // ITEMS_PER_THREAD
+
+    // Call the runtime argsort function
+    ArgumentBuilder func_args;
+    func_args.arg("*(int64_t(*)[")
+        .append(items_per_thread)
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(output) + ".array + " + genInline(output->index()))
+        .append(")");
+    func_args.arg("*(")
+        .append(input->dtype())
+        .append("(*)[")
+        .append(std::to_string(items_per_thread))
+        .append("])")
+        .append("(")
+        .append(
+            genVariableName(input) + ".array + " + genInline(input->index()))
+        .append(")");
+    func_args.arg(aop->isDescending() ? "true" : "false"); // descending flag
+    func_args.arg(genComputeBlockDim());
+
+    indent() << genCall("argsort::blockArgsort", template_args, func_args)
+             << ";\n";
+  }
+
   std::string genLoadBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;

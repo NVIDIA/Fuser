@@ -324,6 +324,10 @@ void getHeuristics(
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
 
+  // Set the newly added parameters for TMA warp specialized
+  rparams->is_non_circular_buffer_gmem_to_regs = true;
+  rparams->is_circular_buffer_regs_cached = true;
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
@@ -788,9 +792,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       // domains are contiguous.
       auto can_vectorize = [](TensorView* input_tv) {
         const auto& contiguity = input_tv->domain()->contiguity();
-        const auto& logical_domain = input_tv->getLogicalDomain();
-        for (auto i : c10::irange(logical_domain.size())) {
-          if (logical_domain.at(i)->isBroadcast()) {
+        const auto& domain = input_tv->getMaybeAllocationDomain();
+        for (auto i : c10::irange(domain.size())) {
+          if (domain.at(i)->isBroadcast()) {
             continue;
           }
           if (!contiguity[i].has_value() || !contiguity[i].value()) {

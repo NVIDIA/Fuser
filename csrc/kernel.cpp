@@ -262,6 +262,10 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_grid_broadcasts || parallel_types.hasBID();
   }
 
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
+  }
+
   void handle(IfThenElse* ite) final {
     // Search for ElectSync UnaryOp in IfThenElse predicate
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
