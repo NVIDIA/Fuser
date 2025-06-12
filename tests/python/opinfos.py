@@ -57,8 +57,6 @@ from opinfo_input_generators import (
     linear_error_generator,
     triu_input_generator,
     triu_error_generator,
-    bmm_input_generator,
-    bmm_error_generator,
     grouped_mm_input_generator,
 )
 from nvfuser.testing.utils import (
