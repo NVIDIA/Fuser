@@ -102,9 +102,8 @@ class NVFBenchmark:
                 Set explicitly to avoid timer calibration.
 
         Class members:
-            self.prof: torch.profiler instance used as by the custom torchprofile_timer for the current benchmark
-            self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
-            self.current_time: Global montonic clock incremented based on elapsed CUDA time
+            self.device: Device type -- "cuda" or "host"
+            self.benchmark: Underlying pytest-benchmark fixture
         """
         self.device = device
         self._setup_timer(benchmark_fixture, device, precision)
@@ -135,9 +134,11 @@ class NVFBenchmark:
             return getattr(self.benchmark, attr)
         return super().__getattr__(attr)
 
-    # Set the fd object for fusion profiling.
-    # fd is returned by setup() for host benchmarking.
     def set_fd(self, fd):
+        """
+        Set the fd object for fusion profiling.
+        fd is returned by setup() for host benchmarking.
+        """
         if BENCHMARK_CONFIG["with_nsys"]:
             return
         assert isinstance(self._timer, FusionProfileTimer)
@@ -154,7 +155,7 @@ class NVFBenchmark:
         iobytes: int = None,
     ) -> None:
         """
-        Utility function to compute metrics for the target function.
+        Compute metrics for the target function when device = "cuda".
 
         Args:
             inputs: Inputs to the target function
