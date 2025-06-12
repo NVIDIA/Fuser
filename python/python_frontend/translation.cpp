@@ -1146,19 +1146,20 @@ class FusionTranslator : public OptInConstDispatch {
         argsortop->isStable()));
   }
 
-  // Map BatchedMMOp to python frontend
-  void handle(const BatchedMMOp* bmm_op) final {
-    TensorView* out_tv = bmm_op->output(0)->as<TensorView>();
+  // Map GroupedMMOp to python frontend
+  void handle(const GroupedMMOp* gmm_op) final {
+    TensorView* out_tv = gmm_op->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*>(
-        {fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat1())),
-         fd_->recordingState(map_val_to_fd_index_.at(bmm_op->mat2()))},
+    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+        {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat1())),
+         fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat2())),
+         fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
         {fd_->recordingState(output())},
-        ("ops.bmm"),
-        serde::RecordType::Binary_TV,
-        static_cast<TensorView* (*)(TensorView*, TensorView*)>(bmm)));
+        ("ops.grouped_mm"),
+        serde::RecordType::Ternary_TV_TV_TV,
+        static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(grouped_mm)));
   }
 
   // Map TopKOp to python frontend

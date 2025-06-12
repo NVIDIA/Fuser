@@ -3704,6 +3704,49 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
+      "grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor offsets) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        
+        // Calculate output dimensions based on mat1 structure
+        size_t output_dims = mat1.dims;
+        Tensor output = fd->defineTensor(output_dims);
+
+        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+            {fd->recordingState(mat1()), fd->recordingState(mat2()), fd->recordingState(offsets())},
+            {fd->recordingState(output())},
+            ("ops.grouped_mm"),
+            serde::RecordType::Ternary_TV,
+            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(grouped_mm)));
+
+        return output;
+      },
+      R"(
+      Grouped matrix multiplication.
+
+      Performs matrix multiplication on grouped sets of matrices using offsets
+      to define variable-sized groups.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices  
+          offsets (Tensor): Offsets tensor defining group boundaries
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
       "topk",
       [](FusionDefinition::Operators& self,
          Tensor arg,

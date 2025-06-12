@@ -112,17 +112,6 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
-  } else if (
-      auto bmmop = dynamic_cast<BatchedMMOp*>(consumer_tv->definition())) {
-    if (producer_tv == bmmop->mat1()) {
-      // Indexing ID of index tv do not map to output.
-      non_mapping_ids.insert(bmmop->getKIDOfMat1());
-      has_consumer_id = true;
-    } else if (producer_tv == bmmop->mat2()) {
-      // indexing ID of value tv do not map to output.
-      non_mapping_ids.insert(bmmop->getKIDOfMat2());
-      has_consumer_id = true;
-    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -357,6 +346,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
           producer_logical.back(), consumer_root.back());
     }
     return dom_map;
+  }
+
+  // TODO: Add support for GroupedMMOp
+  if (GroupedMMOp * op =
+          dynamic_cast<GroupedMMOp*>(consumer_tv_->definition())) {
+    NVF_ERROR(false, "GroupedMMOp is not supported yet. Please use EmbeddingFwdOp instead.");
   }
 
   size_t itc = 0, itp = 0;

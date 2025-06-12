@@ -1889,12 +1889,12 @@ def bmm_error_generator(
     # Wrong number of dimensions for mat1
     yield SampleInput(
         make_arg((4, 3)), make_arg((2, 3, 4))
-    ), RuntimeError, "BatchedMMOp expects mat1 to be 3-dimensional"
+    ), RuntimeError, "BatchedMMOp \\(bmm\\) expects mat1 to be 3-dimensional"
 
     # Wrong number of dimensions for mat2
     yield SampleInput(
         make_arg((2, 4, 3)), make_arg((4, 5))
-    ), RuntimeError, "BatchedMMOp expects mat2 to be 3-dimensional"
+    ), RuntimeError, "BatchedMMOp \\(bmm\\) expects mat2 to be 3-dimensional"
 
     # Note that this problem shows up in nvfuser shape propagation.
     # Mismatched batch sizes

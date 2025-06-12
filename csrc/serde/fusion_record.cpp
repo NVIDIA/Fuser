@@ -853,7 +853,7 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
-  NVFUSER_BINARY_TV_ONLY_OP("bmm", bmm)
+  NVFUSER_TERNARY_TV_ONLY_OP("grouped_mm", grouped_mm)
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 

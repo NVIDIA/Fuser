@@ -105,7 +105,7 @@ class Val;
   f(SliceOp);                     \
   f(Split);                       \
   f(ArgsortOp);                   \
-  f(BatchedMMOp);                 \
+  f(GroupedMMOp);                 \
   f(TopKOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \

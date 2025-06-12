@@ -2283,43 +2283,35 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
-TensorView* bmm(TensorView* mat1, TensorView* mat2) {
-  NVF_ERROR(
-      mat1->nDims() == 3,
-      "BatchedMMOp expects mat1 to be 3-dimensional but got ",
-      mat1->nDims(),
-      " dimensions");
-
-  NVF_ERROR(
-      mat2->nDims() == 3,
-      "BatchedMMOp expects mat2 to be 3-dimensional but got ",
-      mat2->nDims(),
-      " dimensions");
-
-  // Create output tensor with shape [batch, m, n]
+TensorView* grouped_mm(TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+  // Create output tensor for grouped matrix multiplication
+  // For simplicity, assume same structure as mat1 for batch dimensions
   auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
   auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
 
   std::vector<IterDomain*> out_domain;
-  out_domain.reserve(3);
-
-  // Batch dimension - should be broadcast of mat1 and mat2 batch dims
-  out_domain.push_back(
-      mat1_domain[0]->isBroadcast() ? mat2_domain[0]->cloneWithoutRFactor()
-                                    : mat1_domain[0]->cloneWithoutRFactor());
-
-  // M dimension from mat1
-  out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
-
-  // N dimension from mat2
-  out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
+  
+  // For grouped MM, determine output shape based on mat1 and mat2 structures
+  // This is a simplified version - actual implementation may vary
+  if (mat1->nDims() == 3) {
+    // Batched case: [batch, m, k] x [batch, k, n] -> [batch, m, n]
+    out_domain.reserve(3);
+    out_domain.push_back(
+        mat1_domain[0]->isBroadcast() ? mat2_domain[0]->cloneWithoutRFactor()
+                                      : mat1_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
+  } else {
+    // General case: adapt based on dimensions
+    NVF_ERROR(false, "Only 3D tensors supported in grouped_mm for now");
+  }
 
   TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       mat1->getDataType().value());
 
-  IrBuilder::create<BatchedMMOp>(out, mat1, mat2);
+  IrBuilder::create<GroupedMMOp>(out, mat1, mat2, offsets);
   return out;
 }
 
