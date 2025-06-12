@@ -1928,7 +1928,7 @@ def grouped_mm_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    make_index = partial(torch.tensor, device="cuda", dtype=torch.long, requires_grad=False)
+    make_index = partial(torch.tensor, device="cuda", dtype=torch.int, requires_grad=False)
 
     # TODO: expand the test when kernel restrictions are lifted
     # Test various group sizes and matrix dimensions
