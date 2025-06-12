@@ -160,7 +160,8 @@ void validateCircularBufferedTensor(const TensorView* tv) {
   // also need to be circular-bufferred.
   auto producer = def->input(0)->as<TensorView>();
   NVF_ERROR(
-      producer->getComputePosition(tv) <= circular_buffer_pos,
+      producer->getComputePosition(tv) <= circular_buffer_pos ||
+          producer->isCircularBuffered(),
       "Invalid tensor to circular-buffer. ",
       "The computeAt position of the producer tensor must be moved left: ",
       producer->toString());
