@@ -339,6 +339,7 @@ void transformLoopDomain(
     transformed_loop.insert(it, outer, std::monostate());
     transformed_loop.insert(it, inner, std::monostate());
   }
+
   auto new_loop = std::views::keys(transformed_loop);
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
@@ -361,21 +362,17 @@ void propagateDIDTransform(
     std::unordered_set<ParallelType> selected_parallel_types) {
   tv->setDeviceMesh(ref->getDeviceMesh());
   
-  std::vector<IterDomain*> did_ids;
+  std::unordered_set<IterDomain*> did_ids;
   for (auto id : ref->getLoopDomain()) {
     if (id->isDeviceDim() &&
         selected_parallel_types.count(id->getParallelType())) {
-      did_ids.push_back(id);
+      did_ids.insert(id);
     }
   }
 
   if (did_ids.empty()) {
     return;
   }
-
-  auto p_transforms = DependencyCheck::getAllExprsBetween(
-    {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
-    {did_ids.begin(), did_ids.end()});
   
   std::unordered_set<IterDomain*> p_logical_inputs;
   auto all_p_deps = DependencyCheck::getAllValsBetween(
@@ -391,6 +388,26 @@ void propagateDIDTransform(
 
   std::unordered_map<IterDomain*, IterDomain*> p2c =
       PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&p_logical_inputs);
+
+  std::unordered_set<IterDomain*> unmapped_did_ids;
+  for (IterDomain* p_id: p_logical_inputs) {
+    if (p2c.find(p_id) != p2c.end()) {
+      continue;
+    }
+    for (auto did_id : did_ids) {
+      if (DependencyCheck::isDependencyOf(p_id, did_id)) {
+        unmapped_did_ids.insert(did_id);
+      }
+    }
+  }
+  for (auto did_id : unmapped_did_ids) {
+    did_ids.erase(did_id);
+  }
+
+  auto p_transforms = DependencyCheck::getAllExprsBetween(
+    {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+    {did_ids.begin(), did_ids.end()});
+  
 
   for (auto& [p_logical, c_root] : p2c) {
     auto c_transforms = DependencyCheck::getAllExprsBetween(
