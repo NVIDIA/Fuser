@@ -1687,7 +1687,7 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
 }
 
-std::vector<IterDomain*> getDependentIds(
+std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies) {
   auto vals = getValsBetween<IRBFS>(
