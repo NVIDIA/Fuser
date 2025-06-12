@@ -66,11 +66,11 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
   const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
   const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[0]);
+      ab_factor * dataTypeSizeByte(data_types[0]);
   const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[1]);
-  const int64_t smem_c =
-      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSize(data_types[2]);
+      ab_factor * dataTypeSizeByte(data_types[1]);
+  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+      dataTypeSizeByte(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
 }
@@ -971,7 +971,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1288,7 +1288,7 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1319,7 +1319,7 @@ void scheduleLdStMatrixForMmaOutput(
       "We only support 16x16 and 16x16 stmatrix now");
 
   NVF_CHECK(
-      dataTypeSize(tv->dtype()) == 2,
+      dataTypeSizeByte(tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
   // NOTE: There can be iterDomains to left of the mma output if there is cta
@@ -2398,7 +2398,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -2637,9 +2638,9 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
       swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
 
   auto dtype = shared_mem_tv->getDataType().value();
-  const int64_t B128_elements = 128 / dataTypeSize(dtype);
-  const int64_t B64_elements = 64 / dataTypeSize(dtype);
-  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+  const int64_t B128_elements = 128 / dataTypeSizeByte(dtype);
+  const int64_t B64_elements = 64 / dataTypeSizeByte(dtype);
+  const int64_t B32_elements = 32 / dataTypeSizeByte(dtype);
 
   if (inner_dim_size % B128_elements == 0) {
     return MmaInputSmemSwizzle::B128;
