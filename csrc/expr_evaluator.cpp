@@ -74,7 +74,7 @@ void validateValWithConcreteValue(
     auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
-        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::UInt8) ||
+        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::Byte) ||
             (value->dtype() == actual_dtype),
         "Expected ",
         getInputPosString(tv),
