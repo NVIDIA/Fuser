@@ -53,7 +53,7 @@ void getHeuristics(
   // updated one-by-one to find the best combination.
   int64_t bdimx, bdimy, iter_unroll, n_stages;
 
-  // Set the initial values for bdimx, bdimy, iter_unroll, and n_stages.
+  // Set boundary of bdimx
   const int64_t max_bdimx =
       hp_threads_per_block_max - kWarpSpecializationPaddedThreads;
   const int64_t min_bdimx = std::max(int64_t(128), hp_threads_per_block_min);
@@ -66,7 +66,7 @@ void getHeuristics(
 
   // Shared memory controls max possible circular buffer stages and iter
   // unrolls. Check shared memory usage it is calculated as:
-  // (1) Non-circular buffered smem size
+  // (1) Non-circular buffered smem size, which is fixed.
   // (2) Circular buffered smem size, which is proportional to [iter_unroll] and
   //     [n_stages]
   // (3) Mbarrier size, which is proportional to [n_stages], each
@@ -82,7 +82,7 @@ void getHeuristics(
         if (!is_non_circular_buffer_gmem_to_regs) {
           smem_size += non_circular_buffered_smem_size;
         }
-        // mbarrier size
+        // mbarrier size, round to 128 bytes as required by TMA
         smem_size += roundUpToMultiple(16 * n_stages, 128);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
@@ -158,10 +158,6 @@ void getHeuristics(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
     auto [_, compute_branch_regs] =
         get_register_sharing(available_regs, bdimx * bdimy);
-    std::cout << "bdimy: " << bdimy << ", bdimx: " << bdimx
-              << ", iter_unroll: " << iter_unroll << ", stages: " << n_stages
-              << ", reg_count: " << reg_count
-              << ", compute_branch_regs: " << compute_branch_regs << std::endl;
     return reg_count <= compute_branch_regs;
   };
 
@@ -228,8 +224,6 @@ void getHeuristics(
   // If can't achieve multiple computation warp groups, reduce register usage by
   // disable [target_iter_unroll] and [is_circular_buffer_regs_cached].
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_circular_buffer_regs_cached=False."
-              << std::endl;
     is_circular_buffer_regs_cached = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
@@ -238,8 +232,6 @@ void getHeuristics(
   // If still can't achieve multiple computation warp groups, further disable
   // [is_non_circular_buffer_gmem_to_regs]
   if (bdimy == 1) {
-    std::cout << "\nFalling back to is_non_circular_buffer_gmem_to_regs=False."
-              << std::endl;
     is_non_circular_buffer_gmem_to_regs = false;
     update_heuristics(
         /*target_stages=*/2, /*target_bdimy=*/2, /*target_iter_unroll=*/1);
@@ -469,8 +461,6 @@ void scheduleOuterReduction(
     }
 
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    std::cout << "Outer reduction tv: " << outer_reduction_tv->toString()
-              << std::endl;
     auto outer_reference_tv = outer_reduction_tv;
     if (rparams->computation_warp_groups > 1) {
       outer_reference_tv = outer_reduction_tv->rFactor({1});
@@ -684,7 +674,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     tv->axis(-1)->parallelize(ParallelType::Bulk);
     // Change from TIDy to Serial to separate the TMA load for different
     // computation warp groups
-    std::cout << "TMA load tv: " << tv->toString() << std::endl;
     if (rparams->computation_warp_groups > 1 &&
         tv->nDims() > tma_inline_pos + 1) {
       tv->axis(tma_inline_pos)->parallelize(ParallelType::Serial);
