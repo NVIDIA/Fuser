@@ -1299,21 +1299,6 @@ matmul_opinfo = OpInfo(
 )
 matmul_ops.append(matmul_opinfo)
 
-bmm_opinfo = OpInfo(
-    lambda fd: fd.ops.bmm,
-    "bmm",
-    # bf16 needs Ampere or newer.
-    dtypes=(
-        (torch.float16, torch.bfloat16)
-        if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 8
-        else (torch.float16,)
-    ),
-    sample_input_generator=bmm_input_generator,
-    error_input_generator=bmm_error_generator,
-    reference=torch.bmm,
-)
-matmul_ops.append(bmm_opinfo)
-
 grouped_mm_opinfo = OpInfo(
     lambda fd: fd.ops.grouped_mm,
     "grouped_mm",
