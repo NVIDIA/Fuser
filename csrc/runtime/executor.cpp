@@ -1488,6 +1488,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
     bool is_fusion_output,
     bool is_fusion_input) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
+  NVF_ERROR(std::holds_alternative<PrimDataType>(data.type.type), "Data type is not a PrimDataType");
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
@@ -1496,7 +1497,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
       &data.shape_info.unsharded_logical_sizes,
       &data.shape_info.allocation_sizes,
       &data.shape_info.allocation_strides,
-      nvfuser::toUnderlying(data.type),
+      nvfuser::toUnderlying(std::get<PrimDataType>(data.type.type)),
       data.zero_init,
       data.resets_to_zero,
       data.is_profile_buffer,
