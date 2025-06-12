@@ -5301,6 +5301,14 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   bool is_found_ = false;
 };
 
+std::optional<IterDomain*> returnFirstIfRankThree(const TensorView* tv) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  if (logical_domain.size() == 3) {
+    return logical_domain.at(0);
+  } else {
+    return std::nullopt;
+  }
+}
 } // namespace
 
 bool ForLoop::hasRuntimeReductionFunctions() const {
@@ -5705,14 +5713,10 @@ GroupedMMOp::GroupedMMOp(
 
 std::string GroupedMMOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "GroupedMMOp(\n";
-  ++indent_size;
-  indent(ss, indent_size) << out()->toString() << " = mm_grouped(\n";
-  indent(ss, indent_size + 1) << "mat1=" << mat1()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "mat2=" << mat2()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "offsets=" << offsets()->toString() << ")\n";
-  --indent_size;
-  indent(ss, indent_size) << ")\n";
+  indent(ss, indent_size) << out()->toString() << " = GroupedMMOp("
+                          << "mat1=" << mat1()->toString() << ", "
+                          << "mat2=" << mat2()->toString() << ", "
+                          << "offsets=" << offsets()->toString() << ")\n";
   return ss.str();
 }
 
@@ -5752,26 +5756,30 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat1() const {
-  return TensorDomain::noReductions(mat1()->getLogicalDomain()).at(2);
+  // mat1 is [g, m, k] or [m, k]
+  const auto& logical_domain = mat1()->getLogicalDomain();
+  return TensorDomain::noReductions(logical_domain.at(logical_domain.size()) - 1);
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat2() const {
-  return TensorDomain::noReductions(mat2()->getLogicalDomain()).at(1);
+  // mat2 is [g, k, n] or [k, n]
+  const auto& logical_domain = mat2()->getLogicalDomain();
+  return TensorDomain::noReductions(logical_domain.at(logical_domain.size()) - 1);
 }
 
 std::optional<IterDomain*> GroupedMMOp::getGIDOfMat1() const {
-  auto domains = TensorDomain::noReductions(mat1()->getLogicalDomain());
-  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+  // mat1 is [g, m, k] or [m, k]
+  return returnFirstIfRankThree(mat1());
 }
 
 std::optional<IterDomain*> GroupedMMOp::getGIDOfMat2() const {
-  auto domains = TensorDomain::noReductions(mat2()->getLogicalDomain());
-  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+  // mat2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(mat2());
 }
 
 std::optional<IterDomain*> GroupedMMOp::getGIDOfOutput() const {
-  auto domains = TensorDomain::noReductions(out()->getLogicalDomain());
-  return domains.size() > 0 ? std::make_optional(domains[0]) : std::nullopt;
+  // mat2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(out());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMMOp)
