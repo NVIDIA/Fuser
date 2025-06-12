@@ -1264,8 +1264,7 @@ int64_t HopperPlus::getNumEpilogueWarpGroups() const {
 CircularBufferType HopperPlus::getCircularBufferType() const {
   switch (params_->circular_buffering_strategy) {
       case MatmulParams::CircularBufferingStrategy::Pipelined: {
-        cb_type = (CircularBufferType)Pipelined(false);
-        break;
+        return (CircularBufferType)Pipelined(false);
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
         if (getNumEpilogueWarpGroups() == 1) {
@@ -1280,17 +1279,15 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
           // When there is more than one math warp group, we also disable
           // register sharing, since we don't currently compute the number of
           // register properly in that case.
-          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+          return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
         } else {
-          cb_type = (CircularBufferType)WarpSpecialized(
+          return (CircularBufferType)WarpSpecialized(
               ParallelType::TIDy,
               std::make_pair(
                   num_registers_async_warp, num_registers_compute_warp));
-        }
-        break;
       }
-    }
-  return cb_type;
+  }
+  NVF_ERROR(false, "Invalid circular buffer type");
 }
 
 void HopperPlus::setUpCircularBuffering() {
