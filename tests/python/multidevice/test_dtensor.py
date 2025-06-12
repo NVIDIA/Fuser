@@ -7,7 +7,7 @@ import torch
 import torch.distributed as dist
 from enum import Enum, auto
 from fusion_definition_wrapper import FusionDefinitionWrapper
-from linear import LinearFunction
+from linear import LinearFunction, TensorParallelLinear
 from nvfuser import DataType, FusionDefinition
 from nvfuser.testing.benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
@@ -94,12 +94,8 @@ def test_row_parallel_linear(
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
     inp = torch.randn((s * k, h), dtype=torch.bfloat16)
-    up_weight = torch.randn((h_intermediate, h), dtype=torch.bfloat16)
-    down_weight = torch.randn((h, h_intermediate), dtype=torch.bfloat16)
-
     inp = DTensor.from_local(inp, mesh, [Replicate()])
-    up_weight = dist.tensor.distribute_tensor(up_weight, mesh, [Shard(0)])
-    down_weight = dist.tensor.distribute_tensor(down_weight, mesh, [Shard(-1)])
+
     tokens_per_expert = [
         897,
         923,
@@ -123,19 +119,48 @@ def test_row_parallel_linear(
     ]
     assert sum(tokens_per_expert) == s * k
 
+    unsharded_up_expert = torch.nn.Linear(
+        h, h_intermediate, dtype=torch.bfloat16, device="cuda"
+    )
+    unsharded_down_expert = torch.nn.Linear(
+        h_intermediate, h, dtype=torch.bfloat16, device="cuda"
+    )
+
+    up_experts = []
+    down_experts = []
+    for _ in tokens_per_expert:
+        up_experts.append(
+            TensorParallelLinear.distribute(
+                unsharded_up_expert, mesh, [Replicate()], [Shard(0)]
+            )
+        )
+        down_experts.append(
+            TensorParallelLinear.distribute(
+                unsharded_down_expert, mesh, [Shard(-1)], [Shard(-1)]
+            )
+        )
+
     def model():
         expert_outs = []
         offset = 0
-        for num_tokens in tokens_per_expert:
+        for num_tokens, up_expert, down_expert in zip(
+            tokens_per_expert, up_experts, down_experts
+        ):
             expert_out = inp[offset : offset + num_tokens]
             match executor:
                 case Executor.TORCH_TP:
-                    expert_out = torch.nn.functional.linear(expert_out, up_weight)
-                    expert_out = torch.nn.functional.linear(expert_out, down_weight)
+                    expert_out = torch.nn.functional.linear(
+                        expert_out, up_expert.weight
+                    )
+                    expert_out = torch.nn.functional.linear(
+                        expert_out, down_expert.weight
+                    )
                     dist.all_reduce(expert_out.to_local())
                 case Executor.NVFUSER:
-                    expert_out = LinearFunction.apply(expert_out, up_weight)
-                    expert_out = LinearFunction.apply(expert_out, down_weight)
+                    expert_out = expert_out.to_local()
+                    expert_out = up_expert(expert_out)
+                    expert_out = down_expert(expert_out)
+                    expert_out = DTensor.from_local(expert_out, mesh, [Replicate()])
             expert_outs.append(expert_out)
             offset += num_tokens
         return torch.cat(expert_outs, dim=0)
