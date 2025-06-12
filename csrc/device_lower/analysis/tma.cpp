@@ -1130,7 +1130,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       bulk_groups,
       nonbulk_groups,
       inferred_dims,
-      dataTypeSize(gmem_tv->dtype()),
+      dataTypeSizeByte(gmem_tv->dtype()),
       swizzle);
   return TMAInfo(std::move(final_tma_domain), swizzle, gmem_tv);
 }

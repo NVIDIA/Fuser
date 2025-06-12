@@ -2612,7 +2612,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming B numel times size(dtype) is a multiple of 16 so that
           // this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     } else {
@@ -2623,13 +2623,13 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming for B and C that numel times size(dtype) is a multiple
           // of 16 so that this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
+                  dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()) +
               smem_allocs.at(2)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+                  dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(
           smem_allocs.at(1)->address()->evaluate(),
           smem_allocs.at(2)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     }
   }

@@ -69,7 +69,7 @@ static void NvFuserScheduler_Reduction(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size + iter_size) * dataTypeSizeByte(dtype));
 }
 
 static void Baseline_Reduction(
@@ -100,7 +100,7 @@ static void Baseline_Reduction(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * reduction_size + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * reduction_size + iter_size) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
