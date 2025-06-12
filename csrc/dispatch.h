@@ -105,6 +105,7 @@ class Val;
   f(SliceOp);                     \
   f(Split);                       \
   f(ArgsortOp);                   \
+  f(TopKOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
