@@ -1248,6 +1248,17 @@ void HopperPlus::setUpInlining() {
   }
 }
 
+int64_t HopperPlus::getNumEpilogueWarpGroups() const {
+  int64_t num_math_warp_groups = 1L;
+  NVF_ERROR(!mma_results_.empty());
+  for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::TIDy) {
+      num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return num_math_warp_groups;
+}
+
 void HopperPlus::setUpCircularBuffering() {
   // Propagate mma output swizzle and parallelization down the DAG
   if (params_->circular_buffer_options.circular_buffer_smem_write) {
@@ -1278,14 +1289,7 @@ void HopperPlus::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        int64_t num_math_warp_groups = 1L;
-        NVF_ERROR(!mma_results_.empty());
-        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-          if (id->getParallelType() == ParallelType::TIDy) {
-            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-          }
-        }
-        if (num_math_warp_groups != 2) {
+        if (getNumEpilogueWarpGroups() == 1) {
           // Disable register sharing when there is only one math warp group.
           // In such case we will have 128 math threads and 128 dma threads,
           // for a total of 256 threads per CTA. The register file size on
