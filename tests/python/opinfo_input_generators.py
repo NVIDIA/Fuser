@@ -1928,24 +1928,24 @@ def grouped_mm_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    make_index = partial(make_tensor, device="cuda", dtype=torch.long, requires_grad=False)
+    make_index = partial(torch.tensor, device="cuda", dtype=torch.long, requires_grad=False)
 
     # TODO: expand the test when kernel restrictions are lifted
     # Test various group sizes and matrix dimensions
-    g, m, k, n = (4, 128, 64, 64),
+    g, m, k, n = (4, 128, 64, 64)
 
     # case 1: 2d x 2d
     mat1 = make_arg((m, k))
     mat2 = make_arg((k, n))
-    offsets = torch.tensor([16, 16, 0, 32], dtype=torch.long)
+    offsets = make_index([16, 16, 0, 32])
     yield SampleInput(mat1, mat2, offsets)
     # case 2: 2d x 3d
     mat1 = make_arg((m, k))
     mat2 = make_arg((g, k, n))
-    offsets = torch.tensor([16, 0, 16, 32], dtype=torch.long)
+    offsets = make_index([16, 0, 16, 32])
     yield SampleInput(mat1, mat2, offsets)
     # case 1: 3d x 2d
     mat1 = make_arg((g, m, k))
     mat2 = make_arg((k, n))
-    offsets = torch.tensor([16, 16, 64, 32], dtype=torch.long)
+    offsets = make_index([64, 16, 32, 16])
     yield SampleInput(mat1, mat2, offsets)
