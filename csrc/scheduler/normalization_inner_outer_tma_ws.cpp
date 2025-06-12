@@ -208,10 +208,18 @@ void getHeuristics(
       // increase bdimx only when bdimy is not increased. This is a case where
       // ping-pong is not used. Only happened when hidden size is very large,
       // using ping-pong leads to register spills.
-      if (bdimy == 1 && bdimx + 128 <= max_bdimx &&
-          is_enough_smem(iter_unroll, n_stages, bdimx + 128, bdimy)) {
-        is_updated = true;
-        bdimx += 128;
+      if (bdimy == 1) {
+        int64_t new_bdimx = bdimx + 128;
+        bool can_increase = (new_bdimx <= max_bdimx) &&
+            is_enough_smem(iter_unroll, n_stages, new_bdimx, bdimy);
+        auto get_tail = [](int64_t a, int64_t b) { return a % b == 0 ? b : a % b; };
+        bool try_increase = (bdimx == 128) ||
+            (get_tail(after_vect, new_bdimx) >= get_tail(after_vect, bdimx)) ||
+            (!is_enough_regs(iter_unroll, bdimx, bdimy));
+        if (can_increase && try_increase) {
+          is_updated = true;
+          bdimx += 128;
+        }
       }
 
       if (!is_updated) {
