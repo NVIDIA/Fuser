@@ -2336,7 +2336,7 @@ TensorView* grouped_mm(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       mat1->getDataType().value());
 
-  IrBuilder::create<GroupedMMOp>(out, mat1, mat2, offsets);
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
   return out;
 }
 

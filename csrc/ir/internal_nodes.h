@@ -2878,16 +2878,16 @@ class ArgsortOp : public Expr {
 //! num_cols).
 //!
 //! The output tensor is a 2D tensor of shape (num_groups, num_rows, num_cols).
-class GroupedMMOp : public Expr {
+class GroupedMmaOp : public Expr {
  public:
   using Expr::Expr;
 
-  GroupedMMOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets);
+  GroupedMmaOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "GroupedMMOp";
+    return "GroupedMmaOp";
   }
 
   std::string toString(int indent_size = 0) const override;

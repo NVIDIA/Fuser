@@ -5687,7 +5687,7 @@ std::vector<PolymorphicValue> TopKOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
 
-GroupedMMOp::GroupedMMOp(
+GroupedMmaOp::GroupedMmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* mat1,
@@ -5712,25 +5712,25 @@ GroupedMMOp::GroupedMMOp(
   addInput(offsets);
 }
 
-std::string GroupedMMOp::toString(int indent_size) const {
+std::string GroupedMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = GroupedMMOp("
+  indent(ss, indent_size) << out()->toString() << " = GroupedMmaOp("
                           << "mat1=" << mat1()->toString() << ", "
                           << "mat2=" << mat2()->toString() << ", "
                           << "offsets=" << offsets()->toString() << ")\n";
   return ss.str();
 }
 
-std::string GroupedMMOp::toInlineString(int indent_size) const {
+std::string GroupedMmaOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> GroupedMMOp::evaluate(
+std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   NVF_ERROR(
       inputs.size() == 3,
-      "GroupedMMOp expects 3 inputs but received ",
+      "GroupedMmaOp expects 3 inputs but received ",
       inputs.size());
 
   const auto& mat1 = inputs[0];
@@ -5739,17 +5739,17 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
 
   NVF_ERROR(
       mat1.is<at::Tensor>(),
-      "GroupedMMOp expects tensor input at position 0 but got ",
+      "GroupedMmaOp expects tensor input at position 0 but got ",
       mat1.type().name());
 
   NVF_ERROR(
       mat2.is<at::Tensor>(),
-      "GroupedMMOp expects tensor input at position 1 but got ",
+      "GroupedMmaOp expects tensor input at position 1 but got ",
       mat2.type().name());
 
   NVF_ERROR(
       offsets.is<at::Tensor>(),
-      "GroupedMMOp expects tensor input at position 2 but got ",
+      "GroupedMmaOp expects tensor input at position 2 but got ",
       offsets.type().name());
 
   auto result = at::_grouped_mm(
@@ -5757,35 +5757,35 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
   return {result};
 }
 
-IterDomain* GroupedMMOp::getKIDOfMat1() const {
+IterDomain* GroupedMmaOp::getKIDOfMat1() const {
   // mat1 is [g, m, k] or [m, k]
   const auto& logical_domain =
       TensorDomain::noReductions(mat1()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
-IterDomain* GroupedMMOp::getKIDOfMat2() const {
+IterDomain* GroupedMmaOp::getKIDOfMat2() const {
   // mat2 is [g, k, n] or [k, n]
   const auto& logical_domain =
       TensorDomain::noReductions(mat2()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
-std::optional<IterDomain*> GroupedMMOp::getGIDOfMat1() const {
+std::optional<IterDomain*> GroupedMmaOp::getGIDOfMat1() const {
   // mat1 is [g, m, k] or [m, k]
   return returnFirstIfRankThree(mat1());
 }
 
-std::optional<IterDomain*> GroupedMMOp::getGIDOfMat2() const {
+std::optional<IterDomain*> GroupedMmaOp::getGIDOfMat2() const {
   // mat2 is [g, k, n] or [k, n]
   return returnFirstIfRankThree(mat2());
 }
 
-std::optional<IterDomain*> GroupedMMOp::getGIDOfOutput() const {
+std::optional<IterDomain*> GroupedMmaOp::getGIDOfOutput() const {
   // mat2 is [g, k, n] or [k, n]
   return returnFirstIfRankThree(out());
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMMOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
 
 } // namespace nvfuser
