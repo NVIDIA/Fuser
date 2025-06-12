@@ -5747,7 +5747,7 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
       "GroupedMMOp expects tensor input at position 2 but got ",
       offsets.type().name());
 
-  auto result = at::_grouped_mmmm(mat1.as<at::Tensor>(),mat2.as<at::Tensor>(),offsets.as<at::Tensor>());
+  auto result = at::_grouped_mm(mat1.as<at::Tensor>(),mat2.as<at::Tensor>(),offsets.as<at::Tensor>());
   return {result};
 }
 
