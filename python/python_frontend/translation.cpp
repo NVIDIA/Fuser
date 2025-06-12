@@ -1158,7 +1158,7 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
         {fd_->recordingState(output())},
         ("ops.grouped_mm"),
-        serde::RecordType::Ternary_TV_TV_TV,
+        serde::RecordType::Ternary_TV,
         static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(grouped_mm)));
   }
 
