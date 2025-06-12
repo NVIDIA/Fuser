@@ -351,7 +351,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // TODO: refactor to use getNonMappingDomainInfo instead.
   if (GroupedMMOp * op =
           dynamic_cast<GroupedMMOp*>(consumer_tv_->definition())) {
-
     auto ndims_out = consumer_root.size();
     bool mapped = false;
     int index_in = -1;

@@ -5747,28 +5747,8 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
       "GroupedMMOp expects tensor input at position 2 but got ",
       offsets.type().name());
 
-  // Get the offsets as a CPU tensor
-  auto offsets_cpu = offsets.as<at::Tensor>().cpu();
-  auto num_groups = offsets_cpu.numel() - 1;
-
-  // Initialize output tensor
-  auto mat1_tensor = mat1.as<at::Tensor>();
-  auto mat2_tensor = mat2.as<at::Tensor>();
-  auto output_tensor = at::zeros_like(mat1_tensor);
-
-  // Perform grouped matrix multiplication
-  for (int64_t i = 0; i < num_groups; i++) {
-    auto start_idx = offsets_cpu[i].item<int64_t>();
-    auto end_idx = offsets_cpu[i + 1].item<int64_t>();
-
-    auto mat1_slice = mat1_tensor.narrow(0, start_idx, end_idx - start_idx);
-    auto mat2_slice = mat2_tensor.narrow(0, start_idx, end_idx - start_idx);
-    auto output_slice = output_tensor.narrow(0, start_idx, end_idx - start_idx);
-
-    output_slice.copy_(at::bmm(mat1_slice, mat2_slice));
-  }
-
-  return {output_tensor};
+  auto result = at::_grouped_mmmm(mat1.as<at::Tensor>(),mat2.as<at::Tensor>(),offsets.as<at::Tensor>());
+  return {result};
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat1() const {
