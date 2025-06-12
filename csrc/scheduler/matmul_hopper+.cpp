@@ -387,44 +387,95 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
 
     merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
 
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
 
     merged_roles =
         mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
-    // This is important since we need single dims to bind to. For example we
-    // might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need this to be
-    // Mo*Mcga, No*Ncga, Mcta, Ncta instead.
-    int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
-    int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
-    while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
-      outer_mnk_pos++;
-    }
-    std::unordered_set<MatmulDimRole> outer_roles;
-    while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
-      // Find first repeated role position
-      MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
-      if (outer_roles.count(role)) {
+    switch (params_->tiling_strategy) {
+      case MatmulParams::TilingStrategy::OneTilePerCTA: {
+        // NOTE: This merge is only used for non-persistent schedules
+        // Now merge the 3 CGA/CTA split outer dims back with the outermost
+        // dims. This is important since we need single dims to bind to. For
+        // example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
+        // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+        int64_t outer_mnk_pos = 0; // Outermost of Mo or No. 0 the example above
+        int64_t almost_outer_mnk_pos = 0; // Outermost of Mcga or Ncga. 2 above
+        while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+          outer_mnk_pos++;
+        }
+        std::unordered_set<MatmulDimRole> outer_roles;
+        while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
+          // Find first repeated role position
+          MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+          if (outer_roles.count(role)) {
+            break;
+          }
+          almost_outer_mnk_pos++;
+          outer_roles.insert(role);
+        }
+        NVF_ERROR(
+            almost_outer_mnk_pos < (int64_t)merged_roles.size(),
+            "Because of tiling, we expect repeated roles");
+        for (int64_t i :
+             std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+          tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+          merged_roles.erase(merged_roles.begin() + (size_t)i);
+        }
         break;
       }
-      almost_outer_mnk_pos++;
-      outer_roles.insert(role);
-    }
-    NVF_ERROR(
-        almost_outer_mnk_pos < (int64_t)merged_roles.size(),
-        "Because of tiling, we expect repeated roles");
-    for (int64_t i :
-         std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-      tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
-      merged_roles.erase(merged_roles.begin() + (size_t)i);
+      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs: {
+        // Do not merge CGA dims since we will map them to BIDy/BIDz instead
+        // However, We do move the CGA dims outside the serial K loop
+        // dimension in order to simplify downstream scheduling.
+        //
+        // For example, at this point we might have
+        //     T7_s___bfloat[
+        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+        //       bS32{1},
+        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+        //       iS39{2},  // cga dims
+        //       bS37{1},
+        //       iS35{1},
+        //       iS40{128},  // cta tile
+        //       bS38{256},
+        //       iS36{64}
+        //       ]
+        // We need to reorder this to be
+        //     T7_s___bfloat[
+        //       iS34{( ( ceilDiv(i0, 256) ) * 8 )},
+        //       bS32{1},
+        //       iS39{2},  // cga dims
+        //       bS37{1},
+        //       iS35{1},
+        //       iS26{( ceilDiv(i1, 64) )},  // serial K loop
+        //       iS40{128},  // cta tile
+        //       bS38{256},
+        //       iS36{64}
+        //       ]
+
+        if (merged_roles.back() == MatmulDimRole::K) {
+          tv->reorder({{-7, -4}, {-6, -7}, {-5, -6}, {-4, -5}});
+          NVF_ERROR(merged_roles[merged_roles.size() - 7] == MatmulDimRole::K);
+          NVF_ERROR(merged_roles[merged_roles.size() - 6] == MatmulDimRole::M);
+          NVF_ERROR(merged_roles[merged_roles.size() - 5] == MatmulDimRole::N);
+          NVF_ERROR(merged_roles[merged_roles.size() - 4] == MatmulDimRole::K);
+          merged_roles[merged_roles.size() - 7] = MatmulDimRole::M;
+          merged_roles[merged_roles.size() - 6] = MatmulDimRole::N;
+          merged_roles[merged_roles.size() - 5] = MatmulDimRole::K;
+          merged_roles[merged_roles.size() - 4] = MatmulDimRole::K;
+        }
+        break;
+      }
+      default:
+        NVF_THROW("Unsupported tiling strategy");
     }
   } else {
     // no cga split
 
     merged_roles = mma_utils::makeTile(
         tv, params_->tile_sizes.cta_tile, orig_merged_roles);
-    reorderBlockTileTraversal(tv, merged_roles);
+    merged_roles = reorderBlockTileTraversal(tv, merged_roles);
   }
 
   return merged_roles;
@@ -539,9 +590,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      const int64_t num_sms =
-          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-      tv->split(num_device_dims_, num_sms);
+      tv->split(num_device_dims_, numCGAs());
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -549,6 +598,14 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
     all_merged_roles.push_back(merged_roles);
   }
   return all_merged_roles;
+}
+
+int64_t HopperPlus::numCGAs() const {
+  const int64_t num_sms =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  return num_sms /
+      (params_->cluster_dims.x * params_->cluster_dims.y *
+       params_->cluster_dims.z);
 }
 
 void HopperPlus::inspectPrologues() const {
@@ -613,32 +670,52 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        // For persistent kernels, we just parallelize the SM dimension
-        tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
+        // For persistent kernels, we parallelize BIDx, and if cluster_dims is
+        // non-trivial then we also bind BIDy and BIDz
+        if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
+          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
+          switch (params_->cta_order) {
+            // TODO: Should we instead check the roles of these dimensions to
+            // take the outermost two M or N axes?
+            case MatmulParams::TileRasterizationOrder::ColumnMajor:
+              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
+              break;
+            case MatmulParams::TileRasterizationOrder::RowMajor:
+              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
+              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
+              break;
+            default:
+              NVF_THROW(
+                  "Invalid TileRasterizationOrder passed to Matmul scheduler");
+          }
+        } else {
+          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
+        }
         break;
     }
   }
 }
 
-void HopperPlus::setMmaResultAllocationDomain(TensorView* mma_result) {
-  if (isBlackwell(params_->mma_macro)) {
-    mma_result->setMemoryType(MemoryType::Tensor);
-    // So far, we only support M128 Blackwell MMA macros. For these macros,
-    // Rows of the accumulator span all 128 lanes of TMem. That is, the
-    // allocation domain should be [Mi, (DimSep), ...other]
-    // We want to move Mi to the front of the domain.
-    std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
-    auto item = allocation_domain[allocation_domain.size() - 3];
-    allocation_domain.erase(
-        allocation_domain.begin() + allocation_domain.size() - 3);
-    allocation_domain.insert(allocation_domain.begin(), item);
-    mma_result->setAllocationDomain(allocation_domain, true);
-    mma_result->setTMemDimSepPos(1);
-  } else {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        mma_result->getLoopDomain());
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
+void Blackwell::setMmaResultAllocationDomain(TensorView* mma_result) {
+  mma_result->setMemoryType(MemoryType::Tensor);
+  // So far, we only support M128 Blackwell MMA macros. For these macros,
+  // Rows of the accumulator span all 128 lanes of TMem. That is, the
+  // allocation domain should be [Mi, (DimSep), ...other]
+  // We want to move Mi to the front of the domain.
+  std::vector<IterDomain*> allocation_domain = mma_result->getLoopDomain();
+  auto item = allocation_domain[allocation_domain.size() - 3];
+  allocation_domain.erase(
+      allocation_domain.begin() + allocation_domain.size() - 3);
+  allocation_domain.insert(allocation_domain.begin(), item);
+  mma_result->setAllocationDomain(allocation_domain, true);
+  mma_result->setTMemDimSepPos(1);
+}
+
+void Hopper::setMmaResultAllocationDomain(TensorView* mma_result) {
+  auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+      mma_result->getLoopDomain());
+  mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
 }
 
 void HopperPlus::scheduleMmaResults() {
@@ -701,10 +778,7 @@ void HopperPlus::scheduleMmaResults() {
   }
 }
 
-std::vector<TensorView*> HopperPlus::createTMemLoad() {
-  if (!isBlackwell(params_->mma_macro)) {
-    return {};
-  }
+std::vector<TensorView*> Blackwell::createTMemLoad() {
   std::vector<TensorView*> tmem_ld_tvs;
   for (auto mma_result : mma_results_) {
     TensorView* tmem_ld_tv = cacheAfter(mma_result);
@@ -715,7 +789,7 @@ std::vector<TensorView*> HopperPlus::createTMemLoad() {
   return tmem_ld_tvs;
 }
 
-int64_t HopperPlus::getLdTMemVectorizeFactor() const {
+int64_t Blackwell::getLdTMemVectorizeFactor() const {
   const int64_t n_mma = getN(params_->mma_macro);
   int64_t tmem_vectorize_factor = 1;
   while (n_mma % tmem_vectorize_factor == 0 && tmem_vectorize_factor <= 128) {
@@ -724,7 +798,7 @@ int64_t HopperPlus::getLdTMemVectorizeFactor() const {
   return tmem_vectorize_factor / 2;
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithoutSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
   std::vector<TensorView*> cached_tvs;
@@ -794,7 +868,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
   std::vector<TensorView*> cached_tvs;
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
@@ -836,15 +910,7 @@ void HopperPlus::scheduleEpilogueWithoutSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithoutSmemEpilogue() {
-  if (isBlackwell(params_->mma_macro)) {
-    scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  } else {
-    scheduleEpilogueWithoutSmemEpilogueHopper();
-  }
-}
-
-void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
+void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
@@ -858,7 +924,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     bool load_with_ldmatrix =
-        params_->use_ldst_matrix && dataTypeSize(c_cache->dtype()) == 2;
+        params_->use_ldst_matrix && dataTypeSizeByte(c_cache->dtype()) == 2;
     bool is_2d_epilogue_input =
         TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
     if (load_with_ldmatrix && is_2d_epilogue_input &&
@@ -943,7 +1009,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
 
     // Set LoadStoreOpType
     bool store_with_stmatrix =
-        params_->use_ldst_matrix && dataTypeSize(dc->dtype()) == 2;
+        params_->use_ldst_matrix && dataTypeSizeByte(dc->dtype()) == 2;
     if (store_with_stmatrix) {
       d_smem->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::StMatrix);
@@ -1004,7 +1070,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueHopper() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
+void Blackwell::scheduleEpilogueWithSmemEpilogue() {
   const bool has_splitk = params_->splitk_factor != 1;
   int64_t tmem_vectorize_factor = getLdTMemVectorizeFactor();
 
@@ -1031,6 +1097,7 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
       for (int64_t i = -5; i <= -1; i++) {
         c_cache->axis(i)->parallelize(ParallelType::Bulk);
       }
+      propagate_to.push_back(c_cache);
 
       // Schedule smem->register load for epilogue input
       TensorView* reg_tv = cacheAfter(c_cache);
@@ -1107,14 +1174,6 @@ void HopperPlus::scheduleEpilogueWithSmemEpilogueBlackwell() {
   }
 }
 
-void HopperPlus::scheduleEpilogueWithSmemEpilogue() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleEpilogueWithSmemEpilogueHopper();
-  } else {
-    scheduleEpilogueWithSmemEpilogueBlackwell();
-  }
-}
-
 void HopperPlus::scheduleEpilogue() {
   if (params_->use_smem_epilogue) {
     scheduleEpilogueWithSmemEpilogue();
@@ -1123,7 +1182,7 @@ void HopperPlus::scheduleEpilogue() {
   }
 }
 
-void HopperPlus::scheduleSplitKSumHopper() {
+void Hopper::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1146,7 +1205,7 @@ void HopperPlus::scheduleSplitKSumHopper() {
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v (Vectorize)]
 // Splitk_sum tv:
 // [..., Mo * No (TIDy), Mw, Nw, Mi (TIDx), Ni / v, v/vv, vv (Vectorize)]
-void HopperPlus::scheduleSplitKSumBlackwell() {
+void Blackwell::scheduleSplitKSum() {
   if (params_->splitk_factor == 1) {
     return;
   }
@@ -1170,14 +1229,6 @@ void HopperPlus::scheduleSplitKSumBlackwell() {
   for (TensorView* tmem_ld_tv : tmem_ld_tvs) {
     tmem_ld_tv->axis(-3)->parallelize(ParallelType::TIDx);
     tmem_ld_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-  }
-}
-
-void HopperPlus::scheduleSplitKSum() {
-  if (isHopper(params_->mma_macro)) {
-    scheduleSplitKSumHopper();
-  } else {
-    scheduleSplitKSumBlackwell();
   }
 }
 

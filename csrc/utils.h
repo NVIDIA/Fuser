@@ -762,7 +762,7 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    std::size_t index_;
+    int64_t index_;
 
     iterator_base() = default;
     iterator_base(base_iterator current, std::size_t index)

@@ -169,7 +169,7 @@ TEST_F(TMemTest, dtypes) {
 
   int64_t expect_dtype_bytes = 1;
   for (auto dtype : data_types) {
-    EXPECT_EQ(dataTypeSize(dtype), expect_dtype_bytes);
+    EXPECT_EQ(dataTypeSizeByte(dtype), expect_dtype_bytes);
     for (int64_t vec : vec_factors) {
       int64_t vec_bytes = expect_dtype_bytes * vec;
       if (vec_bytes > 512) {

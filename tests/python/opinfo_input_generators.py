@@ -813,6 +813,112 @@ def gather_generator(
         yield SampleInput(a, b, dim)
 
 
+def argsort_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # a.shape, dim
+    cases = (
+        (list(), 0),
+        ((128,), 0),
+        ((128, 7, 32), 0),
+        ((128, 7, 32), 1),
+        ((128, 7, 32), 2),
+        ((128, 7, 32), -1),
+        ((128, 7, 32), -2),
+        ((128, 7, 32), -3),
+    )
+
+    for shape, dim in cases:
+        a = make_arg(shape)
+        for descending, stable in itertools.product([True, False], repeat=2):
+            yield SampleInput(a, dim, descending, stable)
+
+
+def topk_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for topk operation.
+
+    Creates test tensors of various shapes and tests different combinations of:
+    - k values (ensuring k <= dimension size)
+    - largest/smallest selection
+    - sorted/unsorted output
+
+    Args:
+        op: OpInfo object for the topk operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+
+    Yields:
+        SampleInput objects with valid topk parameters
+    """
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    # a.shape, dim, k_values
+    cases = (
+        # NOTE: aten supports topk on scalar tensor. Not sure if we would want to support this.
+        # (list(), 0, [0, 1]),
+        ((128,), 0, [5, 10, 64]),
+        ((128, 7, 32), 0, [5, 1, 128]),
+        ((128, 7, 32), 1, [5, 1, 7]),
+        ((128, 7, 32), 2, [5, 1, 32]),
+        ((128, 7, 32), -1, [5, 1, 32]),
+        ((128, 7, 32), -2, [5, 1, 7]),
+        ((128, 7, 32), -3, [5, 1, 128]),
+    )
+
+    for shape, dim, k_values in cases:
+        a = make_arg(shape)
+        for k in k_values:
+            for largest in [True, False]:
+                # NOTE: we do not test unsorted result, because reference implementation is not stable.
+                yield SampleInput(a, k, dim, largest, True)
+
+
+def topk_error_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate test cases that should produce errors for topk operation.
+
+    Args:
+        op: OpInfo object for the topk operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+
+    Yields:
+        Tuples of (SampleInput, expected_exception_type, error_message_pattern)
+    """
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+
+    a = make_arg((128, 7, 32))
+
+    # Out of bounds dimension access
+    yield SampleInput(
+        a, 3, 3, True, False
+    ), RuntimeError, "Tried to access out of boundary index"
+    yield SampleInput(
+        a, 3, -4, True, False
+    ), RuntimeError, "Tried to access out of boundary index"
+
+    # negative k size fails nvfuser shape inference.
+    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Unexpected size of axis"
+
+    # error coming from aten fallback.
+    yield SampleInput(
+        a, 16, 1, True, False
+    ), RuntimeError, "selected index k out of range"
+
+
 def index_select_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
