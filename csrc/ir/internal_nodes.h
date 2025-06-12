@@ -2860,16 +2860,32 @@ class ArgsortOp : public Expr {
   }
 };
 
-class BatchedMMOp : public Expr {
+//! Grouped Matrix Multiplication operation.
+//!
+//! This operation performs a matrix multiplication on a grouped set of matrices.
+//!
+//! Parameters:
+//! - out: output tensor
+//! - mat1: first input tensor
+//! - mat2: second input tensor
+//! - offsets: offsets tensor
+//!
+//! The offsets tensor is a 1D tensor of shape (num_groups + 1) that specifies
+//! the starting index of each group in the mat1 and mat2 tensors.
+//!
+//! The mat1 and mat2 tensors are 2D tensors of shape (num_groups, num_rows, num_cols).
+//!
+//! The output tensor is a 2D tensor of shape (num_groups, num_rows, num_cols).
+class GroupedMMOp : public Expr {
  public:
   using Expr::Expr;
 
-  BatchedMMOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2);
+  GroupedMMOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "BatchedMMOp";
+    return "GroupedMMOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -2887,8 +2903,15 @@ class BatchedMMOp : public Expr {
   TensorView* mat2() const {
     return input(1)->as<TensorView>();
   }
+  TensorView* offsets() const {
+    return input(2)->as<TensorView>();
+  }
   IterDomain* getKIDOfMat1() const;
   IterDomain* getKIDOfMat2() const;
+
+  std::optional<IterDomain*> getGIDOfMat1() const;
+  std::optional<IterDomain*> getGIDOfMat2() const;
+  std::optional<IterDomain*> getGIDOfOutput() const;
 };
 
 //! TopK operation that finds the k largest or smallest elements
