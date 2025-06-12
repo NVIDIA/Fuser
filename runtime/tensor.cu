@@ -8,6 +8,11 @@
 template <typename T, int Dims, int AllocDims = Dims>
 struct Tensor {
   __device__ T& operator[](nvfuser_index_t ind) {
+    // For e2m1, the generated indices is in the unit of 4bits,
+    // so we need to divide by 2 to get the byte index.
+    if constexpr (std::is_same_v<T, e2m1>) {
+      ind /= 2;
+    }
     return data[ind];
   };
 
