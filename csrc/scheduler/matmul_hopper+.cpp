@@ -37,6 +37,8 @@ namespace {
 
 constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+constexpr int64_t num_registers_async_warp = 40;
+constexpr int64_t num_registers_compute_warp = 232;
 
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
@@ -1303,8 +1305,6 @@ void HopperPlus::setUpCircularBuffering() {
           // register properly in that case.
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
         } else {
-          constexpr int64_t num_registers_async_warp = 40;
-          constexpr int64_t num_registers_compute_warp = 232;
           cb_type = (CircularBufferType)WarpSpecialized(
               ParallelType::TIDy,
               std::make_pair(
