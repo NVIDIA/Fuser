@@ -1087,8 +1087,8 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
-  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
@@ -1392,6 +1392,75 @@ TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
          "false' not found in kernel code";
 
   testValidate(&fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(CombinedSchedulerTest, KernelReuse) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto dtype = DataType::BFloat16;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv1, {0});
+  tv5 = maybeCastOp(dtype, tv5);
+  tv6 = maybeCastOp(dtype, tv6);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  // Enable warp specialization explicitly
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // Run fusion with given dim0 and dim1
+  auto runFusionWithDim = [&](int64_t dim0, int64_t dim1) {
+    at::Tensor t0 = at::randn({dim0, dim1}, options);
+    at::Tensor t1 = at::randn({dim0, dim1}, options);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+    testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+  };
+  // Return number of kernels in the cache
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // First run
+  runFusionWithDim(1024, 2048);
+
+  // Second run with dim1 = 2040
+  // It is close to 2048 and divisible by 8 which ensures same heuristics
+  // is used. Kernel should be reused.
+  runFusionWithDim(1024, 2040);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Third run with dim0 = 4096
+  // dim0 has no influence on heuristics as long as it is divisible by
+  // outer unroll factor. Kernel should be reused.
+  runFusionWithDim(4096, 2040);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Last run with dim1 = 4096
+  // Can't reuse kernel due to different heuristics
+  runFusionWithDim(1024, 4096);
+  EXPECT_EQ(numRuntimes(), 2);
 }
 
 } // namespace nvfuser

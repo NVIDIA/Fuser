@@ -334,6 +334,7 @@ void getHeuristics(
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
 
+
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
@@ -342,7 +343,7 @@ void getHeuristics(
           ? bdimx + kWarpSpecializationPaddedThreads
           : bdimx,
       ws_pt == ParallelType::TIDy ? bdimy + 1 : bdimy,
-      LaunchParams::UNINITIALIZED_VAL);
+      1);
 
   auto is_good_ws_heuristic = [&]() {
     // If can't achieve cirulcar buffer, the heuristic is bad.
