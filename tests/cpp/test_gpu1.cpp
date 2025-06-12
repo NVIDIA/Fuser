@@ -2772,7 +2772,8 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeContigTensor(1, DataType::Float4_e2m1);
+  // TensorView* tv0 = makeContigTensor(1, DataType::Float4_e2m1);
+  TensorView* tv0 = makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
