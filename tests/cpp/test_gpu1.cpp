@@ -2800,14 +2800,16 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
 }
 
+std::string fp4E2m1Name(const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
+      const auto& [vectorize_factor, dynamic_shape] = info.param;
+      return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" + std::to_string(dynamic_shape);
+    }
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     Float4E2m1Test,
     testing::Combine(testing::Values(1, 2, 4, 8, 16, 32), testing::Values(false, true)),
-    [](const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
-      const auto& [vectorize_factor, dynamic_shape] = info.param;
-      return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" + std::to_string(dynamic_shape);
-    });
+    fp4E2m1Name);
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
