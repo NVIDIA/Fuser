@@ -1263,10 +1263,9 @@ int64_t HopperPlus::getNumEpilogueWarpGroups() const {
 
 CircularBufferType HopperPlus::getCircularBufferType() const {
   switch (params_->circular_buffering_strategy) {
-    case MatmulParams::CircularBufferingStrategy::Pipelined: {
+    case MatmulParams::CircularBufferingStrategy::Pipelined: 
       return (CircularBufferType)Pipelined(false);
-    }
-    case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+    case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
       if (getNumEpilogueWarpGroups() == 1) {
         // Disable register sharing when there is only one math warp group.
         // In such case we will have 128 math threads and 128 dma threads,
@@ -1285,8 +1284,8 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
             ParallelType::TIDy,
             std::make_pair(
                 num_registers_async_warp, num_registers_compute_warp));
+      }
     }
-  }
   NVF_ERROR(false, "Invalid circular buffer type");
 }
 
