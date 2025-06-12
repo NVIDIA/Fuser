@@ -591,7 +591,8 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({5, d * 3, d * 7}, tensor_options);
+  at::Tensor unsharded_in_tensor =
+      at::randint(2, {5, d * 3, d * 7}, tensor_options);
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
 
   at::Tensor expected_output =
@@ -602,8 +603,7 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   EXPECT_TRUE(out_tensor.t().is_contiguous());
-  EXPECT_TRUE(
-      at::allclose(out_tensor, expected_output, /*rtol=*/1e-5, /*atol=*/1e-5));
+  EXPECT_TRUE(at::equal(out_tensor, expected_output));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
