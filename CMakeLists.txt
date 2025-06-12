@@ -741,10 +741,23 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
+
+  set(TOPK_TEST_KERNELS "topk_test_kernels")
+  add_library(${TOPK_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/topk_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${TOPK_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${TOPK_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${TOPK_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TOPK_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/validator.cpp
   )
@@ -796,6 +809,13 @@ if(BUILD_TEST)
   )
   add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_argsort)
+
+  set(TOPK_TEST_SRCS)
+  list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
+  )
+  add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_topk)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
