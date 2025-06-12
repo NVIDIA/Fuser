@@ -738,7 +738,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   auto tensor = at::native::empty_strided_cuda(
       info.shape_info.logical_sizes,
       info.shape_info.logical_strides,
-      info.type,
+      data_type_to_aten(info.type),
       c10::nullopt,
       device,
       c10::nullopt);
