@@ -5423,9 +5423,11 @@ TEST_F(BlackwellMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.circular_buffer_mma = true;
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.circular_buffer_options.mma_circular_buffer_stage = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
@@ -5504,9 +5506,11 @@ TEST_F(BlackwellMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.circular_buffer_mma = true;
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.circular_buffer_options.mma_circular_buffer_stage = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
