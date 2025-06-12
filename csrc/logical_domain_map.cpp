@@ -348,11 +348,37 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  // TODO: Add support for GroupedMMOp
+  // TODO: refactor to use getNonMappingDomainInfo instead.
   if (GroupedMMOp * op =
           dynamic_cast<GroupedMMOp*>(consumer_tv_->definition())) {
-    (void)op;
-    NVF_ERROR(false, "GroupedMMOp is not supported yet. Please use EmbeddingFwdOp instead.");
+
+    auto ndims_out = consumer_root.size();
+    bool mapped = false;
+    int index_in = -1;
+    int index_out = -1;
+    if (producer_tv_->sameAs(op->mat1())) {
+      // mapping m dimension;
+      index_in = std::ssize(producer_logical.size()) - 2;
+      index_out = std::ssize(consumer_root.size()) - 2;
+      mapped = true;
+    } else if (producer_tv_->sameAs(op->mat2())) {
+      // mapping k dimension;
+      index_in = std::ssize(producer_logical.size()) - 1;
+      index_out = std::ssize(consumer_root.size()) - 1;
+      mapped = true;
+    } else if (producer_tv_->sameAs(op->offsets())) {
+      // mapping g dimension;
+      if (ndims_out == 3) {
+        index_in = std::ssize(producer_logical.size()) - 1;
+        index_out = std::ssize(consumer_root.size()) - 1;
+        mapped = true;
+      }
+    }
+    if (mapped) {
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(index_in), consumer_root.at(index_out));
+    }
+    return dom_map;
   }
 
   size_t itc = 0, itp = 0;
