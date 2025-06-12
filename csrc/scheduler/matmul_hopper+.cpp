@@ -924,7 +924,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     bool load_with_ldmatrix =
-        params_->use_ldst_matrix && dataTypeSize(c_cache->dtype()) == 2;
+        params_->use_ldst_matrix && dataTypeSizeByte(c_cache->dtype()) == 2;
     bool is_2d_epilogue_input =
         TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
     if (load_with_ldmatrix && is_2d_epilogue_input &&
@@ -1009,7 +1009,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
 
     // Set LoadStoreOpType
     bool store_with_stmatrix =
-        params_->use_ldst_matrix && dataTypeSize(dc->dtype()) == 2;
+        params_->use_ldst_matrix && dataTypeSizeByte(dc->dtype()) == 2;
     if (store_with_stmatrix) {
       d_smem->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::StMatrix);

@@ -87,6 +87,7 @@ enum class DebugDumpOption {
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 

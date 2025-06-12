@@ -78,7 +78,7 @@ static void NvFuserScheduler_Broadcast(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * bcast_size * 2 + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * bcast_size * 2 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 static void Baseline_Broadcast(
@@ -112,7 +112,7 @@ static void Baseline_Broadcast(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (iter_size * bcast_size * 2 + iter_size) * int64_t(dataTypeSize(dtype)));
+      (iter_size * bcast_size * 2 + iter_size) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
