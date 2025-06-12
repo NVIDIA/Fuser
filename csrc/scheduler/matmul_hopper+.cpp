@@ -1263,29 +1263,29 @@ int64_t HopperPlus::getNumEpilogueWarpGroups() const {
 
 CircularBufferType HopperPlus::getCircularBufferType() const {
   switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined: {
-        return (CircularBufferType)Pipelined(false);
-      }
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        if (getNumEpilogueWarpGroups() == 1) {
-          // Disable register sharing when there is only one math warp group.
-          // In such case we will have 128 math threads and 128 dma threads,
-          // for a total of 256 threads per CTA. The register file size on
-          // Hopper is 64K registers, which is filled when a 256-thread CTA
-          // has 256 registers per thread. Since 256 is already the maximum
-          // number of registers per thread even with register sharing, there
-          // is no point in doing register sharing to try and increase it.
-          //
-          // When there is more than one math warp group, we also disable
-          // register sharing, since we don't currently compute the number of
-          // register properly in that case.
-          return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-        } else {
-          return (CircularBufferType)WarpSpecialized(
-              ParallelType::TIDy,
-              std::make_pair(
-                  num_registers_async_warp, num_registers_compute_warp));
-      }
+    case MatmulParams::CircularBufferingStrategy::Pipelined: {
+      return (CircularBufferType)Pipelined(false);
+    }
+    case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+      if (getNumEpilogueWarpGroups() == 1) {
+        // Disable register sharing when there is only one math warp group.
+        // In such case we will have 128 math threads and 128 dma threads,
+        // for a total of 256 threads per CTA. The register file size on
+        // Hopper is 64K registers, which is filled when a 256-thread CTA
+        // has 256 registers per thread. Since 256 is already the maximum
+        // number of registers per thread even with register sharing, there
+        // is no point in doing register sharing to try and increase it.
+        //
+        // When there is more than one math warp group, we also disable
+        // register sharing, since we don't currently compute the number of
+        // register properly in that case.
+        return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      } else {
+        return (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_async_warp, num_registers_compute_warp));
+    }
   }
   NVF_ERROR(false, "Invalid circular buffer type");
 }
