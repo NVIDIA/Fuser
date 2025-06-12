@@ -739,12 +739,7 @@ void KernelExecutor::initializeExecutorEntry(
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
       GlobalBufferInfo info{
-          input_tv,
-          shape_info,
-          input_tv->dtype(),
-          false,
-          false,
-          false};
+          input_tv, shape_info, input_tv->dtype(), false, false, false};
       input_info.emplace_back(info);
     }
   }
@@ -1151,7 +1146,9 @@ KernelArgumentHolder KernelExecutor::run(
           // to reset to zero upon completion of the kernel, or if we have
           // enabled the option (unsafe)
           intermediate_buffer = contigZeroedTensor(
-              unexpanded_sizes, data_type_to_aten(buf_info.type), compiled_kernel_->device());
+              unexpanded_sizes,
+              data_type_to_aten(buf_info.type),
+              compiled_kernel_->device());
         } else {
           intermediate_buffer = at::zeros(
               unexpanded_sizes,
@@ -1488,7 +1485,9 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
     bool is_fusion_output,
     bool is_fusion_input) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
-  NVF_ERROR(std::holds_alternative<PrimDataType>(data.type.type), "Data type is not a PrimDataType");
+  NVF_ERROR(
+      std::holds_alternative<PrimDataType>(data.type.type),
+      "Data type is not a PrimDataType");
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
