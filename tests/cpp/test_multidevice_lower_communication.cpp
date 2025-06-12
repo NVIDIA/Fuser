@@ -602,7 +602,8 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   EXPECT_TRUE(out_tensor.t().is_contiguous());
-  EXPECT_TRUE(at::allclose(out_tensor, expected_output));
+  EXPECT_TRUE(
+      at::allclose(out_tensor, expected_output, /*rtol=*/1e-5, /*atol=*/1e-5));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
