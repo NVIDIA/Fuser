@@ -2790,6 +2790,9 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
 
+  std::cout << outputs[0].as<at::Tensor>().sizes() << std::endl;
+  std::cout << outputs[0].as<at::Tensor>().strides() << std::endl;
+
   EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
 }
 
