@@ -74,6 +74,7 @@ void validateValWithConcreteValue(
     auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
+        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::UInt8) ||
             (value->dtype() == actual_dtype),
         "Expected ",
         getInputPosString(tv),
@@ -146,6 +147,14 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
+  if (tv->dtype() == DataType::Float4_e2m1) {
+    if (!logical_domain.empty()) {
+      // PyTorch does not natively support fp4. We represent fp4 tensor
+      // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
+      // We need to adjust the logical domain to reflect this.
+      logical_domain[logical_domain.size() - 1] *= 2;
+    }
+  }
   for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
