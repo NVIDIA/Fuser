@@ -46,6 +46,10 @@ DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
   for (const auto v : dynamic_factory_tvs_) {
     cloned_info.dynamic_factory_tvs_.push_back(ir_cloner.clone(v));
   }
+  cloned_info.dynamic_topk_tvs_.reserve(dynamic_topk_tvs_.size());
+  for (const auto v : dynamic_topk_tvs_) {
+    cloned_info.dynamic_topk_tvs_.push_back(ir_cloner.clone(v));
+  }
   cloned_info.maybe_zero_extents_set_.reserve(maybe_zero_extents_set_.size());
   for (const auto v : maybe_zero_extents_set_) {
     cloned_info.maybe_zero_extents_set_.insert(ir_cloner.clone(v));
@@ -78,6 +82,10 @@ std::string DynamicTransformInitialInfo::toString() const {
   }
   indent(ss, 1) << "Dynamic factory-function output TensorViews:\n";
   for (const auto& tv : dynamic_factory_tvs_) {
+    indent(ss, 2) << tv->toString() << "\n";
+  }
+  indent(ss, 1) << "Dynamic TopK output TensorViews:\n";
+  for (const auto& tv : dynamic_topk_tvs_) {
     indent(ss, 2) << tv->toString() << "\n";
   }
   indent(ss, 1) << "Dynamic extent Vals:\n";
@@ -154,6 +162,28 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       }
       for (const auto& id : out_tv->getLogicalDomain()) {
         loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
+      }
+    }
+  }
+
+  //! Find TopK operations that have symbolic outputs
+  void handle(TopKOp* op) override {
+    auto out_values = op->outValues()->as<TensorView>();
+
+    // Check if TopK dimension has symbolic IterType
+    // TopK operates on the specified dimension, creating symbolic output
+    if (out_values->domain()->hasSymbolicAxis()) {
+      info_.dynamic_topk_tvs_.push_back(out_values);
+
+      // The K parameter affects concretization
+      loop_dynamic_vals_.push_back(op->k());
+
+      // The extent of the TopK dimension affects concretization
+      auto topk_dim =
+          op->dim() < 0 ? out_values->nDims() + op->dim() : op->dim();
+      if (topk_dim >= 0 && topk_dim < (int64_t)out_values->nDims()) {
+        auto topk_id = out_values->getLogicalDomain()[topk_dim];
+        loop_dynamic_vals_.push_back(topk_id->extent());
       }
     }
   }
@@ -273,6 +303,8 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   analyzeExpands(expr_eval);
 
   analyzeFactoryOutputs(expr_eval);
+
+  analyzeTopK(expr_eval);
 
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
   for (auto i : arange((int64_t)maybe_zero_extents.size())) {
@@ -504,6 +536,32 @@ void DynamicTransformConcretizationInfo::analyzeFactoryOutputs(
   }
 }
 
+void DynamicTransformConcretizationInfo::analyzeTopK(
+    ExpressionEvaluator* expr_eval) {
+  const auto& topk_tvs = initial_info_->getDynamicTopKTensorViews();
+
+  for (const auto i : arange(topk_tvs.size())) {
+    auto tv = topk_tvs.at(i);
+    auto topk_op = dynamic_cast<TopKOp*>(tv->definition());
+    NVF_ERROR(topk_op != nullptr, "Expected TopKOp for TopK TensorView");
+
+    // Evaluate K parameter
+    auto k_val = expr_eval->evaluate(topk_op->k());
+    NVF_ERROR(k_val.hasValue(), "Could not evaluate K parameter for TopK");
+
+    auto k_int = k_val.as<int64_t>();
+    NVF_ERROR(
+        k_int >= 0,
+        "Invalid TopK K parameter ",
+        k_int,
+        " for operation ",
+        topk_op->toString());
+    auto iter_type = (k_int == 1) ? IterType::Broadcast : IterType::Iteration;
+
+    topk_itertypes_.emplace_back(i, iter_type);
+  }
+}
+
 bool DynamicTransformConcretizationInfo::operator==(
     const DynamicTransformConcretizationInfo& other) const {
   if (this == &other) {
@@ -514,7 +572,8 @@ bool DynamicTransformConcretizationInfo::operator==(
       resize_itertypes_.size() != other.resize_itertypes_.size() ||
       empty_extents_.size() != other.empty_extents_.size() ||
       factory_output_itertypes_.size() !=
-          other.factory_output_itertypes_.size()) {
+          other.factory_output_itertypes_.size() ||
+      topk_itertypes_.size() != other.topk_itertypes_.size()) {
     return false;
   }
 
@@ -536,6 +595,14 @@ bool DynamicTransformConcretizationInfo::operator==(
 
   if (factory_output_itertypes_ != other.factory_output_itertypes_) {
     return false;
+  }
+
+  for (const auto i : arange((int64_t)topk_itertypes_.size())) {
+    const auto& topk_itertype = topk_itertypes_.at(i);
+    const auto& other_topk_itertype = other.topk_itertypes_.at(i);
+    if (topk_itertype != other_topk_itertype) {
+      return false;
+    }
   }
 
   for (const auto i : arange((int64_t)expand_axes_.size())) {
@@ -619,6 +686,15 @@ std::string DynamicTransformConcretizationInfo::toString() const {
                     << iter_type << std::endl;
     }
   }
+  indent(ss, 1) << "TopK:\n";
+  NVF_ERROR(
+      topk_itertypes_.size() ==
+      initial_info_->getDynamicTopKTensorViews().size());
+  for (const auto& [tv_index, iter_type] : topk_itertypes_) {
+    auto tv = initial_info_->getDynamicTopKTensorViews().at(tv_index);
+    indent(ss, 2) << tv->toString() << " (index=" << tv_index << "), "
+                  << iter_type << "\n";
+  }
   return ss.str();
 }
 
@@ -668,6 +744,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
   void concretizeEmptyExtents();
 
   void concretizeFactoryOutputs();
+
+  void concretizeTopK();
 
   //! Use this instead of calling registerMutation directly, since it will also
   //! check that the concretized value is a valid input to all of its uses.
@@ -726,6 +804,9 @@ void DynamicTransformConcretizer::concretize() {
 
   // Set IterTypes for factory op outputs
   concretizeFactoryOutputs();
+
+  // Set IterTypes for TopK op outputs
+  concretizeTopK();
 
   // Finally, propagate concretized domains
   auto all_stmts = StmtSort::getStmts(
@@ -1033,6 +1114,41 @@ void DynamicTransformConcretizer::concretizeFactoryOutputs() {
     }
     mutate(tv->domain());
     OptOutMutator::mutate(tv);
+  }
+}
+
+void DynamicTransformConcretizer::concretizeTopK() {
+  const auto& topk_itertypes = info_->getTopKIterTypes();
+
+  for (const auto& [tv_index, iter_type] : topk_itertypes) {
+    auto tv = info_->initialInfo()->getDynamicTopKTensorViews().at(tv_index);
+    auto topk_op = dynamic_cast<TopKOp*>(tv->definition());
+    NVF_ERROR(topk_op != nullptr, "Expected TopKOp for TopK TensorView");
+
+    const auto topk_dim = topk_op->dim();
+    NVF_ERROR(
+        topk_dim >= 0 && topk_dim < std::ssize(tv->getLogicalDomain()),
+        "Invalid TopK dimension ",
+        topk_dim);
+
+    // Concretize the TopK dimension for values output
+    auto values_logical = tv->getLogicalDomain();
+    auto topk_id = values_logical.at(topk_dim);
+
+    // Just a sanity check. This should be still symbolic.
+    NVF_ERROR(topk_id->isSymbolic());
+    auto new_id = IterDomainBuilder(topk_id).iter_type(iter_type).build();
+    registerConcretization(topk_id, new_id);
+
+    // Concretize the TopK dimension for indices output
+    auto indices_tv = topk_op->outIndices()->as<TensorView>();
+    auto indices_logical = indices_tv->getLogicalDomain();
+    auto indices_topk_id = indices_logical.at(topk_dim);
+
+    NVF_ERROR(indices_topk_id->isSymbolic());
+    auto new_indices_id =
+        IterDomainBuilder(indices_topk_id).iter_type(iter_type).build();
+    registerConcretization(indices_topk_id, new_indices_id);
   }
 }
 
@@ -1414,6 +1530,19 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
         id_type = input_id->getIterType();
       }
     }
+
+    // Special case: TopK dimensions don't map to producer dimensions
+    // If no mapping was found, check if this IterDomain has already been
+    // concretized by TopK operations
+    if (!found) {
+      auto maybe_concretized = maybeMutated(root_id);
+      if (maybe_concretized != root_id &&
+          !maybe_concretized->as<IterDomain>()->isSymbolic()) {
+        // This IterDomain has already been concretized (e.g., by TopK), skip it
+        continue;
+      }
+    }
+
     NVF_ERROR(
         found,
         "No input ID found to map with output ID: ",
@@ -1514,6 +1643,10 @@ size_t DynamicTransformConcretizationInfo::hash() const {
     for (bool e : expand_axes) {
       hashCombine(hash, (size_t)e);
     }
+  }
+  for (const auto& [id, iter_type] : getTopKIterTypes()) {
+    hashCombine(hash, (size_t)id);
+    hashCombine(hash, (size_t)iter_type);
   }
   return hash;
 }
