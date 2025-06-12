@@ -5302,7 +5302,8 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
 };
 
 std::optional<IterDomain*> returnFirstIfRankThree(const TensorView* tv) {
-  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   if (logical_domain.size() == 3) {
     return logical_domain.at(0);
   } else {
@@ -5758,16 +5759,16 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
 
 IterDomain* GroupedMMOp::getKIDOfMat1() const {
   // mat1 is [g, m, k] or [m, k]
-  const auto& logical_domain = mat1()->getLogicalDomain();
-  return TensorDomain::noReductions(
-      logical_domain.at(logical_domain.size()) - 1);
+  const auto& logical_domain =
+      TensorDomain::noReductions(mat1()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat2() const {
   // mat2 is [g, k, n] or [k, n]
-  const auto& logical_domain = mat2()->getLogicalDomain();
-  return TensorDomain::noReductions(
-      logical_domain.at(logical_domain.size()) - 1);
+  const auto& logical_domain =
+      TensorDomain::noReductions(mat2()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
 }
 
 std::optional<IterDomain*> GroupedMMOp::getGIDOfMat1() const {
