@@ -22,18 +22,35 @@ namespace nvfuser {
 namespace {
 
 // Prioritize warp specialized approach if possible
-bool preferWarpSpecialized(Fusion* fusion) {
+bool preferWarpSpecialized(
+    Fusion* fusion,
+    const ReductionTvProperties& properties,
+    int64_t n_inner_reduction_tvs) {
   // False, for pre-Blackwell GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     return false;
   }
-  // False, if any of the inputs is symbolic
-  // TODO: extend to support symbolic inputs, warp specialization requires
+  // False, if any of the inputs is not concretized
+  // TODO: extend to support dynamic inputs, warp specialization requires
   // static CTA size
   auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   if (std::any_of(inp_tvs.begin(), inp_tvs.end(), [](TensorView* tv) {
         return scheduler_utils::isConcreteTensor(tv);
       })) {
+    return false;
+  }
+
+  // False, when iteration dimension is too small.
+  // (1) Benefit from amortizing weight tensor loading overhead is minimal.
+  // (2) Can't create deep circular buffering.
+  // (3) Empirically determined thresholds on B200:
+  // - RMS Norm Bwd: ≤16 rows per SM, Layer Norm Bwd: ≤4 rows per SM
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  int64_t rows_per_sm = ceilDiv(properties.total_iteration_numel, sm_count);
+  bool is_layer_norm = n_inner_reduction_tvs > 1;
+  int64_t prefered_rows_per_sm = is_layer_norm ? 16 : 4;
+  if (rows_per_sm <= prefered_rows_per_sm) {
     return false;
   }
   // Try to use warp specialized, but if the heuristic fails, fall back to
@@ -61,10 +78,12 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_inner_reduction_tvs = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
       first_inner_reduction_tv = tv;
+      n_inner_reduction_tvs++;
     } else {
       max_outer_reduction_dtype_size = std::max(
           max_outer_reduction_dtype_size,
@@ -139,7 +158,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         InnerOuterPersistentKernelScheduler::schedulerType());
   };
 
-  if (hp.is_warp_specialized || preferWarpSpecialized(fusion)) {
+  if (hp.is_warp_specialized ||
+      preferWarpSpecialized(fusion, properties, n_inner_reduction_tvs)) {
     auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
     auto rparams = makeRParams();
     rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
