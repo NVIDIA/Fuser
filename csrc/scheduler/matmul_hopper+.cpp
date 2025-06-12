@@ -973,7 +973,6 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   fusion_->manage("ldst_matrix_m_smem", ldst_matrix_smem_m);
   fusion_->manage("ldst_matrix_n_smem", ldst_matrix_smem_n);
 
-
   // We will propagate backward from cached outputs to (not including) the
   // splitk output if there is a splitk else this is just mma_results_. We will
   // add cached tensors of epilogue inputs in the next step.
