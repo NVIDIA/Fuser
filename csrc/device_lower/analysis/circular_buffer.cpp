@@ -139,7 +139,7 @@ void validateCircularBufferedTensor(const TensorView* tv) {
   // considered.
   Expr* def = tv->definition();
   NVF_ERROR(
-      def->isA<LoadStoreOp>(),
+      def->isA<LoadStoreOp>() || def->isA<MmaOp>(),
       "Invalid tensor to circular-buffer. ",
       "Only tensor defined by LoadStoreOp is supported: ",
       def->toString());
