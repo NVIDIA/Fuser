@@ -212,7 +212,9 @@ void getHeuristics(
         int64_t new_bdimx = bdimx + 128;
         bool can_increase = (new_bdimx <= max_bdimx) &&
             is_enough_smem(iter_unroll, n_stages, new_bdimx, bdimy);
-        auto get_tail = [](int64_t a, int64_t b) { return a % b == 0 ? b : a % b; };
+        auto get_tail = [](int64_t a, int64_t b) {
+          return a % b == 0 ? b : a % b;
+        };
         bool try_increase = (bdimx == 128) ||
             (get_tail(after_vect, new_bdimx) >= get_tail(after_vect, bdimx)) ||
             (!is_enough_regs(iter_unroll, bdimx, bdimy));

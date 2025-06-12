@@ -312,11 +312,6 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
             return tv->hasReduction();
           });
 
-      // std::cout << "\nis_reduction_chain: " << is_reduction_chain << std::endl;
-      // for(auto tv : tv_chain){
-      //   std::cout << "tv: " << tv->toString() << std::endl;
-      // }
-
       if (is_reduction_chain) {
         for (auto tv : tv_chain) {
           // Don't include tvs pass reduction since we only want to find tvs
@@ -335,8 +330,7 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
     // must exists in both set, not same as start_tv, and
     // has multiple consumers, i.e., exclude chain unary ops from
     // start_tv to the actual persistent tv.
-    if (c_of_reductions.count(tv) &&
-        ir_utils::consumerTvsOf(tv).size() > 1) {
+    if (c_of_reductions.count(tv) && ir_utils::consumerTvsOf(tv).size() > 1) {
       res.push_back(tv);
     }
   }
