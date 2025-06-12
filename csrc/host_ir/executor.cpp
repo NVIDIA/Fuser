@@ -650,10 +650,10 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
-  TensorView* in = linear->inA()->as<TensorView>();
-  TensorView* weight = linear->inB()->as<TensorView>();
-  TensorView* bias = linear->bias()->as<TensorView>();
-  TensorView* out = linear->out()->as<TensorView>();
+  auto* in = linear->inA()->as<TensorView>();
+  auto* weight = linear->inB()->as<TensorView>();
+  auto* bias = linear->bias()->as<TensorView>();
+  auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
