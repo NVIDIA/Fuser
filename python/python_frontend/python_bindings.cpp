@@ -3669,17 +3669,22 @@ void initNvFuserPythonBindings(PyObject* module) {
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
-        
+
         // Calculate output dimensions based on mat1 structure
         size_t output_dims = mat1.dims;
         Tensor output = fd->defineTensor(output_dims);
 
-        fd->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
-            {fd->recordingState(mat1()), fd->recordingState(mat2()), fd->recordingState(offsets())},
-            {fd->recordingState(output())},
-            ("ops.grouped_mm"),
-            serde::RecordType::Ternary_TV,
-            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(grouped_mm)));
+        fd->defineRecord(
+            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                {fd->recordingState(mat1()),
+                 fd->recordingState(mat2()),
+                 fd->recordingState(offsets())},
+                {fd->recordingState(output())},
+                ("ops.grouped_mm"),
+                serde::RecordType::Ternary_TV,
+                static_cast<
+                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                    grouped_mm)));
 
         return output;
       },
@@ -3691,7 +3696,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
       Args:
           mat1 (Tensor): First set of matrices
-          mat2 (Tensor): Second set of matrices  
+          mat2 (Tensor): Second set of matrices
           offsets (Tensor): Offsets tensor defining group boundaries
 
       Returns:

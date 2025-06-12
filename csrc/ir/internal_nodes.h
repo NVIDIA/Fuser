@@ -2862,7 +2862,8 @@ class ArgsortOp : public Expr {
 
 //! Grouped Matrix Multiplication operation.
 //!
-//! This operation performs a matrix multiplication on a grouped set of matrices.
+//! This operation performs a matrix multiplication on a grouped set of
+//! matrices.
 //!
 //! Parameters:
 //! - out: output tensor
@@ -2873,7 +2874,8 @@ class ArgsortOp : public Expr {
 //! The offsets tensor is a 1D tensor of shape (num_groups + 1) that specifies
 //! the starting index of each group in the mat1 and mat2 tensors.
 //!
-//! The mat1 and mat2 tensors are 2D tensors of shape (num_groups, num_rows, num_cols).
+//! The mat1 and mat2 tensors are 2D tensors of shape (num_groups, num_rows,
+//! num_cols).
 //!
 //! The output tensor is a 2D tensor of shape (num_groups, num_rows, num_cols).
 class GroupedMMOp : public Expr {

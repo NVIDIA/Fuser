@@ -1152,14 +1152,16 @@ class FusionTranslator : public OptInConstDispatch {
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
-        {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat1())),
-         fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat2())),
-         fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
-        {fd_->recordingState(output())},
-        ("ops.grouped_mm"),
-        serde::RecordType::Ternary_TV,
-        static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(grouped_mm)));
+    fd_->defineRecord(
+        new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+            {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat1())),
+             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat2())),
+             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
+            {fd_->recordingState(output())},
+            ("ops.grouped_mm"),
+            serde::RecordType::Ternary_TV,
+            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                grouped_mm)));
   }
 
   // Map TopKOp to python frontend

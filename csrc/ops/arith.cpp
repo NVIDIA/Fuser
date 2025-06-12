@@ -2283,7 +2283,10 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
-TensorView* grouped_mm(TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+TensorView* grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets) {
   // Create output tensor for grouped matrix multiplication
   // For simplicity, assume same structure as mat1 for batch dimensions
   auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
@@ -2293,7 +2296,7 @@ TensorView* grouped_mm(TensorView* mat1, TensorView* mat2, TensorView* offsets) 
   NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
 
   std::vector<IterDomain*> out_domain;
-  
+
   // For grouped MM, determine output shape based on mat1 and mat2 structures
   // case 1:
   //   mat1   [m, k]
@@ -2324,7 +2327,8 @@ TensorView* grouped_mm(TensorView* mat1, TensorView* mat2, TensorView* offsets) 
     out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
     out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
   } else {
-    NVF_ERROR(false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
+    NVF_ERROR(
+        false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
   }
 
   TensorView* out = IrBuilder::create<TensorView>(

@@ -5751,20 +5751,23 @@ std::vector<PolymorphicValue> GroupedMMOp::evaluate(
       "GroupedMMOp expects tensor input at position 2 but got ",
       offsets.type().name());
 
-  auto result = at::_grouped_mm(mat1.as<at::Tensor>(),mat2.as<at::Tensor>(),offsets.as<at::Tensor>());
+  auto result = at::_grouped_mm(
+      mat1.as<at::Tensor>(), mat2.as<at::Tensor>(), offsets.as<at::Tensor>());
   return {result};
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat1() const {
   // mat1 is [g, m, k] or [m, k]
   const auto& logical_domain = mat1()->getLogicalDomain();
-  return TensorDomain::noReductions(logical_domain.at(logical_domain.size()) - 1);
+  return TensorDomain::noReductions(
+      logical_domain.at(logical_domain.size()) - 1);
 }
 
 IterDomain* GroupedMMOp::getKIDOfMat2() const {
   // mat2 is [g, k, n] or [k, n]
   const auto& logical_domain = mat2()->getLogicalDomain();
-  return TensorDomain::noReductions(logical_domain.at(logical_domain.size()) - 1);
+  return TensorDomain::noReductions(
+      logical_domain.at(logical_domain.size()) - 1);
 }
 
 std::optional<IterDomain*> GroupedMMOp::getGIDOfMat1() const {
