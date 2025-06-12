@@ -684,7 +684,7 @@ class HandleExpr {
           SimplifyingIrBuilder::modExpr(
               from[0]->front()->as<IterDomain>()->extent(), split->factor()),
           split->fusion()->zeroVal());
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           is_divisible,
           "Invalid view in TMA: the extent of ",
           from[0]->toString(),

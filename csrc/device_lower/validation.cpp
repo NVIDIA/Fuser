@@ -1287,7 +1287,7 @@ void validate1dTmaLoad(Fusion* fusion) {
         {tv->axis(-1)});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
-        GpuLower::current()->validate(
+        NVFUSER_LOWER_VALIDATE(
             split->isDivisible(),
             "If split output domain is loaded with 1D TMA, the split must be "
             "divisible, got: ",
