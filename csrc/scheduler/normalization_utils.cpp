@@ -691,6 +691,40 @@ int64_t partialReductionBufferSize(
   return partial_reduction_buffer_size;
 }
 
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : arange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
+}
+
 // Get the appropriate scheduler based on reduction type
 SchedulerType getPersistentHeuristicFor(ReductionType reduction_type) {
   switch (reduction_type) {
@@ -1332,6 +1366,22 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
+    // For warp specialized, may direct load non-circular buffered tv to regs
+    // Non-circular buffered tvs are those have broadcast dimensions that mapped
+    // with reduction dimensions.
+    if (rparams->tma_warp_specialized &&
+        rparams->is_non_circular_buffer_gmem_to_regs) {
+      const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
+          fusion, scheduler_utils::getReductionTvs(fusion));
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&tv](TensorView* bcast_tv) {
+                return DependencyCheck::isDependencyOf(tv, bcast_tv);
+              })) {
+        use_smem = false;
+      }
+    }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
       // Use 1D TMA, CpAsyncBulk
@@ -1365,7 +1415,8 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // load right after the copy from shared memory to register cache.
       // Otherwise, it needs to wait all the computations to finish before
       // issuing the next TMA.
-      if (!rparams->tma_warp_specialized) {
+      if (!rparams->tma_warp_specialized ||
+          !rparams->is_circular_buffer_regs_cached) {
         const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
         for (auto i = 1; i < (int)consumers.size(); i++) {
           auto consumer = consumers.at(i);
