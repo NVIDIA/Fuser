@@ -59,6 +59,7 @@ from opinfo_input_generators import (
     triu_error_generator,
     bmm_input_generator,
     bmm_error_generator,
+    grouped_mm_input_generator,
 )
 from nvfuser.testing.utils import (
     bool_int_dtypes,
@@ -1312,6 +1313,19 @@ bmm_opinfo = OpInfo(
     reference=torch.bmm,
 )
 matmul_ops.append(bmm_opinfo)
+
+grouped_mm_opinfo = OpInfo(
+    lambda fd: fd.ops.grouped_mm,
+    "grouped_mm",
+    # only bf16 is supported
+    dtypes=(torch.bfloat16,),
+    sample_input_generator=grouped_mm_input_generator,
+    reference=torch._grouped_mm,
+)
+
+# only hopper is supported with torch._grouped_mm at this point.
+if torch.cuda.get_device_properties(torch.cuda.current_device()).major == 9:
+    matmul_ops.append(grouped_mm_opinfo)
 
 linear_ops = []
 
