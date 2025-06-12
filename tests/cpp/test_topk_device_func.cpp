@@ -335,4 +335,88 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
   }
 }
 
+// Multi-dimensional 2D test
+TEST_F(TopkDeviceFuncTest, MultiDim2dTopkFloat) {
+  const int ITEMS_PER_THREAD = 2;
+  const int total_elements =
+      4 * 2 * ITEMS_PER_THREAD; // 4x2 block = 8 threads, 2 items per thread =
+                                // 16 elements
+  const int k = 5;
+
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+
+  auto values_tensor = at::empty(
+      {k}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto indices_tensor =
+      at::empty({k}, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
+  // Test largest
+  launchMultiDim2dTopkTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      values_tensor.data_ptr<float>(),
+      indices_tensor.data_ptr<int64_t>(),
+      k,
+      true);
+
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, true));
+
+  // Test smallest
+  launchMultiDim2dTopkTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      values_tensor.data_ptr<float>(),
+      indices_tensor.data_ptr<int64_t>(),
+      k,
+      false);
+
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, false));
+}
+
+// Multi-dimensional 3D test
+TEST_F(TopkDeviceFuncTest, MultiDim3dTopkFloat) {
+  const int ITEMS_PER_THREAD = 2;
+  const int total_elements =
+      2 * 2 * 2 * ITEMS_PER_THREAD; // 2x2x2 block = 8 threads, 2 items per
+                                    // thread = 16 elements
+  const int k = 6;
+
+  auto input_tensor = at::randn(
+      {total_elements},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+
+  auto values_tensor = at::empty(
+      {k}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto indices_tensor =
+      at::empty({k}, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
+  // Test largest
+  launchMultiDim3dTopkTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      values_tensor.data_ptr<float>(),
+      indices_tensor.data_ptr<int64_t>(),
+      k,
+      true);
+
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, true));
+
+  // Test smallest
+  launchMultiDim3dTopkTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      values_tensor.data_ptr<float>(),
+      indices_tensor.data_ptr<int64_t>(),
+      k,
+      false);
+
+  EXPECT_TRUE(validateTopkOrder<float>(
+      input_tensor, values_tensor, indices_tensor, k, false));
+}
+
 } // namespace nvfuser
