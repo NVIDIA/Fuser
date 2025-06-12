@@ -10,6 +10,7 @@
 
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#include <torch/torch.h>
 #include <cstdint>
 
 namespace nvfuser {
@@ -18,7 +19,6 @@ namespace nvfuser {
 using nvfuser_index_t = int64_t;
 
 // Function declarations for launching topk test kernels
-
 template <typename DataT, int ITEMS_PER_THREAD>
 void launchBasicTopkTestKernel(
     cudaStream_t stream,
@@ -46,5 +46,15 @@ void launchMultiDim3dTopkTestKernel(
     int64_t* output_indices,
     int k,
     bool largest);
+
+// Check the result of:
+//
+// values_tensor, indices_tensor = topk(input_tensor, -1, k, largest)
+bool validateTopkOrder(
+    at::Tensor input_tensor,
+    at::Tensor values_tensor,
+    at::Tensor indices_tensor,
+    int64_t k,
+    bool largest = true);
 
 } // namespace nvfuser

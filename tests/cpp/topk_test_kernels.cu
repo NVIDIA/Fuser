@@ -130,8 +130,10 @@ __global__ void multiDim3dTopkTestKernel(
 
   // Store results back to global memory
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    output_values[global_offset + i] = top_values[i];
-    output_indices[global_offset + i] = top_indices[i];
+    if (global_offset + i < k) {
+      output_values[global_offset + i] = top_values[i];
+      output_indices[global_offset + i] = top_indices[i];
+    }
   }
 }
 

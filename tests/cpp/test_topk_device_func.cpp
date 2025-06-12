@@ -22,94 +22,6 @@ namespace nvfuser {
 
 using TopkDeviceFuncTest = NVFuserTest;
 
-template <typename DataT>
-std::vector<DataT> getVector(at::Tensor tensor) {
-  NVF_ERROR_EQ(tensor.dim(), 1);
-  if (tensor.dtype() == at::kBFloat16) {
-    tensor = tensor.to(at::kFloat);
-  }
-  auto cpu_tensor = tensor.cpu();
-  auto total_elements = tensor.size(0);
-  return std::vector<DataT>(
-      cpu_tensor.data_ptr<DataT>(),
-      cpu_tensor.data_ptr<DataT>() + total_elements);
-}
-
-// Helper function to validate topk correctness
-template <typename DataT>
-bool validateTopkOrder(
-    const at::Tensor& input_tensor,
-    const at::Tensor& values_tensor,
-    const at::Tensor& indices_tensor,
-    int64_t k,
-    bool largest = true) {
-  NVF_ERROR_EQ(cudaDeviceSynchronize(), cudaSuccess);
-
-  auto input_data = getVector<DataT>(input_tensor);
-  auto output_values = getVector<DataT>(values_tensor);
-  auto output_indices = getVector<int64_t>(indices_tensor);
-
-  // Check that we have k valid results
-  if (static_cast<int64_t>(output_values.size()) < k ||
-      static_cast<int64_t>(output_indices.size()) < k) {
-    return false;
-  }
-
-  // Check valid indices range
-  for (int64_t i = 0; i < k; i++) {
-    if (output_indices[i] < 0 ||
-        output_indices[i] >= static_cast<int64_t>(input_data.size())) {
-      return false;
-    }
-  }
-
-  // Check values match indices
-  for (int64_t i = 0; i < k; i++) {
-    if (output_values[i] != input_data[output_indices[i]]) {
-      return false;
-    }
-  }
-
-  // Check sorting order of the k elements
-  for (int64_t i = 1; i < k; i++) {
-    if (largest) {
-      // For largest, should be in descending order
-      if (output_values[i] > output_values[i - 1]) {
-        return false;
-      }
-    } else {
-      // For smallest, should be in ascending order
-      if (output_values[i] < output_values[i - 1]) {
-        return false;
-      }
-    }
-  }
-
-  // Check that the returned values are actually the true top-k elements
-  // Sort the input data to get the expected top-k values
-  std::vector<DataT> sorted_input = input_data;
-  if (largest) {
-    std::sort(sorted_input.begin(), sorted_input.end(), std::greater<DataT>());
-  } else {
-    std::sort(sorted_input.begin(), sorted_input.end());
-  }
-
-  // Extract the expected top-k values
-  std::vector<DataT> expected_topk(
-      sorted_input.begin(), sorted_input.begin() + k);
-
-  // Extract the actual returned values (first k elements)
-  std::vector<DataT> actual_topk(
-      output_values.begin(), output_values.begin() + k);
-
-  // Compare the expected and actual top-k values
-  if (expected_topk != actual_topk) {
-    return false;
-  }
-
-  return true;
-}
-
 // Basic functionality test
 TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
   const int BLOCK_SIZE = 4;
@@ -136,8 +48,8 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       k,
       true);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, true));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true));
 
   // Test smallest
   launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
@@ -149,8 +61,8 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       k,
       false);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, false));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, false));
 }
 
 // Variable k values test
@@ -180,8 +92,8 @@ TEST_F(TopkDeviceFuncTest, VariableKValues) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<float>(
-        input_tensor, values_tensor, indices_tensor, k, true))
+    EXPECT_TRUE(
+        validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true))
         << "Failed for k=" << k;
   }
 }
@@ -218,7 +130,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<double>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -241,7 +153,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<int>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -264,7 +176,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<int64_t>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 
@@ -287,7 +199,7 @@ TEST_F(TopkDeviceFuncTest, DataTypeSupport) {
         k,
         true);
 
-    EXPECT_TRUE(validateTopkOrder<float>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor_cast, values_tensor, indices_tensor, k, true));
   }
 }
@@ -300,18 +212,15 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
 
   // Test all same values
   {
-    std::vector<float> test_data = {
-        3.0f, 3.0f, 3.0f, 3.0f, 3.0f, 3.0f, 3.0f, 3.0f};
+    std::vector<float> test_data(total_elements, 3.0f);
     const int k = 3;
 
     auto input_tensor = at::tensor(
         test_data, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
     auto values_tensor = at::empty(
-        {total_elements},
-        at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+        {k}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
     auto indices_tensor = at::empty(
-        {total_elements},
-        at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+        {k}, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
     launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
         at::cuda::getCurrentCUDAStream(),
@@ -323,15 +232,11 @@ TEST_F(TopkDeviceFuncTest, EdgeCases) {
         true);
 
     // Validate correctness and verify all k values should be 3.0f
-    EXPECT_TRUE(validateTopkOrder<float>(
+    EXPECT_TRUE(validateTopkOrder(
         input_tensor, values_tensor, indices_tensor, k, true));
 
     // Additional validation: all k values should be 3.0f
-    auto values_cpu = values_tensor.cpu();
-    std::vector<float> output_values = getVector<float>(values_tensor);
-    for (int i = 0; i < k; i++) {
-      EXPECT_EQ(output_values[i], 3.0f) << "Value mismatch at position " << i;
-    }
+    EXPECT_TRUE((values_tensor == 3.0f).all().item<bool>()) << "Value mismatch";
   }
 }
 
@@ -361,8 +266,8 @@ TEST_F(TopkDeviceFuncTest, MultiDim2dTopkFloat) {
       k,
       true);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, true));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true));
 
   // Test smallest
   launchMultiDim2dTopkTestKernel<float, ITEMS_PER_THREAD>(
@@ -373,8 +278,8 @@ TEST_F(TopkDeviceFuncTest, MultiDim2dTopkFloat) {
       k,
       false);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, false));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, false));
 }
 
 // Multi-dimensional 3D test
@@ -403,8 +308,8 @@ TEST_F(TopkDeviceFuncTest, MultiDim3dTopkFloat) {
       k,
       true);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, true));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, true));
 
   // Test smallest
   launchMultiDim3dTopkTestKernel<float, ITEMS_PER_THREAD>(
@@ -415,8 +320,8 @@ TEST_F(TopkDeviceFuncTest, MultiDim3dTopkFloat) {
       k,
       false);
 
-  EXPECT_TRUE(validateTopkOrder<float>(
-      input_tensor, values_tensor, indices_tensor, k, false));
+  EXPECT_TRUE(
+      validateTopkOrder(input_tensor, values_tensor, indices_tensor, k, false));
 }
 
 } // namespace nvfuser
