@@ -2198,7 +2198,7 @@ void test_op(
       std::make_index_sequence<size>{});
 }
 
-TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
+TEST_F(NVFuserTest, UnaryOps) {
   using OpTuple =
       std::tuple<at::Tensor (*)(const at::Tensor&), UnaryOpType, std::string>;
 
@@ -2355,7 +2355,7 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
+TEST_F(NVFuserTest, BinaryOps) {
   using AtenFuncSig = at::Tensor (*)(const at::Tensor&, const at::Tensor&);
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
@@ -2528,7 +2528,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
+TEST_F(NVFuserTest, TernaryOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2613,7 +2613,7 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
+TEST_F(NVFuserTest, CompoundOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2665,7 +2665,7 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
+TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
       {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
   std::vector<DataType> cast_targets(
@@ -2756,6 +2756,51 @@ TEST_F(NVFuserTest, BitCeilKernel) {
 
   EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
 }
+
+using Float4E2m1TestParams = std::tuple<int64_t>;
+
+class Float4E2m1Test : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
+ protected:
+  int64_t vectorize_factor;
+  void SetUp() {
+    std::tie(vectorize_factor) = GetParam();
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
+  }
+};
+
+TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, vectorize_factor);
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Float4E2m1Test,
+    testing::Values(1, 2, 4, 8, 16, 32),
+    [](const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
+      const auto& [vectorize_factor] = info.param;
+      return "Vectorize" + std::to_string(vectorize_factor);
+    });
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
@@ -6397,10 +6442,12 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
       "");
 
   // tv11 and tv17 should not be predicated. See issue #496
-  ASSERT_FALSE(PredicatedChecker::isPredicated(
-      11, cg_results.kernel_executor->compiledKernel()->kernel()));
-  ASSERT_FALSE(PredicatedChecker::isPredicated(
-      17, cg_results.kernel_executor->compiledKernel()->kernel()));
+  ASSERT_FALSE(
+      PredicatedChecker::isPredicated(
+          11, cg_results.kernel_executor->compiledKernel()->kernel()));
+  ASSERT_FALSE(
+      PredicatedChecker::isPredicated(
+          17, cg_results.kernel_executor->compiledKernel()->kernel()));
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormalization_CUDA) {
