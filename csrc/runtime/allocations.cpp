@@ -175,6 +175,14 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
   }
+  if (tv->dtype() == DataType::Float4_e2m1 && !concrete_sizes.empty()) {
+    int64_t last_dim = concrete_sizes[concrete_sizes.size() - 1];
+    NVF_ERROR(
+        last_dim % 2 == 0,
+        "Last dimension of Float4_e2m1 tensor must be even, but got ",
+        last_dim);
+    concrete_sizes[concrete_sizes.size() - 1] = last_dim / 2;
+  }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
 
