@@ -2288,22 +2288,43 @@ TensorView* grouped_mm(TensorView* mat1, TensorView* mat2, TensorView* offsets) 
   // For simplicity, assume same structure as mat1 for batch dimensions
   auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
   auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  auto offs_domain = TensorDomain::noReductions(offsets->getLogicalDomain());
+
+  NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
 
   std::vector<IterDomain*> out_domain;
   
   // For grouped MM, determine output shape based on mat1 and mat2 structures
-  // This is a simplified version - actual implementation may vary
-  if (mat1->nDims() == 3) {
-    // Batched case: [batch, m, k] x [batch, k, n] -> [batch, m, n]
+  // case 1:
+  //   mat1   [m, k]
+  //   mat2   [k, n]
+  //   offset [g]
+  //   output -> [g, m, n]
+  // case 2:
+  //   mat1   [g, m, k]
+  //   mat2   [k, n]
+  //   offset [g]
+  //   output -> [m, n]
+  // case 3:
+  //   mat1   [m, k]
+  //   mat2   [g, k, n]
+  //   offset [g]
+  //   output -> [m, n]
+  if (mat1->nDims() == 2 && mat2->nDims() == 2) {
     out_domain.reserve(3);
-    out_domain.push_back(
-        mat1_domain[0]->isBroadcast() ? mat2_domain[0]->cloneWithoutRFactor()
-                                      : mat1_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(offs_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+  } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
+    out_domain.reserve(2);
     out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+  } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
+    out_domain.reserve(2);
+    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
     out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
   } else {
-    // General case: adapt based on dimensions
-    NVF_ERROR(false, "Only 3D tensors supported in grouped_mm for now");
+    NVF_ERROR(false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
   }
 
   TensorView* out = IrBuilder::create<TensorView>(
