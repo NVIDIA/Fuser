@@ -369,8 +369,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     } else if (producer_tv_->sameAs(op->offsets())) {
       // mapping g dimension;
       if (ndims_out == 3) {
-        index_in = 0
-        index_out = 0
+        index_in = 0;
+        index_out = 0;
         mapped = true;
       }
     }
