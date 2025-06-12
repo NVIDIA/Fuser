@@ -741,7 +741,7 @@ void KernelExecutor::initializeExecutorEntry(
       GlobalBufferInfo info{
           input_tv,
           shape_info,
-          serde::mapToDtypeStruct(input_tv->dtype()),
+          input_tv->dtype(),
           false,
           false,
           false};
