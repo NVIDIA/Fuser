@@ -71,8 +71,8 @@ struct CudaType<__bfloat> {
 // thread
 // - top_indices: Output array containing original indices of top-K values
 // - Each thread holds exactly ITEMS_PER_THREAD elements in both output arrays
-// - In the actual nvFuser-generated kernel, only the first k elements of each
-//   thread's output arrays should be used (via predication)
+// - In the actual nvFuser-generated kernel, only the first k elements
+//   that correspond to the logical domain should be used (via predication)
 // - This implementation sorts ALL elements and returns them in the output
 //   arrays, but the consuming kernel should only read the first k elements
 template <

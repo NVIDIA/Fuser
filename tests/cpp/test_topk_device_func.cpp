@@ -121,14 +121,10 @@ TEST_F(TopkDeviceFuncTest, BasicTopkFloat) {
       {total_elements},
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
 
-  // Note that the output arrays are the same size as the input array
-  // since the CUB-based topk requires the same size of output arrays.
   auto values_tensor = at::empty(
-      {total_elements},
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
-  auto indices_tensor = at::empty(
-      {total_elements},
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+      {k}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto indices_tensor =
+      at::empty({k}, at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
 
   // Test largest
   launchBasicTopkTestKernel<float, ITEMS_PER_THREAD>(
