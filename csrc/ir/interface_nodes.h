@@ -228,6 +228,7 @@ inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
 struct WarpSpecialized {
   ParallelType on = ParallelType::Serial;
   // The number of registers for load and compute warps respectively.
+  // TODO: describe the behavior when multiple-role is used.
   std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
   // The iterDomain position to define the shape of the circular buffer stage.
   std::optional<int64_t> stage_slice_position = std::nullopt;
