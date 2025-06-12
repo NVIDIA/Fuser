@@ -1589,7 +1589,7 @@ int64_t dataTypeSizeBit(DataType type) {
         if constexpr (std::is_same_v<T, PrimDataType>) {
           return primDataTypeSizeBit(dtype);
         } else if constexpr (std::is_same_v<T, PointerType>) {
-          return sizeof(void*);
+          return sizeof(void*) * 8;
         } else if constexpr (std::is_same_v<T, ArrayType>) {
           return dataTypeSizeBit(*dtype.type) * dtype.size;
         } else if constexpr (std::is_same_v<T, StructType>) {
@@ -1602,7 +1602,7 @@ int64_t dataTypeSizeBit(DataType type) {
           }
           return size;
         } else if constexpr (std::is_same_v<T, OpaqueType>) {
-          return dtype.size;
+          return dtype.size * 8;
         }
         NVF_THROW("Size undefined for data type.");
       },
