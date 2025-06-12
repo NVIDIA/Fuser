@@ -327,9 +327,8 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
   for (auto tv : p_of_reductions) {
     // must exists in both set, not same as inner_bcast_tv, and
     // has multiple consumers, i.e., exclude chain unary ops from
-    // inner_bcast_tv to the actual persistent tv.
-    if (c_of_reductions.count(tv) && tv != inner_bcast_tv &&
-        ir_utils::consumerTvsOf(tv).size() > 1) {
+    // start_tv to the actual persistent tv.
+    if (c_of_reductions.count(tv) && ir_utils::consumerTvsOf(tv).size() > 1) {
       res.push_back(tv);
     }
   }

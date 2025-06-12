@@ -3091,11 +3091,11 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
   return tv;
 }
 
-bool isSymbolicTv(const TensorView* tv) {
+bool isConcreteTensor(const TensorView* tv) {
   return std::any_of(
       tv->getLogicalDomain().begin(),
       tv->getLogicalDomain().end(),
-      [](IterDomain* id) { return id->isSymbolic(); });
+      [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
 } // namespace scheduler_utils

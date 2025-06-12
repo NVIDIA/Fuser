@@ -32,7 +32,7 @@ bool preferWarpSpecialized(Fusion* fusion) {
   // static CTA size
   auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   if (std::any_of(inp_tvs.begin(), inp_tvs.end(), [](TensorView* tv) {
-        return scheduler_utils::isSymbolicTv(tv);
+        return scheduler_utils::isConcreteTensor(tv);
       })) {
     return false;
   }
