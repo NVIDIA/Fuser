@@ -3156,7 +3156,7 @@ void validateLoopDomain(
   reference.reserve(logical_domain.size() + additional_ids.size());
   reference.insert(
       reference.end(), logical_domain.begin(), logical_domain.end());
-  // additional_ids are also considered part of the refernece domain
+  // additional_ids are also considered part of the reference domain
   reference.insert(
       reference.end(), additional_ids.begin(), additional_ids.end());
 
@@ -3323,12 +3323,56 @@ TensorDomain::TensorDomain(
   resetDomains();
 }
 
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<IterDomain*> allocation_domain,
+    std::vector<IterDomain*> loop_domain,
+    std::optional<std::vector<IterDomain*>> alternate_loop_domain,
+    std::vector<std::optional<bool>> contiguity,
+    std::vector<IterDomain*> additional_ids)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      logical_domain_(std::move(logical_domain)),
+      allocation_domain_(std::move(allocation_domain)),
+      loop_domain_(std::move(loop_domain)),
+      alternate_loop_domain_(alternate_loop_domain),
+      initial_loop_domain_(loop_domain_),
+      additional_ids_(std::move(additional_ids)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  if (!root_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
+  }
+  if (!allocation_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, allocation_domain_, additional_ids_);
+  }
+  if (alternate_loop_domain_.has_value()) {
+    validateLoopDomain(
+        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+  }
+
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
 TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(src->root_domain_),
       logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
       loop_domain_(src->loop_domain_),
+      alternate_loop_domain_(src->alternate_loop_domain_),
       initial_loop_domain_(src->initial_loop_domain_),
       additional_ids_(src->additional_ids_),
       no_bcast_domain_(src->no_bcast_domain_),
@@ -3342,6 +3386,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
       loop_domain_(ir_cloner->clone(src->loop_domain_)),
+      alternate_loop_domain_(ir_cloner->clone(src->alternate_loop_domain_)),
       initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
       additional_ids_(ir_cloner->clone(src->additional_ids_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
@@ -3371,6 +3416,7 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
   // derived from domain_.
   return root_domain_ == other.root_domain_ &&
       loop_domain_ == other.loop_domain_ &&
+      alternate_loop_domain_ == other.alternate_loop_domain_ &&
       logical_domain_ == other.logical_domain_ &&
       allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
@@ -3430,7 +3476,24 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     }
   }
 
-  return true;
+  // this_td has_value is not the same as other_td
+  if (alternateLoop().has_value() != other_td->alternateLoop().has_value()) {
+    return false;
+  }
+
+  // has_value is false for both this_td and other_td
+  if (!alternateLoop().has_value() && !other_td->alternateLoop().has_value()) {
+    return true;
+  }
+
+  // has_value is true for both this_td and other_td, so verify that all
+  // iterDomains are the same.
+  return std::ranges::all_of(
+      std::ranges::iota_view{0LL, (int64_t)alternateLoop().value().size()},
+      [&](int64_t i) {
+        return alternateLoop().value()[i]->sameAs(
+            other_td->alternateLoop().value()[i]);
+      });
 }
 
 bool TensorDomain::sameAs(
@@ -3466,6 +3529,11 @@ std::string TensorDomain::toString(const int indent_size, const bool loop_only)
       indent(ss, indent_size + 1)
           << "allocation=[" << toDelimitedString(allocation()) << "]"
           << std::endl;
+    }
+    if (alternateLoop().has_value()) {
+      indent(ss, indent_size + 1)
+          << "alternate_loop=[" << toDelimitedString(alternateLoop().value())
+          << "]" << std::endl;
     }
   }
   return ss.str();
@@ -3909,6 +3977,12 @@ void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
   resetDomains();
 }
 
+void TensorDomain::setAlternateLoopDomain(
+    std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  alternate_loop_domain_ = std::move(new_loop_domain);
+}
+
 void TensorDomain::setAllocationDomain(
     std::vector<IterDomain*> new_allocation_domain,
     std::vector<std::optional<bool>> new_contiguity) {
@@ -3922,13 +3996,16 @@ void TensorDomain::setAllocationDomain(
 }
 
 std::vector<IterDomain*> TensorDomain::allIDs() const {
-  std::array<const std::vector<IterDomain*>*, 6> all_domains = {
+  std::vector<const std::vector<IterDomain*>*> all_domains = {
       &loop_domain_,
       &logical_domain_,
       &root_domain_,
       &initial_loop_domain_,
       &allocation_domain_,
       &additional_ids_};
+  if (alternate_loop_domain_.has_value()) {
+    all_domains.push_back(&alternate_loop_domain_.value());
+  }
   VectorOfUniqueEntries<IterDomain*> discovered_ids;
   for (auto domain : all_domains) {
     discovered_ids.pushBack(*domain);
