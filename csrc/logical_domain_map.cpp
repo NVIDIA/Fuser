@@ -358,19 +358,19 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     int index_out = -1;
     if (producer_tv_->sameAs(op->mat1())) {
       // mapping m dimension;
-      index_in = std::ssize(producer_logical.size()) - 2;
-      index_out = std::ssize(consumer_root.size()) - 2;
+      index_in = std::ssize(producer_logical) - 2;
+      index_out = std::ssize(consumer_root) - 2;
       mapped = true;
     } else if (producer_tv_->sameAs(op->mat2())) {
       // mapping k dimension;
-      index_in = std::ssize(producer_logical.size()) - 1;
-      index_out = std::ssize(consumer_root.size()) - 1;
+      index_in = std::ssize(producer_logical) - 1;
+      index_out = std::ssize(consumer_root) - 1;
       mapped = true;
     } else if (producer_tv_->sameAs(op->offsets())) {
       // mapping g dimension;
       if (ndims_out == 3) {
-        index_in = std::ssize(producer_logical.size()) - 1;
-        index_out = std::ssize(consumer_root.size()) - 1;
+        index_in = 0
+        index_out = 0
         mapped = true;
       }
     }
