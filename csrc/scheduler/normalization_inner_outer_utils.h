@@ -30,15 +30,6 @@ int64_t roundUpSharedMemory(
     int64_t threads_per_block_max,
     int64_t threads_per_block_step);
 
-// Return the broadcast tvs that are broadcast to the iteration dimensions of
-// the inner reduction tv. These tvs are reused in the loop over the iteration
-// dimension. This reuse reduced the number loads from gmem and this tensor
-// is likely the first candidate to be moved to shared memory when the register
-// space runs low.
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs);
-
 // Size of buffers storing intermediate outer reduction results
 // TODO: check if we can directly start with [buffer_size = 1]
 int64_t partialOuterReductionBufferSize(

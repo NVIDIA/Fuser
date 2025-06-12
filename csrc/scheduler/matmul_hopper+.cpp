@@ -1097,6 +1097,7 @@ void Blackwell::scheduleEpilogueWithSmemEpilogue() {
       for (int64_t i = -5; i <= -1; i++) {
         c_cache->axis(i)->parallelize(ParallelType::Bulk);
       }
+      propagate_to.push_back(c_cache);
 
       // Schedule smem->register load for epilogue input
       TensorView* reg_tv = cacheAfter(c_cache);
