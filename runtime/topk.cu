@@ -88,8 +88,8 @@ struct NvFuserType<__bfloat> {
 // fused_reduction.cu and argsort.cu
 //
 // For simplicity, we assume that:
-// - top_values: Output array containing ITEMS_PER_THREAD top-K values per
-// thread
+// - top_values: Output array containing top-K values. Each thread holds
+//   ITEMS_PER_THREAD values.
 // - top_indices: Output array containing original indices of top-K values
 // - Each thread holds exactly ITEMS_PER_THREAD elements in both output arrays
 // - In the actual nvFuser-generated kernel, only the first k elements
