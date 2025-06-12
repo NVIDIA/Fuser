@@ -1889,12 +1889,12 @@ def bmm_error_generator(
     # Wrong number of dimensions for mat1
     yield SampleInput(
         make_arg((4, 3)), make_arg((2, 3, 4))
-    ), RuntimeError, "BatchedMMOp \\(bmm\\) expects mat1 to be 3-dimensional"
+    ), RuntimeError, "bmm expects 3D tensors but got"
 
     # Wrong number of dimensions for mat2
     yield SampleInput(
         make_arg((2, 4, 3)), make_arg((4, 5))
-    ), RuntimeError, "BatchedMMOp \\(bmm\\) expects mat2 to be 3-dimensional"
+    ), RuntimeError, "bmm expects 3D tensors but got"
 
     # Note that this problem shows up in nvfuser shape propagation.
     # Mismatched batch sizes
@@ -1902,8 +1902,8 @@ def bmm_error_generator(
         make_arg((2, 4, 3)), make_arg((3, 3, 5))
     ), RuntimeError, "a conflict was found with"
 
-    # Note that this problem shows up in aten fallback. Since we are not mapping the K dimension across the two inputs.
-    # Incompatible inner dimensions for matrix multiplication
+    # Note that this problem shows up in nvfuser shape propagation.
+    # Mismatched k sizes
     yield SampleInput(
         make_arg((2, 4, 3)), make_arg((2, 5, 6))
-    ), RuntimeError, "Expected size for first two dimensions of batch2 tensor"
+    ), RuntimeError, "a conflict was found with"
