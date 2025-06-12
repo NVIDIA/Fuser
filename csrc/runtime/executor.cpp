@@ -546,7 +546,7 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
     auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
-    info.type = data_type_to_aten(dtype);
+    info.type = dtype;
 
     // Remember the tensor buffer used for storing kernel profile
     if (isOptionEnabled(EnableOption::KernelProfile) &&
@@ -741,7 +741,7 @@ void KernelExecutor::initializeExecutorEntry(
       GlobalBufferInfo info{
           input_tv,
           shape_info,
-          data_type_to_aten(input_tv->dtype()),
+          input_tv->dtype(),
           false,
           false,
           false};
@@ -765,7 +765,7 @@ void KernelExecutor::initializeExecutorEntry(
           "Output is not populated or not a Tensor");
       const auto& output_tensor = output_args[output_idx].as<at::Tensor>();
       GlobalBufferInfo info;
-      info.type = output_tensor.scalar_type();
+      info.type = aten_to_data_type(output_tensor.scalar_type());
       auto out_val = compiled_kernel_->kernel()->outputs()[output_idx];
       NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
       info.tv = out_val->as<TensorView>();

@@ -33,7 +33,7 @@ struct TensorShapeInfo {
 struct GlobalBufferInfo {
   TensorView* tv = nullptr;
   TensorShapeInfo shape_info;
-  at::ScalarType type = at::ScalarType::Undefined;
+  DataType type = DataType::Null;
   bool zero_init = false;
   bool resets_to_zero = false;
   bool is_profile_buffer = false;
