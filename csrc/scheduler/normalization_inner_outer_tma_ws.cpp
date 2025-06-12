@@ -222,10 +222,6 @@ void getHeuristics(
   rparams->is_non_circular_buffer_gmem_to_regs = true;
   rparams->is_circular_buffer_regs_cached = true;
 
-  // Set the newly added parameters for TMA warp specialized
-  rparams->is_non_circular_buffer_gmem_to_regs = true;
-  rparams->is_circular_buffer_regs_cached = true;
-
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,
