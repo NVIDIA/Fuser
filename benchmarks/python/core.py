@@ -102,24 +102,24 @@ class NVFBenchmark:
                 Set explicitly to avoid timer calibration.
 
         Class members:
-            self.prof: torch.profiler instance used as by the custom torchprofile_timer for the current benchmark
-            self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
-            self.current_time: Global montonic clock incremented based on elapsed CUDA time
+            self.device: Device type -- "cuda" or "host"
+            self.benchmark: Underlying pytest-benchmark fixture
         """
         self.device = device
-
         if not BENCHMARK_CONFIG["with_nsys"]:
-            # Modify the default timer.
-            if device == "cuda":
-                benchmark_fixture._timer = CuptiTimer()
-            else:
-                benchmark_fixture._timer = FusionProfileTimer()
-            # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
-            # calibration using subsequent timer calls produces invalid results.
-            # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
-            benchmark_fixture._precisions[benchmark_fixture._timer] = precision
-
+            self._setup_timer(benchmark_fixture, device, precision)
         self.benchmark = benchmark_fixture
+
+    def _setup_timer(self, benchmark_fixture, device: str, precision: float):
+        """Setup the appropriate timer based on device type."""
+        # Timer selection based on device
+        timer_class = CuptiTimer if device == "cuda" else FusionProfileTimer
+        benchmark_fixture._timer = timer_class()
+
+        # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
+        # calibration using subsequent timer calls produces invalid results.
+        # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
+        benchmark_fixture._precisions[benchmark_fixture._timer] = precision
 
     def __call__(self, function_to_benchmark: Callable, *args, **kwargs):
         return self.benchmark(function_to_benchmark, *args, **kwargs)
@@ -129,9 +129,11 @@ class NVFBenchmark:
             return getattr(self.benchmark, attr)
         return super().__getattr__(attr)
 
-    # Set the fd object for fusion profiling.
-    # fd is returned by setup() for host benchmarking.
     def set_fd(self, fd):
+        """
+        Set the fd object for fusion profiling.
+        fd is returned by setup() for host benchmarking.
+        """
         assert isinstance(self._timer, FusionProfileTimer)
         self._timer.set_fd(fd)
 
@@ -146,7 +148,7 @@ class NVFBenchmark:
         iobytes: int = None,
     ) -> None:
         """
-        Utility function to compute metrics for the target function.
+        Compute metrics for the target function when device = "cuda".
 
         Args:
             inputs: Inputs to the target function

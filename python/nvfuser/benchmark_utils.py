@@ -18,6 +18,7 @@ except ImportError:
 
 try:
     import cxxfilt
+
     def demangle_kernel_name(mangled_name):
         try:
             return cxxfilt.demangle(mangled_name)
@@ -45,6 +46,15 @@ class Timer:
         pass
 
 
+def cupti_call_safe(func, *args):
+    """Wrapper for CUPTI calls. Failing CUPTI calls will exit the program."""
+    try:
+        return func(*args)
+    except Exception as e:
+        print(f"CUPTI call {func.__name__} failed: {e}")
+        sys.exit(1)
+
+
 class CuptiProfiler:
     # List of activities to be recorded by CUPTI.
     activity_kinds = [
@@ -52,24 +62,15 @@ class CuptiProfiler:
     ]
     _subscriber_handle = None
 
-    # Failing CUPTI calls will exit the program.
-    @staticmethod
-    def with_error_handling(func, *args):
-        try:
-            return func(*args)
-        except Exception as e:
-            print(f"CUPTI call {func.__name__} failed: {e}")
-            sys.exit(1)
-
     @staticmethod
     def enable_cupti_activities():
         for activity_kind in CuptiProfiler.activity_kinds:
-            CuptiProfiler.with_error_handling(cupti.activity_enable, activity_kind)
+            cupti_call_safe(cupti.activity_enable, activity_kind)
 
     @staticmethod
     def disable_cupti_activities():
         for activity_kind in CuptiProfiler.activity_kinds:
-            CuptiProfiler.with_error_handling(cupti.activity_disable, activity_kind)
+            cupti_call_safe(cupti.activity_disable, activity_kind)
 
     @staticmethod
     def func_buffer_requested():
@@ -93,23 +94,21 @@ class CuptiProfiler:
         self.profiler_output = []
 
         # Subscribe to CUPTI and register activity callbacks.
-        CuptiProfiler._subscriber_handle = CuptiProfiler.with_error_handling(
-            cupti.subscribe, None, None
-        )
-        CuptiProfiler.with_error_handling(
+        CuptiProfiler._subscriber_handle = cupti_call_safe(cupti.subscribe, None, None)
+        cupti_call_safe(
             cupti.activity_register_callbacks,
             self.func_buffer_requested,
             self.func_buffer_completed,
         )
 
     def start(self):
-        CuptiProfiler.with_error_handling(cupti.activity_flush_all, 1)
+        cupti_call_safe(cupti.activity_flush_all, 1)
         self.profiler_output = []
         self.enable_cupti_activities()
 
     def stop(self):
         self.disable_cupti_activities()
-        CuptiProfiler.with_error_handling(cupti.activity_flush_all, 0)
+        cupti_call_safe(cupti.activity_flush_all, 0)
         return self.profiler_output
 
     @classmethod
@@ -117,8 +116,8 @@ class CuptiProfiler:
         if cls._subscriber_handle is None:
             return
 
-        CuptiProfiler.with_error_handling(cupti.unsubscribe, cls._subscriber_handle)
-        CuptiProfiler.with_error_handling(cupti.finalize)
+        cupti_call_safe(cupti.unsubscribe, cls._subscriber_handle)
+        cupti_call_safe(cupti.finalize)
         cls._subscriber_handle = None
 
 
