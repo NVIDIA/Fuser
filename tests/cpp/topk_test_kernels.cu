@@ -31,10 +31,6 @@ namespace nvf {
 
 namespace nvfuser {
 
-//============================================================================
-// Fixed template parameter kernels (avoiding dynamic template instantiation)
-//============================================================================
-
 // Basic topk test kernel with configurable block size
 template <int BLOCK_SIZE, typename DataT, int ITEMS_PER_THREAD>
 __global__ void basicTopkTestKernel(
