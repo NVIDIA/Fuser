@@ -1842,7 +1842,9 @@ def grouped_mm_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    make_index = partial(torch.tensor, device="cuda", dtype=torch.int, requires_grad=False)
+    make_index = partial(
+        torch.tensor, device="cuda", dtype=torch.int, requires_grad=False
+    )
 
     # FIXME: enable test cases when switched to cublas fallback
     # TODO: expand the test when kernel restrictions are lifted
