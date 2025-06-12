@@ -315,7 +315,7 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     info.tv = out->as<TensorView>();
     info.shape_info = inferTensorShapes(info.tv, expr_eval);
     auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype() == DataType::Float4_e2m1 ? DataType::Byte : info.tv->dtype());
     info.type = data_type_to_aten(dtype);
 
     output_buffer_infos.emplace_back(info);

@@ -1320,7 +1320,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::ComplexDouble:
       return at::ScalarType::ComplexDouble;
     default:
-      NVF_THROW("No data type found for scalar type.");
+      NVF_THROW("No data type found for scalar type:", data_type);
   }
 }
 
