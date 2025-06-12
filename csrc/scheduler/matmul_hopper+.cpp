@@ -1356,7 +1356,7 @@ void Blackwell::setUpCircularBuffering() {
       mma_result->circularBuffer(
           params_->circular_buffer_options.mma_circular_buffer_stage,
           /*prefetch_distance=*/
-          params_->circular_buffer_options.mma_circular_buffer_stage - 1
+          params_->circular_buffer_options.mma_circular_buffer_stage - 1,
           /*type=*/cb_type);
     }
   }
