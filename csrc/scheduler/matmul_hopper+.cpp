@@ -1285,7 +1285,7 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
             std::make_pair(
                 num_registers_async_warp, num_registers_compute_warp));
       }
-    }
+  }
   NVF_ERROR(false, "Invalid circular buffer type");
 }
 
