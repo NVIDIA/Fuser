@@ -741,7 +741,7 @@ void KernelExecutor::initializeExecutorEntry(
       GlobalBufferInfo info{
           input_tv,
           shape_info,
-          input_tv->dtype(),
+          serde::mapToDtypeStruct(input_tv->dtype()),
           false,
           false,
           false};
@@ -1656,7 +1656,7 @@ GlobalBufferInfo KernelExecutor::deserialize(
 
   info.shape_info = shape_info;
 
-  info.type = buffer->dtype();
+  info.type = serde::mapToDtypeStruct(buffer->dtype());
   info.zero_init = buffer->zero_init();
   info.resets_to_zero = buffer->resets_to_zero();
   info.is_profile_buffer = buffer->is_profile_buffer();
