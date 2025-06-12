@@ -197,7 +197,7 @@ class HopperPlus : public Common {
 
   void setUpInlining();
 
-  void setUpCircularBuffering();
+  virtual void setUpCircularBuffering();
 
   void setOperandSmemLoadAndCacheOps(TensorView* operand, int64_t vec_size)
       final;
@@ -238,6 +238,7 @@ class Blackwell : public HopperPlus {
   void scheduleEpilogueWithoutSmemEpilogue() final;
   void scheduleEpilogueWithSmemEpilogue() final;
   void scheduleSplitKSum() final;
+  void setUpCircularBuffering() final;
 };
 
 } // namespace schedule_matmul

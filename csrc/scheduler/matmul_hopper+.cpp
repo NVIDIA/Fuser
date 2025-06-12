@@ -26,6 +26,7 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
+#include "matmul_hopper+.h"
 #include "mma_type.h"
 
 namespace nvfuser {
@@ -1330,6 +1331,35 @@ void HopperPlus::setUpCircularBuffering() {
 
   // NOTE: circular_buffer_smem_read is ignored for Hopper+ matmul since we do
   // not do any cache reads
+}
+
+void Blackwell::setUpCircularBuffering() {
+  HopperPlus::setUpCircularBuffering();
+
+  if (params_->circular_buffer_options.circular_buffer_mma) {
+    NVF_ERROR(
+        params_->circular_buffer_options.mma_circular_buffer_stage > 0,
+        "Invalid buffer stage config")
+
+    CircularBufferType cb_type;
+    switch (params_->circular_buffering_strategy) {
+      case MatmulParams::CircularBufferingStrategy::Pipelined: {
+        cb_type = (CircularBufferType)Pipelined(false);
+        break;
+      }
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        break;
+      }
+    }
+    for (TensorView* mma_result : mma_results_) {
+      mma_result->circularBuffer(
+          params_->circular_buffer_options.mma_circular_buffer_stage,
+          /*prefetch_distance=*/
+          params_->circular_buffer_options.mma_circular_buffer_stage - 1
+          /*type=*/cb_type);
+    }
+  }
 }
 
 void HopperPlus::setOperandSmemLoadAndCacheOps(

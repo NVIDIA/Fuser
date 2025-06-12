@@ -14,6 +14,7 @@
 #include <functional>
 
 #include <sstream>
+#include <string>
 #include "type.h"
 
 namespace nvfuser {
@@ -31,6 +32,7 @@ class MatmulParams : public HeuristicParams {
   struct CircularBufferOptions {
     bool circular_buffer_smem_write = false;
     bool circular_buffer_smem_read = false;
+    bool circular_buffer_mma = false;
     // This parameter controls the number of circular
     // buffering stages to use when loading operands a and b.
     //
@@ -40,6 +42,7 @@ class MatmulParams : public HeuristicParams {
     // Note that whenever circular_buffer_smem_write is true, this value must be
     // greater than one. Otherwise it is ignored.
     int smem_circular_buffer_stage = 2;
+    int mma_circular_buffer_stage = 2;
 
     // The circular buffering prefetch distance will be set to
     //   smem_circular_buffer_stage - smem_circular_buffer_prefetch_gap
@@ -50,7 +53,9 @@ class MatmulParams : public HeuristicParams {
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
+          other.circular_buffer_mma == circular_buffer_mma &&
           other.smem_circular_buffer_stage == smem_circular_buffer_stage &&
+          other.mma_circular_buffer_stage == mma_circular_buffer_stage &&
           other.smem_circular_buffer_prefetch_gap ==
           smem_circular_buffer_prefetch_gap;
     }
@@ -62,7 +67,9 @@ class MatmulParams : public HeuristicParams {
          << (circular_buffer_smem_write ? "true" : "false") << "\n"
          << "  circular_buffer_smem_read: "
          << (circular_buffer_smem_read ? "true" : "false") << "\n"
+         << "  circular_buffer_mma: " << (circular_buffer_mma ? "true" : "false") << "\n"
          << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage
+         << "  mma_circular_buffer_stage: " << mma_circular_buffer_stage
          << "\n"
          << "  smem_circular_buffer_prefetch_gap: "
          << smem_circular_buffer_prefetch_gap;
@@ -71,10 +78,12 @@ class MatmulParams : public HeuristicParams {
 
     size_t hash() const {
       return std::hash<size_t>{}(
-                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 3) |
-                 (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
-                 (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
-          (static_cast<size_t>(circular_buffer_smem_read));
+          (static_cast<size_t>(mma_circular_buffer_stage) << 16) |
+                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 8) |
+                 (static_cast<size_t>(smem_circular_buffer_stage) << 3) |
+                 (static_cast<size_t>(circular_buffer_smem_write)) << 2) |
+          (static_cast<size_t>(circular_buffer_smem_read) << 1) |
+          (static_cast<size_t>(circular_buffer_mma));
     }
   };
 
