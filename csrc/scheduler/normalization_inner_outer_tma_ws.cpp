@@ -854,12 +854,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         } else {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Unroll);
         }
-        const auto& grouped_reduction_persistent_tvs =
-            inner_outer_utils::getGroupedReductionPersistentTvs(
-                fusion, cached_tv, reduction_tvs);
-        for (auto gp_tv : grouped_reduction_persistent_tvs) {
-          tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
-        }
       }
     }
 

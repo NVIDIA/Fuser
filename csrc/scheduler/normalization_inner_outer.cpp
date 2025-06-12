@@ -24,7 +24,7 @@ namespace {
 // Prioritize warp specialized approach if possible
 bool preferWarpSpecialized(
     Fusion* fusion,
-    const ReductionTvProperties& properties,
+    int64_t total_iteration_numel,
     int64_t n_inner_reduction_tvs) {
   // False, for pre-Blackwell GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
@@ -47,7 +47,7 @@ bool preferWarpSpecialized(
   // - RMS Norm Bwd: ≤16 rows per SM, Layer Norm Bwd: ≤4 rows per SM
   int64_t sm_count =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  int64_t rows_per_sm = ceilDiv(properties.total_iteration_numel, sm_count);
+  int64_t rows_per_sm = ceilDiv(total_iteration_numel, sm_count);
   bool is_layer_norm = n_inner_reduction_tvs > 1;
   int64_t prefered_rows_per_sm = is_layer_norm ? 16 : 4;
   if (rows_per_sm <= prefered_rows_per_sm) {
@@ -159,7 +159,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   };
 
   if (hp.is_warp_specialized ||
-      preferWarpSpecialized(fusion, properties, n_inner_reduction_tvs)) {
+      preferWarpSpecialized(
+          fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
     auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
     auto rparams = makeRParams();
     rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
