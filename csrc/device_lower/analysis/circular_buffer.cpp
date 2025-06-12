@@ -429,6 +429,10 @@ void CircularBufferInfo::setCircularBufferOptions(
     IterDomain* id,
     const CircularBufferOptions& opt) {
   auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
+  std::cout << "setCircularBufferOptions: " << std::endl;
+  std::cout << "id: " << id->toString() << std::endl;
+  std::cout << "concrete_loop_id: " << concrete_loop_id->toString() << std::endl;
+  std::cout << "opt: " << opt.toString() << std::endl;
   NVF_ERROR(concrete_loop_id != nullptr);
 
   auto maybe_existing_depth_it =
