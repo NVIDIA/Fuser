@@ -592,35 +592,35 @@ class VectorizeValidator : public OptInDispatch {
         tv);
 
     auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
-    auto vector_size =
-        dataTypeSizeByte(
+    auto vector_size_bit =
+        dataTypeSizeBit(
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
     // Except for TMem, allow half2, float2, float4 and same sized vtypes.
-    std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
-    // TMem can vectorize up to 512 bytes.
+    std::vector<int64_t> allowed_vector_sizes_bit = {16, 32, 64, 128};
+    // TMem can vectorize up to 4096 bits.
     bool is_tmem = false;
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
         (ldst->opType() == LoadStoreOpType::LdTMem ||
          ldst->opType() == LoadStoreOpType::StTMem)) {
-      allowed_vector_sizes.push_back(32);
-      allowed_vector_sizes.push_back(64);
-      allowed_vector_sizes.push_back(128);
-      allowed_vector_sizes.push_back(256);
-      allowed_vector_sizes.push_back(512);
+      allowed_vector_sizes_bit.push_back(256);
+      allowed_vector_sizes_bit.push_back(512);
+      allowed_vector_sizes_bit.push_back(1024);
+      allowed_vector_sizes_bit.push_back(2048);
+      allowed_vector_sizes_bit.push_back(4096);
       is_tmem = true;
     }
 
     NVF_CHECK(
         std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
+            allowed_vector_sizes_bit.begin(),
+            allowed_vector_sizes_bit.end(),
+            vector_size_bit) != allowed_vector_sizes_bit.end(),
         "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
+        vector_size_bit,
         " however, vector sizes only upto and including ",
-        is_tmem ? "512 bytes" : "16 bytes",
+        is_tmem ? "4096 bits" : "128 bits",
         " are supported.");
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(

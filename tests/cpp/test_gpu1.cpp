@@ -2198,7 +2198,7 @@ void test_op(
       std::make_index_sequence<size>{});
 }
 
-TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
+TEST_F(NVFuserTest, UnaryOps) {
   using OpTuple =
       std::tuple<at::Tensor (*)(const at::Tensor&), UnaryOpType, std::string>;
 
@@ -2355,7 +2355,7 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
+TEST_F(NVFuserTest, BinaryOps) {
   using AtenFuncSig = at::Tensor (*)(const at::Tensor&, const at::Tensor&);
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
@@ -2528,7 +2528,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
+TEST_F(NVFuserTest, TernaryOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2613,7 +2613,7 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
+TEST_F(NVFuserTest, CompoundOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2665,7 +2665,7 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
+TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
       {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
   std::vector<DataType> cast_targets(
@@ -2756,6 +2756,58 @@ TEST_F(NVFuserTest, BitCeilKernel) {
 
   EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
 }
+
+// Vectorize factor, dynamic_shape
+using Float4E2m1TestParams = std::tuple<int64_t, bool>;
+
+class Float4E2m1Test : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
+ protected:
+  int64_t vectorize_factor;
+  bool dynamic_shape;
+  void SetUp() {
+    std::tie(vectorize_factor, dynamic_shape) = GetParam();
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
+  }
+};
+
+TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = dynamic_shape ? makeContigTensor(1, DataType::Float4_e2m1) : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, vectorize_factor);
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  std::cout << outputs[0].as<at::Tensor>().sizes() << std::endl;
+  std::cout << outputs[0].as<at::Tensor>().strides() << std::endl;
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
+std::string fp4E2m1Name(const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
+      const auto& [vectorize_factor, dynamic_shape] = info.param;
+      return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" + std::to_string(dynamic_shape);
+    }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Float4E2m1Test,
+    testing::Combine(testing::Values(1, 2, 4, 8, 16, 32), testing::Values(false, true)),
+    fp4E2m1Name);
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;

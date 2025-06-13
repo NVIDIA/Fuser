@@ -353,6 +353,14 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  if (tv->dtype() == DataType::Float4_e2m1) {
+    if (!logical_sizes.empty()) {
+      // PyTorch does not natively support fp4. We represent fp4 tensor
+      // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
+      // We need to adjust the logical domain to reflect this.
+      logical_sizes[logical_sizes.size() - 1] *= 2;
+    }
+  }
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
     const auto dim_size = logical_sizes.at(dim);

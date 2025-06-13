@@ -228,6 +228,8 @@ static std::string data_type2string(DataType t) {
               return "__e4m3";
             case DataType::Float8_e5m2:
               return "__e5m2";
+            case DataType::Float4_e2m1:
+              return "e2m1";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:
@@ -1318,7 +1320,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     case DataType::ComplexDouble:
       return at::ScalarType::ComplexDouble;
     default:
-      NVF_THROW("No data type found for scalar type.");
+      NVF_THROW("No data type found for scalar type:", data_type);
   }
 }
 
