@@ -5565,7 +5565,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 6;
-  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   // TODO use legacy launch to avoid CGA tile

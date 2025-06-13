@@ -1010,6 +1010,20 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     if (!dc_is_mma_result && !dc_is_splitk_sum) {
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           dc->getLoopDomain());
+      if (store_with_stmatrix) {
+        NVF_ERROR(ldst_matrix_tile_m == 16);
+        NVF_ERROR(ldst_matrix_tile_n == 16);
+        // Let [M, N] be [64, 32]
+        // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+        // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+        s.split(-3, 2);
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+        s.reorder({{-4, -5}});
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+        s.merge(-3);
+        s.merge(-2);
+
+      }
       dc->setLoopDomain(s.as<IterDomain*>());
       dc->setAllocationDomain(s.as<IterDomain*>(), true);
 
