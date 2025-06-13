@@ -64,22 +64,22 @@ __device__ void loadGeneric(scalar_t* to, scalar_t* from) {
   constexpr int64_t vec_size_bit = vecSizeBit<scalar_t>(vec_size);
   static_assert(vec_size_bit % 8 == 0, "vec_size_bit must be a multiple of 8");
   switch (vec_size_bit) {
-    case 1:
+    case 8:
       *reinterpret_cast<uchar1*>(to) = *reinterpret_cast<uchar1*>(from);
       break;
-    case 2:
+    case 16:
       *reinterpret_cast<uchar2*>(to) = *reinterpret_cast<uchar2*>(from);
       break;
-    case 4:
+    case 32:
       *reinterpret_cast<uint1*>(to) = *reinterpret_cast<uint1*>(from);
       break;
-    case 8:
+    case 64:
       *reinterpret_cast<uint2*>(to) = *reinterpret_cast<uint2*>(from);
       break;
-    case 12:
+    case 96:
       *reinterpret_cast<uint3*>(to) = *reinterpret_cast<uint3*>(from);
       break;
-    case 16:
+    case 128:
       *reinterpret_cast<uint4*>(to) = *reinterpret_cast<uint4*>(from);
       break;
   }
