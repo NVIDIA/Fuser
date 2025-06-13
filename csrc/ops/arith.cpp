@@ -2355,15 +2355,15 @@ TensorView* scaled_grouped_mm(
     TensorView* offsets,
     TensorView* scale1,
     TensorView* scale2) {
-  // NOTE: backend has requirements for scale tensor's broadcast pattern.
-  NVF_CHECK(
-      scale1->nDims() == mat1->nDims(),
-      "scale1 needs to be the same rank as mat1");
-  NVF_CHECK(
-      scale2->nDims() == mat2->nDims(),
-      "scale2 needs to be the same rank as mat2");
 
   TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
+  NVF_CHECK(
+      scale1->nDims() == max(mat1->nDims(), out->nDims()),
+      "scale1 needs to be the same rank as mat1");
+  NVF_CHECK(
+      scale2->nDims() == max(mat2->nDims(), out->nDims()),
+      "scale2 needs to be the same rank as mat2");
+
   IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
 
   return out;
