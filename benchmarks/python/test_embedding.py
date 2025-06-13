@@ -21,6 +21,7 @@ EMBEDDING_CONFIGS = [
     (152064, 3584),  # hf_qwen2
     (32064, 3072),  # hf_phi3
     (131072, 5120),  # hf_mistral_nemo
+    (202048, 5120),  # https://huggingface.co/meta-llama/Llama-4-Maverick-17B-128E
 ]
 
 SEQ_LENGTHS = [
@@ -36,7 +37,6 @@ SEQ_LENGTHS = [
     28672,
     32768,
 ]
-
 
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
