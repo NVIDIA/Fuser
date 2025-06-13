@@ -1346,6 +1346,9 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
 }
 
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
+  if (dtype == DataType::Index) {
+    return AdjustLastDim{1, 1};
+  }
   const int64_t scalar_type_bit =
       (int64_t)c10::elementSize(data_type_to_aten(dtype)) * 8;
   const int64_t dtype_bit = dataTypeSizeBit(dtype);
