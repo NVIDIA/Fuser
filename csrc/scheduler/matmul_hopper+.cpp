@@ -26,8 +26,8 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
-#include "matmul_hopper+.h"
-#include "mma_type.h"
+#include <matmul_hopper+.h>
+#include <mma_type.h>
 
 namespace nvfuser {
 
