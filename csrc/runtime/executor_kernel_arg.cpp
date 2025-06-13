@@ -359,7 +359,7 @@ std::vector<std::byte> tensorToBytes(
       // PyTorch does not natively support fp4. We represent fp4 tensor
       // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
       // We need to adjust the logical domain to reflect this.
-      int64_t& last_size = logical_size32[logical_size32.size() - 1];
+      int32_t& last_size = logical_size32[logical_size32.size() - 1];
       last_size *= 2;
     }
     bytes.insert(
