@@ -39,6 +39,8 @@ SEQ_LENGTHS = [
     32768,
 ]
 
+# To run this benchmark and group results by embedding size and sequence length, use:
+# pytest --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype test_embedding.py  --benchmark-eager --benchmark-thunder --benchmark-torchcompile
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
