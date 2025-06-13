@@ -362,6 +362,10 @@ void PrecomputedValues::bindTensorMetaData(
     auto& last_dim = logical_sizes.back();
     last_dim *= adjust_last_dim.numerator;
     last_dim /= adjust_last_dim.denominator;
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {

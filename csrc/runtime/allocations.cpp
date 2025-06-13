@@ -184,6 +184,10 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     auto& last_dim = concrete_sizes.back();
     last_dim *= adjust_last_dim.denominator;
     last_dim /= adjust_last_dim.numerator;
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);

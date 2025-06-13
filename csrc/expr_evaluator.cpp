@@ -156,6 +156,10 @@ void ExpressionEvaluator::bindTensorDomain(
     auto& last_dim = logical_sizes.back();
     last_dim *= adjust_last_dim.numerator;
     last_dim /= adjust_last_dim.denominator;
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   for (auto i : arange(t.dim())) {
