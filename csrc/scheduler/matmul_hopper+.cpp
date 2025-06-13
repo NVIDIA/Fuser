@@ -1251,14 +1251,13 @@ void HopperPlus::setUpInlining() {
 }
 
 int64_t HopperPlus::getNumEpilogueWarpGroups() const {
-  int64_t num_math_warp_groups = 1L;
   NVF_ERROR(!mma_results_.empty());
   for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::TIDy) {
-      num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
+      return id->extent()->evaluate().as<int64_t>();
     }
   }
-  return num_math_warp_groups;
+  return 1;
 }
 
 CircularBufferType HopperPlus::getCircularBufferType() const {
