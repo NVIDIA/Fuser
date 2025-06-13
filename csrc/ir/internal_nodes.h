@@ -2869,15 +2869,39 @@ class ArgsortOp : public Expr {
 //! - out: output tensor
 //! - mat1: first input tensor
 //! - mat2: second input tensor
-//! - offsets: offsets tensor
+//! - offsets: 1D offsets tensor
 //!
 //! The offsets tensor is a 1D tensor of shape (num_groups + 1) that specifies
 //! the starting index of each group in the mat1 and mat2 tensors.
 //!
-//! The mat1 and mat2 tensors are 2D tensors of shape (num_groups, num_rows,
-//! num_cols).
+//! Given the number of groups as G, the operation conceptually runs G matmuls.
+//! There are three configurations of grouping, reflected by ranks of input matrices:
 //!
-//! The output tensor is a 2D tensor of shape (num_groups, num_rows, num_cols).
+//! Notation 1: prefix_sum_padded_offset = numpy.cumsum([0] + offsets)
+//! Notation 2: f(i) = prefix_sum_offsets(i) : prefix_sum_offsets(i+1)
+//!             note: f(i) is a slice with length offsets[i]
+//!
+//!     Case 1: grouped k-dimension:
+//!       input rank: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!       requires: sum(offsets) == k
+//!       math:
+//!       for i in (0...g):
+//!         out[ i, 0:m, 0:n ] = mat1[ 0:m, f(i) ] @ mat2[ f(i), 0:n ]
+//!
+//!     Case 2: grouped m-dimension:
+//!       input rank: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
+//!       requires: sum(offsets) == m
+//!       math:
+//!       for i in (0...g):
+//!         out[ f(i), 0:n ] = mat1[ f(i), 0:k ] @ mat2[ 0:k, 0:n ]
+//!
+//!     Case 3: grouped n-dimension:
+//!       input rank: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!       requires: sum(offsets) == n
+//!       math:
+//!       for i in (0...g):
+//!         out[ 0:m, f(i) ] = mat1[ 0:m, 0:k ] @ mat2[ 0:k, f(i) ]
+//!
 class GroupedMmaOp : public Expr {
  public:
   using Expr::Expr;
