@@ -241,11 +241,11 @@ inline StructType StructHandle::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim);
 
-inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
+inline StructType globalTensorMetaData(const DataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
