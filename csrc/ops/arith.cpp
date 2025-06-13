@@ -2358,10 +2358,10 @@ TensorView* scaled_grouped_mm(
 
   TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
   NVF_CHECK(
-      scale1->nDims() == max(mat1->nDims(), out->nDims()),
+      scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
       "scale1 needs to be the same rank as mat1");
   NVF_CHECK(
-      scale2->nDims() == max(mat2->nDims(), out->nDims()),
+      scale2->nDims() == std::max(mat2->nDims(), out->nDims()),
       "scale2 needs to be the same rank as mat2");
 
   IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
