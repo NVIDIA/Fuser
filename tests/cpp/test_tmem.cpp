@@ -206,8 +206,8 @@ TEST_F(TMemTest, dtypes) {
       if (vec_bytes % 4 != 0) {
         EXPECT_THAT(
             [&]() { ke.compile(&fusion); },
-            ::testing::ThrowsMessage<nvfuser::nvfError>(
-                ::testing::HasSubstr("Vectorize size is not a multiple of 4 bytes")));
+            ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+                "Vectorize size is not a multiple of 4 bytes")));
         continue;
       }
 
