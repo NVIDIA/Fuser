@@ -5877,7 +5877,25 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory
     // layout, as well as a different interpretation on broadcast scales. We
     // need to shoe horn it in
-    NVF_ERROR(false, "GroupedMmaOp with scale is not implementedyet");
+
+    // mat2 needs to be strided to have k dimension as the fastest dimension;
+    auto mat1_contiguous = mat1.as<at::Tensor>().contiguous();
+    auto mat2_k_last = mat2.as<at::Tensor>().transpose(1, 2).contiguous().transpose(1, 2);
+
+    auto scale1_tensor = scale1.as<at::Tensor>();
+    auto scale2_tensor = scale2.as<at::Tensor>();
+    // scale factor handling
+    if (out->nDims() == 2) {
+      // case 1, aten API expects collapsed 1D scale with group dimension on the slower side.
+      scale1_tensor = scale1_tensor.transpose().contiguous().transpose().reshape(-1);
+      scale2_tensor = scale2_tensor.contiguous().reshape(-1);
+    } else {
+      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze those out.
+      scale1_tensor = scale1_tensor.squeeze(-1);
+      scale2_tensor = scale2_tensor.squeeze(-2);
+    }
+    result = at::_scaled_grouped_mm(
+        mat1_contiguous, mat2_k_last, offsets.as<at::Tensor>(), scale1_tensor, scale2_tensor);
   }
   return {result};
 }
