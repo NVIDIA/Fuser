@@ -352,30 +352,34 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   if (GroupedMmaOp* op =
           dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
     auto ndims_out = consumer_root.size();
-    bool mapped = false;
-    int index_in = -1;
-    int index_out = -1;
     if (producer_tv_->sameAs(op->mat1())) {
       // mapping m dimension;
-      index_in = std::ssize(producer_logical) - 2;
-      index_out = std::ssize(consumer_root) - 2;
-      mapped = true;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 2), consumer_root.at(std::ssize(consumer_root) - 2));
     } else if (producer_tv_->sameAs(op->mat2())) {
       // mapping k dimension;
-      index_in = std::ssize(producer_logical) - 1;
-      index_out = std::ssize(consumer_root) - 1;
-      mapped = true;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 1), consumer_root.at(std::ssize(consumer_root) - 1));
     } else if (producer_tv_->sameAs(op->offsets())) {
       // mapping g dimension;
       if (ndims_out == 3) {
-        index_in = 0;
-        index_out = 0;
-        mapped = true;
-      }
-    }
-    if (mapped) {
       updatePairwiseLogicalDomainMap(
-          producer_logical.at(index_in), consumer_root.at(index_out));
+          producer_logical.at(0), consumer_root.at(0));
+      }
+    } else if (producer_tv_->sameAs(op->scale1())) {
+      if (ndims_out == 2) {
+        // mapping m dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(std::ssize(producer_logical) - 2), consumer_root.at(std::ssize(consumer_root) - 2));
+      }
+    } else if (producer_tv_->sameAs(op->scale2())) {
+      if (ndims_out == 2) {
+      // mapping k dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 1), consumer_root.at(std::ssize(consumer_root) - 1));
+      }
+    } else {
+      NVF_ERROR(false, "Producer did not match any GroupedMmaOp input.");
     }
     return dom_map;
   }

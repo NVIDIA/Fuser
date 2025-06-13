@@ -2907,7 +2907,7 @@ class GroupedMmaOp : public Expr {
  public:
   using Expr::Expr;
 
-  GroupedMmaOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets);
+  GroupedMmaOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets, Val* scale1 = nullptr, Val* scale2 = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2933,6 +2933,22 @@ class GroupedMmaOp : public Expr {
   TensorView* offsets() const {
     return input(2)->as<TensorView>();
   }
+  TensorView* scale1() const {
+    if (inputs().size() == 5) {
+      return input(3)->as<TensorView>();
+    }
+    return nullptr;
+  }
+  TensorView* scale2() const {
+    if (inputs().size() == 5) {
+      return input(4)->as<TensorView>();
+    }
+    return nullptr;
+  }
+  bool hasScale() const {
+    return attribute<bool>(0);
+  }
+
   IterDomain* getKIDOfMat1() const;
   IterDomain* getKIDOfMat2() const;
 
