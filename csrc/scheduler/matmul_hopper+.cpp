@@ -10,6 +10,7 @@
 #include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -26,8 +27,6 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
-#include <matmul_hopper+.h>
-#include <mma_type.h>
 
 namespace nvfuser {
 
