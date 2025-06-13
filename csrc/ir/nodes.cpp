@@ -5791,11 +5791,14 @@ GroupedMmaOp::GroupedMmaOp(
   addInput(mat2);
   addInput(offsets);
 
-  bool has_scale = scale1 != nullptr;
+  bool has_scale1 = scale1 != nullptr;
   NVF_CHECK(
-      has_scale && (scale2 != nullptr),
-      "scale1 and scale2 needs to be non-null or both null");
-  if (has_scale) {
+      has_scale2 && (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got has_scale1 : ",
+      has_scale1 ? "true" : "false",
+      " has_scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+  if (has_scale1) {
     NVF_CHECK(
         scale1->getValType().value() == ValType::TensorView,
         "Scale1 must be a TensorView");
