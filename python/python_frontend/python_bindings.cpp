@@ -3673,6 +3673,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         // Calculate output dimensions based on mat1 & mat2 rank
         size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
         Tensor output = fd->defineTensor(output_dims);
+        
 
         fd->defineRecord(
             new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
@@ -3684,7 +3685,9 @@ void initNvFuserPythonBindings(PyObject* module) {
                 serde::RecordType::Ternary_TV,
                 static_cast<
                     TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
-                    grouped_mm)));
+                    [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+                        return grouped_mm(mat1, mat2, offsets);
+})));
 
         return output;
       },
@@ -3708,14 +3711,14 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::return_value_policy::reference);
 
   nvf_ops.def(
-      "scaled_grouped_mm",
+      "grouped_mm",
       [](FusionDefinition::Operators& self,
          Tensor mat1,
          Tensor mat2,
          Tensor offsets,
          Tensor scale1,
          Tensor scale2) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.scaled_grouped_mm");
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;

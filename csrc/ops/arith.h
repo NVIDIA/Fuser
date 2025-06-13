@@ -733,21 +733,6 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
-// TODO: I should remove this and wrap an overload in python binding.
-//! Grouped matrix multiplication
-//!
-//! Performs matrix multiplication on grouped sets of matrices using offsets
-//! to define variable-sized groups.
-//!
-//! \param mat1 First set of matrices
-//! \param mat2 Second set of matrices
-//! \param offsets Offsets tensor defining group boundaries
-//! \return Result of grouped matrix multiplication
-NVF_API TensorView* grouped_mm(
-    TensorView* mat1,
-    TensorView* mat2,
-    TensorView* offsets);
-
 //! Grouped matrix multiplication
 //!
 //! Performs matrix multiplication on grouped sets of matrices using offsets
@@ -759,12 +744,12 @@ NVF_API TensorView* grouped_mm(
 //! \param scale1 Scale tensor for mat1
 //! \param scale2 Scale tensor for mat2
 //! \return Result of grouped matrix multiplication
-NVF_API TensorView* scaled_grouped_mm(
+NVF_API TensorView* grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
-    TensorView* scale1,
-    TensorView* scale2);
+    TensorView* scale1 = nullptr,
+    TensorView* scale2 = nullptr);
 
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!

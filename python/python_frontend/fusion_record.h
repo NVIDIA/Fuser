@@ -3268,7 +3268,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
-            "ops.scaled_grouped_mm",
+            "ops.grouped_mm",
             serde::RecordType::ScaledGroupedMmaOp) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -3281,7 +3281,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     auto offsets = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
     auto scale1 = fd.getFusionState(args_.at(3).index)->template as<TensorView>();
     auto scale2 = fd.getFusionState(args_.at(4).index)->template as<TensorView>();
-    auto output = scaled_grouped_mm(mat1, mat2, offsets, scale1, scale2);
+    auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2);
     fd.setFusionState(outputs().at(0).index, output);
   }
 };

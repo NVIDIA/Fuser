@@ -2343,29 +2343,32 @@ namespace {
 TensorView* grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
-    TensorView* offsets) {
-  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
-  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
-  return out;
-}
-
-TensorView* scaled_grouped_mm(
-    TensorView* mat1,
-    TensorView* mat2,
     TensorView* offsets,
     TensorView* scale1,
     TensorView* scale2) {
 
+  bool has_scale = scale1 != nullptr;
+  NVF_CHECK(
+      has_scale == (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
+      has_scale ? "true" : "false",
+      " and scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+
+  if (has_scale) {
+    TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
+    NVF_CHECK(
+        scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
+        "scale1 rank is incorrect, mat1 rank: ", mat1->nDims(), " and out rank: ", out->nDims());
+    NVF_CHECK(
+        scale2->nDims() == std::max(mat2->nDims(), out->nDims()),
+        "scale2 rank is incorrect, mat2 rank: ", mat2->nDims(), " and out rank: ", out->nDims());
+    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+    return out;
+  }
+
   TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
-  NVF_CHECK(
-      scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
-      "scale1 needs to be the same rank as mat1");
-  NVF_CHECK(
-      scale2->nDims() == std::max(mat2->nDims(), out->nDims()),
-      "scale2 needs to be the same rank as mat2");
-
-  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
-
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
   return out;
 }
 

@@ -1160,8 +1160,11 @@ class FusionTranslator : public OptInConstDispatch {
             {fd_->recordingState(output())},
             ("ops.grouped_mm"),
             serde::RecordType::Ternary_TV,
-            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
-                grouped_mm)));
+static_cast<
+    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+    [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+        return grouped_mm(mat1, mat2, offsets);
+})));
   }
 
   // Map TopKOp to python frontend
