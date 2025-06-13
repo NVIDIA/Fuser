@@ -341,7 +341,8 @@ std::vector<std::byte> tensorToBytes(
     // Adjust the last dimension of the logical domain to support DataType
     // that is not supported by PyTorch. See the comment of getLastDimAdjustment
     // in type.h for more details.
-    int64_t& last_size = *reinterpret_cast<int64_t*>(bytes.data() + bytes.size() - sizeof(int64_t));
+    int64_t& last_size = *reinterpret_cast<int64_t*>(
+        bytes.data() + bytes.size() - sizeof(int64_t));
     last_size *= adjust_last_dim.numerator;
     last_size /= adjust_last_dim.denominator;
 

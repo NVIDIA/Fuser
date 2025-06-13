@@ -991,14 +991,14 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
 
-
 // NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
 // input/output TensorViews with these data types not supported by PyTorch.
 // For these cases, we use a PyTorch ScalarType as a proxy. If there exists
 // a scalar type with the same size, we use that. Otherwise, we use Byte and
 // and adjust the size of the last dimension. For example, if we have a
 // TensorView with shape [10, 4], and dtype is 3 bytes, then the corresponding
-// ScalarType is Byte, and the shape of the corresponding at::Tensor is [10, 12].
+// ScalarType is Byte, and the shape of the corresponding at::Tensor is [10,
+// 12].
 struct AdjustLastDim {
   int64_t numerator;
   int64_t denominator;
