@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+from typing import Callable
+
 import pytest
 
 import torch
@@ -13,7 +15,7 @@ from .core import (
     DEFAULT_EXECUTORS,
 )
 from .global_params import FLOAT_DTYPES
-from .torch_ops import embedding
+from .torch_ops import embedding, embedding_indexing
 
 
 # (vocab, hidden) configurations seen in models.
@@ -39,17 +41,24 @@ SEQ_LENGTHS = [
     32768,
 ]
 
+FNS = [
+    pytest.param(embedding, id="embedding"),
+    pytest.param(embedding_indexing, id="embedding_indexing"),
+]
+
 # To run this benchmark and group results by embedding size and sequence length, use:
 # pytest --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype test_embedding.py  --benchmark-eager --benchmark-thunder --benchmark-torchcompile
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.parametrize("fn", FNS)
 def test_embedding_fwd_baseline_benchmark(
     benchmark,
     seq_length: int,
     vocab_hidden: tuple,
     dtype: torch.dtype,
+    fn: Callable,
     executor: str,
 ):
     kwargs = {}
@@ -61,7 +70,7 @@ def test_embedding_fwd_baseline_benchmark(
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
 
-    benchmark_fn = with_executor(executor, embedding, **kwargs)
+    benchmark_fn = with_executor(executor, fn, **kwargs)
     run_benchmark(
         benchmark,
         benchmark_fn,
