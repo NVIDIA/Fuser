@@ -74,6 +74,7 @@ void validateValWithConcreteValue(
     auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
         (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
+        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::Byte) ||
             (value->dtype() == actual_dtype),
         "Expected ",
         getInputPosString(tv),
@@ -146,6 +147,17 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!logical_sizes.empty()) {
+    auto& last_dim = logical_sizes.back();
+    last_dim *= adjust_last_dim.numerator;
+    last_dim /= adjust_last_dim.denominator;
+  }
+
   for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {

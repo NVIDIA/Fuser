@@ -314,6 +314,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& alloc_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim,
     const std::vector<int64_t>& unsharded_logical_sizes) {
   std::vector<std::byte> bytes;
   NVF_ERROR(
@@ -336,6 +337,14 @@ std::vector<std::byte> tensorToBytes(
         bytes.end(),
         (std::byte*)size_to_use.data(),
         (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    int64_t& last_size = *reinterpret_cast<int64_t*>(bytes.data() + bytes.size() - sizeof(int64_t));
+    last_size *= adjust_last_dim.numerator;
+    last_size /= adjust_last_dim.denominator;
+
     bytes.insert(
         bytes.end(),
         (std::byte*)alloc_strides.data(),
@@ -347,6 +356,14 @@ std::vector<std::byte> tensorToBytes(
         sizeof(int32_t) * alloc_strides.size());
     bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
     std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    int32_t& last_size = logical_size32.back();
+    last_size *= adjust_last_dim.numerator;
+    last_size /= adjust_last_dim.denominator;
+
     bytes.insert(
         bytes.end(),
         (std::byte*)logical_size32.data(),

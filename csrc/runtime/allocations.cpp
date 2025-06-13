@@ -176,6 +176,16 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     concrete_sizes.at(i) = concrete_size;
   }
 
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim *= adjust_last_dim.denominator;
+    last_dim /= adjust_last_dim.numerator;
+  }
+
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
 
   return {concrete_sizes, strides};
@@ -307,7 +317,7 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     info.tv = out->as<TensorView>();
     info.shape_info = inferTensorShapes(info.tv, expr_eval);
     auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype() == DataType::Float4_e2m1 ? DataType::Byte : info.tv->dtype());
     info.type = data_type_to_aten(dtype);
 
     output_buffer_infos.emplace_back(info);

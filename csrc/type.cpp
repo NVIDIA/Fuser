@@ -1273,53 +1273,87 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
 }
 
 at::ScalarType data_type_to_aten(const DataType& data_type) {
-  switch (std::get<PrimDataType>(data_type.type)) {
-    case DataType::Bool:
-      return at::ScalarType::Bool;
-    case DataType::Double:
-      return at::ScalarType::Double;
-    case DataType::Float:
-      return at::ScalarType::Float;
-    case DataType::Half:
-      return at::ScalarType::Half;
-    case DataType::BFloat16:
-      return at::ScalarType::BFloat16;
-    case DataType::Float8_e4m3fn:
-      return at::ScalarType::Float8_e4m3fn;
-    case DataType::Float8_e5m2:
-      return at::ScalarType::Float8_e5m2;
-    case DataType::Index:
-      NVF_THROW(
-          "Index is determined at compile time,",
-          " to convert from an aten type you need to have the compiled "
-          "information. ",
-          "This information is passed to GpuLower at compile time, and then "
-          "copied to kerned.",
-          "There's also this information in FusionExecutorCache and the "
-          "Registry system.");
-    case DataType::Char:
-      return at::ScalarType::Char;
-    case DataType::Short:
-      return at::ScalarType::Short;
-    case DataType::Int32:
-      return at::ScalarType::Int;
-    case DataType::Int:
-      return at::ScalarType::Long;
-    case DataType::Byte:
+  if (std::holds_alternative<PrimDataType>(data_type.type)) {
+    switch (std::get<PrimDataType>(data_type.type)) {
+      case DataType::Bool:
+        return at::ScalarType::Bool;
+      case DataType::Double:
+        return at::ScalarType::Double;
+      case DataType::Float:
+        return at::ScalarType::Float;
+      case DataType::Half:
+        return at::ScalarType::Half;
+      case DataType::BFloat16:
+        return at::ScalarType::BFloat16;
+      case DataType::Float8_e4m3fn:
+        return at::ScalarType::Float8_e4m3fn;
+      case DataType::Float8_e5m2:
+        return at::ScalarType::Float8_e5m2;
+      case DataType::Index:
+        NVF_THROW(
+            "Index is determined at compile time,",
+            " to convert from an aten type you need to have the compiled "
+            "information. ",
+            "This information is passed to GpuLower at compile time, and then "
+            "copied to kerned.",
+            "There's also this information in FusionExecutorCache and the "
+            "Registry system.");
+      case DataType::Char:
+        return at::ScalarType::Char;
+      case DataType::Short:
+        return at::ScalarType::Short;
+      case DataType::Int32:
+        return at::ScalarType::Int;
+      case DataType::Int:
+        return at::ScalarType::Long;
+      case DataType::Byte:
+        return at::ScalarType::Byte;
+      case DataType::UInt16:
+        return at::ScalarType::UInt16;
+      case DataType::UInt32:
+        return at::ScalarType::UInt32;
+      case DataType::UInt64:
+        return at::ScalarType::UInt64;
+      case DataType::ComplexFloat:
+        return at::ScalarType::ComplexFloat;
+      case DataType::ComplexDouble:
+        return at::ScalarType::ComplexDouble;
+    }
+  } else {
+    // NVFuser's DataType is much wider than PyTorch's ScalarType. If
+    // there is no direct mapping, we use some data type as a proxy.
+    // If there is a data type with the same size, we use that
+    const int64_t size_bit = dataTypeSizeBit(data_type);
+    if (size_bit == 8) {
       return at::ScalarType::Byte;
-    case DataType::UInt16:
+    } else if (size_bit == 16) {
       return at::ScalarType::UInt16;
-    case DataType::UInt32:
+    } else if (size_bit == 32) {
       return at::ScalarType::UInt32;
-    case DataType::UInt64:
+    } else if (size_bit == 64) {
       return at::ScalarType::UInt64;
-    case DataType::ComplexFloat:
-      return at::ScalarType::ComplexFloat;
-    case DataType::ComplexDouble:
+    } else if (size_bit == 128) {
       return at::ScalarType::ComplexDouble;
-    default:
-      NVF_THROW("No data type found for scalar type.");
+    } else {
+      // If there is no data type with the same size, we use byte.
+      // For this case, we adjust the size of the last dimension.
+      // For example, if we have a TensorView with shape [10, 4],
+      // and dtype is 3 bytes, then the corresponding ScalarType is Byte,
+      // and the shape of the corresponding at::Tensor is [10, 12].
+      return at::ScalarType::Byte;
+    }
   }
+}
+
+AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
+  const auto scalar_type_bit = c10::elementSize(data_type_to_aten(dtype)) * 8;
+  const int64_t dtype_bit = dataTypeSizeBit(dtype);
+  // Example: dtype_bit = 6, scalar_type_bit = 8
+  // Then we need to adjust the last dimension by 4/3, that is,
+  // at_size * 4 / 3 is the size of the last dimension of the corresponding
+  // TensorView.
+  const int64_t gcd = std::gcd(scalar_type_bit, dtype_bit);
+  return AdjustLastDim{scalar_type_bit / gcd, dtype_bit / gcd};
 }
 
 std::ostream& operator<<(std::ostream& out, const ValType vtype) {
