@@ -2875,7 +2875,8 @@ class ArgsortOp : public Expr {
 //! the starting index of each group in the mat1 and mat2 tensors.
 //!
 //! Given the number of groups as G, the operation conceptually runs G matmuls.
-//! There are three configurations of grouping, reflected by ranks of input matrices:
+//! There are three configurations of grouping, reflected by ranks of input
+//! matrices:
 //!
 //! Notation 1: prefix_sum_padded_offset = numpy.cumsum([0] + offsets)
 //! Notation 2: f(i) = prefix_sum_offsets(i) : prefix_sum_offsets(i+1)
