@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+from typing import Callable
+
 import pytest
 
 import torch
@@ -13,7 +15,7 @@ from .core import (
     DEFAULT_EXECUTORS,
 )
 from .global_params import FLOAT_DTYPES
-from .torch_ops import embedding
+from .torch_ops import embedding, embedding_indexing
 
 
 # (vocab, hidden) configurations seen in models.
@@ -35,6 +37,11 @@ SEQ_LENGTHS = [
     24576,
     28672,
     32768,
+]
+
+FNS = [
+    pytest.param(embedding, id="embedding"),
+    pytest.param(embedding_indexing, id="embedding_indexing"),
 ]
 
 
