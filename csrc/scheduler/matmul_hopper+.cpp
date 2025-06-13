@@ -1275,7 +1275,7 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
         // number of registers per thread even with register sharing, there
         // is no point in doing register sharing to try and increase it.
         //
-        // When there is more than one math warp group, we also disable
+        // When there is not two warp groups, we also disable
         // register sharing, since we don't currently compute the number of
         // register properly in that case.
         return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
