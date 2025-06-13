@@ -2823,7 +2823,7 @@ std::string advancedDtypeTestName(const testing::TestParamInfo<bool>& info) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     AdvancedDtypeTest,
-    testing::Combine(testing::Values(false, true)),
+    testing::Values(false, true),
     advancedDtypeTestName);
 
 TEST_F(NVFuserTest, BitCeilEval) {
