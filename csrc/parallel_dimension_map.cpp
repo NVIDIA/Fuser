@@ -181,13 +181,13 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
       continue;
     }
     int64_t thread_count_for_pt = getThreadCountInDim(pt);
-    if (pt == ParallelType::TIDx && thread_count_for_pt == -1) {
+    if (!GpuLower::current()->hasTensorCoreMma() && pt == ParallelType::TIDx &&
+        thread_count_for_pt == -1) {
       dim_map_[pt] = IrBuilder::create<Val>(128, DataType::Index);
       thread_count_for_pt = 128;
       GpuLower::current()->validate(
           SimplifyingIrBuilder::eqExpr(
-              dim_map_.at(pt),
-              IrBuilder::create<Val>(128, DataType::Index)),
+              dim_map_.at(pt), IrBuilder::create<Val>(128, DataType::Index)),
           "Expect bdimx = 128 for warp specialized normalization");
     } else {
       NVF_ERROR(

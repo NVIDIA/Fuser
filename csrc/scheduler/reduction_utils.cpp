@@ -124,9 +124,10 @@ TensorView* scheduleReductionTV(
     // Reduction: [Persistent, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
 
-    reduction_tv->split(inner_reduce_axis, rparams->batches_per_block_inner_reduction, false);
-    reduction_tv->axis(inner_reduce_axis+1)->parallelize(ParallelType::TIDx);
-     reduction_tv->axis(inner_reduce_axis+1)->padToMultipleOfWarp();
+    reduction_tv->split(
+        inner_reduce_axis, rparams->batches_per_block_inner_reduction, false);
+    reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
+    reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
 
     std::cout << "reduction_tv " << reduction_tv->toString() << std::endl;
 

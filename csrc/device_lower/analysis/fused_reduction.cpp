@@ -85,7 +85,8 @@ class FusionInspector : private IterVisitor {
     // Use staticWarpAllReduceTIDX if possible, only for warp specialized
     // circular buffered cases. TIDx is static for warp specialized kernel.
     auto is_ws_tidx_reduction = [&]() {
-      if (!has_warp_specialization_) {
+      if (!has_warp_specialization_ ||
+          GpuLower::current()->hasTensorCoreMma()) {
         return false;
       }
 

@@ -334,7 +334,6 @@ void getHeuristics(
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->pad_inner_reduction_to_warp = true;
 
-
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       gdimy,

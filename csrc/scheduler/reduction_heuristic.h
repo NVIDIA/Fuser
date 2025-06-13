@@ -185,24 +185,26 @@ class ReductionParams : public HeuristicParams {
       return false;
     }
 
-    bool attr_equal = 
+    bool attr_equal =
         // Base class parameters
         other->cparams == cparams &&
         // Reduction parameters in declaration order
         other->fastest_dim == fastest_dim &&
         other->persistent_kernel == persistent_kernel &&
         other->project_persistent_buffers == project_persistent_buffers &&
-        other->schedule_3D == schedule_3D &&
-        other->flip_grid == flip_grid &&
+        other->schedule_3D == schedule_3D && other->flip_grid == flip_grid &&
         // Inner Reduction Domain
         other->cross_block_inner_reduction == cross_block_inner_reduction &&
         other->cross_grid_inner_reduction == cross_grid_inner_reduction &&
         other->unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
-        other->unroll_factor_top_of_vectorization == unroll_factor_top_of_vectorization &&
+        other->unroll_factor_top_of_vectorization ==
+            unroll_factor_top_of_vectorization &&
         other->vectorize_inner_reduction == vectorize_inner_reduction &&
-        other->split_grid_dim_inner_reduction == split_grid_dim_inner_reduction &&
+        other->split_grid_dim_inner_reduction ==
+            split_grid_dim_inner_reduction &&
         other->pad_inner_reduction_to_warp == pad_inner_reduction_to_warp &&
-        other->batches_per_block_inner_reduction == batches_per_block_inner_reduction &&
+        other->batches_per_block_inner_reduction ==
+            batches_per_block_inner_reduction &&
         other->block_dim_inner_reduction == block_dim_inner_reduction &&
         other->grid_dim_inner_reduction == grid_dim_inner_reduction &&
         // Iteration Domain
@@ -216,13 +218,16 @@ class ReductionParams : public HeuristicParams {
         // Outer Reduction Domain
         other->cross_block_outer_reduction == cross_block_outer_reduction &&
         other->cross_grid_outer_reduction == cross_grid_outer_reduction &&
-        other->split_grid_dim_outer_reduction == split_grid_dim_outer_reduction &&
-        other->batches_per_block_outer_reduction == batches_per_block_outer_reduction &&
+        other->split_grid_dim_outer_reduction ==
+            split_grid_dim_outer_reduction &&
+        other->batches_per_block_outer_reduction ==
+            batches_per_block_outer_reduction &&
         other->unroll_factor_outer_reduction == unroll_factor_outer_reduction &&
         other->block_dim_outer_reduction == block_dim_outer_reduction &&
         other->grid_dim_outer_reduction == grid_dim_outer_reduction &&
         // Persistent buffer options
-        other->compute_persistent_buffer_with_first_consumer == compute_persistent_buffer_with_first_consumer &&
+        other->compute_persistent_buffer_with_first_consumer ==
+            compute_persistent_buffer_with_first_consumer &&
         // Block dimension options
         other->static_bdimx == static_bdimx &&
         other->static_bdimy == static_bdimy &&
@@ -235,16 +240,20 @@ class ReductionParams : public HeuristicParams {
         other->tma_warp_specialized == tma_warp_specialized &&
         other->is_good_ws_heuristic == is_good_ws_heuristic &&
         // Circular buffer options
-        other->is_non_circular_buffer_gmem_to_regs == is_non_circular_buffer_gmem_to_regs &&
-        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached &&
+        other->is_non_circular_buffer_gmem_to_regs ==
+            is_non_circular_buffer_gmem_to_regs &&
+        other->is_circular_buffer_regs_cached ==
+            is_circular_buffer_regs_cached &&
         other->circular_buffer_options == circular_buffer_options &&
         // Computation warp groups
         other->computation_warp_groups == computation_warp_groups &&
         // Vectorization factors
         other->vectorization_factor_outer == vectorization_factor_outer &&
-        other->vectorization_factor_tmp_gmem_write == vectorization_factor_tmp_gmem_write &&
+        other->vectorization_factor_tmp_gmem_write ==
+            vectorization_factor_tmp_gmem_write &&
         // Extra block dimension
-        other->block_dim_inner_reduction_extra == block_dim_inner_reduction_extra;
+        other->block_dim_inner_reduction_extra ==
+            block_dim_inner_reduction_extra;
 
     return attr_equal;
   }
