@@ -2772,7 +2772,7 @@ TEST_P(AdvancedDtypeTest, CopyKernelPointer) {
   DataType dtype = PointerType{std::make_shared<DataType>(DataType::Float)};
 
   TensorView* tv0 = use_dynamic_shape ? makeContigTensor(1, dtype)
-                                      : makeContigConcreteTensor({2048}, dtype);
+                                      : makeContigConcreteTensor({1024}, dtype);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
