@@ -82,25 +82,23 @@ class FusionInspector : private IterVisitor {
     // depend on this reduction. Only consider when out is on register as that
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
-    constexpr int64_t kThreadsPerWarp = 32L;
     // Use staticWarpAllReduceTIDX if possible, only for warp specialized
-    // circular buffered cases.
-    auto is_static_warp_reduction = [&]() {
-      if (!has_warp_specialization_) {
+    // circular buffered cases. TIDx is static for warp specialized kernel.
+    auto is_ws_tidx_reduction = [&]() {
+      if (!has_warp_specialization_ ||
+          GpuLower::current()->hasTensorCoreMma()) {
         return false;
       }
 
       for (auto ld : out->getLoopDomain()) {
-        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction() &&
-            ld->extent()->isConst() &&
-            ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction()) {
           return true;
         }
       }
       return false;
     };
     if (out->getMemoryType() == MemoryType::Local &&
-        (is_static_warp_reduction() || out->domain()->hasGridReduction() ||
+        (is_ws_tidx_reduction() || out->domain()->hasGridReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),

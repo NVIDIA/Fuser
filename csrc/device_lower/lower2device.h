@@ -106,6 +106,14 @@ class GpuLower : public NonCopyable {
     return thread_pred_map_;
   }
 
+  bool hasTensorCoreMma() const {
+    return has_tensor_core_mma_;
+  }
+
+  bool& hasTensorCoreMma() {
+    return has_tensor_core_mma_;
+  }
+
   std::shared_ptr<const ComputeAtMap> caMap() const {
     return std::const_pointer_cast<const ComputeAtMap>(compute_at_map_);
   }
@@ -459,6 +467,9 @@ class GpuLower : public NonCopyable {
 
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
+
+  //! Whether the fusion has mma ops using tensor cores
+  bool has_tensor_core_mma_ = false;
 };
 
 } // namespace nvfuser

@@ -44,6 +44,7 @@ void MinimumDeviceVersion::dispatch(Val* val) {
 }
 
 void MinimumDeviceVersion::handle(MmaOp* mma_op) {
+  GpuLower::current()->hasTensorCoreMma() = true;
   if (isTuring(mma_op->macro())) {
     ensureVersion({7, 5}, "Fusion contains a Turing MMA macro");
   } else if (isAmpere(mma_op->macro())) {
