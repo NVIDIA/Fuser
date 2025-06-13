@@ -11,6 +11,7 @@
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <preseg_passes/allocation_order_inference.h>
+#include <ir/allocation_utils.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -19,19 +20,20 @@ namespace {
 // returns non-broadcast & non-reduction iter domains in tv's allocation
 // domain.
 std::vector<IterDomain*> nonTrivialIterDomains(const TensorView* tv) {
+  std::optional<Layout> layout = canonicalizeLayout(tv);
+  if (!layout.has_value()) {
+    // No propagation if allocation domain cannot be expressed as a permutation
+    // of the logical domain.
+    return {};
+  }
   return TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
+      TensorDomain::noBroadcasts(layout->allocation_domain()));
 }
 
 // counts the number of non-broadcast & non-reduction iter domains in tv's
 // allocation domain.
 int64_t countNonTrivialIterDomains(const TensorView* tv) {
-  return std::count_if(
-      tv->getMaybeAllocationDomain().begin(),
-      tv->getMaybeAllocationDomain().end(),
-      [&](auto* ptr_id) {
-        return !ptr_id->isBroadcast() && !ptr_id->isReduction();
-      });
+  return nonTrivialIterDomains(tv).size();
 }
 
 // Note [ Allocation Order Mapping ]
@@ -84,7 +86,11 @@ void mapAllocationDomain(
     TensorView* target) {
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
-  std::vector<IterDomain*> ref_alloc_domain = ref->getMaybeAllocationDomain();
+  std::vector<IterDomain*> ref_alloc_domain = nonTrivialIterDomains(ref);
+  NVF_ERROR(
+      !ref_alloc_domain.empty(),
+      "ref has no non-trivial iter domains. This could occur if canonicalization fails, but we should have already checked for this.");
+
   // reverse ref_alloc_domain, so a range based loop would iterate through from
   // fast to slow dimensions
   std::reverse(ref_alloc_domain.begin(), ref_alloc_domain.end());
@@ -108,29 +114,19 @@ void mapAllocationDomain(
   for (auto* ref_id : ref_alloc_domain) {
     // no ValGroup for ref_id to map.
     if (!exact_graph.hasGroup(ref_id)) {
-      // no mapping for trivial iter domains is skipped, since it doesn't block
-      // vectorization
-      if (ref_id->isBroadcast() || ref_id->isReduction()) {
-        continue;
-      }
       // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
     const ValGroup& vg = exact_graph.toGroup(ref_id);
     // no mapping ValGroup found in target_logical_domain.
     if (exact_id_map.count(vg) == 0) {
-      // no mapping for trivial iter domains is skipped, since it doesn't block
-      // vectorization
-      if (ref_id->isBroadcast() || ref_id->isReduction()) {
-        continue;
-      }
       // break when no mapping ValGroup found in target_logical_domain.
       break;
     }
     IterDomain* id = exact_id_map[vg];
     // sharp-edges 0
     // avoid mapping a reduced dimension.
-    if (!ref_id->isReduction() && id->isReduction()) {
+    if (id->isReduction()) {
       continue;
     }
     mapped_ids.pushBack(id);
@@ -379,9 +375,12 @@ class SdpaPropagator : public OptOutConstDispatch {
     if (out->hasAllocation()) {
       return false;
     }
-
+    std::optional<Layout> in_layout = canonicalizeLayout(in);
+    if (!in_layout.has_value()) {
+      return false;
+    }
     auto in_order = ir_utils::computePermutation(
-        in->getLogicalDomain(), in->getMaybeAllocationDomain());
+        in->getLogicalDomain(), in_layout->allocation_domain());
     if (!in_order.has_value()) {
       return false;
     }

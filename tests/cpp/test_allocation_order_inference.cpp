@@ -422,4 +422,61 @@ TEST_F(AllocationOrderInferenceTest, SdpaBackward) {
   EXPECT_THAT(getAllocationOrder(grads.grad_value), ElementsAre(0, 2, 1, 3));
 }
 
+TEST_F(AllocationOrderInferenceTest, SdpaFwdWithDID) { 
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t b = 2, s = 1024, h = 12, e = 768, d = 2;
+
+  auto* q = makeContigConcreteTensor({b, s, h, e}, DataType::Half);
+  auto* k = makeContigConcreteTensor({b, s, h, e}, DataType::Half);
+  auto* v = makeContigConcreteTensor({b, s, h, e}, DataType::Half);
+
+  fusion.addInput(q);
+  fusion.addInput(k);
+  fusion.addInput(v);
+
+  for (auto* tv : {q, k, v}) {
+    tv->reorder({0, 2, 1, 3});
+    tv->outer_split(1, d);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  SdpfaFwdResult outs = sdpfa_fwd(
+      q,
+      k,
+      v,
+      /*dropout_p=*/IrBuilder::create<Val>(0.0),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/nullptr);
+  fusion.addOutput(outs.output);
+  fusion.addOutput(outs.log_sumexp);
+
+  preseg_passes::OptimizationPass<preseg_passes::AllocationDomainPass>::runPass(
+      &fusion);
+  EXPECT_THAT(getAllocationOrder(outs.output), ElementsAre(0, 2, 1, 3));
+  EXPECT_THAT(getAllocationOrder(outs.log_sumexp), ElementsAre(0, 1, 2));
+  
+}
+
+TEST_F(AllocationOrderInferenceTest, UnaryOpWithDID) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = relu(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->reorder({1, 0});
+  tv0->outer_split(0, 2);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+
+  preseg_passes::OptimizationPass<preseg_passes::AllocationDomainPass>::runPass(
+      &fusion);
+  EXPECT_THAT(getAllocationOrder(tv1), ElementsAre(1, 0));
+}
+
 } // namespace nvfuser
