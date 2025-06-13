@@ -1266,7 +1266,7 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
     case MatmulParams::CircularBufferingStrategy::Pipelined:
       return (CircularBufferType)Pipelined(false);
     case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-      if (getNumEpilogueWarpGroups() == 1) {
+      if (getNumEpilogueWarpGroups() != 2) {
         // Disable register sharing when there is only one math warp group.
         // In such case we will have 128 math threads and 128 dma threads,
         // for a total of 256 threads per CTA. The register file size on
