@@ -5885,9 +5885,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     auto scale1_tensor = scale1.as<at::Tensor>();
     auto scale2_tensor = scale2.as<at::Tensor>();
     // scale factor handling
-    if (out->nDims() == 2) {
+    if (out()->nDims() == 2) {
       // case 1, aten API expects collapsed 1D scale with group dimension on the slower side.
-      scale1_tensor = scale1_tensor.transpose().contiguous().transpose().reshape(-1);
+      scale1_tensor = scale1_tensor.transpose(1, 2).contiguous().transpose(1, 2).reshape(-1);
       scale2_tensor = scale2_tensor.contiguous().reshape(-1);
     } else {
       // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze those out.
