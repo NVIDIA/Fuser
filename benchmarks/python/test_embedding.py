@@ -46,6 +46,7 @@ FNS = [
     pytest.param(embedding_indexing, id="embedding_indexing"),
 ]
 
+
 # To run this benchmark and group results by embedding size and sequence length, use:
 # pytest --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype test_embedding.py  --benchmark-eager --benchmark-thunder --benchmark-torchcompile
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
