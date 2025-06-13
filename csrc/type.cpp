@@ -1318,6 +1318,8 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
         return at::ScalarType::ComplexFloat;
       case DataType::ComplexDouble:
         return at::ScalarType::ComplexDouble;
+      default:
+        break;
     }
   } else {
     // NVFuser's DataType is much wider than PyTorch's ScalarType. If
@@ -1346,7 +1348,7 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
 }
 
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
-  const auto scalar_type_bit = c10::elementSize(data_type_to_aten(dtype)) * 8;
+  const int64_t scalar_type_bit = (int64_t)c10::elementSize(data_type_to_aten(dtype)) * 8;
   const int64_t dtype_bit = dataTypeSizeBit(dtype);
   // Example: dtype_bit = 6, scalar_type_bit = 8
   // Then we need to adjust the last dimension by 4/3, that is,
