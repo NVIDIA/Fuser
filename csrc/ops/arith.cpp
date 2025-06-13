@@ -2283,77 +2283,89 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
+namespace {
+  TensorView* create_grouped_mm_output(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets) {
+    // Create output tensor for grouped matrix multiplication
+    // For simplicity, assume same structure as mat1 for batch dimensions
+    auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+    auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+    auto offs_domain = TensorDomain::noReductions(offsets->getLogicalDomain());
+
+    NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
+
+    std::vector<IterDomain*> out_domain;
+
+    // For grouped MM, determine output shape based on mat1 and mat2 structures
+    // case 1:
+    //   mat1   [m, k]
+    //   mat2   [k, n]
+    //   offset [g]
+    //   output -> [g, m, n]
+    // case 2:
+    //   mat1   [g, m, k]
+    //   mat2   [k, n]
+    //   offset [g]
+    //   output -> [m, n]
+    // case 3:
+    //   mat1   [m, k]
+    //   mat2   [g, k, n]
+    //   offset [g]
+    //   output -> [m, n]
+    if (mat1->nDims() == 2 && mat2->nDims() == 2) {
+      out_domain.reserve(3);
+      out_domain.push_back(offs_domain[0]->cloneWithoutRFactor());
+      out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
+      out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+    } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
+      out_domain.reserve(2);
+      out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
+      out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+    } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
+      out_domain.reserve(2);
+      out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
+      out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
+    } else {
+      NVF_ERROR(
+          false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
+    }
+
+    TensorView* out = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+        mat1->getDataType().value());
+    return out;
+  }
+}
+
 TensorView* grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets) {
+  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
+  return out;
+}
+
+TensorView* scaled_grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
     TensorView* scale1,
     TensorView* scale2) {
-  // Create output tensor for grouped matrix multiplication
-  // For simplicity, assume same structure as mat1 for batch dimensions
-  auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
-  auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
-  auto offs_domain = TensorDomain::noReductions(offsets->getLogicalDomain());
-
-  NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
-
-  std::vector<IterDomain*> out_domain;
-
-  // For grouped MM, determine output shape based on mat1 and mat2 structures
-  // case 1:
-  //   mat1   [m, k]
-  //   mat2   [k, n]
-  //   offset [g]
-  //   output -> [g, m, n]
-  // case 2:
-  //   mat1   [g, m, k]
-  //   mat2   [k, n]
-  //   offset [g]
-  //   output -> [m, n]
-  // case 3:
-  //   mat1   [m, k]
-  //   mat2   [g, k, n]
-  //   offset [g]
-  //   output -> [m, n]
-  if (mat1->nDims() == 2 && mat2->nDims() == 2) {
-    out_domain.reserve(3);
-    out_domain.push_back(offs_domain[0]->cloneWithoutRFactor());
-    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
-    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
-  } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
-    out_domain.reserve(2);
-    out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
-    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
-  } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
-    out_domain.reserve(2);
-    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
-    out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
-  } else {
-    NVF_ERROR(
-        false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
-  }
-
-  TensorView* out = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      mat1->getDataType().value());
-
-  bool has_scale = scale1 != nullptr;
+  // NOTE: backend has requirements for scale tensor's broadcast pattern.
   NVF_CHECK(
-      has_scale && (scale2 != nullptr),
-      "scale1 and scale2 needs to be non-null or both null");
-  if (has_scale) {
-    // NOTE: backend has requirements for scale tensor's broadcast pattern.
-    NVF_CHECK(
-        scale1->nDims() == mat1->nDims(),
-        "scale1 needs to be the same rank as mat1");
-    NVF_CHECK(
-        scale2->nDims() == mat2->nDims(),
-        "scale2 needs to be the same rank as mat2");
-    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
-  } else {
-    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
-  }
+      scale1->nDims() == mat1->nDims(),
+      "scale1 needs to be the same rank as mat1");
+  NVF_CHECK(
+      scale2->nDims() == mat2->nDims(),
+      "scale2 needs to be the same rank as mat2");
+
+  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+
   return out;
 }
 

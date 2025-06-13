@@ -3261,6 +3261,38 @@ struct TopKOpRecord : RecordFunctor {
   bool sorted_;
 };
 
+struct ScaledGroupedMmaOpRecord : RecordFunctor {
+  ScaledGroupedMmaOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.scaled_grouped_mm",
+            serde::RecordType::ScaledGroupedMmaOp) {}
+  ~ScaledGroupedMmaOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScaledGroupedMmaOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    if (auto other_topk = dynamic_cast<const ScaledGroupedMmaOpRecord*>(&other)) {
+      return RecordFunctor::operator==(other);
+    }
+    return false;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto mat1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto mat2 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto offsets = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+    auto scale1 = fd.getFusionState(args_.at(3).index)->template as<TensorView>();
+    auto scale2 = fd.getFusionState(args_.at(4).index)->template as<TensorView>();
+    auto output = scaled_grouped_mm(mat1, mat2, offsets, scale1, scale2);
+    fd.setFusionState(output.index, output.indices);
+  }
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

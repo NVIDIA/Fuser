@@ -87,6 +87,7 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
