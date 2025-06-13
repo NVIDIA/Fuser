@@ -1321,29 +1321,28 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
       default:
         break;
     }
+  }
+  // NVFuser's DataType is much wider than PyTorch's ScalarType. If
+  // there is no direct mapping, we use some data type as a proxy.
+  // If there is a data type with the same size, we use that
+  const int64_t size_bit = dataTypeSizeBit(data_type);
+  if (size_bit == 8) {
+    return at::ScalarType::Byte;
+  } else if (size_bit == 16) {
+    return at::ScalarType::UInt16;
+  } else if (size_bit == 32) {
+    return at::ScalarType::UInt32;
+  } else if (size_bit == 64) {
+    return at::ScalarType::UInt64;
+  } else if (size_bit == 128) {
+    return at::ScalarType::ComplexDouble;
   } else {
-    // NVFuser's DataType is much wider than PyTorch's ScalarType. If
-    // there is no direct mapping, we use some data type as a proxy.
-    // If there is a data type with the same size, we use that
-    const int64_t size_bit = dataTypeSizeBit(data_type);
-    if (size_bit == 8) {
-      return at::ScalarType::Byte;
-    } else if (size_bit == 16) {
-      return at::ScalarType::UInt16;
-    } else if (size_bit == 32) {
-      return at::ScalarType::UInt32;
-    } else if (size_bit == 64) {
-      return at::ScalarType::UInt64;
-    } else if (size_bit == 128) {
-      return at::ScalarType::ComplexDouble;
-    } else {
-      // If there is no data type with the same size, we use byte.
-      // For this case, we adjust the size of the last dimension.
-      // For example, if we have a TensorView with shape [10, 4],
-      // and dtype is 3 bytes, then the corresponding ScalarType is Byte,
-      // and the shape of the corresponding at::Tensor is [10, 12].
-      return at::ScalarType::Byte;
-    }
+    // If there is no data type with the same size, we use byte.
+    // For this case, we adjust the size of the last dimension.
+    // For example, if we have a TensorView with shape [10, 4],
+    // and dtype is 3 bytes, then the corresponding ScalarType is Byte,
+    // and the shape of the corresponding at::Tensor is [10, 12].
+    return at::ScalarType::Byte;
   }
 }
 
