@@ -71,11 +71,9 @@ void validateValWithConcreteValue(
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
-    auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
-        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
-        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::Byte) ||
-            (value->dtype() == actual_dtype),
+        (value->dtype() == DataType::Index && (t.scalar_type() == torch::kInt64 || t.scalar_type() == torch::kInt32)) ||
+        (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
         tv->toString(),
