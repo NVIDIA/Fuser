@@ -313,10 +313,14 @@ void fillOptimalHopperTileSizes(
              {1L, 2L}, // coopB
              {1L, 1L}, // single math group
          }) {
-      for (int64_t instr_n = 256; instr_n > 8; instr_n -= 64) {
+      for (int64_t instr_n = 256; instr_n > 8; instr_n -= 8) {
         // for (int64_t instr_n = 64; instr_n <= 64; instr_n += 64) {
         const int64_t cta_m = m_ratio * 64;
         const int64_t cta_n = n_ratio * instr_n;
+
+        if (cta_n % 16 != 0) {
+          continue;
+        }
 
         const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2;
         // Don't consider cases where we would need fewer than 3 load stages due
@@ -1164,17 +1168,6 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
-
-  // We currently hit a misaligned read for TMA store when warp tile is not a
-  // multiple of 64 and there are multiple warp tiles
-  // TODO: enable smem epilogue for warp tile sizes that are not multiples of 64
-  // See https://github.com/NVIDIA/Fuser/issues/3602
-  if (isHopper(mparams->mma_macro) &&
-      mparams->tile_sizes.warp_tile.n != mparams->tile_sizes.cta_tile.n &&
-      mparams->tile_sizes.warp_tile.n % 64 != 0) {
-    mparams->use_smem_epilogue = false;
-    mparams->promote_prologue_smem_reuse = false;
-  }
 
   if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
     // Disable stmatrix unless the problem size is divisible by 16x16, which is
