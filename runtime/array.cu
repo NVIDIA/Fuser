@@ -45,7 +45,7 @@ __device__ void arraySet(scalar_t* buff, scalar_t val) {
 
 template <typename scalar_t>
 constexpr int64_t vecSizeBit(int64_t vec_size) {
-  return vec_size * sizeof(scalar_t);
+  return vec_size * sizeof(scalar_t) * 8;
 }
 
 template <typename scalar_t, int vec_size>
