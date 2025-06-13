@@ -5856,8 +5856,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       "GroupedMmaOp expects tensor input at position 2 but got ",
       offsets.type().name());
 
+  at::Tensor result;
   if (!hasScale()) {
-    auto result = at::_grouped_mm(
+    result = at::_grouped_mm(
         mat1.as<at::Tensor>(), mat2.as<at::Tensor>(), offsets.as<at::Tensor>());
   } else {
     const auto& scale1 = inputs[3];
