@@ -5793,7 +5793,7 @@ GroupedMmaOp::GroupedMmaOp(
 
   bool has_scale1 = scale1 != nullptr;
   NVF_CHECK(
-      has_scale2 && (scale2 != nullptr),
+      has_scale1 && (scale2 != nullptr),
       "scale1 and scale2 needs to be non-null or both null, got has_scale1 : ",
       has_scale1 ? "true" : "false",
       " has_scale2 : ",
@@ -5808,7 +5808,7 @@ GroupedMmaOp::GroupedMmaOp(
     addInput(scale1);
     addInput(scale2);
   }
-  addDataAttribute(has_scale);
+  addDataAttribute(has_scale1);
 }
 
 std::string GroupedMmaOp::toString(int indent_size) const {
