@@ -23,7 +23,7 @@ StructType NotImplementedStruct::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim) {
   std::stringstream ss;
@@ -80,8 +80,7 @@ DataType metaDataTypeOf(const Val* v) {
   size_t dim = TensorDomain::noReductions(tv->getLogicalDomain()).size();
   size_t alloc_dim =
       TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size();
-  return globalTensorMetaData(
-      std::get<PrimDataType>(tv->dtype().type), dim, alloc_dim);
+  return globalTensorMetaData(tv->dtype().type, dim, alloc_dim);
 }
 
 PrimDataType indexModeToDtype(KernelIndexMode index_mode) {
