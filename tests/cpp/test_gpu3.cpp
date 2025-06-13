@@ -9087,6 +9087,44 @@ TEST_F(NVFuserTest, DeviceSharedMemoryLimit) {
   int device_reserved = (int)properties->reservedSharedMemPerBlock;
   EXPECT_EQ(device_limit, device_total - device_reserved);
 }
+
+// Check that we can actually make use of every byte of shared memory on the
+// device
+TEST_F(NVFuserTest, UseAllSharedMemory) {
+  const auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+  const int64_t available_dyn_smem_bytes =
+      (int64_t)properties->sharedMemPerBlockOptin;
+
+  const PrimDataType dtype = DataType::Float;
+  EXPECT_EQ(available_dyn_smem_bytes % dataTypeSizeByte(dtype), 0);
+  const int64_t len = available_dyn_smem_bytes / dataTypeSizeByte(dtype);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({len});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv1_smem = tv1->cacheBefore();
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({len}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // check that we used the full device
+  int64_t actual_smem = ke.lastLaunchParams().smem();
+  EXPECT_EQ(actual_smem, available_dyn_smem_bytes);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
