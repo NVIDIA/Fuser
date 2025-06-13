@@ -2907,7 +2907,14 @@ class GroupedMmaOp : public Expr {
  public:
   using Expr::Expr;
 
-  GroupedMmaOp(IrBuilderPasskey, Val* out, Val* mat1, Val* mat2, Val* offsets, Val* scale1 = nullptr, Val* scale2 = nullptr);
+  GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* mat1,
+      Val* mat2,
+      Val* offsets,
+      Val* scale1 = nullptr,
+      Val* scale2 = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

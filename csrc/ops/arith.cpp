@@ -2339,11 +2339,17 @@ TensorView* grouped_mm(
       mat1->getDataType().value());
 
   bool has_scale = scale1 != nullptr;
-  NVF_CHECK(has_scale && (scale2 != nullptr), "scale1 and scale2 needs to be non-null or both null");
+  NVF_CHECK(
+      has_scale && (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null");
   if (has_scale) {
     // NOTE: backend has requirements for scale tensor's broadcast pattern.
-    NVF_CHECK(scale1->nDims() == mat1->nDims(), "scale1 needs to be the same rank as mat1");
-    NVF_CHECK(scale2->nDims() == mat2->nDims(), "scale2 needs to be the same rank as mat2");
+    NVF_CHECK(
+        scale1->nDims() == mat1->nDims(),
+        "scale1 needs to be the same rank as mat1");
+    NVF_CHECK(
+        scale2->nDims() == mat2->nDims(),
+        "scale2 needs to be the same rank as mat2");
     IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
   } else {
     IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);

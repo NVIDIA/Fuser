@@ -355,28 +355,32 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     if (producer_tv_->sameAs(op->mat1())) {
       // mapping m dimension;
       updatePairwiseLogicalDomainMap(
-          producer_logical.at(std::ssize(producer_logical) - 2), consumer_root.at(std::ssize(consumer_root) - 2));
+          producer_logical.at(std::ssize(producer_logical) - 2),
+          consumer_root.at(std::ssize(consumer_root) - 2));
     } else if (producer_tv_->sameAs(op->mat2())) {
       // mapping k dimension;
       updatePairwiseLogicalDomainMap(
-          producer_logical.at(std::ssize(producer_logical) - 1), consumer_root.at(std::ssize(consumer_root) - 1));
+          producer_logical.at(std::ssize(producer_logical) - 1),
+          consumer_root.at(std::ssize(consumer_root) - 1));
     } else if (producer_tv_->sameAs(op->offsets())) {
       // mapping g dimension;
       if (ndims_out == 3) {
-      updatePairwiseLogicalDomainMap(
-          producer_logical.at(0), consumer_root.at(0));
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
       }
     } else if (producer_tv_->sameAs(op->scale1())) {
       if (ndims_out == 2) {
         // mapping m dimension;
         updatePairwiseLogicalDomainMap(
-            producer_logical.at(std::ssize(producer_logical) - 2), consumer_root.at(std::ssize(consumer_root) - 2));
+            producer_logical.at(std::ssize(producer_logical) - 2),
+            consumer_root.at(std::ssize(consumer_root) - 2));
       }
     } else if (producer_tv_->sameAs(op->scale2())) {
       if (ndims_out == 2) {
-      // mapping k dimension;
-      updatePairwiseLogicalDomainMap(
-          producer_logical.at(std::ssize(producer_logical) - 1), consumer_root.at(std::ssize(consumer_root) - 1));
+        // mapping k dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(std::ssize(producer_logical) - 1),
+            consumer_root.at(std::ssize(consumer_root) - 1));
       }
     } else {
       NVF_ERROR(false, "Producer did not match any GroupedMmaOp input.");

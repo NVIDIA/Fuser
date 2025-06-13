@@ -5792,12 +5792,18 @@ GroupedMmaOp::GroupedMmaOp(
   addInput(offsets);
 
   bool has_scale = scale1 != nullptr;
-  NVF_CHECK(has_scale && (scale2 != nullptr), "scale1 and scale2 needs to be non-null or both null");
+  NVF_CHECK(
+      has_scale && (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null");
   if (has_scale) {
-    NVF_CHECK(scale1->getValType().value() == ValType::TensorView, "Scale1 must be a TensorView");
-    NVF_CHECK(scale2->getValType().value() == ValType::TensorView, "Scale2 must be a TensorView");
+    NVF_CHECK(
+        scale1->getValType().value() == ValType::TensorView,
+        "Scale1 must be a TensorView");
+    NVF_CHECK(
+        scale2->getValType().value() == ValType::TensorView,
+        "Scale2 must be a TensorView");
     addInput(scale1);
-    addInput(scale2); 
+    addInput(scale2);
   }
   addDataAttribute(has_scale);
 }
@@ -5809,7 +5815,9 @@ std::string GroupedMmaOp::toString(int indent_size) const {
                           << "mat2=" << mat2()->toString() << ", "
                           << "offsets=" << offsets()->toString();
   if (hasScale()) {
-    ss << ", " << "scale1=" << scale1()->toString() << ", " << "scale2=" << scale2()->toString();
+    ss << ", "
+       << "scale1=" << scale1()->toString() << ", "
+       << "scale2=" << scale2()->toString();
   }
   ss << ")\n";
   return ss.str();
@@ -5825,7 +5833,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   NVF_ERROR(
       (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
       "GroupedMmaOp expects 3 or 5 inputs but received ",
-      inputs.size(), " with scale flag: ", hasScale() ? "true" : "false");
+      inputs.size(),
+      " with scale flag: ",
+      hasScale() ? "true" : "false");
 
   const auto& mat1 = inputs[0];
   const auto& mat2 = inputs[1];
@@ -5852,9 +5862,17 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   } else {
     const auto& scale1 = inputs[3];
     const auto& scale2 = inputs[4];
-    NVF_ERROR(scale1.is<at::Tensor>(), "GroupedMmaOp expects tensor input at position 3 but got ", scale1.type().name());
-    NVF_ERROR(scale2.is<at::Tensor>(), "GroupedMmaOp expects tensor input at position 4 but got ", scale2.type().name());
-    // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory layout, as well as a different interpretation on broadcast scales. We need to shoe horn it in
+    NVF_ERROR(
+        scale1.is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 3 but got ",
+        scale1.type().name());
+    NVF_ERROR(
+        scale2.is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 4 but got ",
+        scale2.type().name());
+    // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory
+    // layout, as well as a different interpretation on broadcast scales. We
+    // need to shoe horn it in
     NVF_ERROR(false, "GroupedMmaOp with scale is not implementedyet");
   }
   return {result};
