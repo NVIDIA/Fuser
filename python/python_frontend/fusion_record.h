@@ -3282,7 +3282,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     auto scale1 = fd.getFusionState(args_.at(3).index)->template as<TensorView>();
     auto scale2 = fd.getFusionState(args_.at(4).index)->template as<TensorView>();
     auto output = scaled_grouped_mm(mat1, mat2, offsets, scale1, scale2);
-    fd.setFusionState(outputs.at(0).index, output);
+    fd.setFusionState(outputs().at(0).index, output);
   }
 };
 
