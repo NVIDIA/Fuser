@@ -3725,7 +3725,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor output = fd->defineTensor(output_dims);
 
         fd->defineRecord(
-            new ScaledGroupedMmaOpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+            new ScaledGroupedMmaOpRecord(
                 {fd->recordingState(mat1()),
                  fd->recordingState(mat2()),
                  fd->recordingState(offsets()),

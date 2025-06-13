@@ -733,6 +733,7 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
+// TODO: I should remove this and wrap an overload in python binding.
 //! Grouped matrix multiplication
 //!
 //! Performs matrix multiplication on grouped sets of matrices using offsets
@@ -742,7 +743,7 @@ NVF_API TensorView* argsort(
 //! \param mat2 Second set of matrices
 //! \param offsets Offsets tensor defining group boundaries
 //! \return Result of grouped matrix multiplication
-NVF_API TensorView* scaled_grouped_mm(
+NVF_API TensorView* grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets);
