@@ -174,6 +174,20 @@ void HopperPlus::validate() const {
         "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
         "Kernels");
   }
+  NVF_CHECK(
+      params_->tile_sizes.epilogue_tile.m == -1 ||
+          params_->tile_sizes.warp_tile.m %
+                  params_->tile_sizes.epilogue_tile.m ==
+              0,
+      "Expected m dimension for warp_tile to be divisible by epilogue_tile.");
+  NVF_CHECK(
+      params_->tile_sizes.epilogue_tile.n == -1 ||
+          params_->tile_sizes.warp_tile.n %
+                  params_->tile_sizes.epilogue_tile.n ==
+              0,
+      "Expected n dimension for warp_tile to be divisible by epilogue_tile.");
+  // TODO: add a check for minimum size of epilogue tile based on stmatrix
+  // constraints
 }
 
 void HopperPlus::run() {
@@ -912,18 +926,62 @@ void Hopper::scheduleEpilogueWithoutSmemEpilogue() {
   }
 }
 
+void HopperPlus::doEpilogueTileSplit(TensorView* tv) const {
+  const int64_t ldst_matrix_smem_m = params_->tile_sizes.epilogue_tile.m == -1L
+      ? params_->tile_sizes.warp_tile.m
+      : params_->tile_sizes.epilogue_tile.m;
+  const int64_t ldst_matrix_smem_n = params_->tile_sizes.epilogue_tile.n == -1L
+      ? params_->tile_sizes.warp_tile.n
+      : params_->tile_sizes.epilogue_tile.n;
+
+  // This is called after transformLikeMmaOutputWithoutK:
+  //   [..., Mo * No, Mw, Nw, Mi, Ni]  (cooperative)
+  //   [..., Mo, No, Mi, Ni]           (ping-pong)
+  // We will split the Mw/Nw axis (cooperative) or Mo/No (ping-pong) axes to
+  // form the epilogue tile
+  if (ldst_matrix_smem_m != params_->tile_sizes.warp_tile.m) {
+    //   [..., (Mo * No), Mw, Nw, Mi, Ni]
+    tv->merge(-4, -2);
+    //   [..., (Mo * No), Mw * Mi, Nw, Ni]
+    tv->split(-3, ldst_matrix_smem_m);
+    //   [..., (Mo * No), Mn, Me, Nw, Ni]
+    tv->reorder({{-3, -2}});
+    //   [..., (Mo * No), Mn, Nw, Me, Ni]
+  }
+  if (ldst_matrix_smem_n != params_->tile_sizes.warp_tile.n) {
+    //   [..., (Mo * No), Mn, Nw, Me, Ni]
+    tv->merge(-3, -1);
+    //   [..., (Mo * No), Mn, Nw * Ni, Me]
+    tv->split(-2, ldst_matrix_smem_n);
+    //   [..., (Mo * No), Mn, Nn, Ne, Me]
+    tv->reorder({{-2, -1}});
+    //   [..., (Mo * No), Mn, Nn, Me, Ne]
+  }
+  tv->printTransforms();
+}
+
 void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
+  // Default epilogue tile is same as warp tile
+  const int64_t ldst_matrix_smem_m = params_->tile_sizes.epilogue_tile.m == -1L
+      ? params_->tile_sizes.warp_tile.m
+      : params_->tile_sizes.epilogue_tile.m;
+  const int64_t ldst_matrix_smem_n = params_->tile_sizes.epilogue_tile.n == -1L
+      ? params_->tile_sizes.warp_tile.n
+      : params_->tile_sizes.epilogue_tile.n;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
-  fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
+  fusion_->manage("ldst_matrix_m_smem", ldst_matrix_smem_m);
+  fusion_->manage("ldst_matrix_n_smem", ldst_matrix_smem_n);
 
-  // Propagate to (not including) the splitk output if there is a splitk
-  // else this is just mma_results_
+  // We will propagate backward from cached outputs to (not including) the
+  // splitk output if there is a splitk else this is just mma_results_. We will
+  // add cached tensors of epilogue inputs in the next step.
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
+
+  // Schedule epilogue inputs
   for (auto& [c, c_cache] : cached_epilogue_inputs_) {
     bool load_with_ldmatrix =
         params_->use_ldst_matrix && dataTypeSizeByte(c_cache->dtype()) == 2;
@@ -941,6 +999,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       blockTileTensors({c_cache});
       parallelizeBlocks({c_cache});
       transformLikeMmaOutputWithoutK(c_cache);
+      doEpilogueTileSplit(c_cache);
 
       // Swizzle to avoid shared memory bank conflicts
       MmaInputSmemSwizzle swizzle_type =
@@ -956,6 +1015,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
+      doEpilogueTileSplit(reg_tv);
 
       // Schedule the loop and allocation domain of LdMatrix like the
       // accumulation register TensorView of wgmma.
@@ -1026,7 +1086,11 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     parallelizeBlocks(tvs_to_schedule);
     for (auto tv : tvs_to_schedule) {
       transformLikeMmaOutputWithoutK(tv);
+      doEpilogueTileSplit(tv);
     }
+
+    // Determine swizzle for TMA Store
+    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
     // Should not propagate if the dc is a mma output as the mma output has
     // already been scheduled.
@@ -1043,9 +1107,6 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType());
     }
-
-    // Determine swizzle for TMA Store
-    MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
     // First, create loop domain that matches wgmma register accumulator using
     // original loop domain.
@@ -1192,6 +1253,7 @@ void Hopper::scheduleSplitKSum() {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
     transformLikeMmaOutputWithoutK(splitk_sum);
+    doEpilogueTileSplit(splitk_sum);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
