@@ -2886,12 +2886,12 @@ class ArgsortOp : public Expr {
 //!
 //!     Case 1: grouped k-dimension:
 //!       input rank: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
-//!                   scale1[ m, g ], scale2[ g, n]
+//!                   scale1[ g, m, k' ], scale2[ g, k', n]
 //!       requires: sum(offsets) == k
 //!       math:
 //!       for i in (0...g):
-//!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ 0:m, i ])
-//!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:n ])
+//!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
+//!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
 //!     Case 2: grouped m-dimension:
 //!       input rank: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
@@ -2899,8 +2899,8 @@ class ArgsortOp : public Expr {
 //!       requires: sum(offsets) == m
 //!       math:
 //!       for i in (0...g):
-//!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), k' ])
-//!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, k', 0:n ])
+//!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
+//!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
 //!     Case 3: grouped n-dimension:
 //!       input rank: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
@@ -2908,8 +2908,8 @@ class ArgsortOp : public Expr {
 //!       requires: sum(offsets) == n
 //!       math:
 //!       for i in (0...g):
-//!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, k' ])
-//!                           @(mat2[ 0:k, f(i) ] * scale2[ k', f(i) ])
+//!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
+//!                           @(mat2[ 0:k, f(i) ] * scale2[ 0:k', f(i) ])
 //!
 class GroupedMmaOp : public Expr {
  public:
