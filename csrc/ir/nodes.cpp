@@ -5895,7 +5895,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale2_tensor = scale2_tensor.squeeze(-2);
     }
     result = at::_scaled_grouped_mm(
-        mat1_contiguous, mat2_k_last, scale1_tensor, scale2_tensor, offsets.as<at::Tensor>(), std::nullopt, std::nullopt, at::BFloat16);
+        mat1_contiguous, mat2_k_last, scale1_tensor, scale2_tensor, offsets.as<at::Tensor>(), std::nullopt, std::nullopt, at::ScalarType::BFloat16);
     result = result.to(data_type_to_aten(out()->dtype()));
   }
   return {result};
