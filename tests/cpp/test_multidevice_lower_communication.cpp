@@ -65,7 +65,6 @@ class LowerGatherTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
@@ -138,7 +137,6 @@ class LowerScatterTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
@@ -189,7 +187,6 @@ class LowerSendRecvTest
       public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
-  EnableOptionsGuard opt_guard;
   const auto& [meshes, enable_host_ir_lowering] = GetParam();
   const auto& [in_mesh, out_mesh] = meshes;
 
@@ -255,7 +252,6 @@ void LowerCollectiveTest::SetUp() {
   // available. Therefore, we call it after the isBackendAvailable check.
   communicator_->setDefaultBackend(backend_type);
 
-  EnableOptionsGuard enable_options_guard;
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
   }
