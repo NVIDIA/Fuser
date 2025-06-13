@@ -346,7 +346,7 @@ std::vector<std::byte> tensorToBytes(
           bytes.data() + bytes.size() - sizeof(int64_t));
       last_size *= adjust_last_dim.numerator;
       last_size /= adjust_last_dim.denominator;
-    }  else {
+    } else {
       NVF_ERROR(
           adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
           "DataType not supported");
