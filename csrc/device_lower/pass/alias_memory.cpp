@@ -1196,9 +1196,9 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSize(
+            dataTypeSizeByte(
                 alloc_info->data_type, GpuLower::current()->indexType()) !=
-            dataTypeSize(
+            dataTypeSizeByte(
                 alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
@@ -1526,7 +1526,7 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
 
 Val* allocSizeBytes(kir::Allocate* alloc) {
   const auto buffer_dtype = alloc->buffer()->dtype();
-  const auto dtype_size = dataTypeSize(buffer_dtype);
+  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
   auto size = dtype_size == 1
       ? alloc->size()
       : SimplifyingIrBuilder::mulExpr(
@@ -1781,7 +1781,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       debug() << "Assigned address " << alloc->address()->toInlineString()
               << " for T" << alloc->buffer()->name() << " with size "
               << alloc->size()->toInlineString() << " * "
-              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << dataTypeSizeByte(alloc->buffer()->dtype()) << " bytes"
               << std::endl;
     }
   }

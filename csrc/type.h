@@ -334,10 +334,12 @@ DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 NVF_API bool isSupportedTypeByDevice(DataType dtype);
 
-NVF_API int64_t dataTypeSize(DataType type);
+NVF_API int64_t dataTypeSizeBit(DataType type);
+NVF_API int64_t dataTypeSizeByte(DataType type);
 
 // If the index type is known it will be automatically used here
-int64_t dataTypeSize(DataType type, DataType index_type);
+int64_t dataTypeSizeBit(DataType type, DataType index_type);
+int64_t dataTypeSizeByte(DataType type, DataType index_type);
 
 template <PrimDataType DT>
 struct DataTypeToNativeType;
@@ -544,7 +546,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     auto ptr = std::get<PointerType>(dtype.type);
-    return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+    return dataTypeSizeByte(*ptr.type) == value.as<Pointer>().size();
   } else if (std::holds_alternative<ArrayType>(dtype.type)) {
     if (!value.is<std::vector>()) {
       return false;
@@ -1036,49 +1038,55 @@ const char* load_store_type2string(LoadStoreOpType t);
 
 std::optional<std::string> cast_func_str(const std::pair<DataType, DataType>&);
 
-constexpr inline size_t primDataTypeSize(PrimDataType type) {
+constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
   switch (type) {
     case DataType::Bool:
-      return sizeof(bool);
+      return sizeof(bool) * 8;
     case DataType::ComplexDouble:
-      return sizeof(std::complex<double>);
+      return sizeof(std::complex<double>) * 8;
     case DataType::ComplexFloat:
-      return sizeof(std::complex<float>);
+      return sizeof(std::complex<float>) * 8;
     case DataType::Double:
-      return sizeof(double);
+      return sizeof(double) * 8;
     case DataType::Float:
-      return sizeof(float);
+      return sizeof(float) * 8;
     case DataType::Half:
-      return sizeof(at::Half);
+      return sizeof(at::Half) * 8;
     case DataType::BFloat16:
-      return sizeof(at::BFloat16);
+      return sizeof(at::BFloat16) * 8;
     case DataType::Float8_e4m3fn:
-      return sizeof(at::Float8_e4m3fn);
+      return sizeof(at::Float8_e4m3fn) * 8;
     case DataType::Float8_e5m2:
-      return sizeof(at::Float8_e5m2);
+      return sizeof(at::Float8_e5m2) * 8;
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Char:
-      return sizeof(int8_t);
+      return sizeof(int8_t) * 8;
     case DataType::Short:
-      return sizeof(int16_t);
+      return sizeof(int16_t) * 8;
     case DataType::Int32:
-      return sizeof(int32_t);
+      return sizeof(int32_t) * 8;
     case DataType::Int:
-      return sizeof(int64_t);
+      return sizeof(int64_t) * 8;
     case DataType::Byte:
-      return sizeof(uint8_t);
+      return sizeof(uint8_t) * 8;
     case DataType::UInt16:
-      return sizeof(uint16_t);
+      return sizeof(uint16_t) * 8;
     case DataType::UInt32:
     case DataType::SMemAddress:
     case DataType::TMemAddress:
-      return sizeof(uint32_t);
+      return sizeof(uint32_t) * 8;
     case DataType::UInt64:
-      return sizeof(uint64_t);
+      return sizeof(uint64_t) * 8;
     default:
       NVF_THROW("Size undefined for data type.");
   }
+}
+
+constexpr inline size_t primDataTypeSizeByte(PrimDataType type) {
+  int64_t bits = primDataTypeSizeBit(type);
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
 }
 
 enum class LaunchConfigType {
@@ -1099,7 +1107,7 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSizeByte(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,

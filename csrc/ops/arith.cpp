@@ -82,7 +82,7 @@ Val* bitCastOp(DataType dtype, Val* v1) {
   }
 
   NVF_CHECK(
-      dataTypeSize(v1->getDataType().value()) == dataTypeSize(dtype),
+      dataTypeSizeByte(v1->getDataType().value()) == dataTypeSizeByte(dtype),
       "BitCast only works for types of the same size");
 
   Val* out = ops::newValLike(v1, dtype);
