@@ -372,8 +372,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       if (ndims_out == 2) {
         // mapping m dimension;
         updatePairwiseLogicalDomainMap(
-            producer_logical.at(std::ssize(producer_logical) - 2),
-            consumer_root.at(std::ssize(consumer_root) - 2));
+            producer_logical.at(std::ssize(producer_logical) - 1),
+            consumer_root.at(0));
       }
     } else if (producer_tv_->sameAs(op->scale2())) {
       if (ndims_out == 2) {
