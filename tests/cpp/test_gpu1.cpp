@@ -2781,7 +2781,7 @@ TEST_P(AdvancedDtypeTest, CopyKernelPointer) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt64).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 1LL << 63, {1024}, options);
+  at::Tensor input = at::randint(0, 1LL << 62, {1024}, options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
