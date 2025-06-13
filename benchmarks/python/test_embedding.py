@@ -140,7 +140,7 @@ def test_embedding_rmsnorm_inference(
 
     def fn(inputs: list):
         indices, embedding_table, rmsnorm_weights = inputs
-        return rmsnorm_fn([embedding_fn([indices, embedding_table]), rmsnorm_weights])
+        return rmsnorm_fn([embedding_fn([indices, embedding_table]).float(), rmsnorm_weights]).to(dtype)
 
     benchmark_fn = with_executor(executor, fn, **kwargs)
     run_benchmark(
