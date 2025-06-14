@@ -1845,7 +1845,14 @@ def grouped_mm_input_generator(
 
     def make_index(extent, num_groups):
         group_size = extent // num_groups
-        return torch.arange(group_size, group_size * g + 1, group_size, device="cuda", dtype=torch.int32, requires_grad=False)
+        return torch.arange(
+            group_size,
+            group_size * g + 1,
+            group_size,
+            device="cuda",
+            dtype=torch.int32,
+            requires_grad=False,
+        )
 
     # FIXME: enable test cases when switched to cublas fallback
     # TODO: expand the test when kernel restrictions are lifted
@@ -1873,6 +1880,7 @@ def grouped_mm_input_generator(
         mat2 = make_arg((k, n))
         offsets = make_index(n, g)
         yield SampleInput(mat1, mat2, offsets)
+
 
 def scaled_grouped_mm_input_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
@@ -1907,7 +1915,14 @@ def scaled_grouped_mm_input_generator(
 
     def make_index(extent, num_groups):
         group_size = extent // num_groups
-        return torch.arange(group_size, group_size * g + 1, group_size, device="cuda", dtype=torch.int32, requires_grad=False)
+        return torch.arange(
+            group_size,
+            group_size * g + 1,
+            group_size,
+            device="cuda",
+            dtype=torch.int32,
+            requires_grad=False,
+        )
 
     # TODO: expand the test when fallback kernel restrictions are lifted
     #       currently only bf16 output is supported.

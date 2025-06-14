@@ -5860,43 +5860,52 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     return {result};
   }
 
-    const auto& scale1 = inputs[3];
-    const auto& scale2 = inputs[4];
-    NVF_ERROR(
-        scale1.is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 3 but got ",
-        scale1.type().name());
-    NVF_ERROR(
-        scale2.is<at::Tensor>(),
-        "GroupedMmaOp expects tensor input at position 4 but got ",
-        scale2.type().name());
-    // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory
-    // layout, as well as a different interpretation on broadcast scales. We
-    // need to shoe horn it in
+  const auto& scale1 = inputs[3];
+  const auto& scale2 = inputs[4];
+  NVF_ERROR(
+      scale1.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 3 but got ",
+      scale1.type().name());
+  NVF_ERROR(
+      scale2.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 4 but got ",
+      scale2.type().name());
+  // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory
+  // layout, as well as a different interpretation on broadcast scales. We
+  // need to shoe horn it in
 
-    auto mat1_contiguous = mat1.as<at::Tensor>().contiguous();
-    // mat2 needs to be strided to have k dimension as the fastest dimension;
-    auto mat2_k_last = mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);
+  auto mat1_contiguous = mat1.as<at::Tensor>().contiguous();
+  // mat2 needs to be strided to have k dimension as the fastest dimension;
+  auto mat2_k_last =
+      mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);
 
-    auto scale1_tensor = scale1.as<at::Tensor>();
-    auto scale2_tensor = scale2.as<at::Tensor>();
-    // aten kernel limitation
-    NVF_CHECK(
-        scale1_tensor.size(-1) == 1 && scale2_tensor.size(-2) == 1,
-        "Scale1 and scale2 must have size 1 at the k dimension");
-    // scale factor handling
-    if (out()->nDims() == 3) {
-      // case 1, aten API expects collapsed 1D scale with group dimension on the slower side.
-      scale1_tensor = scale1_tensor.reshape(-1);
-      scale2_tensor = scale2_tensor.reshape(-1);
-    } else {
-      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
-      scale1_tensor = scale1_tensor.squeeze(-1);
-      scale2_tensor = scale2_tensor.squeeze(-2);
-    }
-    result = at::_scaled_grouped_mm(
-        mat1_contiguous, mat2_k_last, scale1_tensor, scale2_tensor, offsets.as<at::Tensor>(), std::nullopt, std::nullopt, at::ScalarType::BFloat16);
-    result = result.to(data_type_to_aten(out()->dtype()));
+  auto scale1_tensor = scale1.as<at::Tensor>();
+  auto scale2_tensor = scale2.as<at::Tensor>();
+  // aten kernel limitation
+  NVF_CHECK(
+      scale1_tensor.size(-1) == 1 && scale2_tensor.size(-2) == 1,
+      "Scale1 and scale2 must have size 1 at the k dimension");
+  // scale factor handling
+  if (out()->nDims() == 3) {
+    // case 1, aten API expects collapsed 1D scale with group dimension on the
+    // slower side.
+    scale1_tensor = scale1_tensor.reshape(-1);
+    scale2_tensor = scale2_tensor.reshape(-1);
+  } else {
+    // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
+    scale1_tensor = scale1_tensor.squeeze(-1);
+    scale2_tensor = scale2_tensor.squeeze(-2);
+  }
+  result = at::_scaled_grouped_mm(
+      mat1_contiguous,
+      mat2_k_last,
+      scale1_tensor,
+      scale2_tensor,
+      offsets.as<at::Tensor>(),
+      std::nullopt,
+      std::nullopt,
+      at::ScalarType::BFloat16);
+  result = result.to(data_type_to_aten(out()->dtype()));
   return {result};
 }
 

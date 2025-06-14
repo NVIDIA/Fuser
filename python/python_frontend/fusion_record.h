@@ -1601,32 +1601,21 @@ struct ReductionOpRecord : RecordFunctor {
         result = result &&
             (*fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>() ==
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>() ==
              *child_ptr->fusion_op_.template target<
 
-                 TensorView* (*)(TensorView*,
-                                 const std::vector<int64_t>&,
-                                 bool,
-                                 DataType)>());
+                 TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>());
         if (isDebugDumpEnabled(DebugDumpOption::PythonFrontendDebug)) {
-          debug() << " Target  Ptr [self: 0x" << std::hex
-                  << (size_t)*fusion_op_.template target<
+          debug()
+              << " Target  Ptr [self: 0x" << std::hex
+              << (size_t)*fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "] [other: 0x" << std::hex
-                  << (size_t)*child_ptr->fusion_op_.template target<
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "] [other: 0x" << std::hex
+              << (size_t)*child_ptr->fusion_op_.template target<
 
-                         TensorView* (*)(TensorView*,
-                                         const std::vector<int64_t>&,
-                                         bool,
-                                         DataType)>()
-                  << "]\n";
+                     TensorView* (*)(TensorView*, const std::vector<int64_t>&, bool, DataType)>()
+              << "]\n";
         }
         result = result && (keep_dim_ == child_ptr->keep_dim_);
         result = result && (dtype_ == child_ptr->dtype_);
@@ -3271,10 +3260,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
             std::move(_outputs),
             "ops.grouped_mm",
             serde::RecordType::ScaledGroupedMmaOp),
-        dtype_(
-            dtype.has_value()
-                ? dtype.value()
-                : PrimDataType::Half) {}
+        dtype_(dtype.has_value() ? dtype.value() : PrimDataType::Half) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ScaledGroupedMmaOpRecord(*this);
@@ -3287,10 +3273,11 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     auto result = RecordFunctor::hash();
     return result | (static_cast<size_t>(dtype_) & 0xffffffff);
   }
-  
+
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const ScaledGroupedMmaOpRecord*>(&other)) {
+    if (auto child_ptr =
+            dynamic_cast<const ScaledGroupedMmaOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other);
       result = result && (dtype_ == child_ptr->dtype_);
     }
@@ -3308,18 +3295,21 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto mat1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto mat2 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
-    auto offsets = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
-    auto scale1 = fd.getFusionState(args_.at(3).index)->template as<TensorView>();
-    auto scale2 = fd.getFusionState(args_.at(4).index)->template as<TensorView>();
+    auto offsets =
+        fd.getFusionState(args_.at(2).index)->template as<TensorView>();
+    auto scale1 =
+        fd.getFusionState(args_.at(3).index)->template as<TensorView>();
+    auto scale2 =
+        fd.getFusionState(args_.at(4).index)->template as<TensorView>();
     auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2, dtype_);
     fd.setFusionState(outputs().at(0).index, output);
   }
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
-    flatbuffers::FlatBufferBuilder& builder) const final {
-  return {
-      serde::RecordData::GroupedMma,
-      serde::CreateVector(builder, nvfuser::toUnderlying(dtype_)).Union()};
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::GroupedMma,
+        serde::CreateVector(builder, nvfuser::toUnderlying(dtype_)).Union()};
   };
 
   PrimDataType dtype_;

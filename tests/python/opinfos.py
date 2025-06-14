@@ -1307,6 +1307,7 @@ grouped_mm_opinfo = OpInfo(
     reference=torch._grouped_mm,
 )
 
+
 def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, dtype):
     # mat1 needs to be in column major while mat2 needs to be in row major.
     row_major_mat2 = mat2.transpose(-1, -2).contiguous().transpose(-1, -2)
@@ -1318,7 +1319,17 @@ def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, dtype):
         # squeeze out the k dimension
         reshaped_scale1 = scale1.squeeze(-1)
         reshaped_scale2 = scale2.squeeze(-2)
-    return torch._scaled_grouped_mm(mat1, row_major_mat2, reshaped_scale1, reshaped_scale2, offsets, None, None, dtype)
+    return torch._scaled_grouped_mm(
+        mat1,
+        row_major_mat2,
+        reshaped_scale1,
+        reshaped_scale2,
+        offsets,
+        None,
+        None,
+        dtype,
+    )
+
 
 scaled_grouped_mm_opinfo = OpInfo(
     lambda fd: fd.ops.grouped_mm,

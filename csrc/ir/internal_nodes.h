@@ -2983,13 +2983,16 @@ class GroupedMmaOp : public Expr {
   // Get the IterDomain for the k-dimension of the second input matrix
   IterDomain* getKDimOfMatrix2() const;
 
-  // Get the IterDomain for the group dimension of the first input matrix, returns nullptr if not present
+  // Get the IterDomain for the group dimension of the first input matrix,
+  // returns nullptr if not present
   std::optional<IterDomain*> getGroupDimOfMatrix1() const;
 
-  // Get the IterDomain for the group dimension of the second input matrix, returns nullptr if not present
+  // Get the IterDomain for the group dimension of the second input matrix,
+  // returns nullptr if not present
   std::optional<IterDomain*> getGroupDimOfMatrix2() const;
 
-  // Get the IterDomain for the group dimension of the output matrix, returns nullptr if not present
+  // Get the IterDomain for the group dimension of the output matrix, returns
+  // nullptr if not present
   std::optional<IterDomain*> getGroupDimOfOutput() const;
 };
 

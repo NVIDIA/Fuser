@@ -396,8 +396,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       if (ndims_out == 3) {
         // mapping g dimension;
         updatePairwiseLogicalDomainMap(
-            producer_logical.at(0),
-            consumer_root.at(0));
+            producer_logical.at(0), consumer_root.at(0));
       }
     } else if (producer_tv_->sameAs(op->scale2())) {
       // mapping n dimension;
@@ -407,8 +406,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       if (ndims_out == 3) {
         // mapping g dimension;
         updatePairwiseLogicalDomainMap(
-            producer_logical.at(0),
-            consumer_root.at(0));
+            producer_logical.at(0), consumer_root.at(0));
       }
     } else {
       NVF_ERROR(false, "Producer did not match any GroupedMmaOp input.");

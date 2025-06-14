@@ -853,10 +853,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
-  NVFUSER_TERNARY_TV_ONLY_OP("grouped_mm",
-    [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+  NVFUSER_TERNARY_TV_ONLY_OP(
+      "grouped_mm",
+      [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
         return grouped_mm(mat1, mat2, offsets);
-})
+      })
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 
