@@ -5808,8 +5808,8 @@ GroupedMmaOp::GroupedMmaOp(
 std::string GroupedMmaOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = GroupedMmaOp("
-                          << "mat1=" << mat1()->toString() << ", "
-                          << "mat2=" << mat2()->toString() << ", "
+                          << "mat1=" << matrix1()->toString() << ", "
+                          << "mat2=" << matrix2()->toString() << ", "
                           << "offsets=" << offsets()->toString();
   if (hasScale()) {
     ss << ", "
@@ -5912,14 +5912,14 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
   // mat1 is [g, m, k] or [m, k]
   const auto& logical_domain =
-      TensorDomain::noReductions(mat1()->getLogicalDomain());
+      TensorDomain::noReductions(matrix1()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
 IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
   // mat2 is [g, k, n] or [k, n]
   const auto& logical_domain =
-      TensorDomain::noReductions(mat2()->getLogicalDomain());
+      TensorDomain::noReductions(matrix2()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
