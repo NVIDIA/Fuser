@@ -5870,7 +5870,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale2.is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 4 but got ",
       scale2.type().name());
-  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both input matrices.
+  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
+  // input matrices.
   auto mat1_k_last = mat1.as<at::Tensor>().contiguous();
   auto mat2_k_last =
       mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);

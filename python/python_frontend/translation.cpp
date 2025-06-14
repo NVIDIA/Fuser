@@ -1161,7 +1161,9 @@ class FusionTranslator : public OptInConstDispatch {
             ("ops.grouped_mm"),
             serde::RecordType::Ternary_TV,
             static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
-                [](TensorView* matrix1, TensorView* matrix2, TensorView* offsets) {
+                [](TensorView* matrix1,
+                   TensorView* matrix2,
+                   TensorView* offsets) {
                   return grouped_mm(matrix1, matrix2, offsets);
                 })));
   }
