@@ -2937,7 +2937,7 @@ class GroupedMmaOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 
   // Get output matrix
-  TensorView* output() const {
+  TensorView* out() const {
     return output(0)->as<TensorView>();
   }
 
