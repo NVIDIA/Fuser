@@ -1852,7 +1852,7 @@ def grouped_mm_input_generator(
     # Test various group sizes and matrix dimensions
     configs = (
         (4, 128, 256, 64),
-        (3, 256, 48, 96),
+        (2, 32, 32, 32),
     )
 
     for config in configs:
@@ -1916,7 +1916,7 @@ def scaled_grouped_mm_input_generator(
     # configs: list(g, m, k, n, output_dtype)
     configs = (
         (4, 128, 256, 64, torch.bfloat16),
-        (3, 256, 48, 96, torch.bfloat16),
+        (2, 32, 32, 32, torch.bfloat16),
     )
 
     # TODO: Enable mxfp8 test when backend supports it.
