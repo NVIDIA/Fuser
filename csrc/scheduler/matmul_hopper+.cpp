@@ -10,6 +10,7 @@
 #include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -26,7 +27,6 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
-#include "mma_type.h"
 
 namespace nvfuser {
 
@@ -36,6 +36,8 @@ namespace {
 
 constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+constexpr int64_t num_registers_async_warp = 40;
+constexpr int64_t num_registers_compute_warp = 232;
 
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
@@ -1247,6 +1249,44 @@ void HopperPlus::setUpInlining() {
   }
 }
 
+int64_t HopperPlus::getNumEpilogueWarpGroups() const {
+  NVF_ERROR(!mma_results_.empty());
+  for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::TIDy) {
+      return id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return 1;
+}
+
+CircularBufferType HopperPlus::getCircularBufferType() const {
+  switch (params_->circular_buffering_strategy) {
+    case MatmulParams::CircularBufferingStrategy::Pipelined:
+      return (CircularBufferType)Pipelined(false);
+    case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
+      if (getNumEpilogueWarpGroups() != 2) {
+        // Disable register sharing when there is only one math warp group.
+        // In such case we will have 128 math threads and 128 dma threads,
+        // for a total of 256 threads per CTA. The register file size on
+        // Hopper is 64K registers, which is filled when a 256-thread CTA
+        // has 256 registers per thread. Since 256 is already the maximum
+        // number of registers per thread even with register sharing, there
+        // is no point in doing register sharing to try and increase it.
+        //
+        // When there is not two warp groups, we also disable
+        // register sharing, since we don't currently compute the number of
+        // register properly in that case.
+        return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      } else {
+        return (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_async_warp, num_registers_compute_warp));
+      }
+  }
+  NVF_ERROR(false, "Invalid circular buffer type");
+}
+
 void HopperPlus::setUpCircularBuffering() {
   // Propagate mma output swizzle and parallelization down the DAG
   if (params_->circular_buffer_options.circular_buffer_smem_write) {
@@ -1270,44 +1310,7 @@ void HopperPlus::setUpCircularBuffering() {
         "stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
-    CircularBufferType cb_type;
-    switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined: {
-        cb_type = (CircularBufferType)Pipelined(false);
-        break;
-      }
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        int64_t num_math_warp_groups = 1L;
-        NVF_ERROR(!mma_results_.empty());
-        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-          if (id->getParallelType() == ParallelType::TIDy) {
-            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-          }
-        }
-        if (num_math_warp_groups != 2) {
-          // Disable register sharing when there is only one math warp group.
-          // In such case we will have 128 math threads and 128 dma threads,
-          // for a total of 256 threads per CTA. The register file size on
-          // Hopper is 64K registers, which is filled when a 256-thread CTA
-          // has 256 registers per thread. Since 256 is already the maximum
-          // number of registers per thread even with register sharing, there
-          // is no point in doing register sharing to try and increase it.
-          //
-          // When there is more than one math warp group, we also disable
-          // register sharing, since we don't currently compute the number of
-          // register properly in that case.
-          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-        } else {
-          constexpr int64_t num_registers_async_warp = 40;
-          constexpr int64_t num_registers_compute_warp = 232;
-          cb_type = (CircularBufferType)WarpSpecialized(
-              ParallelType::TIDy,
-              std::make_pair(
-                  num_registers_async_warp, num_registers_compute_warp));
-        }
-        break;
-      }
-    }
+    CircularBufferType cb_type = getCircularBufferType();
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,

@@ -79,7 +79,8 @@ namespace {
 // select doesn't have a consumer ID, whereas index_select does.
 std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
-    const TensorView* consumer_tv) {
+    const TensorView* consumer_tv,
+    bool map_different_extents) {
   std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
@@ -112,6 +113,24 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
+  } else if (auto top = dynamic_cast<TopKOp*>(consumer_tv->definition());
+             top != nullptr && !map_different_extents) {
+    // For TopKOp, the topk dimension should not be mapped between producer and
+    // consumer because they have different extents: input[topk_dim] = D,
+    // output[topk_dim] = k (where k < D)
+    if (producer_tv == top->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto topk_dim = top->dim();
+      NVF_ERROR(
+          topk_dim >= 0 && (size_t)topk_dim < producer_logical.size(),
+          "TopKOp dimension ",
+          topk_dim,
+          " is out of bounds for producer logical domain size ",
+          producer_logical.size());
+      non_mapping_ids.insert(producer_logical.at(topk_dim));
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -136,7 +155,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
-      getNonMappingDomainInfo(producer_tv_, consumer_tv_);
+      getNonMappingDomainInfo(
+          producer_tv_, consumer_tv_, map_different_extents_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());

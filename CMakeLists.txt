@@ -813,6 +813,7 @@ if(BUILD_TEST)
 
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
   )
   add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})

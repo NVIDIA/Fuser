@@ -910,10 +910,10 @@ def topk_error_generator(
         a, 3, -4, True, False
     ), RuntimeError, "Tried to access out of boundary index"
 
-    # negative k size fails nvfuser shape inference.
-    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Unexpected size of axis"
+    # Concretization should detect the negative K as an error
+    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Invalid TopK K parameter"
 
-    # error coming from aten fallback.
+    #  error coming from aten fallback.
     yield SampleInput(
         a, 16, 1, True, False
     ), RuntimeError, "selected index k out of range"
