@@ -2860,10 +2860,9 @@ class ArgsortOp : public Expr {
   }
 };
 
-//! Grouped Matrix Multiplication operation.
+//! NOTE -- [ Grouped Matrix Multiplication operation ]
 //!
-//! This operation performs a matrix multiplication on a grouped set of
-//! matrices.
+//! This operation performs a grouped matrix multiplication
 //!
 //! Parameters:
 //! - out: output tensor
@@ -2873,8 +2872,8 @@ class ArgsortOp : public Expr {
 //! - scale1: scale tensor for mat1 (optional)
 //! - scale2: scale tensor for mat2 (optional)
 //!
-//! The offsets tensor is a 1D tensor of shape (num_groups + 1) that specifies
-//! the starting index of each group in the mat1 and mat2 tensors.
+//! The offsets tensor is a vector tensor of length `num_groups` that specifies
+//! the ending index of each group in the mat1 and mat2 tensors.
 //!
 //! Given the number of groups as G, the operation conceptually runs G matmuls.
 //! There are three configurations of grouping, reflected by ranks of input
@@ -2937,40 +2936,61 @@ class GroupedMmaOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  TensorView* out() const {
+  // Get output matrix
+  TensorView* output() const {
     return output(0)->as<TensorView>();
   }
-  TensorView* mat1() const {
+
+  // Get first input matrix
+  TensorView* matrix1() const {
     return input(0)->as<TensorView>();
   }
-  TensorView* mat2() const {
+
+  // Get second input matrix
+  TensorView* matrix2() const {
     return input(1)->as<TensorView>();
   }
+
+  // Get group offset input vector
   TensorView* offsets() const {
     return input(2)->as<TensorView>();
   }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
   TensorView* scale1() const {
     if (inputs().size() == 5) {
       return input(3)->as<TensorView>();
     }
     return nullptr;
   }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
   TensorView* scale2() const {
     if (inputs().size() == 5) {
       return input(4)->as<TensorView>();
     }
     return nullptr;
   }
+
+  // True if scale factors are present
   bool hasScale() const {
     return attribute<bool>(0);
   }
 
-  IterDomain* getKIDOfMat1() const;
-  IterDomain* getKIDOfMat2() const;
+  // Get the IterDomain for the k-dimension of the first input matrix
+  IterDomain* getKDimOfMatrix1() const;
 
-  std::optional<IterDomain*> getGIDOfMat1() const;
-  std::optional<IterDomain*> getGIDOfMat2() const;
-  std::optional<IterDomain*> getGIDOfOutput() const;
+  // Get the IterDomain for the k-dimension of the second input matrix
+  IterDomain* getKDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the first input matrix, returns nullptr if not present
+  std::optional<IterDomain*> getGroupDimOfMatrix1() const;
+
+  // Get the IterDomain for the group dimension of the second input matrix, returns nullptr if not present
+  std::optional<IterDomain*> getGroupDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the output matrix, returns nullptr if not present
+  std::optional<IterDomain*> getGroupDimOfOutput() const;
 };
 
 //! TopK operation that finds the k largest or smallest elements
