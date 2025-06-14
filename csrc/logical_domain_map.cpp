@@ -352,12 +352,12 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   if (GroupedMmaOp* op =
           dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
     auto ndims_out = consumer_root.size();
-    if (producer_tv_->sameAs(op->mat1())) {
+    if (producer_tv_->sameAs(op->matrix1())) {
       // mapping m dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(std::ssize(producer_logical) - 2),
           consumer_root.at(std::ssize(consumer_root) - 2));
-    } else if (producer_tv_->sameAs(op->mat2())) {
+    } else if (producer_tv_->sameAs(op->matrix2())) {
       // mapping k dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(std::ssize(producer_logical) - 1),

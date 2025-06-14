@@ -5900,31 +5900,31 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   return {result};
 }
 
-IterDomain* GroupedMmaOp::getKIDOfMat1() const {
+IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
   // mat1 is [g, m, k] or [m, k]
   const auto& logical_domain =
       TensorDomain::noReductions(mat1()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
-IterDomain* GroupedMmaOp::getKIDOfMat2() const {
+IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
   // mat2 is [g, k, n] or [k, n]
   const auto& logical_domain =
       TensorDomain::noReductions(mat2()->getLogicalDomain());
   return logical_domain.at(logical_domain.size() - 1);
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGIDOfMat1() const {
+std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfMatrix1() const {
   // mat1 is [g, m, k] or [m, k]
   return returnFirstIfRankThree(mat1());
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGIDOfMat2() const {
+std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfMatrix2() const {
   // mat2 is [g, k, n] or [k, n]
   return returnFirstIfRankThree(mat2());
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGIDOfOutput() const {
+std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfOutput() const {
   // mat2 is [g, k, n] or [k, n]
   return returnFirstIfRankThree(out());
 }
