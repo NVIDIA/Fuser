@@ -96,6 +96,7 @@ bool isTvOp(const Expr* expr) {
           IndexSelectOp,
           IndexPutAccumulateOp,
           GatherOp,
+          IndexShuffleOp,
           ScatterOp,
           RNGOp,
           FullOp,
