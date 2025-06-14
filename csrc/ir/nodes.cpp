@@ -5870,22 +5870,19 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale2.is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 4 but got ",
       scale2.type().name());
-  // TODO: at::_scaled_grouped_mm has requirements on mat1 and mat2's memory
-  // layout, as well as a different interpretation on broadcast scales. We
-  // need to shoe horn it in
-
-  auto mat1_contiguous = mat1.as<at::Tensor>().contiguous();
-  // mat2 needs to be strided to have k dimension as the fastest dimension;
+  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both input matrices.
+  auto mat1_k_last = mat1.as<at::Tensor>().contiguous();
   auto mat2_k_last =
       mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);
 
   auto scale1_tensor = scale1.as<at::Tensor>();
   auto scale2_tensor = scale2.as<at::Tensor>();
-  // aten kernel limitation
+  // at::_scaled_grouped_mm limitation
   NVF_CHECK(
       scale1_tensor.size(-1) == 1 && scale2_tensor.size(-2) == 1,
       "Scale1 and scale2 must have size 1 at the k dimension");
   // scale factor handling
+  // see NOTE -- [ Grouped Matrix Multiplication semantics ]
   if (out()->nDims() == 3) {
     // case 1, aten API expects collapsed 1D scale with group dimension on the
     // slower side.
@@ -5897,7 +5894,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     scale2_tensor = scale2_tensor.squeeze(-2);
   }
   result = at::_scaled_grouped_mm(
-      mat1_contiguous,
+      mat1_k_last,
       mat2_k_last,
       scale1_tensor,
       scale2_tensor,

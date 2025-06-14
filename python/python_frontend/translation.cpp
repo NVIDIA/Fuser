@@ -1154,15 +1154,15 @@ class FusionTranslator : public OptInConstDispatch {
 
     fd_->defineRecord(
         new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
-            {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat1())),
-             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->mat2())),
+            {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
              fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
             {fd_->recordingState(output())},
             ("ops.grouped_mm"),
             serde::RecordType::Ternary_TV,
             static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
-                [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
-                  return grouped_mm(mat1, mat2, offsets);
+                [](TensorView* matrix1, TensorView* matrix2, TensorView* offsets) {
+                  return grouped_mm(matrix1, matrix2, offsets);
                 })));
   }
 
