@@ -1314,10 +1314,18 @@ def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, dtype):
 scaled_grouped_mm_opinfo = OpInfo(
     lambda fd: fd.ops.grouped_mm,
     "scaled_grouped_mm",
-    # only bf16 is supported
-    dtypes=(torch.bfloat16,),
+    # only float8 is supported
+    dtypes=(torch.float8_e4m3fn,),
     sample_input_generator=scaled_grouped_mm_input_generator,
     reference=scaled_grouped_mm_wrapper,
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
 )
 
 # only hopper is supported with torch._grouped_mm at this point.
