@@ -3264,15 +3264,45 @@ struct TopKOpRecord : RecordFunctor {
 struct ScaledGroupedMmaOpRecord : RecordFunctor {
   ScaledGroupedMmaOpRecord(
       std::vector<State> _args,
-      std::vector<State> _outputs)
+      std::vector<State> _outputs,
+      std::optional<PrimDataType> dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.grouped_mm",
-            serde::RecordType::ScaledGroupedMmaOp) {}
+            serde::RecordType::ScaledGroupedMmaOp),
+        dtype_(
+            dtype.has_value()
+                ? dtype.value()
+                : PrimDataType::Half) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ScaledGroupedMmaOpRecord(*this);
+  }
+
+  //! Child specific hash function in lower 32 bits.
+  //! | 31 ---------------------------------------  0 |
+  //! | Dtype                                         |
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+  }
+  
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto child_ptr = dynamic_cast<const ScaledGroupedMmaOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other);
+      result = result && (dtype_ == child_ptr->dtype_);
+    }
+    return result;
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dtype=" << dtypeToPyString(dtype_);
+    if (close_function) {
+      os << ")";
+    }
   }
 
   void operator()(FusionState& fd) final {
@@ -3281,9 +3311,18 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     auto offsets = fd.getFusionState(args_.at(2).index)->template as<TensorView>();
     auto scale1 = fd.getFusionState(args_.at(3).index)->template as<TensorView>();
     auto scale2 = fd.getFusionState(args_.at(4).index)->template as<TensorView>();
-    auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2);
+    auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2, dtype_);
     fd.setFusionState(outputs().at(0).index, output);
   }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+    flatbuffers::FlatBufferBuilder& builder) const final {
+  return {
+      serde::RecordData::GroupedMma,
+      serde::CreateVector(builder, nvfuser::toUnderlying(dtype_)).Union()};
+  };
+
+  PrimDataType dtype_;
 };
 
 } // namespace nvfuser::python_frontend

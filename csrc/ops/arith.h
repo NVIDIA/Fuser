@@ -749,7 +749,8 @@ NVF_API TensorView* grouped_mm(
     TensorView* mat2,
     TensorView* offsets,
     TensorView* scale1 = nullptr,
-    TensorView* scale2 = nullptr);
+    TensorView* scale2 = nullptr,
+    std::optional<DataType> dtype = std::nullopt);
 
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!

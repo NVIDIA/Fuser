@@ -3673,8 +3673,6 @@ void initNvFuserPythonBindings(PyObject* module) {
         // Calculate output dimensions based on mat1 & mat2 rank
         size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
         Tensor output = fd->defineTensor(output_dims);
-        
-
         fd->defineRecord(
             new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
                 {fd->recordingState(mat1()),
@@ -3687,8 +3685,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                     TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
                     [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
                         return grouped_mm(mat1, mat2, offsets);
-})));
-
+                })));
         return output;
       },
       R"(
@@ -3717,7 +3714,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor mat2,
          Tensor offsets,
          Tensor scale1,
-         Tensor scale2) -> Tensor {
+         Tensor scale2,
+         std::optional<PrimDataType> dtype) -> Tensor {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3734,7 +3732,8 @@ void initNvFuserPythonBindings(PyObject* module) {
                  fd->recordingState(offsets()),
                  fd->recordingState(scale1()),
                  fd->recordingState(scale2())},
-                {fd->recordingState(output())}));
+                {fd->recordingState(output())},
+                 dtype));
         return output;
       },
       R"(
@@ -3749,6 +3748,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           offsets (Tensor): Offsets tensor defining group boundaries
           scale1 (Tensor): Scale tensor for mat1
           scale2 (Tensor): Scale tensor for mat2
+          dtype (ScalarType): Output tensor type [optional]
 
       Returns:
           Tensor: Result of grouped matrix multiplication
@@ -3758,6 +3758,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("offsets"),
       py::arg("scale1"),
       py::arg("scale2"),
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
 
   nvf_ops.def(

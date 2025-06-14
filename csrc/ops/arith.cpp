@@ -2287,7 +2287,8 @@ namespace {
   TensorView* create_grouped_mm_output(
     TensorView* mat1,
     TensorView* mat2,
-    TensorView* offsets) {
+    TensorView* offsets,
+    std::optional<DataType> dtype) {
     // Create output tensor for grouped matrix multiplication
     // For simplicity, assume same structure as mat1 for batch dimensions
     auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
@@ -2335,7 +2336,7 @@ namespace {
     TensorView* out = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-        mat1->getDataType().value());
+        dtype.has_value() ? dtype.value() : mat1->getDataType().value());
     return out;
   }
 }
@@ -2345,7 +2346,8 @@ TensorView* grouped_mm(
     TensorView* mat2,
     TensorView* offsets,
     TensorView* scale1,
-    TensorView* scale2) {
+    TensorView* scale2,
+    std::optional<DataType> dtype) {
 
   bool has_scale = scale1 != nullptr;
   NVF_CHECK(
@@ -2355,8 +2357,9 @@ TensorView* grouped_mm(
       " and scale2 : ",
       scale2 != nullptr ? "true" : "false");
 
+  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets, dtype);
+
   if (has_scale) {
-    TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
     NVF_CHECK(
         scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
         "scale1 rank is incorrect, mat1 rank: ", mat1->nDims(), " and out rank: ", out->nDims());
@@ -2366,8 +2369,6 @@ TensorView* grouped_mm(
     IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
     return out;
   }
-
-  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets);
   IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
   return out;
 }
