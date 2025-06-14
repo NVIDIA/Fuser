@@ -5379,13 +5379,13 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   bool is_found_ = false;
 };
 
-std::optional<IterDomain*> returnFirstIfRankThree(const TensorView* tv) {
+IterDomain* returnFirstIfRankThree(const TensorView* tv) {
   const auto& logical_domain =
       TensorDomain::noReductions(tv->getLogicalDomain());
   if (logical_domain.size() == 3) {
     return logical_domain.at(0);
   } else {
-    return std::nullopt;
+    return nullptr;
   }
 }
 } // namespace
@@ -5923,18 +5923,18 @@ IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
   return logical_domain.at(logical_domain.size() - 1);
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfMatrix1() const {
-  // mat1 is [g, m, k] or [m, k]
-  return returnFirstIfRankThree(mat1());
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix1() const {
+  // matrix1 is [g, m, k] or [m, k]
+  return returnFirstIfRankThree(matrix1());
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfMatrix2() const {
-  // mat2 is [g, k, n] or [k, n]
-  return returnFirstIfRankThree(mat2());
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix2() const {
+  // matrix2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(matrix2());
 }
 
-std::optional<IterDomain*> GroupedMmaOp::getGroupDimOfOutput() const {
-  // mat2 is [g, k, n] or [k, n]
+IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
+  // output is [g, m, n] or [m, n]
   return returnFirstIfRankThree(out());
 }
 

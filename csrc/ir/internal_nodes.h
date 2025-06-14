@@ -2860,20 +2860,20 @@ class ArgsortOp : public Expr {
   }
 };
 
-//! NOTE -- [ Grouped Matrix Multiplication operation ]
+//! NOTE -- [ Grouped Matrix Multiplication semantics ]
 //!
-//! This operation performs a grouped matrix multiplication
+//! This operation performs a grouped matrix multiplication.
 //!
 //! Parameters:
 //! - out: output tensor
-//! - mat1: first input tensor matrix
-//! - mat2: second input tensor matrix
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
 //! - offsets: 1D offsets tensor, specifying the ending index of each group
-//! - scale1: scale tensor for mat1 (optional)
-//! - scale2: scale tensor for mat2 (optional)
+//! - scale1: scale tensor for matrix1 (optional)
+//! - scale2: scale tensor for matrix2 (optional)
 //!
 //! The offsets tensor is a vector tensor of length `num_groups` that specifies
-//! the ending index of each group in the mat1 and mat2 tensors.
+//! the ending index of each group in the matrix1 and matrix2 tensors.
 //!
 //! Given the number of groups as G, the operation conceptually runs G matmuls.
 //! There are three configurations of grouping, reflected by ranks of input
@@ -2885,27 +2885,33 @@ class ArgsortOp : public Expr {
 //!         matrices on the k-dimension. Accelerators utilize blocked scales
 //!
 //!     Case 1: grouped k-dimension:
-//!       input rank: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
-//!                   scale1[ g, m, k' ], scale2[ g, k', n]
+//!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ g, k', n]
 //!       requires: offsets[g-1] == k
+//!       output: out[ g, m, n ]
+//!
 //!       math:
 //!       for i in (0...g):
 //!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
 //!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
 //!     Case 2: grouped m-dimension:
-//!       input rank: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
-//!                   scale1[ m, k' ], scale2[ g, k', n ]
+//!       inputs: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
+//!               scale1[ m, k' ], scale2[ g, k', n ]
 //!       requires: offsets[g-1] == m
+//!       output: out[ m, n ]
+//!
 //!       math:
 //!       for i in (0...g):
 //!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
 //!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
 //!     Case 3: grouped n-dimension:
-//!       input rank: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
-//!                   scale1[ g, m, k' ], scale2[ k', n ]
+//!       inputs: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ k', n ]
 //!       requires: offsets[g-1] == n
+//!       output: out[ m, n ]
+//!
 //!       math:
 //!       for i in (0...g):
 //!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
@@ -2985,15 +2991,15 @@ class GroupedMmaOp : public Expr {
 
   // Get the IterDomain for the group dimension of the first input matrix,
   // returns nullptr if not present
-  std::optional<IterDomain*> getGroupDimOfMatrix1() const;
+  IterDomain* getGroupDimOfMatrix1() const;
 
   // Get the IterDomain for the group dimension of the second input matrix,
   // returns nullptr if not present
-  std::optional<IterDomain*> getGroupDimOfMatrix2() const;
+  IterDomain* getGroupDimOfMatrix2() const;
 
   // Get the IterDomain for the group dimension of the output matrix, returns
   // nullptr if not present
-  std::optional<IterDomain*> getGroupDimOfOutput() const;
+  IterDomain* getGroupDimOfOutput() const;
 };
 
 //! TopK operation that finds the k largest or smallest elements

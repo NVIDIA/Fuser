@@ -1854,7 +1854,6 @@ def grouped_mm_input_generator(
             requires_grad=False,
         )
 
-    # FIXME: enable test cases when switched to cublas fallback
     # TODO: expand the test when kernel restrictions are lifted
     # Test various group sizes and matrix dimensions
     configs = (
