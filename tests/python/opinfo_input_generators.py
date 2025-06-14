@@ -1842,28 +1842,102 @@ def grouped_mm_input_generator(
         high=None,
         requires_grad=requires_grad,
     )
-    make_index = partial(
-        torch.tensor, device="cuda", dtype=torch.int, requires_grad=False
-    )
+
+    def make_index(extent, num_groups):
+        group_size = extent // num_groups
+        return torch.arange(group_size, group_size * g + 1, group_size, device="cuda", dtype=torch.int32, requires_grad=False)
 
     # FIXME: enable test cases when switched to cublas fallback
     # TODO: expand the test when kernel restrictions are lifted
     # Test various group sizes and matrix dimensions
-    g, m, k, n = (2, 128, 48, 64)
+    configs = (
+        (3, 128, 48, 64),
+    )
 
-    # case 1: 2d x 2d
-    mat1 = make_arg((m, k))
-    mat2 = make_arg((k, n))
-    offsets = make_index([16, 32])
-    yield SampleInput(mat1, mat2, offsets)
-    # NOTE: each individual case runs fine. But the kernel produces wrong results when running all cases together.
-    # # case 2: 2d x 3d
-    # mat1 = make_arg((m, k))
-    # mat2 = make_arg((g, k, n))
-    # offsets = make_index([48, 16])
-    # yield SampleInput(mat1, mat2, offsets)
-    # # case 1: 3d x 2d
-    # mat1 = make_arg((g, m, k))
-    # mat2 = make_arg((k, n))
-    # offsets = make_index([96, 32])
-    # yield SampleInput(mat1, mat2, offsets)
+    for config in configs:
+        g, m, k, n = config
+
+        # case 1: 2d x 2d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(k, g)
+        yield SampleInput(mat1, mat2, offsets)
+        # case 3: 2d x 3d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((g, k, n))
+        offsets = make_index(m, g)
+        yield SampleInput(mat1, mat2, offsets)
+        # case 1: 3d x 2d
+        mat1 = make_arg((g, m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(n, g)
+        yield SampleInput(mat1, mat2, offsets)
+
+def scaled_grouped_mm_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for scaled grouped matrix multiplication.
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+    """
+
+    # TODO: enable mxfp8 test when backend supports it.
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    make_scale_factor = partial(
+        make_tensor,
+        dtype=torch.float32,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=False,
+    )
+
+    def make_index(extent, num_groups):
+        group_size = extent // num_groups
+        return torch.arange(group_size, group_size * g + 1, group_size, device="cuda", dtype=torch.int32, requires_grad=False)
+
+    # TODO: expand the test when fallback kernel restrictions are lifted
+    #       currently only bf16 output is supported.
+    #       there are also restrictions on the input/output shapes.
+    # Test various group sizes and matrix dimensions
+    # configs: list(g, m, k, n, output_dtype)
+    configs = (
+        (3, 128, 48, 64, torch.bfloat16),
+    )
+
+    # TODO: Enable mxfp8 test when backend supports it.
+    for config in configs:
+        g, m, k, n, dtype = config
+        # case 1: 2d x 2d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((k, n))
+        scale1 = make_scale_factor((g, m, 1))
+        scale2 = make_scale_factor((g, 1, n))
+        offsets = make_index(k, g)
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, dtype)
+        # case 3: 2d x 3d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((g, k, n))
+        scale1 = make_scale_factor((m, 1))
+        scale2 = make_scale_factor((g, 1, n))
+        offsets = make_index(m, g)
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, dtype)
+        # case 1: 3d x 2d
+        mat1 = make_arg((g, m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(n, g)
+        scale1 = make_scale_factor((g, m, 1))
+        scale2 = make_scale_factor((1, n))
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, dtype)

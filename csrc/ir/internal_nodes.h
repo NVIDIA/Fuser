@@ -2867,9 +2867,9 @@ class ArgsortOp : public Expr {
 //!
 //! Parameters:
 //! - out: output tensor
-//! - mat1: first input tensor
-//! - mat2: second input tensor
-//! - offsets: 1D offsets tensor
+//! - mat1: first input tensor matrix
+//! - mat2: second input tensor matrix
+//! - offsets: 1D offsets tensor, specifying the ending index of each group
 //! - scale1: scale tensor for mat1 (optional)
 //! - scale2: scale tensor for mat2 (optional)
 //!
@@ -2880,14 +2880,15 @@ class ArgsortOp : public Expr {
 //! There are three configurations of grouping, reflected by ranks of input
 //! matrices:
 //!
-//! Notation 1: prefix_sum_padded_offset = numpy.cumsum([0] + offsets)
-//! Notation 2: f(i) = prefix_sum_offsets(i) : prefix_sum_offsets(i+1)
-//!             note: f(i) is a slice with length offsets[i]
+//! Note 0: f(i) = offset(i-1) : offset(i)
+//!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
+//! Note 1: scales don't need to follow broadcast rules against corresponding
+//!         matrices on the k-dimension. Accelerators utilize blocked scales
 //!
 //!     Case 1: grouped k-dimension:
 //!       input rank: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
 //!                   scale1[ g, m, k' ], scale2[ g, k', n]
-//!       requires: sum(offsets) == k
+//!       requires: offsets[g-1] == k
 //!       math:
 //!       for i in (0...g):
 //!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
@@ -2896,7 +2897,7 @@ class ArgsortOp : public Expr {
 //!     Case 2: grouped m-dimension:
 //!       input rank: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
 //!                   scale1[ m, k' ], scale2[ g, k', n ]
-//!       requires: sum(offsets) == m
+//!       requires: offsets[g-1] == m
 //!       math:
 //!       for i in (0...g):
 //!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
@@ -2905,7 +2906,7 @@ class ArgsortOp : public Expr {
 //!     Case 3: grouped n-dimension:
 //!       input rank: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
 //!                   scale1[ g, m, k' ], scale2[ k', n ]
-//!       requires: sum(offsets) == n
+//!       requires: offsets[g-1] == n
 //!       math:
 //!       for i in (0...g):
 //!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])

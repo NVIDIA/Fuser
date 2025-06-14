@@ -5845,7 +5845,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
   NVF_ERROR(
       mat2.is<at::Tensor>(),
-      "GroupedMmaOp expects tensor input at position 1 but got ",
+      "GroupedMmaOp expects tensor input at position4 but got ",
       mat2.type().name());
 
   NVF_ERROR(
@@ -5857,7 +5857,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   if (!hasScale()) {
     result = at::_grouped_mm(
         mat1.as<at::Tensor>(), mat2.as<at::Tensor>(), offsets.as<at::Tensor>());
-  } else {
+    return {result};
+  }
+
     const auto& scale1 = inputs[3];
     const auto& scale2 = inputs[4];
     NVF_ERROR(
@@ -5895,7 +5897,6 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     result = at::_scaled_grouped_mm(
         mat1_contiguous, mat2_k_last, scale1_tensor, scale2_tensor, offsets.as<at::Tensor>(), std::nullopt, std::nullopt, at::ScalarType::BFloat16);
     result = result.to(data_type_to_aten(out()->dtype()));
-  }
   return {result};
 }
 

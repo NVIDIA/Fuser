@@ -58,6 +58,7 @@ from opinfo_input_generators import (
     triu_input_generator,
     triu_error_generator,
     grouped_mm_input_generator,
+    scaled_grouped_mm_input_generator,
 )
 from nvfuser.testing.utils import (
     bool_int_dtypes,
@@ -1306,9 +1307,23 @@ grouped_mm_opinfo = OpInfo(
     reference=torch._grouped_mm,
 )
 
+def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, dtype):
+    # mat1 needs to be in column major while mat2 needs to be in row major.
+    return torch._scaled_grouped_mm(mat1, mat2.transpose(-1, -2).contiguous().transpose(-1, -2), scale1.squeeze(), scale2.squeeze(), offsets, None, None, dtype)
+
+scaled_grouped_mm_opinfo = OpInfo(
+    lambda fd: fd.ops.grouped_mm,
+    "scaled_grouped_mm",
+    # only bf16 is supported
+    dtypes=(torch.bfloat16,),
+    sample_input_generator=scaled_grouped_mm_input_generator,
+    reference=scaled_grouped_mm_wrapper,
+)
+
 # only hopper is supported with torch._grouped_mm at this point.
 if torch.cuda.get_device_properties(torch.cuda.current_device()).major == 9:
     matmul_ops.append(grouped_mm_opinfo)
+    matmul_ops.append(scaled_grouped_mm_opinfo)
 
 linear_ops = []
 
