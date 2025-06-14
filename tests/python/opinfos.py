@@ -1309,7 +1309,16 @@ grouped_mm_opinfo = OpInfo(
 
 def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, dtype):
     # mat1 needs to be in column major while mat2 needs to be in row major.
-    return torch._scaled_grouped_mm(mat1, mat2.transpose(-1, -2).contiguous().transpose(-1, -2), scale1.squeeze(), scale2.squeeze(), offsets, None, None, dtype)
+    row_major_mat2 = mat2.transpose(-1, -2).contiguous().transpose(-1, -2)
+    if mat1.ndim == 2 and mat2.ndim == 2:
+        # case 1, mat1 and mat2 are both 2D, aten fallback expects collapsed 1D scale with group dimension on the slower side.
+        reshaped_scale1 = scale1.reshape(-1)
+        reshaped_scale2 = scale2.reshape(-1)
+    else:
+        # squeeze out the k dimension
+        reshaped_scale1 = scale1.squeeze(-1)
+        reshaped_scale2 = scale2.squeeze(-2)
+    return torch._scaled_grouped_mm(mat1, row_major_mat2, reshaped_scale1, reshaped_scale2, offsets, None, None, dtype)
 
 scaled_grouped_mm_opinfo = OpInfo(
     lambda fd: fd.ops.grouped_mm,
