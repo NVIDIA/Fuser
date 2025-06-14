@@ -368,6 +368,52 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
+  // TODO: refactor to use getNonMappingDomainInfo instead.
+  if (GroupedMmaOp* op =
+          dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
+    auto ndims_out = consumer_root.size();
+    if (producer_tv_->sameAs(op->matrix1())) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 2),
+          consumer_root.at(std::ssize(consumer_root) - 2));
+    } else if (producer_tv_->sameAs(op->matrix2())) {
+      // mapping k dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 1),
+          consumer_root.at(std::ssize(consumer_root) - 1));
+    } else if (producer_tv_->sameAs(op->offsets())) {
+      // mapping g dimension;
+      if (ndims_out == 3) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+    } else if (producer_tv_->sameAs(op->scale1())) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 1),
+          consumer_root.at(0));
+      if (ndims_out == 3) {
+        // mapping g dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+    } else if (producer_tv_->sameAs(op->scale2())) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(std::ssize(producer_logical) - 1),
+          consumer_root.at(std::ssize(consumer_root) - 1));
+      if (ndims_out == 3) {
+        // mapping g dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+    } else {
+      NVF_ERROR(false, "Producer did not match any GroupedMmaOp input.");
+    }
+    return dom_map;
+  }
+
   size_t itc = 0, itp = 0;
   while (itc < consumer_root.size() && itp < producer_logical.size()) {
     IterDomain* producer_id = producer_logical.at(itp);

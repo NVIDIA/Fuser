@@ -5379,6 +5379,15 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   bool is_found_ = false;
 };
 
+IterDomain* returnFirstIfRankThree(const TensorView* tv) {
+  const auto& logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  if (logical_domain.size() == 3) {
+    return logical_domain.at(0);
+  } else {
+    return nullptr;
+  }
+}
 } // namespace
 
 bool ForLoop::hasRuntimeReductionFunctions() const {
@@ -5755,5 +5764,178 @@ std::vector<PolymorphicValue> TopKOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
+
+GroupedMmaOp::GroupedMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* mat1,
+    Val* mat2,
+    Val* offsets,
+    Val* scale1,
+    Val* scale2)
+    : Expr(passkey) {
+  NVF_ERROR(
+      out->getValType().value() == ValType::TensorView,
+      "Output must be a TensorView");
+  NVF_ERROR(
+      mat1->getValType().value() == ValType::TensorView,
+      "First input must be a TensorView");
+  NVF_ERROR(
+      mat2->getValType().value() == ValType::TensorView,
+      "Second input must be a TensorView");
+  NVF_ERROR(
+      offsets->getValType().value() == ValType::TensorView,
+      "Offsets must be a TensorView");
+  addOutput(out);
+  addInput(mat1);
+  addInput(mat2);
+  addInput(offsets);
+
+  bool has_scale1 = scale1 != nullptr;
+  if (has_scale1) {
+    NVF_CHECK(
+        scale1->getValType().value() == ValType::TensorView,
+        "Scale1 must be a TensorView");
+    NVF_CHECK(
+        scale2->getValType().value() == ValType::TensorView,
+        "Scale2 must be a TensorView");
+    addInput(scale1);
+    addInput(scale2);
+  }
+  addDataAttribute(has_scale1);
+}
+
+std::string GroupedMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = GroupedMmaOp("
+                          << "mat1=" << matrix1()->toString() << ", "
+                          << "mat2=" << matrix2()->toString() << ", "
+                          << "offsets=" << offsets()->toString();
+  if (hasScale()) {
+    ss << ", "
+       << "scale1=" << scale1()->toString() << ", "
+       << "scale2=" << scale2()->toString();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string GroupedMmaOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
+      "GroupedMmaOp expects 3 or 5 inputs but received ",
+      inputs.size(),
+      " with scale flag: ",
+      hasScale() ? "true" : "false");
+
+  const auto& mat1 = inputs[0];
+  const auto& mat2 = inputs[1];
+  const auto& offsets = inputs[2];
+
+  NVF_ERROR(
+      mat1.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 0 but got ",
+      mat1.type().name());
+
+  NVF_ERROR(
+      mat2.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position4 but got ",
+      mat2.type().name());
+
+  NVF_ERROR(
+      offsets.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 2 but got ",
+      offsets.type().name());
+
+  at::Tensor result;
+  if (!hasScale()) {
+    result = at::_grouped_mm(
+        mat1.as<at::Tensor>(), mat2.as<at::Tensor>(), offsets.as<at::Tensor>());
+    return {result};
+  }
+
+  const auto& scale1 = inputs[3];
+  const auto& scale2 = inputs[4];
+  NVF_ERROR(
+      scale1.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 3 but got ",
+      scale1.type().name());
+  NVF_ERROR(
+      scale2.is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 4 but got ",
+      scale2.type().name());
+  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
+  // input matrices.
+  auto mat1_k_last = mat1.as<at::Tensor>().contiguous();
+  auto mat2_k_last =
+      mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);
+
+  auto scale1_tensor = scale1.as<at::Tensor>();
+  auto scale2_tensor = scale2.as<at::Tensor>();
+  // at::_scaled_grouped_mm limitation
+  NVF_CHECK(
+      scale1_tensor.size(-1) == 1 && scale2_tensor.size(-2) == 1,
+      "Scale1 and scale2 must have size 1 at the k dimension");
+  // scale factor handling
+  // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+  if (out()->nDims() == 3) {
+    // case 1, aten API expects collapsed 1D scale with group dimension on the
+    // slower side.
+    scale1_tensor = scale1_tensor.reshape(-1);
+    scale2_tensor = scale2_tensor.reshape(-1);
+  } else {
+    // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
+    scale1_tensor = scale1_tensor.squeeze(-1);
+    scale2_tensor = scale2_tensor.squeeze(-2);
+  }
+  result = at::_scaled_grouped_mm(
+      mat1_k_last,
+      mat2_k_last,
+      scale1_tensor,
+      scale2_tensor,
+      offsets.as<at::Tensor>(),
+      std::nullopt,
+      std::nullopt,
+      at::ScalarType::BFloat16);
+  result = result.to(data_type_to_aten(out()->dtype()));
+  return {result};
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
+  // mat1 is [g, m, k] or [m, k]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix1()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
+  // mat2 is [g, k, n] or [k, n]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix2()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix1() const {
+  // matrix1 is [g, m, k] or [m, k]
+  return returnFirstIfRankThree(matrix1());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix2() const {
+  // matrix2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(matrix2());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
+  // output is [g, m, n] or [m, n]
+  return returnFirstIfRankThree(out());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
 
 } // namespace nvfuser

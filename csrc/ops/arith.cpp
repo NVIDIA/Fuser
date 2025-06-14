@@ -2283,6 +2283,103 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
+namespace {
+// Create output tensor for grouped matrix multiplication
+// For grouped MM, determine output shape based on mat1 and mat2 structures.
+//
+// case 1:
+//   mat1   [m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [g, m, n]
+// case 2:
+//   mat1   [g, m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [m, n]
+// case 3:
+//   mat1   [m, k]
+//   mat2   [g, k, n]
+//   offset [g]
+//   output -> [m, n]
+TensorView* create_grouped_mm_output(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    std::optional<DataType> dtype) {
+  const auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  const auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  const auto offs_domain =
+      TensorDomain::noReductions(offsets->getLogicalDomain());
+
+  NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
+
+  std::vector<IterDomain*> out_domain;
+
+  if (mat1->nDims() == 2 && mat2->nDims() == 2) {
+    out_domain.reserve(3);
+    out_domain.push_back(offs_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+  } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
+    out_domain.reserve(2);
+    out_domain.push_back(mat1_domain[1]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[1]->cloneWithoutRFactor());
+  } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
+    out_domain.reserve(2);
+    out_domain.push_back(mat1_domain[0]->cloneWithoutRFactor());
+    out_domain.push_back(mat2_domain[2]->cloneWithoutRFactor());
+  } else {
+    NVF_ERROR(
+        false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
+  }
+
+  auto* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype.has_value() ? dtype.value() : mat1->getDataType().value());
+  return out;
+}
+} // namespace
+
+TensorView* grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    TensorView* scale1,
+    TensorView* scale2,
+    std::optional<DataType> dtype) {
+  bool has_scale = scale1 != nullptr;
+  NVF_CHECK(
+      has_scale == (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
+      has_scale ? "true" : "false",
+      " and scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+
+  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets, dtype);
+
+  if (!has_scale) {
+    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
+    return out;
+  }
+
+  NVF_CHECK(
+      scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
+      "scale1 rank is incorrect, mat1 rank: ",
+      mat1->nDims(),
+      " and out rank: ",
+      out->nDims());
+  NVF_CHECK(
+      scale2->nDims() == std::max(mat2->nDims(), out->nDims()),
+      "scale2 rank is incorrect, mat2 rank: ",
+      mat2->nDims(),
+      " and out rank: ",
+      out->nDims());
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+  return out;
+}
+
 TopKResult topk(
     TensorView* inp,
     Val* k,

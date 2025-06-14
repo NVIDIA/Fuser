@@ -88,6 +88,8 @@ map_dtype_to_str = {
     torch.int16: "int16",
     torch.int32: "int32",
     torch.int64: "int64",
+    torch.float8_e4m3fn: "float8_e4m3fn",
+    torch.float8_e5m2: "float8_e5m2",
     torch.bfloat16: "bfloat16",
     torch.float16: "float16",
     torch.float32: "float32",
