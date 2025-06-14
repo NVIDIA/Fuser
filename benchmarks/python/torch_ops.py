@@ -88,6 +88,11 @@ def embedding(inputs: list):
     return F.embedding(indices, embedding_table)
 
 
+def embedding_indexing(inputs: list):
+    indices, embedding_table = inputs
+    return embedding_table[indices]
+
+
 # deepseek v3 moe scatter
 # commit e815299
 # https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L599-L607
