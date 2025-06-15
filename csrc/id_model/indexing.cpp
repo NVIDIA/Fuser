@@ -84,6 +84,9 @@ void TensorIndexer::buildLoopIndexMap() {
     const std::vector<IterDomain*>& alternate_loop_domain =
         tv_output->getAlternateLoopDomain().value();
     const std::vector<IterDomain*>& loop_domain = tv_output->getLoopDomain();
+    // NOTE For scheduling ldmatrix and stmatrix, the assumption is the original
+    // and alternate loop domains have the same number of iterDomains. This
+    // assertion may not be strictly necessary.
     NVF_ERROR(alternate_loop_domain.size() == loop_domain.size());
     for (auto&& [alt_loop_id, loop_id] :
          zip(alternate_loop_domain, loop_domain)) {
