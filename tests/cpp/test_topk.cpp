@@ -539,8 +539,7 @@ TEST_F(TopKTest, ValuesOnly) {
   fusion.addOutput(tv_values_out);
 
   // Parallelization strategy - all tensors get same parallelization
-  for (auto tv :
-           {tv1, tv_values, tv_values_out}) {
+  for (auto tv : {tv1, tv_values, tv_values_out}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
@@ -575,8 +574,7 @@ TEST_F(TopKTest, IndicesOnly) {
   fusion.addOutput(tv_indices_out);
 
   // Parallelization strategy - all tensors get same parallelization
-  for (auto tv :
-         {tv1, tv_indices, tv_indices_out}) {
+  for (auto tv : {tv1, tv_indices, tv_indices_out}) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(ParallelType::TIDx);
   }
