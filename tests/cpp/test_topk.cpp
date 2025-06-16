@@ -484,7 +484,6 @@ class TopKTestBasicExecution : public TopKTest,
     auto outputs = ke.run({input});
 
     // Verify the dual outputs
-    // testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
     EXPECT_TRUE(validateTopkOrder(
         input,
         outputs[0].as<at::Tensor>(),
@@ -519,5 +518,81 @@ INSTANTIATE_TEST_SUITE_P(
         return std::string("Int");
       return std::string("Unknown");
     });
+
+// Testing a case where only the value output is used
+TEST_F(TopKTest, ValuesOnly) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor [4, 8] with specified data type
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  // Create topk operation along dimension 1, k=3, largest=true, sorted=true
+  // Create k as a constant Val (not a fusion input)
+  auto k_val = IrBuilder::create<Val>(3L, DataType::Int);
+  auto topk_result = topk(tv1, k_val, 1, /*largest=*/true, /*sorted=*/true);
+  auto tv_values = topk_result.values;
+  auto tv_values_out = set(tv_values);
+  fusion.addOutput(tv_values_out);
+
+  // Parallelization strategy - all tensors get same parallelization
+  for (auto tv :
+           {tv1, tv_values, tv_values_out}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({4, 8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  testValidate(&fusion, outputs, {input}, __LINE__, __FILE__);
+}
+
+// Testing a case where only the index output is used
+TEST_F(TopKTest, IndicesOnly) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor [4, 8] with specified data type
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  // Create topk operation along dimension 1, k=3, largest=true, sorted=true
+  // Create k as a constant Val (not a fusion input)
+  auto k_val = IrBuilder::create<Val>(3L, DataType::Int);
+  auto topk_result = topk(tv1, k_val, 1, /*largest=*/true, /*sorted=*/true);
+  auto tv_indices = topk_result.indices;
+  auto tv_indices_out = set(tv_indices);
+  fusion.addOutput(tv_indices_out);
+
+  // Parallelization strategy - all tensors get same parallelization
+  for (auto tv :
+         {tv1, tv_indices, tv_indices_out}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({4, 8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto index_output = ke.run({input})[0].as<at::Tensor>();
+
+  // at::topk is not guaranteed to be stable, so we can't just compare
+  // the nvFuser output with the aten output
+  auto topk_values = torch::gather(input, 1, index_output);
+  auto ref_values = std::get<0>(torch::topk(input, 3));
+  EXPECT_TRUE(ref_values.equal(topk_values));
+}
 
 } // namespace nvfuser
