@@ -2879,7 +2879,8 @@ class ArgsortOp : public Expr {
 //! There are three configurations of grouping, reflected by ranks of input
 //! matrices:
 //!
-//! Note 0: f(i) = offset(i-1) : offset(i)
+//! Note 0: f(0) = 0 : offset[0]
+//!         f(i) = offset(i-1) : offset(i), when i >= 1;
 //!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
 //! Note 1: scales don't need to follow broadcast rules against corresponding
 //!         matrices on the k-dimension. Accelerators utilize blocked scales
@@ -2891,7 +2892,7 @@ class ArgsortOp : public Expr {
 //!       output: out[ g, m, n ]
 //!
 //!       math:
-//!       for i in (0...g):
+//!       for i in range(g):
 //!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
 //!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
@@ -2902,7 +2903,7 @@ class ArgsortOp : public Expr {
 //!       output: out[ m, n ]
 //!
 //!       math:
-//!       for i in (0...g):
+//!       for i in range(g):
 //!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
 //!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
 //!
@@ -2913,7 +2914,7 @@ class ArgsortOp : public Expr {
 //!       output: out[ m, n ]
 //!
 //!       math:
-//!       for i in (0...g):
+//!       for i in range(g):
 //!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
 //!                           @(mat2[ 0:k, f(i) ] * scale2[ 0:k', f(i) ])
 //!

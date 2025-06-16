@@ -5807,14 +5807,14 @@ GroupedMmaOp::GroupedMmaOp(
 
 std::string GroupedMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = GroupedMmaOp("
-                          << "mat1=" << matrix1()->toString() << ", "
-                          << "mat2=" << matrix2()->toString() << ", "
-                          << "offsets=" << offsets()->toString();
+  indent(ss, indent_size) << out() << " = GroupedMmaOp("
+                          << "mat1=" << matrix1() << ", "
+                          << "mat2=" << matrix2() << ", "
+                          << "offsets=" << offsets();
   if (hasScale()) {
     ss << ", "
-       << "scale1=" << scale1()->toString() << ", "
-       << "scale2=" << scale2()->toString();
+       << "scale1=" << scale1() << ", "
+       << "scale2=" << scale2();
   }
   ss << ")\n";
   return ss.str();
@@ -5834,34 +5834,32 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       " with scale flag: ",
       hasScale() ? "true" : "false");
 
-  const auto& mat1 = inputs[0];
-  const auto& mat2 = inputs[1];
-  const auto& offsets = inputs[2];
-
   NVF_ERROR(
-      mat1.is<at::Tensor>(),
+      inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
-      mat1.type().name());
+      inputs[0].type().name());
 
   NVF_ERROR(
-      mat2.is<at::Tensor>(),
+      inputs[1].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position4 but got ",
-      mat2.type().name());
+      inputs[1].type().name());
 
   NVF_ERROR(
-      offsets.is<at::Tensor>(),
+      inputs[2].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 2 but got ",
-      offsets.type().name());
+      inputs[2].type().name());
+
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& offsets = inputs[2].as<at::Tensor>();
 
   at::Tensor result;
   if (!hasScale()) {
     result = at::_grouped_mm(
-        mat1.as<at::Tensor>(), mat2.as<at::Tensor>(), offsets.as<at::Tensor>());
+        mat1, mat2, offsets);
     return {result};
   }
 
-  const auto& scale1 = inputs[3];
-  const auto& scale2 = inputs[4];
   NVF_ERROR(
       scale1.is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 3 but got ",
@@ -5870,36 +5868,37 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale2.is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 4 but got ",
       scale2.type().name());
+
+  const auto& scale1 = inputs[3];
+  const auto& scale2 = inputs[4];
   // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
   // input matrices.
-  auto mat1_k_last = mat1.as<at::Tensor>().contiguous();
+  auto mat1_k_last = mat1.contiguous();
   auto mat2_k_last =
-      mat2.as<at::Tensor>().transpose(-1, -2).contiguous().transpose(-1, -2);
+      mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
 
-  auto scale1_tensor = scale1.as<at::Tensor>();
-  auto scale2_tensor = scale2.as<at::Tensor>();
   // at::_scaled_grouped_mm limitation
   NVF_CHECK(
-      scale1_tensor.size(-1) == 1 && scale2_tensor.size(-2) == 1,
+      scale1.size(-1) == 1 && scale2.size(-2) == 1,
       "Scale1 and scale2 must have size 1 at the k dimension");
   // scale factor handling
   // see NOTE -- [ Grouped Matrix Multiplication semantics ]
   if (out()->nDims() == 3) {
     // case 1, aten API expects collapsed 1D scale with group dimension on the
     // slower side.
-    scale1_tensor = scale1_tensor.reshape(-1);
-    scale2_tensor = scale2_tensor.reshape(-1);
+    scale1 = scale1.reshape(-1);
+    scale2 = scale2.reshape(-1);
   } else {
     // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
-    scale1_tensor = scale1_tensor.squeeze(-1);
-    scale2_tensor = scale2_tensor.squeeze(-2);
+    scale1 = scale1.squeeze(-1);
+    scale2 = scale2.squeeze(-2);
   }
   result = at::_scaled_grouped_mm(
       mat1_k_last,
       mat2_k_last,
-      scale1_tensor,
-      scale2_tensor,
-      offsets.as<at::Tensor>(),
+      scale1,
+      scale2,
+      offsets,
       std::nullopt,
       std::nullopt,
       at::ScalarType::BFloat16);
