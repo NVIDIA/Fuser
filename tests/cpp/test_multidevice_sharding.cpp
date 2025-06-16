@@ -735,15 +735,14 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-using InsertReshardingTestParams = std::tuple<DeviceMesh, bool, bool, bool>;
+using InsertReshardingTestParams = std::tuple<bool, bool, bool>;
 
 class InsertReshardingTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<InsertReshardingTestParams> {};
 
 TEST_P(InsertReshardingTest, Execute) {
-  auto [mesh, is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_sharded] =
-      GetParam();
+  auto [is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_sharded] = GetParam();
   constexpr int64_t kShardedAxis = 1;
 
   auto fusion = std::make_unique<Fusion>();
@@ -760,13 +759,14 @@ TEST_P(InsertReshardingTest, Execute) {
   fusion->addOutput(tv1);
   fusion->addOutput(tv5);
 
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
   for (auto* tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
     tv->setDeviceMesh(mesh);
   }
 
   if (is_tv0_tv5_sharded) {
     tv0->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    // tv3->axis(kShardedAxis) is a reduction, so don't shard it.
+    tv3->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
     tv5->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
   }
   if (is_tv1_tv4_sharded) {
@@ -788,8 +788,6 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     InsertReshardingTest,
     ::testing::Combine(
-        ::testing::ValuesIn(
-            std::vector<DeviceMesh>({{0}, {0, 1}, {0, 1, 2, 3}})),
         ::testing::Bool(),
         ::testing::Bool(),
         ::testing::Bool()));
