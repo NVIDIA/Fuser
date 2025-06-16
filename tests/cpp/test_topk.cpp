@@ -59,7 +59,7 @@ TEST_F(TopKDynamicTest, DynamicTransformDetection) {
       << "Should track 1 TopK operation";
 
   // Verify the tracked tensor is the values output
-  auto tracked_tv = initial_info.getDynamicTopKTensorViews()[0];
+  auto tracked_tv = initial_info.getDynamicTopKTensorViews().at(0);
   EXPECT_EQ(tracked_tv, topk_result.values)
       << "Should track TopK values tensor";
 
@@ -168,7 +168,7 @@ TEST_F(TopKDynamicTest, KGreaterThan1IterationConcretization) {
 
   // Verify analysis determines Iteration for K>1
   EXPECT_EQ(conc_info.getTopKIterTypes().size(), 1);
-  EXPECT_EQ(conc_info.getTopKIterTypes()[0].second, IterType::Iteration)
+  EXPECT_EQ(conc_info.getTopKIterTypes().at(0).second, IterType::Iteration)
       << "K>1 should result in Iteration IterType";
 
   // Test concretization
@@ -315,7 +315,7 @@ TEST_F(TopKDynamicTest, TopKThenReshape) {
   EXPECT_EQ(conc_info.getReshapeTransforms().size(), 1);
 
   // TopK with K=3 should be Iteration
-  EXPECT_EQ(conc_info.getTopKIterTypes()[0].second, IterType::Iteration);
+  EXPECT_EQ(conc_info.getTopKIterTypes().at(0).second, IterType::Iteration);
 
   // Test concretization
   DynamicTransform::concretizeFusion(&fusion, &conc_info);
@@ -351,10 +351,8 @@ TEST_F(TopKDynamicTest, ReshapeThenTopK) {
   fusion.addInput(new_size_outer);
   fusion.addInput(k);
 
-  // Apply resize to another dimension
   auto reshaped = reshape(tv0, {new_size_outer, IrBuilder::create<Val>(-1)});
 
-  // Apply TopK first
   auto topk_result = topk(reshaped, k);
 
   fusion.addOutput(topk_result.indices);
@@ -384,7 +382,7 @@ TEST_F(TopKDynamicTest, ReshapeThenTopK) {
   EXPECT_EQ(conc_info.getReshapeTransforms().size(), 1);
 
   // TopK with K=1 should be Broadcast
-  EXPECT_EQ(conc_info.getTopKIterTypes()[0].second, IterType::Broadcast);
+  EXPECT_EQ(conc_info.getTopKIterTypes().at(0).second, IterType::Broadcast);
 
   // Test concretization
   DynamicTransform::concretizeFusion(&fusion, &conc_info);
@@ -396,6 +394,40 @@ TEST_F(TopKDynamicTest, ReshapeThenTopK) {
   // Dimension 1 should be Broadcast from TopK
   EXPECT_EQ(values_logical.at(1)->getIterType(), IterType::Broadcast)
       << "TopK dimension should be Iteration";
+}
+
+// TopK producer has a symbolic iter domain, but the TopKOp itself
+// should not be symbolic as its K parameter is static
+TEST_F(TopKDynamicTest, DynamicReshapeThenStaticTopK) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create symbolic input tensor
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // Create symbolic parameters
+  auto new_size_outer = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(new_size_outer);
+
+  auto reshaped = reshape(tv0, {new_size_outer, IrBuilder::create<Val>(-1)});
+
+  // Apply static TopK
+  auto topk_result = topk(reshaped, IrBuilder::create<Val>(3));
+
+  fusion.addOutput(topk_result.indices);
+
+  // Verify dynamic operations are detected
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  EXPECT_TRUE(initial_info.isDynamic());
+
+  // TopK should be static
+  EXPECT_TRUE(initial_info.getDynamicTopKTensorViews().empty())
+      << "Should not have dynamic TopK operation";
+
+  // Should detect reshape operation
+  EXPECT_EQ(initial_info.getDynamicReshapedTensorViews().size(), 1)
+      << "Should detect reshape operation";
 }
 
 class TopKTest : public NVFuserTest {

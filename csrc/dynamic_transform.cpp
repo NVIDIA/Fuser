@@ -170,22 +170,24 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   void handle(TopKOp* op) override {
     auto out_values = op->outValues()->as<TensorView>();
 
-    // Check if TopK dimension has symbolic IterType
-    // TopK operates on the specified dimension, creating symbolic output
-    if (out_values->domain()->hasSymbolicAxis()) {
-      info_.dynamic_topk_tvs_.push_back(out_values);
-
-      // The K parameter affects concretization
-      loop_dynamic_vals_.push_back(op->k());
-
-      // The extent of the TopK dimension affects concretization
-      auto topk_dim =
-          op->dim() < 0 ? out_values->nDims() + op->dim() : op->dim();
-      if (topk_dim >= 0 && topk_dim < (int64_t)out_values->nDims()) {
-        auto topk_id = out_values->getLogicalDomain()[topk_dim];
-        loop_dynamic_vals_.push_back(topk_id->extent());
-      }
+    // Check if K of TopK is symbolic
+    if (op->k()->isConstScalar()) {
+      return;
     }
+
+    info_.dynamic_topk_tvs_.push_back(out_values);
+
+    // The K parameter affects concretization
+    loop_dynamic_vals_.push_back(op->k());
+
+    const auto topk_dim = op->dim();
+    NVF_ERROR(
+        topk_dim >= 0 && topk_dim < std::ssize(out_values->getLogicalDomain()),
+        "Invalid TopK dimension ",
+        topk_dim);
+
+    auto topk_id = out_values->getLogicalDomain()[topk_dim];
+    loop_dynamic_vals_.push_back(topk_id->extent());
   }
 
   //! Find expands that have symbolic outputs. Of those, check whether the
@@ -540,8 +542,7 @@ void DynamicTransformConcretizationInfo::analyzeTopK(
     ExpressionEvaluator* expr_eval) {
   const auto& topk_tvs = initial_info_->getDynamicTopKTensorViews();
 
-  for (const auto i : arange(topk_tvs.size())) {
-    auto tv = topk_tvs.at(i);
+  for (const auto [i, tv] : enumerate(topk_tvs)) {
     auto topk_op = dynamic_cast<TopKOp*>(tv->definition());
     NVF_ERROR(topk_op != nullptr, "Expected TopKOp for TopK TensorView");
 
@@ -597,9 +598,8 @@ bool DynamicTransformConcretizationInfo::operator==(
     return false;
   }
 
-  for (const auto i : arange((int64_t)topk_itertypes_.size())) {
-    const auto& topk_itertype = topk_itertypes_.at(i);
-    const auto& other_topk_itertype = other.topk_itertypes_.at(i);
+  for (const auto [topk_itertype, other_topk_itertype] :
+       zip(topk_itertypes_, other.topk_itertypes_)) {
     if (topk_itertype != other_topk_itertype) {
       return false;
     }
