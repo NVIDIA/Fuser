@@ -174,6 +174,23 @@ void HopperPlus::validate() const {
         "Expected cta_tile and warp_tile to be the same for Ping-Pong Matmul "
         "Kernels");
   }
+
+  if (params_->tiling_strategy ==
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+    NVF_CHECK(
+        params_->num_clusters != -1L,
+        "Number of clusters must always be set for persistent CTA schedule");
+    const int64_t num_clusters_max =
+        matmul_utils::getMaxActiveClusters(params_->cluster_dims);
+    NVF_CHECK(
+        params_->num_clusters <= num_clusters_max,
+        "Number of clusters ",
+        params_->num_clusters,
+        " is larger than the maximum ",
+        num_clusters_max,
+        " that can be launched with cluster size ",
+        params_->cluster_dims.toString());
+  }
 }
 
 void HopperPlus::run() {

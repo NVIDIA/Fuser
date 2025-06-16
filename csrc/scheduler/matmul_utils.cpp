@@ -1093,9 +1093,20 @@ const char* noopPtx = R"(
 
 )";
 
+} // anonymous namespace
+
 //! Determine how many CGAs can launch in a single wave with the given cluster
 //! dimensions
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
+  // I don't think we'd ever use a cluster size larger than 8, but we can make
+  // space for 8 just to future-proof this
+  thread_local std::array<int64_t, 16> cached_results;
+
+  const int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
+  if (cached_results.at(cluster_size) != 0L) {
+    return cached_results.at(cluster_size);
+  }
+
   // TODO: make these thread_local and initialize only once to reduce latency
   cudaLibrary_t lib;
   NVFUSER_CUDA_RT_SAFE_CALL(
@@ -1118,8 +1129,6 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   int32_t max_active_blocks;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
-
-  int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
 
   cudaLaunchConfig_t config{0};
   cudaLaunchAttribute attribute[1];
@@ -1146,10 +1155,9 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaLibraryUnload(lib));
 
-  return (int64_t)num_clusters;
+  cached_results.at(cluster_size) = (int64_t)num_clusters;
+  return cached_results.at(cluster_size);
 }
-
-} // anonymous namespace
 
 std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
