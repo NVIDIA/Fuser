@@ -467,7 +467,7 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
               sibling_axis < merged_roles.size(),
               "Could not find sibling axis to merge");
           tv->merge(inner_axis, sibling_axis);
-          tv->reorder({{inner_axis, sibling_axis-1}});
+          tv->reorder({{inner_axis, sibling_axis - 1}});
           merged_roles.erase(merged_roles.begin() + (size_t)inner_axis);
           continue;
         }
@@ -715,8 +715,8 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        // For persistent kernels, we parallelize BIDx, and if cluster_dims is
-        // non-trivial then we also bind BIDy and BIDz
+        // For persistent kernels, we parallelize BIDx and BIDy to the cluster
+        // dims, and BIDz to the cluster
         tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
         switch (params_->cta_order) {
           // TODO: Should we instead check the roles of these dimensions to
