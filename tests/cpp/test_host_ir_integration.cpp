@@ -125,6 +125,30 @@ TEST_F(HostIrIntegrationTest, Sum_Kernel) {
       "");
 }
 
+TEST_F(HostIrIntegrationTest, ExprEvalAndKernel) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = permute(in, {1, 0});
+  out = segment_set(out);
+  out = sum(out, {0});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
 // Same as AliasTest.ViewPermute but via host IR. This test verifies that Exprs
 // in SchedulerType::ExprEval segments are cloned to the top level and produce
 // aliases.
