@@ -125,10 +125,7 @@ TensorView* scheduleReductionTV(
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
 
     // static bdimx is required for TMA warp specialization
-    int64_t compute_bdimx =
-        (ws_pt == ParallelType::TIDx && option.isEnable()
-             ? rparams->lparams.bdimx() - kWarpSpecializationPaddedThreads
-             : rparams->lparams.bdimx());
+    int64_t compute_bdimx = getComputeBdimx(option, rparams->lparams.bdimx());
     inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
 
     // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
@@ -1113,5 +1110,21 @@ void sharedMemoryConsumerVectorization(
   }
 }
 
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx) {
+  return warp_specialized_on == ParallelType::TIDx
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
+
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx) {
+  return (circular_buffer_opt.isEnable() &&
+          std::holds_alternative<WarpSpecialized>(circular_buffer_opt.type) &&
+          std::get<WarpSpecialized>(circular_buffer_opt.type).on ==
+              ParallelType::TIDx)
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

@@ -13,6 +13,7 @@
 #include <kernel_ir_dispatch.h>
 #include <options.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/reduction_utils.h>
 #include <type.h>
 #include <utils.h>
 
@@ -1475,7 +1476,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
     return;
   }
-  int64_t getComputeThreadsTIDx() {
+  int64_t getComputeThreadsBdimx() {
     return warp_specialized_on_ == ParallelType::TIDx
         ? lparams_.bdimx() - kWarpSpecializationPaddedThreads
         : lparams_.bdimx();
@@ -3114,7 +3115,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream offset_ss;
     offset_ss << genVariableName(
         NamedScalar::getParallelIndex(warp_specialized_on_));
-    offset_ss << " * " << getComputeThreadsTIDx();
+    offset_ss << " * "
+              << reduction_scheduler_utils::getComputeBdimx(
+                     warp_specialized_on_, lparams_.bdimx());
     if (kernel_->summary().num_grouped_iterations > 1) {
       offset_ss << " * " << kernel_->summary().num_grouped_iterations;
     }
@@ -3164,7 +3167,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(getComputeThreadsTIDx());
+    template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+        warp_specialized_on_, lparams_.bdimx()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(genBarrierId(true));
     }

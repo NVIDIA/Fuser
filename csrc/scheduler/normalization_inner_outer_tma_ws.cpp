@@ -444,13 +444,8 @@ void scheduleOuterReduction(
     }
 
     if (rparams->lparams.bdimx() > 1) {
-      int64_t compute_bdimx = rparams->lparams.bdimx();
-      if (rparams->circular_buffer_options.isEnable() &&
-          std::get<WarpSpecialized>(rparams->circular_buffer_options.type).on ==
-              ParallelType::TIDx) {
-        compute_bdimx -= kWarpSpecializationPaddedThreads;
-      }
-
+      int64_t compute_bdimx = reduction_scheduler_utils::getComputeBdimx(
+          rparams->circular_buffer_options, rparams->lparams.bdimx());
       outer_reduction_tv->split(axisID, compute_bdimx);
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
     }

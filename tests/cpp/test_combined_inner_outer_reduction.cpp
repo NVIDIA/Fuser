@@ -1047,8 +1047,7 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
 }
 
 // contig, dtype, dim0, dim1
-using TmaWarpSpecializedParams =
-    std::tuple<bool, bool, DataType, int64_t, int64_t>;
+using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
  public:
@@ -1299,7 +1298,7 @@ auto TmaWarpSpecializedTestParams() {
         continue;
       }
       for (auto dtype : {DataType::Float, DataType::BFloat16}) {
-        values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
+        values.emplace_back(contig, dtype, dim0, dim1);
       }
     }
   }

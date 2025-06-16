@@ -146,5 +146,13 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     const int64_t io_vectorization_factor);
 
+// Get number of threads for computation in x dimension.
+// If warp specialized  on TIDx, returns bdimx minus number of padded threads.
+// Use this version, when warp_specialized_on is known, e.g. in codegen.
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx);
+// Use this version, need to check circular buffer options, e.g. in scheduler.
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
