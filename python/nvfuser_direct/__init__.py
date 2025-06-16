@@ -23,6 +23,11 @@ if pytorch_lib_dir not in sys.path:
 from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
 
+import torch
+
+if torch.cuda.get_device_capability() >= (10, 0):
+    from .cutlass import cutlass_nvfp4_scaled_mm  # noqa: F401
+
 
 def execute_with_dtensors(fd, in_dtensors):
     """
