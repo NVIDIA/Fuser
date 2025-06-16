@@ -917,8 +917,6 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
-  fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -957,6 +955,21 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
 
+      // reg_tv is the consumer for ldmatrix. Set alternate loop domain to
+      // generate shared memory address for ldmatrix.
+      AbstractTensor reg_tv_ldmatrix_abstract =
+          mma_utils::scheduleLdStMatrixSharedMemory(
+              reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+      std::vector<IterDomain*> reg_tv_ldmatrix =
+          reg_tv_ldmatrix_abstract.as<IterDomain*>();
+
+      // Parallelize
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 2)
+          ->parallelize(ParallelType::TIDx);
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 1)
+          ->parallelize(ParallelType::Vectorize);
+      reg_tv->setAlternateLoopDomain(reg_tv_ldmatrix);
+
       // Schedule the loop and allocation domain of LdMatrix like the
       // accumulation register TensorView of wgmma.
       AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -986,6 +999,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    NVF_ERROR(dc != nullptr);
 
     // The chain of operations storing data to global memory:
     //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
@@ -1024,8 +1038,26 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     // (instruction tile) of dc and propagate is back till the outputs of mma.
     blockTileTensors(tvs_to_schedule);
     parallelizeBlocks(tvs_to_schedule);
+
     for (auto tv : tvs_to_schedule) {
       transformLikeMmaOutputWithoutK(tv);
+    }
+
+    if (store_with_stmatrix) {
+      // d_smem is the consumer for stmatrix. Set alternate loop domain to
+      // generate shared memory address for stmatrix.
+      AbstractTensor d_smem_stmatrix_abstract =
+          mma_utils::scheduleLdStMatrixSharedMemory(
+              d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+      std::vector<IterDomain*> d_smem_stmatrix =
+          d_smem_stmatrix_abstract.as<IterDomain*>();
+
+      // Parallelize
+      d_smem_stmatrix.at(d_smem_stmatrix.size() - 2)
+          ->parallelize(ParallelType::TIDx);
+      d_smem_stmatrix.at(d_smem_stmatrix.size() - 1)
+          ->parallelize(ParallelType::Vectorize);
+      d_smem->setAlternateLoopDomain(d_smem_stmatrix);
     }
 
     // Should not propagate if the dc is a mma output as the mma output has
