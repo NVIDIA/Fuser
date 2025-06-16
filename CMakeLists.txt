@@ -467,6 +467,76 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
+if(BUILD_CUTLASS)
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
+
+message(STATUS "Detected CUDA_VERSION=${CUDA_VERSION}")
+if ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "13.0")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 13.0")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.8")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.8")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.4")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.4")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.1")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.1")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "11.8")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 11.8")
+endif()
+
+include(FetchContent)
+
+# cutlass
+FetchContent_Declare(
+    repo-cutlass
+    GIT_REPOSITORY https://github.com/NVIDIA/cutlass
+    GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+    GIT_SHALLOW    OFF
+)
+FetchContent_Populate(repo-cutlass)
+
+set(NVFUSER_CUTLASS)
+
+include_directories(
+    ${repo-cutlass_SOURCE_DIR}/include
+    ${repo-cutlass_SOURCE_DIR}/tools/util/include
+)
+
+set(SGL_KERNEL_CUDA_FLAGS
+    "-DNDEBUG"
+    "-DOPERATOR_NAMESPACE=sgl-kernel"
+    "-O3"
+    "-Xcompiler"
+    "-fPIC"
+    "-gencode=arch=compute_100a,code=sm_110a"
+    "-std=c++17"
+    "-DFLASHINFER_ENABLE_F16"
+    "-DCUTE_USE_PACKED_TUPLE=1"
+    "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
+    "-DCUTLASS_VERSIONS_GENERATED"
+    "-DCUTLASS_TEST_LEVEL=0"
+    "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
+    "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
+    "--expt-relaxed-constexpr"
+    "--expt-extended-lambda"
+    "--threads=32"
+    # Suppress warnings
+    "-Xcompiler=-Wconversion"
+    "-Xcompiler=-fno-strict-aliasing"
+)
+
+list(APPEND NVFUSER_CUTLASS_SRCS
+    ${NVFUSER_CUTLASS}/cutlass.cpp)
+
+target_compile_options(common_ops PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${SGL_KERNEL_CUDA_FLAGS}>)
+target_include_directories(common_ops PRIVATE
+    ${repo-cutlass_SOURCE_DIR}/examples/77_blackwell_fmha
+    ${repo-cutlass_SOURCE_DIR}/examples/common
+    ${repo-flash-attention_SOURCE_DIR}/csrc/flash_attn/src
+)
+
+endif()
+
 if(BUILD_PYTHON)
   # -----------------------------
   # build nvfuser python library
