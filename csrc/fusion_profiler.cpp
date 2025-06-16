@@ -836,9 +836,8 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 }
 
 FusionProfiler::~FusionProfiler() {
-  FusionProfiler& fp = get();
   reset();
-  teardownCupti(fp.subscriber_handle_);
+  teardownCupti(subscriber_handle_);
 }
 
 void FusionProfiler::startCompile() {
