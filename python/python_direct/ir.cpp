@@ -270,8 +270,8 @@ void bindScalar(py::module& nvfuser) {
         PrimDataType value_dtype(
             dtype.has_value()
                 ? dtype.value()
-                : std::get<PrimDataType>(getDataType(value).type));
-        return IrBuilder::create<Val>(value, value_dtype);
+                : std::get<PrimDataType>(getDataType(cast_value).type));
+        return IrBuilder::create<Val>(cast_value, value_dtype);
       },
       py::arg("value"),
       py::arg("dtype") = std::nullopt,

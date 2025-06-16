@@ -36,7 +36,11 @@ class TestNvFuserFrontend(NVFuserTest):
 
             fd.add_output(t4)
 
-        # Expected Output is a tensor of 48's
+        # t0 and t1 are ones(2, 4, 8) tensors.
+        # t2 = t0 + t1 = twos(2, 4, 8)
+        # t3 = t2 * 3.0 = sixes(2,4,8)
+        # t4 = sum(t3, dim=-1) = forty-eights(2, 4)
+        # The expected output is a tensor of 48's.
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.sum((inputs[0] + inputs[1]) * 3.0, dim=-1)
         self.assertEqual(eager_out, nvf_out[0])
