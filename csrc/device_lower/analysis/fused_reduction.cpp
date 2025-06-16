@@ -80,24 +80,29 @@ class FusionInspector : private IterVisitor {
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
     // Check if this reduction can use staticWarpAllReduceTIDX optimization.
-    // This is only valid for warp-specialized circular buffered cases where
-    // the reduction domain size is a multiple of a warp size (32).
-    // Note: If extending to other cases, we must ensure there are no other
-    // non-serial reduction domains, e.g. TIDy, BIDx, etc.
+    // Ensure there is only one reduction domain and it is parallelized with
+    // TIDx and its size is a multiple of warp size (32).
     auto is_static_warp_reduction = [](TensorView* out,
                                        bool has_warp_specialization) {
       if (!has_warp_specialization) {
         return false;
       }
-      return std::any_of(
-          out->getLoopDomain().begin(),
-          out->getLoopDomain().end(),
-          [](IterDomain* ld) {
-            constexpr int64_t kThreadsPerWarp = 32L;
-            return ld->getParallelType() == ParallelType::TIDx &&
-                ld->isReduction() && ld->extent()->isConst() &&
-                ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0;
-          });
+
+      constexpr int64_t kThreadsPerWarp = 32L;
+      int reduction_count = 0;
+      bool has_valid_tidx_reduction = false;
+      for (auto ld : out->getLoopDomain()) {
+        if (ld->isReduction()) {
+          reduction_count++;
+          if (ld->getParallelType() == ParallelType::TIDx &&
+              ld->extent()->isConst() &&
+              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+            has_valid_tidx_reduction = true;
+          }
+        }
+      }
+
+      return reduction_count == 1 && has_valid_tidx_reduction;
     };
     if (out->getMemoryType() == MemoryType::Local &&
         (is_static_warp_reduction(out, has_warp_specialization_) ||
