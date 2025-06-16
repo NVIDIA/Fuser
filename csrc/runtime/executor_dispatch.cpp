@@ -118,7 +118,7 @@ KernelArgumentHolder ExecutorDispatch::run(
     KernelArgumentHolder outputs,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("ExecutorDispatch::run2");
+  FUSER_PERF_SCOPE("ExecutorDispatch::run");
   if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);
   }

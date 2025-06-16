@@ -473,8 +473,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
 
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(
-            kernel_summary.largest_smem_data_type, index_type) *
+        dataTypeSizeByte(kernel_summary.largest_smem_data_type, index_type) *
         grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
@@ -1008,7 +1007,7 @@ KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("KernelExecutor::runFusion");
+  FUSER_PERF_SCOPE("KernelExecutor::run");
 
   if (isProfilerEnabled()) {
     NVF_CHECK(

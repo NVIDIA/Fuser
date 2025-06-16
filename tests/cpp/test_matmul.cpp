@@ -2612,7 +2612,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming B numel times size(dtype) is a multiple of 16 so that
           // this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(1)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(1)->address()->evaluate(), 0L);
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     } else {
@@ -2623,13 +2623,13 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulSmemEpilogue) {
           // Assuming for B and C that numel times size(dtype) is a multiple
           // of 16 so that this address is aligned
           smem_allocs.at(1)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(1)->buffer()->dtype()) +
+                  dataTypeSizeByte(smem_allocs.at(1)->buffer()->dtype()) +
               smem_allocs.at(2)->size()->evaluate() *
-                  dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+                  dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(
           smem_allocs.at(1)->address()->evaluate(),
           smem_allocs.at(2)->size()->evaluate() *
-              dataTypeSize(smem_allocs.at(2)->buffer()->dtype()));
+              dataTypeSizeByte(smem_allocs.at(2)->buffer()->dtype()));
       EXPECT_EQ(smem_allocs.at(2)->address()->evaluate(), 0L);
     }
   }
@@ -3690,7 +3690,7 @@ MatmulParams defaultHopperParams() {
   return mparams;
 }
 
-TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_Basic) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3699,9 +3699,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
   constexpr auto swizzle = MmaInputSmemSwizzle::B128;
   const auto dtype = DataType::Half;
-
-  constexpr bool use_smem_epilogue = false;
-  constexpr bool use_warp_specialization = true;
 
   constexpr int64_t stages = 4;
   constexpr int64_t prefetch = 3;
@@ -3746,20 +3743,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv1c->setMemoryType(MemoryType::Shared);
 
-  TensorView *tv3c = nullptr, *tv3_shmem = nullptr;
-  if (use_smem_epilogue) {
-    tv3_shmem = tv3->cacheBefore();
-    tv3c = tv3_shmem->cacheBefore();
-    tv3_shmem->setMemoryType(MemoryType::Shared);
-    tv3c->setMemoryType(MemoryType::Local);
-    tv3_shmem->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::StMatrix);
-    tv3->definition()->as<LoadStoreOp>()->setOpType(
-        LoadStoreOpType::CpAsyncBulkTensorTile);
-  } else {
-    tv3c = tv3->cacheBefore();
-    tv3c->setMemoryType(MemoryType::Local);
-  }
+  TensorView* tv3c = nullptr;
+  tv3c = tv3->cacheBefore();
+  tv3c->setMemoryType(MemoryType::Local);
 
   // gmem [K, M, 1] -TMA-> smem [K, M, 1]
   // gmem [K, 1, N] -TMA-> smem [K, 1, N]
@@ -3812,47 +3798,17 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  if (!use_smem_epilogue) {
-    for (auto tv : {tv3c, tv3}) {
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          tv->getLoopDomain());
-      tv->setLoopDomain(s.as<IterDomain*>());
-    }
-    tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-  } else {
+  for (auto tv : {tv3c, tv3}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv3c->getLoopDomain());
-    tv3c->setLoopDomain(s.as<IterDomain*>());
-    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
-
-    constexpr int64_t stmatrix_tile_m = 16;
-    constexpr int64_t stmatrix_tile_n = 16;
-    fusion.manage("ldst_matrix_m_tile", stmatrix_tile_m);
-    fusion.manage("ldst_matrix_n_tile", stmatrix_tile_n);
-    fusion.manage("ldst_matrix_m_smem", getM(macro));
-    fusion.manage("ldst_matrix_n_smem", getN(macro));
-
-    MmaInputSmemSwizzle store_swizzle =
-        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
-
-    // This internally calls
-    // Schedule shared memory cache; Output from StMatrix
-    mma_utils::scheduleLdStMatrixForMmaOutput(
-        tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
-
-    // Schedule global memory output; Output from TMA Store
-    mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
+        tv->getLoopDomain());
+    tv->setLoopDomain(s.as<IterDomain*>());
   }
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   inlineMost();
 
-  if (use_warp_specialization) {
-    tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-    tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
-  } else {
-    tv0c->circularBuffer(stages, prefetch);
-    tv1c->circularBuffer(stages, prefetch);
-  }
+  tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+  tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
 
   auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
 
@@ -4723,8 +4679,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   MatMulTileOptions gemm_tile;
   // Regardless of the instruction, this should result in 2 warp groups i.e. 256
   // threads
-  gemm_tile.cta_tile = GemmTile(256, 256, 32);
-  gemm_tile.warp_tile = GemmTile(128, 128, 32);
+  gemm_tile.cta_tile = GemmTile(256, 256, 16);
+  gemm_tile.warp_tile = GemmTile(128, 128, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4737,10 +4693,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
-  // NOTE: disabling smem use for this test since we currrently hit a bank
-  // conflict.
-  // TODO: enable smem epilogue once stmatrix is updated
-  mparams.use_smem_epilogue = false;
+  mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
   mparams.promote_prologue_smem_reuse = false;
 

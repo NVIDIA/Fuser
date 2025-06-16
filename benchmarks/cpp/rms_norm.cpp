@@ -84,7 +84,7 @@ static void NvFuserScheduler_RMSNorm(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * input.numel() + weight.numel()) * int64_t(dataTypeSize(dtype)));
+      (2 * input.numel() + weight.numel()) * dataTypeSizeByte(dtype));
 }
 
 //------------------------------------------------------------------------------
