@@ -125,10 +125,7 @@ TensorView* scheduleReductionTV(
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
 
     // static bdimx is required for TMA warp specialization
-    int64_t compute_bdimx =
-        (ws_pt == ParallelType::TIDx && option.isEnable()
-             ? rparams->lparams.bdimx() - kWarpSpecializationPaddedThreads
-             : rparams->lparams.bdimx());
+    int64_t compute_bdimx = getComputeBdimx(option, rparams->lparams.bdimx());
     inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
 
     // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
@@ -350,9 +347,12 @@ TensorView* scheduleReductionTV(
     NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
   }
+  // [BIDy, TIDy, CircularLoop, Unroll, ...] to
+  // [BIDy, CircularLoop, TIDy, Unroll, ...]
+  // TIDy represents different computation warp groups and
+  // will be changed to serial for TMA loads.
   if (rparams->computation_warp_groups > 1) {
     reduction_rf_tv->reorder({{1, 2}});
-    std::cout << "reduction_rf_tv " << reduction_rf_tv->toString() << std::endl;
   }
   return reduction_rf_tv;
 }
@@ -1098,7 +1098,7 @@ void sharedMemoryConsumerVectorization(
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);
-    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
+    auto dtype_bytes = dataTypeSizeByte(tv->getDataType().value());
     auto max_vect_factor =
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
     // additional split is added if the innermost extent is greater than max
@@ -1110,5 +1110,21 @@ void sharedMemoryConsumerVectorization(
   }
 }
 
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx) {
+  return warp_specialized_on == ParallelType::TIDx
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
+
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx) {
+  return (circular_buffer_opt.isEnable() &&
+          std::holds_alternative<WarpSpecialized>(circular_buffer_opt.type) &&
+          std::get<WarpSpecialized>(circular_buffer_opt.type).on ==
+              ParallelType::TIDx)
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
