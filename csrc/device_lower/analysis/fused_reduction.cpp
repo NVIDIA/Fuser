@@ -82,7 +82,7 @@ class FusionInspector : private IterVisitor {
     constexpr int64_t kThreadsPerWarp = 32L;
     // Use staticWarpAllReduceTIDX if possible, only for warp specialized
     // circular buffered cases.
-    auto is_static_warp_reduction = [&]() {
+    auto is_static_warp_reduction = [](TensorView* out) {
       if (!has_warp_specialization_) {
         return false;
       }
