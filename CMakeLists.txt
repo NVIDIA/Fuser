@@ -14,6 +14,7 @@ set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
 set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
 set(NVFUSER_PYTHON_COMMON "${NVFUSER_ROOT}/python/python_common")
 set(NVFUSER_PYTHON_DIRECT_BINDINGS "${NVFUSER_ROOT}/python/python_direct")
+set(NVFUSER_CUTLASS "${NVFUSER_ROOT}/cutlass")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -467,6 +468,75 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
+if(BUILD_CUTLASS)
+enable_language(CUDA)
+find_package(Torch REQUIRED)
+find_package(CUDAToolkit REQUIRED)
+
+message(STATUS "Detected CUDA_VERSION=${CUDA_VERSION}")
+if ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "13.0")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 13.0")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.8")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.8")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.4")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.4")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "12.1")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 12.1")
+elseif ("${CUDA_VERSION}" VERSION_GREATER_EQUAL "11.8")
+    message("CUDA_VERSION ${CUDA_VERSION} >= 11.8")
+endif()
+
+include(FetchContent)
+
+# cutlass
+FetchContent_Declare(
+    repo-cutlass
+    GIT_REPOSITORY https://github.com/NVIDIA/cutlass
+    GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+    GIT_SHALLOW    OFF
+)
+FetchContent_Populate(repo-cutlass)
+
+set(NVF_CUTLASS_CUDA_FLAGS
+    "-DNDEBUG"
+    "-DOPERATOR_NAMESPACE=sgl-kernel"
+    "-O3"
+    "-Xcompiler"
+    "-fPIC"
+    "--generate-code=arch=compute_100a,code=sm_100a"
+    "-DCUTE_USE_PACKED_TUPLE=1"
+    "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
+    "-DCUTLASS_VERSIONS_GENERATED"
+    "-DCUTLASS_TEST_LEVEL=0"
+    "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
+    "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
+    "--expt-relaxed-constexpr"
+    "--expt-extended-lambda"
+    "--threads=32"
+    # Suppress warnings
+    "-Xcompiler=-Wconversion"
+    "-Xcompiler=-fno-strict-aliasing"
+)
+
+set(NVFUSER_CUTLASS_SRCS)
+list(APPEND NVFUSER_CUTLASS_SRCS
+    ${NVFUSER_CUTLASS}/fp8_blockwise_moe_kernel.cu
+    )
+    add_library(nvf_cutlass STATIC ${NVFUSER_CUTLASS_SRCS})
+set_target_properties(nvf_cutlass PROPERTIES
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+  )
+target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
+target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
+target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
+target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
+target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10 cuda)
+install(TARGETS nvf_cutlass DESTINATION lib)
+
+endif()
+
 if(BUILD_PYTHON)
   # -----------------------------
   # build nvfuser python library
@@ -483,6 +553,7 @@ if(BUILD_PYTHON)
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
   target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
   target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
+  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_CUTLASS})
   target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
@@ -573,6 +644,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
@@ -630,6 +702,7 @@ if(BUILD_PYTHON)
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
   target_link_libraries(nvf_py_direct_internal PRIVATE
     codegen_internal
+    nvf_cutlass
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
