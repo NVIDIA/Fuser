@@ -102,7 +102,7 @@ class FusionInspector : private IterVisitor {
       return false;
     };
     if (out->getMemoryType() == MemoryType::Local &&
-        (is_static_warp_reduction() || out->domain()->hasGridReduction() ||
+        (is_static_warp_reduction(out) || out->domain()->hasGridReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
