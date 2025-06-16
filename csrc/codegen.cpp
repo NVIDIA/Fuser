@@ -1495,7 +1495,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
     ArgumentBuilder template_args;
 
-    if (warp_specialized_on_ != ParallelType::Serial && is_all_reduce) {
+    if (has_warp_specialized_ && is_all_reduce) {
       if (has_independent_compute_warp_groups_) {
         func_args.arg(
             genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
@@ -1508,7 +1508,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
-      template_args.arg(getComputeThreadsTIDx());
+      template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+          warp_specialized_on_, lparams_.bdimx()));
 
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)

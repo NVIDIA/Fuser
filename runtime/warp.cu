@@ -249,6 +249,7 @@ __device__ void iterGroupedStaticWarpAllReduce(
   block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
+// Static indicates the CTA shape is known at compile time.
 template <
     bool SINGLE_WARP,
     bool Aligned,
