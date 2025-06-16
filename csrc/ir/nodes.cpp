@@ -5861,16 +5861,16 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   }
 
   NVF_ERROR(
-      scale1.is<at::Tensor>(),
+      inputs[3].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 3 but got ",
-      scale1.type().name());
+      inputs[3].type().name());
   NVF_ERROR(
-      scale2.is<at::Tensor>(),
+      inputs[4].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 4 but got ",
-      scale2.type().name());
+      inputs[4].type().name());
 
-  const auto& scale1 = inputs[3];
-  const auto& scale2 = inputs[4];
+  const auto& scale1 = inputs[3].as<at::Tensor>();
+  const auto& scale2 = inputs[4].as<at::Tensor>();
   // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
   // input matrices.
   auto mat1_k_last = mat1.contiguous();

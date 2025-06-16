@@ -2326,7 +2326,7 @@ TensorView* create_grouped_mm_output(
     mat1_domain[1]->cloneWithoutRFactor(),
     mat2_domain[1]->cloneWithoutRFactor()};
   } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
-    out_domain = 
+    out_domain = {
     mat1_domain[0]->cloneWithoutRFactor(),
     mat2_domain[2]->cloneWithoutRFactor()};
   } else {
