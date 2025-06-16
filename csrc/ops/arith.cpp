@@ -2318,17 +2318,17 @@ TensorView* create_grouped_mm_output(
 
   if (mat1->nDims() == 2 && mat2->nDims() == 2) {
     out_domain = {
-    offs_domain[0]->cloneWithoutRFactor(),
-    mat1_domain[0]->cloneWithoutRFactor(),
-    mat2_domain[1]->cloneWithoutRFactor()};
+        offs_domain[0]->cloneWithoutRFactor(),
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
   } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
     out_domain = {
-    mat1_domain[1]->cloneWithoutRFactor(),
-    mat2_domain[1]->cloneWithoutRFactor()};
+        mat1_domain[1]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
   } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
     out_domain = {
-    mat1_domain[0]->cloneWithoutRFactor(),
-    mat2_domain[2]->cloneWithoutRFactor()};
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[2]->cloneWithoutRFactor()};
   } else {
     NVF_ERROR(
         false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
