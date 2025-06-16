@@ -128,9 +128,9 @@ class FusionDefinition:
         Parameters
         ----------
         *args
-            Positional arguments passed to _C_NEXT.define_scalar
+            Positional arguments passed to _C_DIRECT.define_scalar
         **kwargs
-            Keyword arguments passed to _C_NEXT.define_scalar
+            Keyword arguments passed to _C_DIRECT.define_scalar
         Returns
         -------
         Scalar
@@ -138,7 +138,7 @@ class FusionDefinition:
         """
         scalar = _C_DIRECT.define_scalar(*args, **kwargs)
         if scalar.is_symbolic():
-            self.add_input(scalar)
+            self._fusion.add_input(scalar)
         return scalar
 
     def add_output(self, *args, **kwargs):
@@ -207,8 +207,11 @@ class FusionDefinition:
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda and len(tensor.size()) != 0:
-            raise ValueError("CPU non-scalar tensor is not supported!")
+        if tensor.is_cpu and len(tensor.size()) != 0:
+            raise ValueError("Only scalar CPU tensor is supported!")
+
+        if tensor.is_meta:
+            raise ValueError("Meta tensor is not supported!")
 
         tv = _C_DIRECT.define_tensor(
             sizes=tensor.size(),
