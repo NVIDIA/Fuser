@@ -461,4 +461,9 @@ class GpuLower : public NonCopyable {
   IdModelOptions id_model_options_;
 };
 
+#define NVFUSER_LOWER_VALIDATE(cond, ...) \
+  GpuLower::current()->validate(          \
+      cond,                               \
+      "Validation at " STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) " ", __VA_ARGS__);
+
 } // namespace nvfuser
