@@ -743,7 +743,6 @@ class InsertReshardingTest
 
 TEST_P(InsertReshardingTest, Execute) {
   auto [is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_sharded] = GetParam();
-  constexpr int64_t kShardedAxis = 1;
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -751,7 +750,7 @@ TEST_P(InsertReshardingTest, Execute) {
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = mul(tv0, tv0);
   TensorView* tv2 = add(tv0, tv1);
-  TensorView* tv3 = sum(tv2, {kShardedAxis});
+  TensorView* tv3 = sum(tv2, {1});
   TensorView* tv4 = broadcast(tv3, {false, true, false});
   TensorView* tv5 = mul(tv2, tv4);
 
@@ -765,19 +764,17 @@ TEST_P(InsertReshardingTest, Execute) {
   }
 
   if (is_tv0_tv5_sharded) {
-    tv0->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    tv3->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    tv5->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
+    tv0->axis(1)->parallelize(ParallelType::DIDx);
+    tv5->axis(1)->parallelize(ParallelType::DIDx);
   }
   if (is_tv1_tv4_sharded) {
-    tv1->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
-    tv4->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
+    tv1->axis(1)->parallelize(ParallelType::DIDx);
+    tv4->axis(1)->parallelize(ParallelType::DIDx);
   }
-  if (is_tv2_sharded) {
-    tv2->axis(kShardedAxis)->parallelize(ParallelType::DIDx);
+  if (is_tv2_tv3_sharded) {
+    tv2->axis(1)->parallelize(ParallelType::DIDx);
+    tv3->axis(1)->parallelize(ParallelType::DIDx);
   }
-
-  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   executor_cache.runFusionWithInputs({at::randn(
