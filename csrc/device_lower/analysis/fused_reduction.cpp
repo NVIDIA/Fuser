@@ -64,17 +64,12 @@ class FusionInspector : private IterVisitor {
   }
 
   static bool checkWarpSpecialization(Fusion* fusion) {
-    return std::any_of(fusion->allTvs().begin(), fusion->allTvs().end(), [](TensorView* tv) {
-          return tv->isCircularBuffered() && std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
-    });
-      if (!tv->isCircularBuffered() ||
-          !std::holds_alternative<WarpSpecialized>(
-              tv->circularBufferOptions().type)) {
-        continue;
-      }
-      return true;
-    }
-    return false;
+    return std::any_of(
+        fusion->allTvs().begin(), fusion->allTvs().end(), [](TensorView* tv) {
+          return tv->isCircularBuffered() &&
+              std::holds_alternative<WarpSpecialized>(
+                     tv->circularBufferOptions().type);
+        });
   }
 
   using IterVisitor::handle;
@@ -102,7 +97,7 @@ class FusionInspector : private IterVisitor {
       return false;
     };
     if (out->getMemoryType() == MemoryType::Local &&
-        (is_static_warp_reduction(out) || out->domain()->hasGridReduction() ||
+        (is_static_warp_reduction() || out->domain()->hasGridReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
