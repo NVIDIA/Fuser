@@ -631,7 +631,7 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-      // If the loop domain is not generated from the logial domain
+      // If the loop domain is not generated from the logical domain
       // with not extra IDs, broadcast forwarding is not
       // supported. As such, permissive mappings are not generated.
       if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
