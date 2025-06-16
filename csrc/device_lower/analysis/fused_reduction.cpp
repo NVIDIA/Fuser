@@ -64,7 +64,9 @@ class FusionInspector : private IterVisitor {
   }
 
   static bool checkWarpSpecialization(Fusion* fusion) {
-    for (auto tv : fusion->allTvs()) {
+    return std::any_of(fusion->allTvs().begin(), fusion->allTvs().end(), [](TensorView* tv) {
+          return tv->isCircularBuffered() && std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+    });
       if (!tv->isCircularBuffered() ||
           !std::holds_alternative<WarpSpecialized>(
               tv->circularBufferOptions().type)) {
