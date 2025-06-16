@@ -742,7 +742,8 @@ class InsertReshardingTest
       public testing::WithParamInterface<InsertReshardingTestParams> {};
 
 TEST_P(InsertReshardingTest, Execute) {
-  auto [is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_sharded] = GetParam();
+  auto [is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_tv3_sharded] =
+      GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -755,7 +756,6 @@ TEST_P(InsertReshardingTest, Execute) {
   TensorView* tv5 = mul(tv2, tv4);
 
   fusion->addInput(tv0);
-  fusion->addOutput(tv1);
   fusion->addOutput(tv5);
 
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
@@ -776,9 +776,19 @@ TEST_P(InsertReshardingTest, Execute) {
     tv3->axis(1)->parallelize(ParallelType::DIDx);
   }
 
+  at::Tensor t0 = at::randint(3, {2, mesh.size(), 5}, tensor_options);
+  at::Tensor t1 = t0 * t0;
+  at::Tensor t2 = t0 + t1;
+  at::Tensor t5 = t2 * t2.sum({1}, /*keepdim=*/true);
+
   FusionExecutorCache executor_cache(std::move(fusion));
-  executor_cache.runFusionWithInputs({at::randn(
-      {2, is_tv0_tv5_sharded ? 1 : mesh.size(), 5}, tensor_options)});
+  if (is_tv0_tv5_sharded) {
+    t0 = shardTensor(t0, 1, mesh);
+    t5 = shardTensor(t5, 1, mesh);
+  }
+
+  auto outs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outs, {t0}, {t5}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
