@@ -64,12 +64,12 @@ class FusionInspector : private IterVisitor {
   }
 
   static bool checkWarpSpecialization(Fusion* fusion) {
-    return std::any_of(
-        fusion->allTvs().begin(), fusion->allTvs().end(), [](TensorView* tv) {
-          return tv->isCircularBuffered() &&
-              std::holds_alternative<WarpSpecialized>(
-                     tv->circularBufferOptions().type);
-        });
+    auto all_tvs = fusion->allTvs();
+    return std::any_of(all_tvs.begin(), all_tvs.end(), [](TensorView* tv) {
+      return tv->isCircularBuffered() &&
+          std::holds_alternative<WarpSpecialized>(
+                 tv->circularBufferOptions().type);
+    });
   }
 
   using IterVisitor::handle;
@@ -79,25 +79,29 @@ class FusionInspector : private IterVisitor {
     // depend on this reduction. Only consider when out is on register as that
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
-    constexpr int64_t kThreadsPerWarp = 32L;
-    // Use staticWarpAllReduceTIDX if possible, only for warp specialized
-    // circular buffered cases.
-    auto is_static_warp_reduction = [](TensorView* out) {
-      if (!has_warp_specialization_) {
+    // Check if this reduction can use staticWarpAllReduceTIDX optimization.
+    // This is only valid for warp-specialized circular buffered cases where
+    // the reduction domain size is a multiple of a warp size (32).
+    // Note: If extending to other cases, we must ensure there are no other
+    // non-serial reduction domains, e.g. TIDy, BIDx, etc.
+    auto is_static_warp_reduction = [](TensorView* out,
+                                       bool has_warp_specialization) {
+      if (!has_warp_specialization) {
         return false;
       }
-
-      for (auto ld : out->getLoopDomain()) {
-        if (ld->getParallelType() == ParallelType::TIDx && ld->isReduction() &&
-            ld->extent()->isConst() &&
-            ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
-          return true;
-        }
-      }
-      return false;
+      return std::any_of(
+          out->getLoopDomain().begin(),
+          out->getLoopDomain().end(),
+          [](IterDomain* ld) {
+            constexpr int64_t kThreadsPerWarp = 32L;
+            return ld->getParallelType() == ParallelType::TIDx &&
+                ld->isReduction() && ld->extent()->isConst() &&
+                ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0;
+          });
     };
     if (out->getMemoryType() == MemoryType::Local &&
-        (is_static_warp_reduction() || out->domain()->hasGridReduction() ||
+        (is_static_warp_reduction(out, has_warp_specialization_) ||
+         out->domain()->hasGridReduction() ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),
@@ -213,8 +217,8 @@ class FusionInspector : private IterVisitor {
     return parallel_reduction_axes;
   }
 
-  // Requires reduction parallel dimensions to exactly match parallel broadcast
-  // dimensions
+  // Requires reduction parallel dimensions to exactly match parallel
+  // broadcast dimensions
   bool isBroadcastFuseable(
       TensorView* broadcast_out,
       const ParallelTypeBitmap& parallel_reduction_axes) {
