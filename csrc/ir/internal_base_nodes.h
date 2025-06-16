@@ -445,6 +445,16 @@ class TensorDomain : public Val {
       std::vector<std::optional<bool>> contiguity = {},
       std::vector<IterDomain*> additional_ids = {});
 
+  TensorDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> root_domain,
+      std::vector<IterDomain*> logical_domain,
+      std::vector<IterDomain*> allocation,
+      std::vector<IterDomain*> loop_domain,
+      std::optional<std::vector<IterDomain*>> alternate_loop_domain,
+      std::vector<std::optional<bool>> contiguity = {},
+      std::vector<IterDomain*> additional_ids = {});
+
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
   TensorDomain(const TensorDomain* src, IrCloner* ir_cloner);
@@ -587,6 +597,10 @@ class TensorDomain : public Val {
     return loop_domain_;
   }
 
+  const std::optional<std::vector<IterDomain*>>& alternateLoop() const {
+    return alternate_loop_domain_;
+  }
+
   const std::vector<IterDomain*>& initialLoop() const {
     return initial_loop_domain_;
   }
@@ -627,6 +641,9 @@ class TensorDomain : public Val {
 
   // Set the loop domain of this TensorDomain.
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
+
+  // Set the alternate loop domain of this TensorDomain.
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain);
 
   // Set the allocation domain of this TensorDomain. Because contiguity is
   // always defined w.r.t. the allocation domain, the contiguity must be updated
@@ -734,6 +751,7 @@ class TensorDomain : public Val {
   const std::vector<IterDomain*> logical_domain_;
   std::vector<IterDomain*> allocation_domain_;
   std::vector<IterDomain*> loop_domain_;
+  std::optional<std::vector<IterDomain*>> alternate_loop_domain_;
   // Initial loop domain. Loop domain is updated with transformations
   // such as split, but the initial loop domain can only change with
   // setLoopDomain

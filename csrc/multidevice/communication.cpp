@@ -552,6 +552,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   }
   NVF_ERROR(backend != nullptr);
 
+  if (isDebugDumpEnabled(DebugDumpOption::Communication)) {
+    debug() << "Posting " << communication->toInlineString()
+            << " with input_tensor " << input_tensor.sizes()
+            << " and output_tensor " << output_tensor.sizes() << std::endl;
+  }
+
   switch (communication->type()) {
     case CommunicationType::Gather:
       return postGather(
