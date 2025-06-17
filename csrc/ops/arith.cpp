@@ -2286,22 +2286,24 @@ TensorView* argsort(
 namespace {
 // Create output tensor for grouped matrix multiplication
 // For grouped MM, determine output shape based on mat1 and mat2 structures.
+// [rk] is the reduction axis for the matmul operation, it only exists if k is
+// not broadcast.
 //
 // case 1:
 //   mat1   [m, k]
 //   mat2   [k, n]
 //   offset [g]
-//   output -> [g, m, n]
+//   output -> [g, m, n, [rk]]
 // case 2:
 //   mat1   [g, m, k]
 //   mat2   [k, n]
 //   offset [g]
-//   output -> [m, n]
+//   output -> [m, n, [rk]]
 // case 3:
 //   mat1   [m, k]
 //   mat2   [g, k, n]
 //   offset [g]
-//   output -> [m, n]
+//   output -> [m, n, [rk]]
 TensorView* createGroupedMmaOutput(
     TensorView* mat1,
     TensorView* mat2,
@@ -2312,7 +2314,13 @@ TensorView* createGroupedMmaOutput(
   const auto offs_domain =
       TensorDomain::noReductions(offsets->getLogicalDomain());
 
+  IterDomain* k_id_mat1 = mat1_domain.back();
+  IterDomain* k_id_mat2 = mat2_domain.at(mat2_domain.size() - 2);
+
   NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
+  NVF_CHECK(
+      k_id_mat1->isBroadcast() == k_id_mat2->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
 
   std::vector<IterDomain*> out_domain;
 
@@ -2336,6 +2344,15 @@ TensorView* createGroupedMmaOutput(
         mat1,
         " and ",
         mat2);
+  }
+
+  // Following the semantics of matmul, output has a reduction axis rk if k is
+  // not broadcast
+  if (!k_id_mat1->isBroadcast()) {
+    out_domain.push_back(
+        ops::newOutputIterDomain(
+            {k_id_mat1, k_id_mat2},
+            /*force_iter_type=*/IterType::Reduction);
   }
 
   auto* out = IrBuilder::create<TensorView>(
