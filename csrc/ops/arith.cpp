@@ -82,7 +82,7 @@ Val* bitCastOp(DataType dtype, Val* v1) {
   }
 
   NVF_CHECK(
-      dataTypeSize(v1->getDataType().value()) == dataTypeSize(dtype),
+      dataTypeSizeByte(v1->getDataType().value()) == dataTypeSizeByte(dtype),
       "BitCast only works for types of the same size");
 
   Val* out = ops::newValLike(v1, dtype);
@@ -1748,6 +1748,11 @@ WelfordResult::WelfordResult(
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
 }
 
+TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
+    : values(in_values), indices(in_indices) {
+  NVF_ERROR(values->definition()->sameAs(indices->definition()));
+}
+
 // COMPOUND OPERATIONS
 
 // add_alpha
@@ -2266,6 +2271,74 @@ TensorView* tensor(Val* val) {
 
   IrBuilder::createInContainer<TensorConstruct>(val->container(), out, val);
   return out;
+}
+
+TensorView* argsort(
+    TensorView* inp,
+    int64_t dim,
+    bool descending,
+    bool stable) {
+  Val* out = ops::newValLike(inp, DataType::Int);
+  IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
+  return out->as<TensorView>();
+}
+
+TopKResult topk(
+    TensorView* inp,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted,
+    bool maybe_symbolic) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  dim = wrapDim(dim, std::ssize(inp_domain));
+
+  NVF_CHECK(
+      k->dtype() == DataType::Int,
+      "TopKOp expects int64_t input for k but got ",
+      k->dtype());
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(inp_domain.size());
+
+  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+    // TODO: nvfuser enumerate implementation is not correct, it should return
+    // signed ints instead.
+    if (index != (size_t)dim) {
+      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+      continue;
+    }
+
+    // Handling top k dimension, since the output extent is k.
+    ExpressionEvaluator ee;
+    PolymorphicValue ext = ee.evaluate(k);
+
+    IterType iter_type;
+    if (ext.hasValue()) {
+      iter_type =
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else {
+      iter_type =
+          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+    }
+    out_domain.push_back(
+        IterDomainBuilder(
+            inp->fusion()->zeroVal(),
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
+            .iter_type(iter_type)
+            .build());
+  }
+
+  TensorView* out_values = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  Val* out_indices = ops::newValLike(out_values, DataType::Int);
+
+  IrBuilder::create<TopKOp>(
+      out_values, out_indices, inp, k, dim, largest, sorted);
+  return TopKResult(
+      out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
 } // namespace nvfuser

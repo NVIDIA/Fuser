@@ -684,7 +684,7 @@ class HandleExpr {
           SimplifyingIrBuilder::modExpr(
               from[0]->front()->as<IterDomain>()->extent(), split->factor()),
           split->fusion()->zeroVal());
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           is_divisible,
           "Invalid view in TMA: the extent of ",
           from[0]->toString(),
@@ -1130,7 +1130,7 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       bulk_groups,
       nonbulk_groups,
       inferred_dims,
-      dataTypeSize(gmem_tv->dtype()),
+      dataTypeSizeByte(gmem_tv->dtype()),
       swizzle);
   return TMAInfo(std::move(final_tma_domain), swizzle, gmem_tv);
 }

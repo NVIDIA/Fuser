@@ -3133,6 +3133,134 @@ struct IndexPutAccumulateOpRecord : RecordFunctor {
   }
 };
 
+struct ArgsortOpRecord : RecordFunctor {
+  ArgsortOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim,
+      bool descending,
+      bool stable)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.argsort",
+            serde::RecordType::ArgsortOp),
+        dim_(dim),
+        descending_(descending),
+        stable_(stable) {}
+  ~ArgsortOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ArgsortOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto other_argsort = dynamic_cast<const ArgsortOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) &&
+          dim_ == other_argsort->dim_ &&
+          descending_ == other_argsort->descending_ &&
+          stable_ == other_argsort->stable_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    Val* output = argsort(arg, dim_, descending_, stable_);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_
+       << ", descending=" << (descending_ ? "True" : "False")
+       << ", stable=" << (stable_ ? "True" : "False");
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::Sort,
+        serde::CreateSort(builder, dim_, descending_, stable_).Union()};
+  }
+
+ private:
+  int64_t dim_;
+  bool descending_;
+  bool stable_;
+};
+
+//! Record for TopK operation in fusion cache and Python frontend
+//!
+//! Stores the parameters needed to recreate a TopK operation:
+//! - dim: dimension along which to find top-k elements
+//! - largest: whether to find largest (true) or smallest (false) elements
+//! - sorted: whether the output should be sorted
+//!
+//! The operation takes two inputs: the tensor and k (number of elements)
+//! and produces two outputs: values and indices tensors.
+struct TopKOpRecord : RecordFunctor {
+  TopKOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      int64_t dim,
+      bool largest,
+      bool sorted)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.topk",
+            serde::RecordType::TopKOp),
+        dim_(dim),
+        largest_(largest),
+        sorted_(sorted) {}
+  ~TopKOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new TopKOpRecord(*this);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    auto result = false;
+    if (auto other_topk = dynamic_cast<const TopKOpRecord*>(&other)) {
+      result = RecordFunctor::operator==(other) && dim_ == other_topk->dim_ &&
+          largest_ == other_topk->largest_ && sorted_ == other_topk->sorted_;
+    }
+    return result;
+  }
+
+  void operator()(FusionState& fd) final {
+    auto arg = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
+    auto k = fd.getFusionState(args_.at(1).index);
+    auto output = topk(arg, k, dim_, largest_, sorted_);
+    fd.setFusionState(outputs_.at(0).index, output.values);
+    fd.setFusionState(outputs_.at(1).index, output.indices);
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dim=" << dim_ << ", largest=" << (largest_ ? "True" : "False")
+       << ", sorted=" << (sorted_ ? "True" : "False");
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::TopK,
+        serde::CreateTopK(builder, dim_, largest_, sorted_).Union()};
+  }
+
+ private:
+  int64_t dim_;
+  bool largest_;
+  bool sorted_;
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a

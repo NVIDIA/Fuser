@@ -52,6 +52,7 @@
 
 #include <cuda_runtime.h>
 
+#include <nvfuser_resources/argsort.h>
 #include <nvfuser_resources/array.h>
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
@@ -79,6 +80,7 @@
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tensor_memory.h>
+#include <nvfuser_resources/topk.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -602,6 +604,10 @@ void fillCompileOptions(
       module_load_driver.setOption(CU_JIT_MAX_REGISTERS, (int)*max_register);
     }
   }
+
+  for (const auto& include_path : compile_params.include_paths) {
+    nvrtc_compile_driver.setOption("-I" + include_path);
+  }
 }
 
 // Dump ptxas output if register spill is detected
@@ -706,13 +712,17 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
 
   createNvrtcProgram(program, func_name, full_src_code);
 
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
+  std::string canonical_func_name =
+      CompiledKernel::kernelNamespace() + "::" + func_name;
+
+  NVFUSER_NVRTC_SAFE_CALL(
+      nvrtcAddNameExpression(program, canonical_func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
 
   auto compiled_kernel = std::make_unique<executor_utils::CudaExecutable>();
   const char* lowered_kernel_name = nullptr;
-  NVFUSER_NVRTC_SAFE_CALL(
-      nvrtcGetLoweredName(program, func_name.c_str(), &lowered_kernel_name));
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcGetLoweredName(
+      program, canonical_func_name.c_str(), &lowered_kernel_name));
   compiled_kernel->kernel_name = lowered_kernel_name;
   compiled_kernel->compile_log = log.str();
 
@@ -1121,12 +1131,27 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
 std::string _getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type,
-    std::string kernel_name) {
+    std::string kernel_name,
+    bool has_argsort = false,
+    bool has_topk = false) {
   // generating cuda code;
   std::string code = "";
   code += defineStdComplex();
-  code += std::string("namespace {\n") + defineTypes() +
-      defineIndexType(index_type) + kernelPreamble() + kernel_str + "}\n";
+  code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
+      "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
+      "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
+
+  if (has_argsort) {
+    code += nvfuser_resources::argsort_cu;
+  }
+
+  if (has_topk) {
+    code += nvfuser_resources::topk_cu;
+  }
+
+  code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
+  code += kernel_str;
+  code += "\n} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::CudaKernel)) {
     debug() << "\n======= Codegen output for kernel: " << kernel_name
@@ -1179,6 +1204,14 @@ NVF_API CompiledKernel::CompiledKernel(
   lowered_->run();
   for (const auto& hook : post_lowering_hooks) {
     hook(lowered_->kernel());
+  }
+
+  // Add CUDA include path if fusion contains ArgsortOp or TopKOp. Note that
+  // this is a temporary measure. CUB header files need to be
+  // installed as part of the nvFuser installation.
+  if (lowered_->kernel()->summary().has_argsort ||
+      lowered_->kernel()->summary().has_topk) {
+    compile_params_.include_paths.push_back("/usr/local/cuda/include");
   }
 }
 
@@ -1350,7 +1383,11 @@ std::string CompiledKernel::getStructuredCode() const {
     return structured_code;
   }
   return _getStructuredCode(
-      kernelString(), kernel()->indexType(), kernelName());
+      kernelString(),
+      kernel()->indexType(),
+      kernelName(),
+      kernel()->summary().has_argsort,
+      kernel()->summary().has_topk);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {

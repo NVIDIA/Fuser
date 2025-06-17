@@ -334,6 +334,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
+    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
 endif()
 
@@ -600,6 +601,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -680,6 +682,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_contiguity_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering_ping_pong.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
@@ -753,10 +756,35 @@ if(BUILD_TEST)
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+
+  set(ARGSORT_TEST_KERNELS "argsort_test_kernels")
+  add_library(${ARGSORT_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/argsort_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${ARGSORT_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${ARGSORT_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${ARGSORT_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${ARGSORT_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
+
+  set(TOPK_TEST_KERNELS "topk_test_kernels")
+  add_library(${TOPK_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/topk_test_kernels.cu)
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${TOPK_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${TOPK_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${TOPK_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TOPK_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/validator.cpp
   )
@@ -801,6 +829,22 @@ if(BUILD_TEST)
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
 
+  set(ARGSORT_TEST_SRCS)
+  list(APPEND ARGSORT_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_argsort_device_func.cpp
+  )
+  add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_argsort)
+
+  set(TOPK_TEST_SRCS)
+  list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
+  )
+  add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_topk)
+
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
@@ -829,7 +873,7 @@ if(BUILD_TEST)
   list(APPEND TEST_BINARIES tutorial_multidevice)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
-  list(APPEND TEST_BINARIES test_view)
+  list(APPEND TEST_BINARIES test_reshape)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -1006,6 +1050,7 @@ endif()
 # nvfuser runtime files
 set(NVFUSER_RUNTIME_FILES)
 list(APPEND NVFUSER_RUNTIME_FILES
+  ${NVFUSER_ROOT}/runtime/argsort.cu
   ${NVFUSER_ROOT}/runtime/array.cu
   ${NVFUSER_ROOT}/runtime/basic_type_traits.cu
   ${NVFUSER_ROOT}/runtime/bf16_support.cu
@@ -1033,6 +1078,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
+  ${NVFUSER_ROOT}/runtime/topk.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu

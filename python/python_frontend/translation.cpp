@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <translation_names.h>
 #include <utils.h>
 
 #include <vector>
@@ -511,7 +512,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
         argument_states,
         {fd_->recordingState(map_val_to_fd_index_.at(result))},
-        "ops." + getString(e->as<ExprType>()),
+        "ops." + python::toString(e->as<ExprType>()),
         record_type,
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
@@ -718,7 +719,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new ReductionOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
         {fd_->recordingState(output())},
-        "ops." + getString(rop),
+        "ops." + python::toString(rop),
         getSerdeType(rop),
         getFunction<
             TensorView*,
@@ -1129,6 +1130,45 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(map_val_to_fd_index_.at(sop->srcTv()))},
         {fd_->recordingState(output())},
         sop->dim()));
+  }
+
+  // Map ArgsortOp to python frontend
+  void handle(const ArgsortOp* argsortop) final {
+    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ArgsortOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(argsortop->in()))},
+        {fd_->recordingState(output())},
+        argsortop->dim(),
+        argsortop->isDescending(),
+        argsortop->isStable()));
+  }
+
+  // Map TopKOp to python frontend
+  void handle(const TopKOp* topkop) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(topkop->outputs().size());
+    std::transform(
+        topkop->outputs().begin(),
+        topkop->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    fd_->defineRecord(new TopKOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(topkop->in())),
+         fd_->recordingState(map_val_to_fd_index_.at(topkop->k()))},
+        fd_outputs,
+        topkop->dim(),
+        topkop->isLargest(),
+        topkop->isSorted()));
   }
 
   // Map GatherOp to python frontend

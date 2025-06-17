@@ -29,11 +29,6 @@ class SegmentationState;
 struct TrieNode;
 struct UserSchedule;
 
-//! This is helper function used to print a python formated
-//! Fusion IR DataType when printing a fusion definition.
-
-NVF_API const char* dtypeToPyString(PrimDataType t);
-
 //! The Tensor and Scalar classes are used to define separate function
 //! signatures in the FusionDefinition to identify the appropriate Operator
 //! function.
