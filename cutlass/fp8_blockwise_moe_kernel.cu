@@ -440,9 +440,10 @@ void fp8_blockwise_scaled_grouped_mm(
   }
 #endif
 #endif
+
   NVF_CHECK(
-      !can_implement,
-      "No implemented fp8_blockwise_scaled_mm for current compute capability: ",
+      can_implement,
+      "fp8_blockwise_scaled_mm is not implemented for current compute capability: ",
       sm_version);
 }
 
