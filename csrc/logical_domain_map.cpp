@@ -388,7 +388,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(last_producer_idx), consumer_root.back());
       }
-    } else if (producer_tv_->sameAs(op->matrix2())) {
+    } else if (producer_tv_ == op->matrix2()) {
       // mapping n dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx),
@@ -398,13 +398,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(last_producer_idx - 1), consumer_root.back());
       }
-    } else if (producer_tv_->sameAs(op->offsets())) {
+    } else if (producer_tv_ == op->offsets()) {
       // mapping g dimension;
       if (has_g) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
       }
-    } else if (producer_tv_->sameAs(op->scale1())) {
+    } else if (producer_tv_ == op->scale1()) {
       // mapping m dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx), consumer_root.at(0));
@@ -419,7 +419,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(last_producer_idx), consumer_root.back());
       }
-    } else if (producer_tv_->sameAs(op->scale2())) {
+    } else if (producer_tv_ == op->scale2()) {
       // mapping n dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx),

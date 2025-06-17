@@ -5774,18 +5774,10 @@ GroupedMmaOp::GroupedMmaOp(
     Val* scale1,
     Val* scale2)
     : Expr(passkey) {
-  NVF_ERROR(
-      out->getValType().value() == ValType::TensorView,
-      "Output must be a TensorView");
-  NVF_ERROR(
-      mat1->getValType().value() == ValType::TensorView,
-      "First input must be a TensorView");
-  NVF_ERROR(
-      mat2->getValType().value() == ValType::TensorView,
-      "Second input must be a TensorView");
-  NVF_ERROR(
-      offsets->getValType().value() == ValType::TensorView,
-      "Offsets must be a TensorView");
+  NVF_ERROR(out->isA<TensorView>(), "Output must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
   addOutput(out);
   addInput(mat1);
   addInput(mat2);
@@ -5795,10 +5787,9 @@ GroupedMmaOp::GroupedMmaOp(
   if (has_scale1) {
     NVF_CHECK(
         scale1->isA<TensorView>(),
-        "`scale1` must be a TensorView, but got: ", scale1);
-    NVF_CHECK(
-        scale2->getValType().value() == ValType::TensorView,
-        "Scale2 must be a TensorView");
+        "`scale1` must be a TensorView, but got: ",
+        scale1);
+    NVF_CHECK(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
     addInput(scale1);
     addInput(scale2);
   }

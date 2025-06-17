@@ -2396,22 +2396,26 @@ TensorView* grouped_mm(
       std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
 
   NVF_CHECK_EQ(
-      scale1_rank, std::max(mat1_rank, out_rank),
+      scale1_rank,
+      std::max(mat1_rank, out_rank),
       "mat1 rank: ",
       mat1_rank,
       ", out rank: ",
       out_rank);
-  NVF_CHECK(
-      scale2_rank == std::max(mat2_rank, out_rank),
-      "scale 2 rank is incorrect, mat2 rank: ",
-      mat2_rank,
-      ", out rank: ",
-      out_rank,
-      " but scale 2 rank: ",
-      scale2_rank);
+      ", scale1 rank: ",
+      scale1_rank);
+      NVF_CHECK_EQ(
+          scale2_rank,
+          std::max(mat2_rank, out_rank),
+          "mat2 rank: ",
+          mat2_rank,
+          ", out rank: ",
+          out_rank,
+          ", scale2 rank: ",
+          scale2_rank);
 
-  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
-  return out;
+      IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+      return out;
 }
 
 TopKResult topk(
