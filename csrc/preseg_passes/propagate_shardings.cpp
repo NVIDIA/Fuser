@@ -15,8 +15,6 @@
 #include <multidevice/utils.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <scheduler/utils.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
