@@ -27,7 +27,7 @@ void bindGroupedGemm(py::module_& cutlass) {
 
 void bindCutlass(py::module& nvfuser) {
   py::module_ nvf_cutlass = nvfuser.def_submodule(
-      "cutlass", "This submodule contains all cutlass gemms for NvFuser.");
+      "nvf_cutlass", "This submodule contains all cutlass gemms for NvFuser.");
   bindGroupedGemm(nvf_cutlass);
 }
 
