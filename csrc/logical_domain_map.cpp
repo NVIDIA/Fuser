@@ -370,6 +370,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
 
   // TODO: refactor to use getNonMappingDomainInfo instead.
   if (auto* op = dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
+    bool has_g = TensorDomain::noReductions(consumer_root).size() == 3;
     int64_t ndims_out = std::ssize(consumer_root);
     // [rk] is the reduction axis for the matmul operation, it only exists if k
     // is not broadcast.
@@ -399,7 +400,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       }
     } else if (producer_tv_->sameAs(op->offsets())) {
       // mapping g dimension;
-      if (ndims_out == 3) {
+      if (has_g) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
       }
@@ -408,7 +409,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx), consumer_root.at(0));
       // mapping g dimension;
-      if (ndims_out == 3) {
+      if (has_g) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
       }
@@ -422,7 +423,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx),
           consumer_root.at(out_non_rk_last_idx));
-      if (ndims_out == 3) {
+      if (has_g) {
         // mapping g dimension;
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
