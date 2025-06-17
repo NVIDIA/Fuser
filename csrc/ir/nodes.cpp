@@ -5794,8 +5794,8 @@ GroupedMmaOp::GroupedMmaOp(
   bool has_scale1 = scale1 != nullptr;
   if (has_scale1) {
     NVF_CHECK(
-        scale1->getValType().value() == ValType::TensorView,
-        "Scale1 must be a TensorView");
+        scale1->isA<TensorView>(),
+        "`scale1` must be a TensorView, but got: ", scale1);
     NVF_CHECK(
         scale2->getValType().value() == ValType::TensorView,
         "Scale2 must be a TensorView");

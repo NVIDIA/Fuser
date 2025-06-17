@@ -2395,14 +2395,12 @@ TensorView* grouped_mm(
   int64_t out_rank =
       std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
 
-  NVF_CHECK(
-      scale1_rank == std::max(mat1_rank, out_rank),
-      "scale 1 rank is incorrect, mat1 rank: ",
+  NVF_CHECK_EQ(
+      scale1_rank, std::max(mat1_rank, out_rank),
+      "mat1 rank: ",
       mat1_rank,
       ", out rank: ",
-      out_rank,
-      " but scale 1 rank: ",
-      scale1_rank);
+      out_rank);
   NVF_CHECK(
       scale2_rank == std::max(mat2_rank, out_rank),
       "scale 2 rank is incorrect, mat2 rank: ",

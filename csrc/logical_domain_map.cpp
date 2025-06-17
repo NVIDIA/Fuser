@@ -378,7 +378,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
 
     int64_t last_producer_idx = std::ssize(producer_logical) - 1;
-    if (producer_tv_->sameAs(op->matrix1())) {
+    if (producer_tv_ == op->matrix1()) {
       // mapping m dimension;
       updatePairwiseLogicalDomainMap(
           producer_logical.at(last_producer_idx - 1),
