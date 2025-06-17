@@ -1,5 +1,5 @@
 #include <nvf_cutlass.h>
-#include <utils.h>
+#include <cutlass_utils.h>
 #include <cutlass_moe_helper.cuh>
 
 #include <cutlass/arch/arch.h>
