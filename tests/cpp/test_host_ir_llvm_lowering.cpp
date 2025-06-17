@@ -11,27 +11,23 @@
 #include <global_allocator.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/lower_to_llvm.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <host_ir/lower_to_llvm.h>
 
 namespace nvfuser {
 
 namespace hir {
 
 using testing::Contains;
-using HostIrEvaluatorTest = NVFuserTest;
-
-TEST_F(HostIrEvaluatorTest, LaunchKernel4) {
-  
-
-}
-
-// run with the following command: NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir --gtest_filter=HostIrEvaluatorTest.LaunchKernel2
-TEST_F(HostIrEvaluatorTest, LaunchKernel2) {
-
+using HostIrLLVMTest = NVFuserTest;
+// Build with: python setup.py install --build-with-llvm
+// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir
+// --gtest_filter=HostIrLLVMTest.TestLLVMJIT
+TEST_F(HostIrLLVMTest, TestLLVMJIT) {
+  HostIrLlvmJit::getInstance(4).compile(nullptr);
 }
 
 } // namespace hir
