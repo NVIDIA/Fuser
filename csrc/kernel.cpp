@@ -140,7 +140,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type, index_type_);
+      const size_t type_size = dataTypeSizeByte(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -260,6 +260,14 @@ class KernelIrScanner : private IrVisitor {
     // Do we have grid broadcasts?
     summary_.has_grid_broadcasts =
         summary_.has_grid_broadcasts || parallel_types.hasBID();
+  }
+
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
+  }
+
+  void handle(TopKOp* top) final {
+    summary_.has_topk = true;
   }
 
   void handle(IfThenElse* ite) final {

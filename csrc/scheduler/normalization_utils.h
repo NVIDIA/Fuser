@@ -196,6 +196,15 @@ int64_t partialReductionBufferSize(
     const std::vector<TensorView*>& outer_reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
 
+// Return the broadcast tvs that are broadcast to the iteration dimensions of
+// the inner reduction tv. These tvs are reused in the loop over the iteration
+// dimension. This reuse reduced the number loads from gmem and this tensor
+// is likely the first candidate to be moved to shared memory when the register
+// space runs low.
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs);
+
 // Return a scheduleHeuristic based on reduction types.
 using ReductionType = reduction_scheduler_utils::ReductionType;
 SchedulerType getPersistentHeuristicFor(ReductionType reduction_type);

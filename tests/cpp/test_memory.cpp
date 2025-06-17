@@ -417,7 +417,7 @@ class TMASimpleLdstTest
   std::vector<int64_t> tile;
 
   int64_t innerDimSize() const {
-    return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+    return getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype);
   }
 
   void SetUp() override {
@@ -575,8 +575,8 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->split(-2, 8);
   tv2->split(-2, 8);
   // [B, KO, K8, N] ->  [B, KO, K8, NO, NI ]
-  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
+  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
   // [B, KO, K8, NO, NI ] -> [B, KO, NO, K8, NI ] (Box: K8, NI)
   tv1->reorder({{-2, -3}});
   tv2->reorder({{-2, -3}});
@@ -1202,7 +1202,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_32_bytes = 32 / dataTypeSize(dtype);
+  const int64_t items_of_32_bytes = 32 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(3, dtype);
   fusion.addInput(tv0);
@@ -1813,7 +1813,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -1867,7 +1867,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeSymbolicTensor(2, dtype);
   tv0->setContiguity({false, true});
@@ -1925,7 +1925,7 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -1964,7 +1964,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -2940,6 +2940,9 @@ TEST_P(StMatrixTest, Regular) {
   tv0->merge(0);
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  // TODO Set alternate loop domain here once idModel support
+  // MmaInputSmemSwizzle::None
 
   for (auto tv : {tv1, tv2}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(

@@ -947,10 +947,12 @@ namespace {
 at::Tensor reference_loop_split_mlp(
     at::Tensor inp,
     at::Tensor w0,
-    at::Tensor w1) {
-  auto linear0 = at::linear(inp, w0);
-  auto gelu = at::gelu(linear0, "tanh");
-  auto linear1 = at::linear(gelu, w1);
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1) {
+  auto linear0 = at::linear(inp, w0, b0);
+  auto gelu = at::gelu(linear0.to(at::kFloat), "tanh");
+  auto linear1 = at::linear(gelu.to(inp.dtype()), w1, b1);
   return linear1;
 }
 
@@ -981,15 +983,12 @@ at::Tensor reference_loop_split_mha(
 }
 } // namespace
 
-// TODO: Allow testing for float16 and bfloat16 for loop split mlp and mha
-// This currently fails because privatizeUpcast clones cast operations,
-// which fails segmentation since the transforms are not replicated.
-TEST_F(DistributedTransformerTest, LoopSplitMLP) {
+TEST_P(DistributedTransformerTest, LoopSplitMLP) {
   if ((4 * E) % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
   }
-  auto dtype = DataType::Float;
+  DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
   auto fusion = std::make_unique<Fusion>();
@@ -1000,15 +999,17 @@ TEST_F(DistributedTransformerTest, LoopSplitMLP) {
 
   TensorView* inp = makeContigConcreteTensor({B, S, E}, dtype);
   TensorView* w0 = makeContigConcreteTensor({4 * E, E}, dtype);
+  TensorView* b0 = makeContigConcreteTensor({4 * E}, dtype);
   TensorView* w1 = makeContigConcreteTensor({E, 4 * E}, dtype);
+  TensorView* b1 = makeContigConcreteTensor({E}, dtype);
 
-  TensorView* linear0 = linear(inp, w0);
-  TensorView* linear0_float = castOp(DataType::Float, linear0);
+  TensorView* linear0 = linear(inp, w0, b0);
+  TensorView* linear0_float = maybeCastOp(DataType::Float, linear0);
   TensorView* gelu = tanh_gelu(linear0_float);
-  TensorView* gelu_dtype = castOp(dtype, gelu);
-  TensorView* linear1 = linear(gelu_dtype, w1);
+  TensorView* gelu_dtype = maybeCastOp(dtype, gelu);
+  TensorView* linear1 = linear(gelu_dtype, w1, b1);
 
-  std::vector<TensorView*> fusion_inputs{inp, w0, w1};
+  std::vector<TensorView*> fusion_inputs{inp, w0, b0, w1, b1};
   for (auto tv : fusion_inputs) {
     fusion->addInput(tv);
     tv->setDeviceMesh(mesh);
@@ -1017,27 +1018,37 @@ TEST_F(DistributedTransformerTest, LoopSplitMLP) {
 
   w0->outer_split(0, d);
   w0->axis(0)->parallelize(ParallelType::DIDx);
+  b0->outer_split(0, d);
+  b0->axis(0)->parallelize(ParallelType::DIDx);
   w1->outer_split(1, d);
   w1->axis(1)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
-  at::Tensor w0_tensor = at::randn({4 * E, E}, tensor_options.dtype(at_dtype));
-  at::Tensor w1_tensor = at::randn({E, 4 * E}, tensor_options.dtype(at_dtype));
+  at::Tensor w0_tensor =
+      at::randn({4 * E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
+  at::Tensor b0_tensor =
+      at::randn({4 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
+  at::Tensor w1_tensor =
+      at::randn({E, 4 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
+  at::Tensor b1_tensor =
+      at::randn({E}, tensor_options.dtype(at_dtype)) * kParamScale;
 
   at::Tensor w0_sharded = shardTensor(w0_tensor, 0, mesh);
+  at::Tensor b0_sharded = shardTensor(b0_tensor, 0, mesh);
   at::Tensor w1_sharded = shardTensor(w1_tensor, 1, mesh);
 
-  KernelArgumentHolder args = {inp_tensor, w0_sharded, w1_sharded};
+  KernelArgumentHolder args = {
+      inp_tensor, w0_sharded, b0_sharded, w1_sharded, b1_tensor};
   auto outputs = executor_cache.runFusionWithInputs(args);
   at::Tensor nvf_out = outputs[0].as<at::Tensor>();
 
-  at::Tensor ref_out =
-      reference_loop_split_mlp(inp_tensor, w0_tensor, w1_tensor);
+  at::Tensor ref_out = reference_loop_split_mlp(
+      inp_tensor, w0_tensor, b0_tensor, w1_tensor, b1_tensor);
   validate({ref_out}, {nvf_out}, {0.02});
 }
 
-TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
+TEST_P(DistributedTransformerTest, LoopSplitMHAFwd) {
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -1046,7 +1057,7 @@ TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto dtype = DataType::Half;
+  DataType dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
   const int d = communicator_->size();

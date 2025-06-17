@@ -325,7 +325,7 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
           global_stride_val);
     }
   }
-  int64_t elem_size = (int64_t)dataTypeSize(dataType());
+  int64_t elem_size = dataTypeSizeByte(dataType());
   if (tensor_rank > 1) {
     int64_t padding0_bytes =
         (int64_t)global_strides.at(0) - (int64_t)global_dim.at(0) * elem_size;

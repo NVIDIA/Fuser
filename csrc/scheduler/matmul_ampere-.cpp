@@ -63,7 +63,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -1215,7 +1216,7 @@ void AmpereMinus::scheduleSplitKSum() {
       int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
       splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
       splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
-      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
+      if (vec_ext_int * dataTypeSizeByte(splitk_sum->dtype()) > 16) {
         // NOTE: We might encounter an illegal vectorization size if we are
         // using Float for this reduction and Half for output. So here we
         // first check whether the vectorize size is at most 16 bytes. If not,
@@ -1223,7 +1224,9 @@ void AmpereMinus::scheduleSplitKSum() {
         // vectorized reads/writes instead. Note that we reorder such that the
         // axes are in order UR TIDx V.
         splitk_sum->split(
-            -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
+            -2,
+            16 / dataTypeSizeByte(splitk_sum->dtype()),
+            /*inner_split=*/true);
         splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
         splitk_sum->reorder({{-4, -3}});
         // In this case, we have [... iUR iTx rBz iS]
@@ -1322,7 +1325,7 @@ void AmpereMinus::setUpCircularBuffering() {
 void AmpereMinus::setOperandSmemLoadAndCacheOps(
     TensorView* operand,
     int64_t vec_size) {
-  int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+  int64_t vec_bytes = vec_size * dataTypeSizeByte(operand->dtype());
   CacheOp cache_op = CacheOp::Unspecified;
   if (params_->async_gmem_load_operands) {
     NVF_CHECK(

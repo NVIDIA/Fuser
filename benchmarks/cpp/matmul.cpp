@@ -228,7 +228,7 @@ static void Baseline_Matmul(
 
 size_t getSmemSize(GemmTile cta_tile, int stage_number) {
   return ((cta_tile.m * cta_tile.k) + (cta_tile.n * cta_tile.k)) *
-      dataTypeSize(DataType::Half) * stage_number;
+      dataTypeSizeByte(DataType::Half) * stage_number;
 }
 
 // TODO: this part eventually will be automated by heuristics

@@ -1017,10 +1017,10 @@ int64_t getPersistentBufferSizeOfTensor(
   // type before upcast.
   int64_t dtype_size = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
@@ -1824,7 +1824,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool rhs = false;
       bool lhs = false;
       auto dtype_size =
-          dataTypeSize(in_out_tv->getDataType().value(), index_type);
+          dataTypeSizeByte(in_out_tv->getDataType().value(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
@@ -2662,7 +2662,8 @@ int64_t getReductionSmemWorkspace(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+    dtype_size =
+        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is

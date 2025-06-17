@@ -310,7 +310,7 @@ const char* getPTXConstraints(Val* value) {
   if (std::holds_alternative<ArrayType>(dt.type)) {
     dt = *std::get<ArrayType>(dt.type).type;
   }
-  auto size = dataTypeSize(dt);
+  auto size = dataTypeSizeByte(dt);
   switch (size) {
     case 2:
       return "h";
@@ -1418,10 +1418,10 @@ int64_t GroupedGridWelford::getSmemBufferSize(
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz * dataTypeSize(out_tv->getDataType().value()) *
-        2 +
+    return bdimx * bdimy * bdimz *
+        dataTypeSizeByte(out_tv->getDataType().value()) * 2 +
         bdimx * bdimy * bdimz *
-        dataTypeSize(DataType::Index, kernel->indexType());
+        dataTypeSizeByte(DataType::Index, kernel->indexType());
   }
 
   // In the outer-reduction version, the size is blockDim.x * NumberOfWarps *
@@ -1442,9 +1442,9 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
   int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSize(out_tv->getDataType().value());
+      dataTypeSizeByte(out_tv->getDataType().value());
   int64_t buf_size_for_N =
-      num_warps * dataTypeSize(DataType::Index, kernel->indexType());
+      num_warps * dataTypeSizeByte(DataType::Index, kernel->indexType());
 
   return buf_size_for_avg_var * 2 + buf_size_for_N;
 }

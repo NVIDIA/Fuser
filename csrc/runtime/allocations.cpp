@@ -98,7 +98,7 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
@@ -167,7 +167,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());

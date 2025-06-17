@@ -228,3 +228,5 @@ __device__ __inline__ __half operator|(const __half x, const __half y) {
       : "h"(__NVFUSER_HALF_TO_CUS(x)), "h"(__NVFUSER_HALF_TO_CUS(y)));
   return val;
 }
+
+#define __NVFUSER_HAS_HALF__

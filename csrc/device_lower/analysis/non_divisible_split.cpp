@@ -183,14 +183,14 @@ void NonDivisibleSplitInfo::removeRedundancy() {
 }
 
 void NonDivisibleSplitInfo::addValidations() {
-  const auto gpu_lower = GpuLower::current();
   for (auto split : splits_to_validate_) {
     auto extent = split->in()->extent();
     auto factor = split->factor();
     auto is_divisible = SimplifyingIrBuilder::eqExpr(
         SimplifyingIrBuilder::modExpr(extent, factor),
         extent->fusion()->zeroVal());
-    gpu_lower->validate(is_divisible, "Non-divisible split detected: ", split);
+    NVFUSER_LOWER_VALIDATE(
+        is_divisible, "Non-divisible split detected: ", split);
   }
 }
 

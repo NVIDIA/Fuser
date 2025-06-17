@@ -154,7 +154,7 @@ int64_t getSizeOfArgs(const KernelArgumentHolder& args) {
     }
     const auto& inp_tensor = inp.as<at::Tensor>();
     bytes += inp_tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(inp_tensor.scalar_type()));
+        dataTypeSizeByte(aten_to_data_type(inp_tensor.scalar_type()));
   }
   return bytes;
 }

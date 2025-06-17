@@ -61,17 +61,25 @@ def matmul_fusion(fd: FusionDefinition, inputs: list[torch.Tensor]) -> None:
     fd.add_output(out)
 
 
-# Apply scheduler with custom parameters using decorator
-def custom_matmul_scheduler(fd, config, verbose=False):
-    def inner_fn():
-        assert config is not None
-        status, error = fd.sched.can_schedule(SchedulerType.matmul)
+class MatmulDefinition(FusionDefinition):
+    def __init__(self, inputs, config, verbose=False):
+        super().__init__()
+        self.inputs = inputs
+        self.config = config
+        self.verbose = verbose
+
+    def definition(self):
+        matmul_fusion(self, self.inputs)
+
+    def schedule(self):
+        assert self.config is not None
+        status, error = self.sched.can_schedule(SchedulerType.matmul)
         assert status, error
 
-        schedule_params = fd.sched.compute_matmul_heuristics()
+        schedule_params = self.sched.compute_matmul_heuristics()
 
         # Modify original parameters
-        tile_sizes, macro, tile_order, cluster_dims, stages = config
+        tile_sizes, macro, tile_order, cluster_dims, stages = self.config
         schedule_params.tile_sizes = tile_sizes
         schedule_params.mma_macro = macro.mma_macro()
         schedule_params.cta_order = tile_order
@@ -81,15 +89,11 @@ def custom_matmul_scheduler(fd, config, verbose=False):
         )
         schedule_params.circular_buffer_options.circular_buffer_smem_write = stages > 1
         schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
-        if verbose:
+        if self.verbose:
             print(schedule_params)
 
         # Schedule fusion
-        fd.sched.schedule()
-
-    if config is not None:
-        fd.schedule = inner_fn
-    return fd
+        self.sched.schedule()
 
 
 def test_matmul_nvf(
@@ -113,10 +117,7 @@ def test_matmul_nvf(
     if layout == "TN" or layout == "NN":
         b = b.as_strided(size=[k, n], stride=[1, k])
 
-    with FusionDefinition() as presched_fd:
-        matmul_fusion(presched_fd, [a, b])
-
-    scheduled_fd = custom_matmul_scheduler(presched_fd, schedule_config, verbose)
+    scheduled_fd = MatmulDefinition([a, b], schedule_config, verbose)
 
     try:
         nvf_outputs = scheduled_fd.execute([a, b], profile=True)

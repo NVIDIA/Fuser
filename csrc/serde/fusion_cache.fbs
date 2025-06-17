@@ -101,6 +101,8 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -127,6 +129,8 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
+  TopK,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -344,6 +348,20 @@ table Vector {
 // Data for WelfordOpRecord
 table Welford {
   axes: [long];
+}
+
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
 }
 
 // =====================================================================================

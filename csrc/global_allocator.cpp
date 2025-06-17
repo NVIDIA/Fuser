@@ -38,7 +38,7 @@ class Arena {
       const c10::ScalarType& aten_dtype,
       const c10::Device& device) {
     // determine number of bytes needed for this tensor
-    int64_t new_bytes = dataTypeSize(aten_to_data_type(aten_dtype));
+    int64_t new_bytes = dataTypeSizeByte(aten_to_data_type(aten_dtype));
     for (auto sz : sizes) {
       new_bytes *= sz;
     }

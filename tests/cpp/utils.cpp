@@ -315,12 +315,16 @@ Container parse(const std::string& nvdisasm_output) {
   Container result;
   bool started = false;
   std::stringstream ss(nvdisasm_output);
-  std::string header;
-  std::regex find_header_regex(".text.(.+):");
+  std::regex zero_pattern_regex("/\\*0+\\*/");
   for (std::string line; std::getline(ss, line);) {
     line = trim(line);
     if (line.empty() || starts_with(line, "//")) {
       continue;
+    }
+    if (!started) {
+      if (std::regex_search(line, zero_pattern_regex)) {
+        started = true;
+      }
     }
     if (started) {
       if (line[0] == '.') {
@@ -341,16 +345,6 @@ Container parse(const std::string& nvdisasm_output) {
         i.str.resize(i.str.size() - 1); // remove trailing ;
         i.str = trim(i.str);
         result.code.emplace_back(i);
-      }
-    } else {
-      if (line == header) {
-        started = true;
-      } else if (line[0] == '.') {
-        std::smatch line_match;
-        std::regex_match(line, line_match, find_header_regex);
-        if (line_match.size() == 2) {
-          header = line_match.str(1) + ":";
-        }
       }
     }
   }

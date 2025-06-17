@@ -26,6 +26,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -4387,8 +4388,11 @@ void SegmentCandidateFinder::privatizeUpcast() {
         continue;
       }
 
-      auto upcast_out_tv_clone =
-          castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      TensorView* upcast_out_tv_clone = castOp(
+          maybe_upcast_out_tv->dtype(),
+          maybe_upcast_op->input(0)->as<TensorView>());
+      TransformReplay::selfReplay(
+          maybe_upcast_out_tv->domain(), upcast_out_tv_clone->domain());
       expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_out_tv, upcast_out_tv_clone);
 

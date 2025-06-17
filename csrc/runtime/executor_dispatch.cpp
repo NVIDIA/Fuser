@@ -15,28 +15,41 @@
 
 namespace nvfuser {
 
-// Iterates through executors in priority order creating the first executor that
-// returns true when checking their "supported" method
 std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     Fusion* fusion,
     int64_t fusion_id,
     int64_t concrete_id,
     int64_t runtime_id,
-    int64_t group_id) {
+    int64_t group_id,
+    SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
-  if (HostIrExecutor::supported(fusion)) {
-    return std::make_unique<HostIrExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
+  if (scheduler_type == SchedulerType::None) {
+    if (HostIrExecutor::supported(fusion)) {
+      return std::make_unique<HostIrExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    if (ExprEvalExecutor::supported(fusion)) {
+      return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    if (KernelExecutor::supported(fusion)) {
+      return std::make_unique<KernelExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    NVF_THROW("No executor supports provided fusion.");
   }
-  if (ExprEvalExecutor::supported(fusion)) {
-    return std::make_unique<ExprEvalExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
-  }
-  if (KernelExecutor::supported(fusion)) {
-    return std::make_unique<KernelExecutor>(
-        fusion_id, concrete_id, runtime_id, group_id);
-  }
-  NVF_THROW("No executor supports provided fusion.");
+
+  switch (scheduler_type) {
+    case SchedulerType::Communication:
+      return std::make_unique<HostIrExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    case SchedulerType::ExprEval:
+      return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    default:
+      return std::make_unique<KernelExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+  };
 }
 
 void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
@@ -105,7 +118,7 @@ KernelArgumentHolder ExecutorDispatch::run(
     KernelArgumentHolder outputs,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
-  FUSER_PERF_SCOPE("ExecutorDispatch::run2");
+  FUSER_PERF_SCOPE("ExecutorDispatch::run");
   if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
     return hire->run(args, outputs);
   }
