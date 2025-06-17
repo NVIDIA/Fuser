@@ -3319,7 +3319,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::GroupedMma,
+        serde::RecordData::ScaledGroupedMma,
         serde::CreateVector(builder, nvfuser::toUnderlying(dtype_)).Union()};
   };
 

@@ -2331,7 +2331,11 @@ TensorView* createGroupedMmaOutput(
         mat2_domain[2]->cloneWithoutRFactor()};
   } else {
     NVF_THROW(
-        "Unexpected operand ranks. If two 3D tensors, you should use bmm/matmul instead of grouped_mm: ", mat1, " and ", mat2);
+        "Unexpected operand ranks. If two 3D tensors, you should use "
+        "bmm/matmul instead of grouped_mm: ",
+        mat1,
+        " and ",
+        mat2);
   }
 
   auto* out = IrBuilder::create<TensorView>(
@@ -2364,11 +2368,16 @@ TensorView* grouped_mm(
     return out;
   }
 
-  int64_t scale1_rank = std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
-  int64_t scale2_rank = std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
-  int64_t mat1_rank = std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
-  int64_t mat2_rank = std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
-  int64_t out_rank = std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
+  int64_t scale1_rank =
+      std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
+  int64_t scale2_rank =
+      std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
+  int64_t mat1_rank =
+      std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
+  int64_t mat2_rank =
+      std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
+  int64_t out_rank =
+      std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
 
   NVF_CHECK(
       scale1_rank == std::max(mat1_rank, out_rank),

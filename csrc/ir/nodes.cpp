@@ -5877,7 +5877,10 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   // at::_scaled_grouped_mm limitation
   NVF_CHECK(
       scale1.size(-1) == 1 && scale2.size(-2) == 1,
-      "Scale1 and scale2 must have size 1 at the k dimension. Got ", scale1.sizes(), " and ", scale2.sizes());
+      "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+      scale1.sizes(),
+      " and ",
+      scale2.sizes());
   // scale factor handling
   // see NOTE -- [ Grouped Matrix Multiplication semantics ]
   if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {

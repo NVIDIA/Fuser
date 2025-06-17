@@ -369,8 +369,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   // TODO: refactor to use getNonMappingDomainInfo instead.
-  if (auto* op =
-          dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
+  if (auto* op = dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(op->matrix1())) {
       // mapping m dimension;
