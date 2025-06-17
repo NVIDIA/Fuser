@@ -113,7 +113,8 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
   return outputs_without_mesh;
 }
 
-// Returns the set of parallel types seen on the loop domain of the given tvs.
+// Returns the set of parallel types not seen on the loop domain of the given
+// tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
     std::vector<TensorView*> tvs) {
   // Get the set of parallel types seen on the loop domain of the given tvs.
@@ -137,12 +138,18 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
 // Applies the given transforms on ref to target using the ref2target map.
 void transformLoopDomain(
     TensorView* target,
+    const TensorView* ref,
     std::unordered_map<IterDomain*, IterDomain*>& ref2target,
-    const std::vector<Expr*>& transforms) {
+    const std::unordered_set<IterDomain*>& device_ids,
+    PropagateDirection direction) {
   // Parallelize based on the ref2target map.
-  for (auto& [ref, target] : ref2target) {
-    target->parallelize(ref->getParallelType());
+  for (auto& [ref_id, target_id] : ref2target) {
+    target_id->parallelize(ref_id->getParallelType());
   }
+
+  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+      {device_ids.begin(), device_ids.end()});
 
   if (transforms.empty()) {
     return;
@@ -155,11 +162,11 @@ void transformLoopDomain(
   }
 
   auto has_root_to_logical_transform = [](IterDomain* id,
-                                          TensorView* tv) -> bool {
+                                          const TensorView* tv) -> bool {
     if (!tv->hasRoot()) {
       return false;
     }
-    auto& logical_ids = IterVisitor::getInputsTo(
+    auto logical_ids = IterVisitor::getInputsTo(
         {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
     return std::any_of(
         logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
@@ -168,7 +175,24 @@ void transformLoopDomain(
         });
   };
 
-  for (auto transform : transforms) {
+  auto validateSplit = [](Split* split, IterDomain* id) -> void {
+    NVF_ERROR(
+        !split->innerSplit() && split->outer()->isDeviceDim(),
+        "Expected the outer id of the split to be a device dimension. Got: ",
+        split->outer());
+    NVF_ERROR(
+        split->isDivisible(),
+        "Expected the split to be divisible. Got: ",
+        split);
+    NVF_ERROR(
+        isSplitDivisible(id, split),
+        "Require the sharded ID to be divisible by the split factor. Got: ",
+        id,
+        " and split factor: ",
+        split->factor());
+  };
+
+  for (Expr* transform : transforms) {
     Split* split = dynamic_cast<Split*>(transform);
     NVF_ERROR(
         split != nullptr,
@@ -197,30 +221,20 @@ void transformLoopDomain(
     // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
     // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
     // a/d`. So we should instead outer split by num_devices.
-    std::pair<IterDomain*, TensorView*> consumer =
+
+    // Find the consumer between the reference and target.
+    std::pair<IterDomain*, const TensorView*> consumer =
         direction == PropagateDirection::kForward
         ? std::make_pair(target_id, target)
         : std::make_pair(ref_id, ref);
+
     if (has_root_to_logical_transform(consumer.first, consumer.second)) {
-      NVF_ERROR(
-          !split->isInnerSplit() && split->outer()->isDeviceDim(),
-          "Expected the outer id of the split to be a device dimension. Got: ",
-          split->outer());
-      NVF_ERROR(
-          split->isDivisible(),
-          "Expected the split to be divisible. Got: ",
-          split);
-      NVF_ERROR(
-          isSplitDivisible(target_id, split),
-          "Expected the target id to be divisible by the split factor. Got: ",
-          target_id,
-          " and split factor: ",
-          split->factor());
+      validateSplit(split, target_id);
     }
 
     auto it = transformed_loop.erase(target_id).second;
-    auto [outer, inner] = IterDomain::split(
-        target_id, split->factor(), split->innerSplit(), false);
+    auto [outer, inner] =
+        IterDomain::split(target_id, split->factor(), split->innerSplit());
 
     // Parallelize the split outputs as the reference and update the loop
     // domain.
@@ -261,7 +275,7 @@ void propagateDIDTransform(
 
   std::unordered_set<IterDomain*> ignored_device_ids;
   std::unordered_map<IterDomain*, IterDomain*> ref2target;
-  std::vector<IterDomain*> input_ids;
+  std::vector<Val*> input_ids;
 
   // Finds all device IDs that are dependent on the given id
   // and adds them to the ignored_device_ids set.
@@ -299,19 +313,17 @@ void propagateDIDTransform(
   };
 
   if (direction == PropagateDirection::kForward) {
+    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer();
     input_ids = IterVisitor::getInputsTo(
         {device_ids.begin(), device_ids.end()},
         {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()});
-    ref2target =
-        PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
   }
 
   if (direction == PropagateDirection::kBackward) {
+    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer();
     input_ids = IterVisitor::getInputsTo(
         {device_ids.begin(), device_ids.end()},
         {ref->getMaybeRootDomain().begin(), ref->getMaybeRootDomain().end()});
-    ref2target =
-        PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
   }
 
   for (IterDomain* ref_id : ir_utils::filterByType<IterDomain>(input_ids)) {
@@ -348,11 +360,7 @@ void propagateDIDTransform(
     device_ids.erase(device_id);
   }
 
-  auto transforms = DependencyCheck::getAllExprsBetween(
-      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
-      {device_ids.begin(), device_ids.end()});
-
-  transformLoopDomain(tv, ref2target, transforms);
+  transformLoopDomain(tv, ref, ref2target, device_ids, direction);
 }
 
 void propagateDIDTransform(
@@ -378,8 +386,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
 
   for (Expr* expr : exprs) {
-    // Note: Tvs without a mesh are assumed to have no manual sharding
-    // annotation and are sharded like the first producer Tv.
+    // TensorViews without a mesh are assumed to have no user-specified sharding
+    // and are sharded like the producers.
     const auto& outputs_without_mesh = getOutputsWithoutMesh(expr);
     if (outputs_without_mesh.empty()) {
       continue;
