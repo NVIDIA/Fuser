@@ -2,7 +2,7 @@
 
 #include <c10/cuda/CUDAStream.h>
 #include <cuda.h>
-#include <torch/all.h>
+#include <torch/torch.h>
 
 #include "cutlass/bfloat16.h"
 #include "cutlass/float8.h"

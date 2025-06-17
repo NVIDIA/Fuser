@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <bindings.h>
-#include <cutlass.h>
+#include <nvf_cutlass.h>
 
 namespace nvfuser::python {
 

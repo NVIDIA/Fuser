@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <torch/torch.h>
+
 namespace nvfuser::cutlass {
 
 void fp8_blockwise_scaled_grouped_mm(

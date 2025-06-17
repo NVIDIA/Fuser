@@ -454,6 +454,7 @@ def cmake(config, relative_path):
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
+        f"-DBUILD_CUTLASS=1",
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
