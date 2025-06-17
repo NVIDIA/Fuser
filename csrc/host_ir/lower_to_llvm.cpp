@@ -44,9 +44,26 @@ namespace nvfuser {
 // PIMPL implementation for HostIrLlvmJit
 struct HostIrLlvmJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  // Map to store compiled functions for each Expr
-  std::unordered_map<const Expr*, AllocationFunc> compiled_functions;
 };
+
+// Helper function to exit on error on LLVM JIT initialization
+template <typename T>
+T ExitOnErr(llvm::Expected<T> &&E) {
+    if (!E) {
+        NVF_ERROR(false, "LLVM JIT Initialization Error: " + llvm::toString(E.takeError()));
+        llvm::errs() << llvm::toString(E.takeError()) << "\n";
+        exit(1);
+    }
+    return std::move(*E);
+}
+
+inline void ExitOnErr(llvm::Error &&Err) {
+  if (Err) {
+    NVF_ERROR(false, "LLVM JIT Initialization Error: " + llvm::toString(std::move(Err)));
+    llvm::errs() << llvm::toString(std::move(Err)) << "\n";
+    exit(1);
+  }
+}
 
 // Constructor implementation
 HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
@@ -84,10 +101,6 @@ HostIrLlvmJit& HostIrLlvmJit::operator=(HostIrLlvmJit&&) noexcept = default;
 
 void HostIrLlvmJit::compile(const hir::HostIrContainer* container) {
   FUSER_PERF_SCOPE("HostIrLlvmJit::compile");
-
-  for (auto* out_val : container->outputs()) {
-    auto* expr = out_val->as<Expr>();
-  }
 }
 
 
