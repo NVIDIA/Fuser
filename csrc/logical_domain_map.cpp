@@ -413,7 +413,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
       }
-      // mapping rk/k dimension;
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
       if (map_different_extents_ && has_rk) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(last_producer_idx), consumer_root.back());
@@ -428,7 +429,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(0), consumer_root.at(0));
       }
-      // mapping rk/k dimension;
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
       if (map_different_extents_ && has_rk) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(last_producer_idx - 1), consumer_root.back());

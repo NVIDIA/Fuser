@@ -2890,12 +2890,14 @@ class ArgsortOp : public Expr {
 //!         scale factor has size k' on k-dimension.
 //!         For mxfp8, k' = k // 32. Each scale factor is shared by 32
 //!         consecutive elements.
+//! Note 2: output could have a reduction axis rk if k is not broadcast on
+//! inputs.
 //!
 //!     Case 1: grouped k-dimension:
 //!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
 //!               scale1[ g, m, k' ], scale2[ g, k', n]
 //!       requires: offsets[g-1] == k
-//!       output: out[ g, m, n ]
+//!       output: out[ g, m, n, [rk]]
 //!
 //!       math:
 //!       for i in range(g):
@@ -2906,7 +2908,7 @@ class ArgsortOp : public Expr {
 //!       inputs: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
 //!               scale1[ m, k' ], scale2[ g, k', n ]
 //!       requires: offsets[g-1] == m
-//!       output: out[ m, n ]
+//!       output: out[ m, n, [rk]]
 //!
 //!       math:
 //!       for i in range(g):
@@ -2917,7 +2919,7 @@ class ArgsortOp : public Expr {
 //!       inputs: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
 //!               scale1[ g, m, k' ], scale2[ k', n ]
 //!       requires: offsets[g-1] == n
-//!       output: out[ m, n ]
+//!       output: out[ m, n, [rk]]
 //!
 //!       math:
 //!       for i in range(g):

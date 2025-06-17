@@ -2349,10 +2349,9 @@ TensorView* createGroupedMmaOutput(
   // Following the semantics of matmul, output has a reduction axis rk if k is
   // not broadcast
   if (!k_id_mat1->isBroadcast()) {
-    out_domain.push_back(
-        ops::newOutputIterDomain(
-            {k_id_mat1, k_id_mat2},
-            /*force_iter_type=*/IterType::Reduction));
+    out_domain.push_back(ops::newOutputIterDomain(
+        {k_id_mat1, k_id_mat2},
+        /*force_iter_type=*/IterType::Reduction));
   }
 
   auto* out = IrBuilder::create<TensorView>(
