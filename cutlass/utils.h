@@ -40,8 +40,10 @@ int getSMVersion() {
   CHECK_CUDA_SUCCESS(cudaGetDevice(&device));
   int sm_major = 0;
   int sm_minor = 0;
-  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(&sm_major, cudaDevAttrComputeCapabilityMajor, device));
-  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(&sm_minor, cudaDevAttrComputeCapabilityMinor, device));
+  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+      &sm_major, cudaDevAttrComputeCapabilityMajor, device));
+  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+      &sm_minor, cudaDevAttrComputeCapabilityMinor, device));
   return sm_major * 10 + sm_minor;
 }
 
