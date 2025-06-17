@@ -373,7 +373,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     int64_t ndims_out = std::ssize(consumer_root);
     // [rk] is the reduction axis for the matmul operation, it only exists if k
     // is not broadcast.
-    bool* has_rk = consumer_root.back()->isReduction();
+    bool has_rk = consumer_root.back()->isReduction();
     int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
 
     int64_t last_producer_idx = std::ssize(producer_logical) - 1;

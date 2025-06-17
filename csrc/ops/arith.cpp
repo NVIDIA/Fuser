@@ -2352,7 +2352,7 @@ TensorView* createGroupedMmaOutput(
     out_domain.push_back(
         ops::newOutputIterDomain(
             {k_id_mat1, k_id_mat2},
-            /*force_iter_type=*/IterType::Reduction);
+            /*force_iter_type=*/IterType::Reduction));
   }
 
   auto* out = IrBuilder::create<TensorView>(
