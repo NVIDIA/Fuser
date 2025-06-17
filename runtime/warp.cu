@@ -181,10 +181,20 @@ __device__ __forceinline__ void packedWarpReduce(
   }
 }
 
+// [Static] indicates the CTA shape is known at compile time.
+// [AllReduce] indicates the reduction is fused with broadcast.
+// [SINGLE_WARP] flags whether the CTA has only one warp.
+// [Aligned] flags whether all threads in the CTA are participating in the
+// reduction.
+// [N] indicates number of input elements per thread
+// [n_threads] is the number of threads participating in the reduction, when
+// used in kernel warp specialized on TIDx, there are 128 padded threads, it
+// equals to blockDim.x - 128. Typical usage in warp specialized normalization:
+// SINGLE_WARP = false, Aligned = false, n_threads = 128, 256
 template <
     bool SINGLE_WARP,
     bool Aligned,
-    int N, // Number of elements per input array
+    int N,
     int n_threads,
     typename T,
     typename Func>
@@ -249,6 +259,15 @@ __device__ void iterGroupedStaticWarpAllReduce(
   block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
+// [Static] indicates the CTA shape is known at compile time.
+// [AllReduce] indicates the reduction is fused with broadcast.
+// [SINGLE_WARP] flags whether the CTA has only one warp.
+// [Aligned] flags whether all threads in the CTA are participating in the
+// reduction.
+// [n_threads] is the number of threads participating in the reduction, when
+// used in kernel warp specialized on TIDx, there are 128 padded threads, it
+// equals to blockDim.x - 128. Typical usage in warp specialized normalization:
+// SINGLE_WARP = false, Aligned = false, n_threads = 128, 256
 template <
     bool SINGLE_WARP,
     bool Aligned,

@@ -137,6 +137,9 @@ struct KernelSummary {
 
   //! has mma op in fusion
   bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
 };
 
 class KernelPerformanceProfile {
