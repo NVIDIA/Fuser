@@ -9,7 +9,7 @@
 
 #include <torch/torch.h>
 
-namespace nvfuser::cutlass {
+namespace nvfuser::cutlass_kernels {
 
 void fp8_blockwise_scaled_grouped_mm(
     torch::Tensor& output,
@@ -25,4 +25,4 @@ void fp8_blockwise_scaled_grouped_mm(
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets);
 
-} // namespace nvfuser::cutlass
+} // namespace nvfuser::cutlass_kernels

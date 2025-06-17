@@ -504,7 +504,6 @@ set(NVF_CUTLASS_CUDA_FLAGS
     "-Xcompiler"
     "-fPIC"
     "--generate-code=arch=compute_100a,code=sm_100a"
-    "-std=c++20"
     "-DCUTE_USE_PACKED_TUPLE=1"
     "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
     "-DCUTLASS_VERSIONS_GENERATED"
@@ -524,7 +523,12 @@ list(APPEND NVFUSER_CUTLASS_SRCS
     ${NVFUSER_CUTLASS}/fp8_blockwise_moe_kernel.cu
     )
 add_library(nvf_cutlass OBJECT ${NVFUSER_CUTLASS_SRCS})
+set_target_properties(nvf_cutlass PROPERTIES
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+  )
 target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
+target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
 target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
 target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
 target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)

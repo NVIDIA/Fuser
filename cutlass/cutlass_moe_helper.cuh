@@ -6,6 +6,9 @@
 
 #include "cutlass/bfloat16.h"
 #include "cutlass/float8.h"
+#include "cute/tensor.hpp"
+
+namespace nvfuser::cutlass_kernels {
 
 template <
     typename ElementAB,
@@ -102,7 +105,6 @@ __global__ void get_group_gemm_starts(
             transpose);                                                                            \
   }
 
-namespace {
 template <typename LayoutSFA, typename LayoutSFB, typename ScaleConfig>
 void run_get_group_gemm_starts(
     torch::Tensor const& expert_offsets,
@@ -139,4 +141,5 @@ void run_get_group_gemm_starts(
     TORCH_CHECK(false, "Invalid output type (must be float16 or bfloat16)");
   }
 }
-}  // namespace
+
+} // namespace nvfuser::cutlass_kernels

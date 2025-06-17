@@ -19,7 +19,7 @@ void bindGroupedGemm(py::module_& cutlass) {
          "expert_offsets))";
   cutlass.def(
       "fp8_blockwise_scaled_grouped_mm",
-      &cutlass::fp8_blockwise_scaled_grouped_mm,
+      &cutlass_kernels::fp8_blockwise_scaled_grouped_mm,
       docstring);
 }
 

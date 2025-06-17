@@ -1,5 +1,6 @@
 #include <nvf_cutlass.h>
-#include "cutlass_moe_helper.cuh"
+#include <utils.h>
+#include <cutlass_moe_helper.cuh>
 
 #include <cutlass/arch/arch.h>
 #include <torch/torch.h>
@@ -25,6 +26,10 @@
 #include "cutlass/util/reference/device/gemm.h"
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "cutlass/util/tensor_view_io.h"
+
+#include <exceptions.h>
+
+namespace nvfuser::cutlass_kernels {
 
 using namespace cute;
 
@@ -435,8 +440,10 @@ void fp8_blockwise_scaled_grouped_mm(
   }
 #endif
 #endif
-  NVF_CHECK_NOT_IMPLEMENTED(
-      can_implement,
+  NVF_CHECK(
+      !can_implement,
       "No implemented fp8_blockwise_scaled_mm for current compute capability: ",
       sm_version);
 }
+
+} // namespace nvfuser::cutlass_kernels
