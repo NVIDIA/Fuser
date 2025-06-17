@@ -5854,7 +5854,11 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
   at::Tensor result;
   if (!hasScale()) {
+    // NOTE: at::_grouped_mm only supports bfloat16 as output at this moment,
+    // otherwise we should have requested the output dtype directly instead of
+    // casting the output afterwards.
     result = at::_grouped_mm(mat1, mat2, offsets);
+    result = result.to(data_type_to_aten(out()->dtype()));
     return {result};
   }
 
@@ -5893,6 +5897,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     scale1 = scale1.squeeze(-1);
     scale2 = scale2.squeeze(-2);
   }
+  // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+  // moment, otherwise we should have requested the output dtype directly
+  // instead of casting the output afterwards.
   result = at::_scaled_grouped_mm(
       mat1_k_last,
       mat2_k_last,
