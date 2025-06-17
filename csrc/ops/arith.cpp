@@ -2316,7 +2316,7 @@ TensorView* create_grouped_mm_output(
 
   std::vector<IterDomain*> out_domain;
 
-  if (mat1->nDims() == 2 && mat2->nDims() == 2) {
+  if (mat1_domain.size() == 2 && mat2_domain.size() == 2) {
     out_domain = {
         offs_domain[0]->cloneWithoutRFactor(),
         mat1_domain[0]->cloneWithoutRFactor(),
@@ -2330,8 +2330,8 @@ TensorView* create_grouped_mm_output(
         mat1_domain[0]->cloneWithoutRFactor(),
         mat2_domain[2]->cloneWithoutRFactor()};
   } else {
-    NVF_ERROR(
-        false, "Two 3D tensors should use bmm/matmul instead of grouped_mm");
+    NVF_THROW(
+        "Unexpected operand ranks. If two 3D tensors, you should use bmm/matmul instead of grouped_mm: ", mat1, " and ", mat2);
   }
 
   auto* out = IrBuilder::create<TensorView>(

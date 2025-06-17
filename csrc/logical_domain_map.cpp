@@ -369,7 +369,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   // TODO: refactor to use getNonMappingDomainInfo instead.
-  if (GroupedMmaOp* op =
+  if (auto* op =
           dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(op->matrix1())) {
@@ -409,7 +409,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
             producer_logical.at(0), consumer_root.at(0));
       }
     } else {
-      NVF_ERROR(false, "Producer did not match any GroupedMmaOp input.");
+      NVF_THROW("Producer did not match any GroupedMmaOp input.");
     }
     return dom_map;
   }

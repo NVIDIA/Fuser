@@ -5821,7 +5821,7 @@ std::string GroupedMmaOp::toString(int indent_size) const {
 }
 
 std::string GroupedMmaOp::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
+  NVF_THROW("Tensor op can not be printed inline.");
 }
 
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
@@ -5878,7 +5878,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   // at::_scaled_grouped_mm limitation
   NVF_CHECK(
       scale1.size(-1) == 1 && scale2.size(-2) == 1,
-      "Scale1 and scale2 must have size 1 at the k dimension");
+      "Scale1 and scale2 must have size 1 at the k dimension. Got ", scale1.sizes(), " and ", scale2.sizes());
   // scale factor handling
   // see NOTE -- [ Grouped Matrix Multiplication semantics ]
   if (out()->nDims() == 3) {
