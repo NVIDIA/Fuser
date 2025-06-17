@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 #include <fusion.h> // For TensorView and at::Tensor
-#include <memory>  // For std::unique_ptr
+#include <memory> // For std::unique_ptr
 
 namespace nvfuser {
 
@@ -32,5 +32,4 @@ class HostIrLlvmJit {
   std::unique_ptr<LlvmJitImpl> pimpl_;
   std::vector<at::Tensor> input_tensors_;
 };
-
 } // namespace nvfuser
