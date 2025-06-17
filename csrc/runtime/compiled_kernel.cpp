@@ -80,6 +80,7 @@
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tensor_memory.h>
+#include <nvfuser_resources/topk.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -1131,7 +1132,8 @@ std::string _getStructuredCode(
     const std::string& kernel_str,
     PrimDataType index_type,
     std::string kernel_name,
-    bool has_argsort = false) {
+    bool has_argsort = false,
+    bool has_topk = false) {
   // generating cuda code;
   std::string code = "";
   code += defineStdComplex();
@@ -1141,6 +1143,10 @@ std::string _getStructuredCode(
 
   if (has_argsort) {
     code += nvfuser_resources::argsort_cu;
+  }
+
+  if (has_topk) {
+    code += nvfuser_resources::topk_cu;
   }
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
@@ -1200,10 +1206,11 @@ NVF_API CompiledKernel::CompiledKernel(
     hook(lowered_->kernel());
   }
 
-  // Add CUDA include path if fusion contains ArgsortOp. Note that
+  // Add CUDA include path if fusion contains ArgsortOp or TopKOp. Note that
   // this is a temporary measure. CUB header files need to be
   // installed as part of the nvFuser installation.
-  if (lowered_->kernel()->summary().has_argsort) {
+  if (lowered_->kernel()->summary().has_argsort ||
+      lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
   }
 }
@@ -1379,7 +1386,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernelString(),
       kernel()->indexType(),
       kernelName(),
-      kernel()->summary().has_argsort);
+      kernel()->summary().has_argsort,
+      kernel()->summary().has_topk);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
