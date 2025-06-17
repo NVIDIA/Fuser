@@ -5880,7 +5880,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       "Scale1 and scale2 must have size 1 at the k dimension. Got ", scale1.sizes(), " and ", scale2.sizes());
   // scale factor handling
   // see NOTE -- [ Grouped Matrix Multiplication semantics ]
-  if (out()->nDims() == 3) {
+  if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
     // case 1, aten API expects collapsed 1D scale with group dimension on the
     // slower side.
     scale1 = scale1.reshape(-1);

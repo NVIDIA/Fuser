@@ -2321,11 +2321,11 @@ TensorView* createGroupedMmaOutput(
         offs_domain[0]->cloneWithoutRFactor(),
         mat1_domain[0]->cloneWithoutRFactor(),
         mat2_domain[1]->cloneWithoutRFactor()};
-  } else if (mat1->nDims() == 3 && mat2->nDims() == 2) {
+  } else if (mat1_domain.size() == 3 && mat2_domain.size() == 2) {
     out_domain = {
         mat1_domain[1]->cloneWithoutRFactor(),
         mat2_domain[1]->cloneWithoutRFactor()};
-  } else if (mat1->nDims() == 2 && mat2->nDims() == 3) {
+  } else if (mat1_domain.size() == 2 && mat2_domain.size() == 3) {
     out_domain = {
         mat1_domain[0]->cloneWithoutRFactor(),
         mat2_domain[2]->cloneWithoutRFactor()};

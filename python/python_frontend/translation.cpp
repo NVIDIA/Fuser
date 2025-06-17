@@ -1149,7 +1149,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Map GroupedMmaOp to python frontend
   void handle(const GroupedMmaOp* gmm_op) final {
     TensorView* out_tv = gmm_op->output(0)->as<TensorView>();
-    Tensor output = fd_->defineTensor(out_tv->nDims());
+    Tensor output = fd_->defineTensor(TensorDomain::noReductions(out_tv->getLogicalDomain()).size());
     map_val_to_fd_index_.emplace(out_tv, output());
 
     fd_->defineRecord(
