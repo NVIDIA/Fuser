@@ -5802,7 +5802,6 @@ GroupedMmaOp::GroupedMmaOp(
     addInput(scale1);
     addInput(scale2);
   }
-  addDataAttribute(has_scale1);
 }
 
 std::string GroupedMmaOp::toString(int indent_size) const {

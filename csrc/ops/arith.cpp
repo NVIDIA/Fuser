@@ -2302,7 +2302,7 @@ namespace {
 //   mat2   [g, k, n]
 //   offset [g]
 //   output -> [m, n]
-TensorView* create_grouped_mm_output(
+TensorView* createGroupedMmaOutput(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
@@ -2357,25 +2357,36 @@ TensorView* grouped_mm(
       " and scale2 : ",
       scale2 != nullptr ? "true" : "false");
 
-  TensorView* out = create_grouped_mm_output(mat1, mat2, offsets, dtype);
+  TensorView* out = createGroupedMmaOutput(mat1, mat2, offsets, dtype);
 
   if (!has_scale) {
     IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
     return out;
   }
 
+  int64_t scale1_rank = std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
+  int64_t scale2_rank = std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
+  int64_t mat1_rank = std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
+  int64_t mat2_rank = std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
+  int64_t out_rank = std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
+
   NVF_CHECK(
-      scale1->nDims() == std::max(mat1->nDims(), out->nDims()),
-      "scale1 rank is incorrect, mat1 rank: ",
-      mat1->nDims(),
-      " and out rank: ",
-      out->nDims());
+      scale1_rank == std::max(mat1_rank, out_rank),
+      "scale 1 rank is incorrect, mat1 rank: ",
+      mat1_rank,
+      ", out rank: ",
+      out_rank,
+      " but scale 1 rank: ",
+      scale1_rank);
   NVF_CHECK(
-      scale2->nDims() == std::max(mat2->nDims(), out->nDims()),
-      "scale2 rank is incorrect, mat2 rank: ",
-      mat2->nDims(),
-      " and out rank: ",
-      out->nDims());
+      scale2_rank == std::max(mat2_rank, out_rank),
+      "scale 2 rank is incorrect, mat2 rank: ",
+      mat2_rank,
+      ", out rank: ",
+      out_rank,
+      " but scale 2 rank: ",
+      scale2_rank);
+
   IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
   return out;
 }

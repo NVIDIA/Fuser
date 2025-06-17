@@ -132,7 +132,7 @@ union RecordData {
   Welford,
   Sort,
   TopK,
-  GroupedMma,
+  ScaledGroupedMma,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -366,8 +366,8 @@ table TopK {
   sorted: bool;
 }
 
-// Data for GroupedMma
-table GroupedMma {
+// Data for ScaledGroupedMmaOpRecord
+table ScaledGroupedMma {
   dtype: long;
 }
 

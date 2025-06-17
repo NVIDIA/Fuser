@@ -2883,7 +2883,13 @@ class ArgsortOp : public Expr {
 //!         f(i) = offset(i-1) : offset(i), when i >= 1;
 //!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
 //! Note 1: scales don't need to follow broadcast rules against corresponding
-//!         matrices on the k-dimension. Accelerators utilize blocked scales
+//!         matrices on the k-dimension. Hardware uses blocked scale factors.
+//!         so the corresponding scale factor on k-dimension is shared by fixed
+//!         number of consecutive elements.
+//!         e.g. Given k as the size of k-dimension on input matrices, and the
+//!         scale factor has size k' on k-dimension.
+//!         For mxfp8, k' = k // 32. Each scale factor is shared by 32
+//!         consecutive elements.
 //!
 //!     Case 1: grouped k-dimension:
 //!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
@@ -2965,7 +2971,7 @@ class GroupedMmaOp : public Expr {
 
   // Get scale factor for first input matrix, returns nullptr if not present
   TensorView* scale1() const {
-    if (inputs().size() == 5) {
+    if (hasScale()) {
       return input(3)->as<TensorView>();
     }
     return nullptr;
@@ -2973,7 +2979,7 @@ class GroupedMmaOp : public Expr {
 
   // Get scale factor for second input matrix, returns nullptr if not present
   TensorView* scale2() const {
-    if (inputs().size() == 5) {
+    if (hasScale()) {
       return input(4)->as<TensorView>();
     }
     return nullptr;
@@ -2981,7 +2987,7 @@ class GroupedMmaOp : public Expr {
 
   // True if scale factors are present
   bool hasScale() const {
-    return attribute<bool>(0);
+    return inputs().size() == 5;
   }
 
   // Get the IterDomain for the k-dimension of the first input matrix
