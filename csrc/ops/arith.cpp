@@ -2401,21 +2401,21 @@ TensorView* grouped_mm(
       "mat1 rank: ",
       mat1_rank,
       ", out rank: ",
-      out_rank);
+      out_rank,
       ", scale1 rank: ",
       scale1_rank);
-      NVF_CHECK_EQ(
-          scale2_rank,
-          std::max(mat2_rank, out_rank),
-          "mat2 rank: ",
-          mat2_rank,
-          ", out rank: ",
-          out_rank,
-          ", scale2 rank: ",
-          scale2_rank);
+  NVF_CHECK_EQ(
+      scale2_rank,
+      std::max(mat2_rank, out_rank),
+      "mat2 rank: ",
+      mat2_rank,
+      ", out rank: ",
+      out_rank,
+      ", scale2 rank: ",
+      scale2_rank);
 
-      IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
-      return out;
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+  return out;
 }
 
 TopKResult topk(
