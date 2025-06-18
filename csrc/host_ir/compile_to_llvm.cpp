@@ -40,8 +40,8 @@ namespace nvfuser {
 
 using at_empty_func = void* (*)(int64_t*, int64_t, void*);
 
-// PIMPL implementation for HostIrLlvmJit
-struct HostIrLlvmJit::LlvmJitImpl {
+// PIMPL implementation for HostIrJit
+struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unordered_map<const kir::Allocate*, at_empty_func> allocate_funcs_;
 };
@@ -133,7 +133,7 @@ void generateAllocateFunc(
 }
 
 // Constructor implementation
-HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
+HostIrJit::HostIrJit(int num_threads) : pimpl_(new LlvmJitImpl) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   pimpl_->jit = ExitOnErr(
@@ -179,13 +179,13 @@ HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
   ExitOnErr(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 }
 
-HostIrLlvmJit::~HostIrLlvmJit() = default;
+HostIrJit::~HostIrJit() = default;
 
-void HostIrLlvmJit::compile(const hir::HostIrContainer* container) {
+void HostIrJit::compile(const hir::HostIrContainer* container) {
   if (pimpl_->allocate_funcs_.size() > 0) {
     return;
   }
-  FUSER_PERF_SCOPE("HostIrLlvmJit::compile");
+  FUSER_PERF_SCOPE("HostIrJit::compile");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>(
       "host_ir_container_" +
@@ -215,7 +215,7 @@ void HostIrLlvmJit::compile(const hir::HostIrContainer* container) {
   }
 }
 
-at::Tensor HostIrLlvmJit::allocate(
+at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,
     const std::vector<int64_t>& input_sizes) {
   if (!pimpl_->allocate_funcs_[allocate]) {

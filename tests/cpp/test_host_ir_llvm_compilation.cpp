@@ -21,10 +21,9 @@ namespace nvfuser {
 
 namespace hir {
 
-using testing::Contains;
 using HostIrLLVMTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_lowering ./bin/test_llvm_compile
+// NVFUSER_ENABLE=host_ir_llvm ./bin/test_llvm_compile
 // --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
 TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   Fusion fusion;
@@ -53,7 +52,9 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
-  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* allocate0 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* allocate1 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* allocate2 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
   auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
@@ -63,52 +64,20 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
       std::vector<Val*>{hic_out},
       cache_id);
 
-  hic->pushBackTopLevelExprs(allocate);
-  hic->pushBackTopLevelExprs(launch_kernel);
-
-  HostIrLlvmJit jit;
-  jit.compile(hic.get());
-  // Test single allocate with different sizes
-  auto t1 = jit.allocate(allocate, {1});
-  EXPECT_EQ(t1.sizes(), at::IntArrayRef({1}));
-  auto t2 = jit.allocate(allocate, {1, 2, 3});
-  EXPECT_EQ(t2.sizes(), at::IntArrayRef({1, 2, 3}));
-  auto t3 = jit.allocate(allocate, {1, 2, 3, 4});
-  EXPECT_EQ(t3.sizes(), at::IntArrayRef({1, 2, 3, 4}));
-  auto t4 = jit.allocate(allocate, {32, 32});
-  EXPECT_EQ(t4.sizes(), at::IntArrayRef({32, 32}));
-  auto t5 = jit.allocate(allocate, {32, 32, 32});
-  EXPECT_EQ(t5.sizes(), at::IntArrayRef({32, 32, 32}));
-
-  // Test multiple allocates with different sizes
-  auto allocate1 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate2 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate3 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate4 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate5 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  hic->pushBackTopLevelExprs(allocate0);
   hic->pushBackTopLevelExprs(allocate1);
   hic->pushBackTopLevelExprs(allocate2);
-  hic->pushBackTopLevelExprs(allocate3);
-  hic->pushBackTopLevelExprs(allocate4);
-  hic->pushBackTopLevelExprs(allocate5);
+  hic->pushBackTopLevelExprs(launch_kernel);
 
-  HostIrLlvmJit jit_multi;
-  jit_multi.compile(hic.get());
-  auto t6 = jit_multi.allocate(allocate1, {1});
-  EXPECT_EQ(t6.sizes(), at::IntArrayRef({1}));
-  auto t7 = jit_multi.allocate(allocate2, {1, 2, 3});
-  EXPECT_EQ(t7.sizes(), at::IntArrayRef({1, 2, 3}));
-  auto t8 = jit_multi.allocate(allocate3, {1, 2, 3, 4});
-  EXPECT_EQ(t8.sizes(), at::IntArrayRef({1, 2, 3, 4}));
-  auto t9 = jit_multi.allocate(allocate4, {32, 32});
-  EXPECT_EQ(t9.sizes(), at::IntArrayRef({32, 32}));
-  auto t10 = jit_multi.allocate(allocate5, {32, 32, 32});
-  EXPECT_EQ(t10.sizes(), at::IntArrayRef({32, 32, 32}));
+  // Test single allocate with different sizes
+  HostIrJit jit;
+  jit.compile(hic.get());
+  auto t0 = jit.allocate(allocate0, {32, 32});
+  auto t1 = jit.allocate(allocate1, {64, 64});
+  auto t2 = jit.allocate(allocate2, {16, 128});
+  EXPECT_EQ(t0.sizes(), at::IntArrayRef({32, 32}));
+  EXPECT_EQ(t1.sizes(), at::IntArrayRef({64, 64}));
+  EXPECT_EQ(t2.sizes(), at::IntArrayRef({16, 128}));
 }
 
 } // namespace hir

@@ -12,9 +12,9 @@
 
 namespace nvfuser {
 
-class HostIrLlvmJit {
+class HostIrJit {
  public:
-  // Compile a fusion associated with the given output TensorView.
+  // Compile a host ir container.
   void compile(const hir::HostIrContainer* container);
 
   // Run with the given input tensors.
@@ -22,8 +22,8 @@ class HostIrLlvmJit {
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes);
 
-  HostIrLlvmJit(int num_threads = 4);
-  ~HostIrLlvmJit();
+  HostIrJit(int num_threads = 4);
+  ~HostIrJit();
 
  private:
   struct LlvmJitImpl;
