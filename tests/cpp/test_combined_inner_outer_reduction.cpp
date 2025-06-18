@@ -1046,22 +1046,28 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
-// contig, enable WarpSpecializedNormalization, dtype, dim0, dim1
-using TmaWarpSpecializedParams =
-    std::tuple<bool, bool, DataType, int64_t, int64_t>;
+// contig, dtype, dim0, dim1
+using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
  public:
   void SetUp() override {
     opt_guard_ = std::make_unique<EnableOptionsGuard>();
-    if (std::get<1>(GetParam())) {
-      EnableOptionsGuard::getCurOptions().set(
-          EnableOption::WarpSpecializedNormalization);
-    } else {
-      EnableOptionsGuard::getCurOptions().unset(
-          EnableOption::WarpSpecializedNormalization);
-    }
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::WarpSpecializedNormalization);
     NVFuserTest::SetUp();
+  }
+
+  void validateHeuristics(FusionKernelRuntime* runtime) {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+    HeuristicParams* heur =
+        runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+    ASSERT_NE(heur, nullptr);
+    ASSERT_TRUE(heur->isA<ReductionParams>());
+    ReductionParams* rparams = heur->as<ReductionParams>();
+    EXPECT_TRUE(rparams->computation_warp_groups > 1);
   }
 
  protected:
@@ -1071,7 +1077,7 @@ class TmaWarpSpecializedTest
 
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+  auto [contig, dtype, dim0, dim1] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1099,15 +1105,13 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_THAT(
-      runtime->fusionSegments()->groups(),
-      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  validateHeuristics(runtime);
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+  auto [contig, dtype, dim0, dim1] = GetParam();
 
   std::vector<int64_t> norm_shape{dim1};
 
@@ -1164,7 +1168,7 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
 
 TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+  auto [contig, dtype, dim0, dim1] = GetParam();
 
   std::vector<int64_t> norm_shape{dim1};
 
@@ -1222,7 +1226,7 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto [contig, ws_enabled, dtype, dim0, dim1] = GetParam();
+  auto [contig, dtype, dim0, dim1] = GetParam();
 
   std::vector<int64_t> norm_shape{dim1};
   std::vector<int64_t> input_shape{dim0, dim1};
@@ -1287,17 +1291,14 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   int64_t dim0 = 2048;
-  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
-    for (auto dtype : {DataType::Float, DataType::BFloat16}) {
-      for (bool warp_specialized : {true, false}) {
-        for (bool contig : {true, false}) {
-          if (!warp_specialized && !contig) {
-            // Don't need to test non-contiguous version when warp
-            // specialization is not used.
-            continue;
-          }
-          values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
-        }
+  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 256) {
+    for (bool contig : {true, false}) {
+      // to save test time
+      if (dim1 != 1024 && !contig) {
+        continue;
+      }
+      for (auto dtype : {DataType::Float, DataType::BFloat16}) {
+        values.emplace_back(contig, dtype, dim0, dim1);
       }
     }
   }
@@ -1311,10 +1312,9 @@ INSTANTIATE_TEST_SUITE_P(
         -> std::string {
       std::stringstream ss;
       ss << "contig_" << std::get<0>(info.param);
-      ss << "_ws_" << std::get<1>(info.param);
-      ss << "_dtype_" << std::get<2>(info.param);
-      ss << "_batch_" << std::get<3>(info.param);
-      ss << "_hidden_" << std::get<4>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_batch_" << std::get<2>(info.param);
+      ss << "_hidden_" << std::get<3>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser
