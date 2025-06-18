@@ -1229,7 +1229,9 @@ RNGOp::RNGOp(
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
-  // Cannot add nullptr to attributes
+  // adding nullptr to attributes triggers assert. Though I question if this
+  // should be the default behavior and any use of attributes should check for
+  // nullptr instead.
   if (philox_index) {
     addAttribute(philox_index);
   }
@@ -1265,6 +1267,19 @@ int64_t RNGOp::getOutputDims() const {
     ndims = (int64_t)tv_out->getLogicalDomain().size();
   }
   return ndims;
+}
+
+bool RNGOp::sameAs(const Statement* other) const override {
+  if (this == other) {
+    return true;
+  }
+  // In order for RNG op to be the same, the op has to be deterministic
+  if (!isDeterministic() || !other->isDeterministic()) {
+    return false;
+  }
+  // Note: we don't check for seed/offset value here, because all inputs and
+  // attributes are checked in Expr::sameAs
+  return Expr::sameAs(other);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)

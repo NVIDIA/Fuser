@@ -821,20 +821,9 @@ class RNGOp : public Expr {
     return dtype() == DataType::Double ? 2 : 4;
   }
 
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
-      return true;
-    }
-    if (!other->isA<RNGOp>()) {
-      return false;
-    }
-    const RNGOp* other_rng = other->as<RNGOp>();
-    if (getRNGOpType() != other_rng->getRNGOpType()) {
-      return false;
-    }
-    
-    return true;
-  }
+  // need to override this because RNGOp is a special case since we need
+  // identical random seed and offset to be the same
+  bool sameAs(const Statement* other) const override;
 };
 
 //! Broadcast in to match out. The semantics are identical to torch.unsqueeze.
