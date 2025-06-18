@@ -182,6 +182,9 @@ HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
 HostIrLlvmJit::~HostIrLlvmJit() = default;
 
 void HostIrLlvmJit::compile(const hir::HostIrContainer* container) {
+  if (pimpl_->allocate_funcs_.size() > 0) {
+    return;
+  }
   FUSER_PERF_SCOPE("HostIrLlvmJit::compile");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>(

@@ -68,6 +68,7 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
 
   HostIrLlvmJit jit;
   jit.compile(hic.get());
+  // Test single allocate with different sizes
   auto t1 = jit.allocate(allocate, {1});
   EXPECT_EQ(t1.sizes(), at::IntArrayRef({1}));
   auto t2 = jit.allocate(allocate, {1, 2, 3});
@@ -78,6 +79,31 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   EXPECT_EQ(t4.sizes(), at::IntArrayRef({32, 32}));
   auto t5 = jit.allocate(allocate, {32, 32, 32});
   EXPECT_EQ(t5.sizes(), at::IntArrayRef({32, 32, 32}));
+
+  //Test multiple allocates with different sizes
+  auto allocate1 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate2 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate3 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate4 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate5 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  hic->pushBackTopLevelExprs(allocate1);
+  hic->pushBackTopLevelExprs(allocate2);
+  hic->pushBackTopLevelExprs(allocate3);
+  hic->pushBackTopLevelExprs(allocate4);
+  hic->pushBackTopLevelExprs(allocate5);
+
+  HostIrLlvmJit jit_multi;
+  jit_multi.compile(hic.get());
+  auto t6 = jit_multi.allocate(allocate1, {1});
+  EXPECT_EQ(t6.sizes(), at::IntArrayRef({1}));
+  auto t7 = jit_multi.allocate(allocate2, {1, 2, 3});
+  EXPECT_EQ(t7.sizes(), at::IntArrayRef({1, 2, 3}));
+  auto t8 = jit_multi.allocate(allocate3, {1, 2, 3, 4});
+  EXPECT_EQ(t8.sizes(), at::IntArrayRef({1, 2, 3, 4}));
+  auto t9 = jit_multi.allocate(allocate4, {32, 32});
+  EXPECT_EQ(t9.sizes(), at::IntArrayRef({32, 32}));
+  auto t10 = jit_multi.allocate(allocate5, {32, 32, 32});
+  EXPECT_EQ(t10.sizes(), at::IntArrayRef({32, 32, 32}));
 }
 
 } // namespace hir
