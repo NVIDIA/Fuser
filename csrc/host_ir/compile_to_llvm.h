@@ -7,16 +7,15 @@
 // clang-format on
 #pragma once
 #include <fusion.h> // For TensorView and at::Tensor
+#include <host_ir/container.h> // For HostIrContainer
 #include <memory> // For std::unique_ptr
 
 namespace nvfuser {
 
 class HostIrLlvmJit {
  public:
-
   // Compile a fusion associated with the given output TensorView.
-  void compile(
-      const hir::HostIrContainer* container);
+  void compile(const hir::HostIrContainer* container);
 
   // Run with the given input tensors.
   at::Tensor allocate(

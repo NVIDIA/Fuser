@@ -316,7 +316,7 @@ if(BUILD_LLVM)
 
   # Add LLVM JIT related sources
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_SRCS_DIR}/host_ir/lower_to_llvm.cpp
+    ${NVFUSER_SRCS_DIR}/host_ir/compile_to_llvm.cpp
   )
 endif()
 
@@ -908,16 +908,19 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_integration.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_host_ir_stream_lowering.cpp
   )
-  if(BUILD_LLVM)
-  list(APPEND HOSTIR_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_host_ir_llvm_lowering.cpp
-  )
-  endif()
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
-  if(BUILD_LLVM)
-    target_link_libraries(test_host_ir PUBLIC LLVM_JIT)
-  endif()
   list(APPEND TEST_BINARIES test_host_ir)
+
+  if(BUILD_LLVM)
+    set(LLVM_COMPILE_TEST_SRCS)
+    list(APPEND LLVM_COMPILE_TEST_SRCS
+      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_llvm_compilation.cpp
+    )
+    add_test(test_llvm_compile "${LLVM_COMPILE_TEST_SRCS}" "")
+    target_link_libraries(test_llvm_compile PUBLIC LLVM_JIT)
+    list(APPEND TEST_BINARIES test_llvm_compile)
+  endif()
+
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)

@@ -9,9 +9,9 @@
 
 #include <fusion.h>
 #include <global_allocator.h>
+#include <host_ir/compile_to_llvm.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
-#include <host_ir/lower_to_llvm.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
@@ -24,7 +24,8 @@ namespace hir {
 using testing::Contains;
 using HostIrLLVMTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
+// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir
+// --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
 TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -78,7 +79,6 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   auto t5 = jit.allocate(allocate, {32, 32, 32});
   EXPECT_EQ(t5.sizes(), at::IntArrayRef({32, 32, 32}));
 }
-
 
 } // namespace hir
 
