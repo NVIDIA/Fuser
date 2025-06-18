@@ -576,9 +576,10 @@ TEST_F(RNGTest, SameAsRNGOpNonDeterministic) {
       /*philox_seed=*/nullptr,
       /*philox_offset*/ nullptr);
 
-  // non deterministic rng op should not be considered the same. Otherwise,
-  // optimizations would mistakenly treated them as interchangeable and CSE
-  // might remove one of those resulting in behavior change.
+  // non-deterministic rng op should still be considered the same, given their
+  // inputs/attributes are the same
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
+  // value output from non-deterministic rng op should be considered different
   EXPECT_FALSE(tv0->sameAs(tv1));
 }
 
@@ -602,6 +603,7 @@ TEST_F(RNGTest, SameAsRNGOpDeterministic) {
       /*philox_seed=*/dynamic_s_1,
       /*philox_offset*/ dynamic_s_2);
 
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
   // deterministic rng op sharing all the same seed would produce the same
   // output, hence can be used interchangeably.
   EXPECT_TRUE(tv2->sameAs(tv3));

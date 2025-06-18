@@ -139,6 +139,11 @@ bool Val::sameAs(const Statement* other) const {
         return false;
       }
     }
+    // non-deterministic operation returns value that wouldn't be the same even
+    // if the inputs are the same.
+    if (!isDeterministic() || !other_val->isDeterministic()) {
+      return false;
+    }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
     }
@@ -327,9 +332,6 @@ bool Expr::sameAs(const Statement* other) const {
     return false;
   }
   const Expr* other_expr = other->as<Expr>();
-  if (!isDeterministic() || !other_expr->isDeterministic()) {
-    return false;
-  }
   if (!sameOp(other_expr)) {
     return false;
   }
