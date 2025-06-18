@@ -80,12 +80,17 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   auto t5 = jit.allocate(allocate, {32, 32, 32});
   EXPECT_EQ(t5.sizes(), at::IntArrayRef({32, 32, 32}));
 
-  //Test multiple allocates with different sizes
-  auto allocate1 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate2 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate3 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate4 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto allocate5 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  // Test multiple allocates with different sizes
+  auto allocate1 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate2 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate3 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate4 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto allocate5 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
   hic->pushBackTopLevelExprs(allocate1);
   hic->pushBackTopLevelExprs(allocate2);
   hic->pushBackTopLevelExprs(allocate3);
