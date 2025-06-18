@@ -22,6 +22,7 @@ class BuildConfig:
     no_ninja: bool = False
     build_with_ucc: bool = False
     build_with_asan: bool = False
+    build_with_llvm: bool = False
     build_without_distributed: bool = False
     build_with_system_nvtx: bool = True
     explicit_error_check: bool = False
@@ -95,6 +96,12 @@ def parse_args():
         dest="build_with_ucc",
         action="store_true",
         help="Build nvfuser with UCC support",
+    )
+    parser.add_argument(
+        "--build-with-llvm",
+        dest="build_with_llvm",
+        action="store_true",
+        help="Build nvfuser with LLVM support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -198,6 +205,7 @@ def create_build_config():
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
         build_with_asan=args.build_with_asan,
+        build_with_llvm=args.build_with_llvm,
         build_without_distributed=args.build_without_distributed,
         build_with_system_nvtx=not args.no_system_nvtx,
         explicit_error_check=args.explicit_error_check,
@@ -241,6 +249,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
+    if "NVFUSER_BUILD_WITH_LLVM" in os.environ:
+        config.build_with_llvm = get_env_flag_bool("NVFUSER_BUILD_WITH_LLVM")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -458,6 +468,7 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
+        f"-DBUILD_LLVM={on_or_off(config.build_with_llvm)}",
         "-B",
         cmake_build_dir,
     ]

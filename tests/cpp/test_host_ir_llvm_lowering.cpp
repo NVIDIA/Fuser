@@ -1,0 +1,269 @@
+// clang-format off
+/*
+* SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+* All rights reserved.
+* SPDX-License-Identifier: BSD-3-Clause
+*/
+// clang-format on
+#include <gmock/gmock-more-matchers.h>
+
+#include <fusion.h>
+#include <global_allocator.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
+#include <host_ir/lower_to_llvm.h>
+#include <multidevice/utils.h>
+
+namespace nvfuser {
+
+namespace hir {
+
+using testing::Contains;
+using HostIrLLVMTest = NVFuserTest;
+
+using ::testing::ElementsAre;
+using ::testing::HasSubstr;
+using ::testing::ThrowsMessage;
+
+// Print tensor info
+void print_tensor_info(const at::Tensor& t){
+  std::cout << "Tensor dtype: " << t.dtype() << "\n";
+  std::cout << "Shape: " << t.sizes() << "\n"; 
+  std::cout << "Strides: " << t.strides() << "\n";
+  std::cout << "Is Contiguous: " << t.is_contiguous() << "\n";
+  std::cout << "Device: " << t.device() << "\n";
+  std::cout << "Data ptr: " << t.data_ptr() << "\n";
+}
+
+void print_iter_domain(const std::vector<IterDomain*>& iter_domain, const std::string& name){
+  std::cout << name << ": ";
+  for(auto* id : iter_domain){
+    std::cout << id->toString() << " ";
+  }
+  std::cout << std::endl;
+}
+
+TEST_F(HostIrLLVMTest, AllocationMergeSplit1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int n1 = 31, n2 = 29, h = 64, w = 104, c = 21;
+  auto tv0 = makeContigTensor(3); // [N1, N2, H*W*C], which is logical domain
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+  tv1->merge(0);
+  tv1->split(1, w);
+  tv1->split(1, h);
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->merge(1);
+  // [N, H*W, C]
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true});
+  // LLVM JIT Compile
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({n1, n2, h*w*c}, options);
+
+  // LLVM JIT Run Allocation
+  at::Tensor output_tensor = jit.allocateOutputTensor({t0});
+
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({n1, n2, h*w*c}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({n2*h*w*c, h*w*c, 1}));
+}
+
+TEST_F(HostIrLLVMTest, AllocationMergeSplit2) {
+  int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(5);
+  fusion.addInput(in);
+  in->merge(0,1)->split(0,4)->merge(0,1)->split(0,2);
+  TensorView* out = set(in);
+  out->merge(0,1)->split(0,8)->merge(0,1)->split(0,2);
+  fusion.addOutput(out);
+  out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({i1, i2, i3, i4, i5}, options);
+  // LLVM JIT Compile
+  HostIrLlvmJit jit(4);
+  jit.compile(out);
+
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0});
+
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({i1, i2, i3, i4, i5}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i2*i3*i4*i5, i3*i4*i5, i4*i5, i5, 1}));
+}
+
+TEST_F(HostIrLLVMTest, AllocationStrideInferReorder) {
+  int i1 = 8, i2 = 8, i3 = 16, i4 = 32, i5 = 16;
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(5);
+  // [i1, i2, i3, i4, i5]
+  fusion.addInput(in);
+  TensorView* out = set(in);
+  out->reorder({{1, 2, 3, 4, 0}});
+  out->setAllocationDomain(out->getLoopDomain(), {true, true, true, true, true});
+  fusion.addOutput(out);
+
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({i1, i2, i3, i4, i5}, options);
+
+  // LLVM JIT Compile
+  HostIrLlvmJit jit(4);
+  jit.compile(out);
+
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0});
+
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({i1, i2, i3, i4, i5}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({i3*i4*i2, i3*i4, i4, 1,i3*i4*i2*i1}));
+}
+
+TEST_F(HostIrLLVMTest, AllocationStrideInferBroadcast) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  int N = 16, H = 16, W = 16, C = 16;
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  // [N, H, W, C]
+  tv0->merge(0,1);
+  // [N * H, W, C]
+  tv0->split(2,4);
+  // [N * H, W, C/4, 4]
+  tv0->split(3,2);
+  // [N * H, W, C/4, 2, 2]
+  tv0->merge(1,2);
+  // [N * H, W * C/4, 2, 2]
+  TensorView* tv1 = set(tv0);
+  
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true, true});
+
+  TensorView* tv2 = makeContigConcreteTensor({N, H, W});
+  fusion.addInput(tv2);
+  auto tv3 = broadcast(tv2, {false, false, false, true});
+  auto tv4 = add(tv2, tv3);
+
+  fusion.addOutput(tv4);
+
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({N, H, W, C}, options);
+  at::Tensor t1 = at::randn({N, H, W}, options);
+  // LLVM JIT Compile
+  HostIrLlvmJit jit(4);
+  jit.compile(tv4);
+  tv4->setAllocationDomain(tv4->getLoopDomain(), {true, true, true, true});
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0, t1});
+
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({N, H, W, C}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({H*W*C, W*C, C, 1}));
+}
+
+TEST_F(HostIrLLVMTest, AllocationLogicalShapeInfer) {
+  int N = 32, H = 32, W = 32, C = 32;
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* tv0 = makeSymbolicTensor(4);
+  fusion.addInput(tv0);
+  tv0->merge(0,1);
+  tv0->split(2,4)->split(0,2);
+  auto tv1 = set(tv0);
+  tv1->commitLeafToLogical();
+  tv1->merge(0,1);
+  // notice the second parameter is the size of logical domain instead of allocation domain
+  tv1->setAllocationDomain(tv1->getLoopDomain(),{true, true, true});
+  fusion.addOutput(tv1);
+  // Input Tensor
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({N, H, W, C}, options);
+
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  // LLVM JIT Run Allocation
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  // Print Output Tensor Info
+  print_tensor_info(output_tensor);
+}
+
+TEST_F(HostIrLLVMTest, AllocationDIDInit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->setDeviceMesh(mesh);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({5, d * 3}, options);
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({5, 3}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({3, 1}));
+}
+
+TEST_F(HostIrLLVMTest, AllocationDIDSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const int d = 4;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3, d});
+  tv0->setAllocationDomain(tv0->getLogicalDomain(), false);
+
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->axis(2)->parallelize(ParallelType::DIDy);
+  tv1->setDeviceMesh(mesh);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), {true, true, true,true});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  HostIrLlvmJit jit(4);
+  jit.compile(tv1);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({5, d * 3, d}, options);
+  auto output_tensor = jit.allocateOutputTensor({t0});
+  print_tensor_info(output_tensor);
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef({5, 1, d}));
+  EXPECT_EQ(output_tensor.strides(), at::IntArrayRef({d, d, 1}));
+}
+
+} // namespace hir
+
+} // namespace nvfuser
