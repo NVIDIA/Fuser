@@ -11,17 +11,20 @@
 
 namespace nvfuser {
 
+using AllocateFunc = std::function<at::Tensor(const std::vector<at::Tensor>&)>;
 class HostIrLlvmJit {
  public:
   // Get singleton instance
   static HostIrLlvmJit& getInstance(int num_threads = 4);
 
-  // Delete copy constructor and assignment operator
-  HostIrLlvmJit(const HostIrLlvmJit&) = delete;
-  HostIrLlvmJit& operator=(const HostIrLlvmJit&) = delete;
-
   // Compile a fusion associated with the given output TensorView.
-  void compile(const hir::HostIrContainer* container);
+  void compile(
+      const hir::HostIrContainer* container);
+
+  // Run with the given input tensors.
+  at::Tensor allocate(
+      const kir::Allocate* allocate,
+      const std::vector<int64_t>& input_sizes);
 
  private:
   explicit HostIrLlvmJit(int num_threads = 4);
@@ -30,6 +33,6 @@ class HostIrLlvmJit {
   HostIrLlvmJit& operator=(HostIrLlvmJit&&) noexcept;
   struct LlvmJitImpl;
   std::unique_ptr<LlvmJitImpl> pimpl_;
-  std::vector<at::Tensor> input_tensors_;
+  std::unordered_map<const kir::Allocate*, AllocateFunc> allocate_funcs_;
 };
 } // namespace nvfuser
