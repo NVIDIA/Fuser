@@ -5,7 +5,7 @@
 
 import math
 import torch
-from packaging.version import LooseVersion
+from looseversion import LooseVersion
 from opinfo_core import OpInfo, ReferenceType, Domain
 from opinfo_fusion_definitions import (
     api_test_fd_fn,
