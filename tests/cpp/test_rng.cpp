@@ -558,4 +558,43 @@ TEST_F(RNGTest, DifferentOffsets) {
   }
 }
 
+TEST_F(RNGTest, SameAsRNGOp) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* tv0 = uniform(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  TensorView* tv1 = uniform(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  // non deterministic rng op should not be the same
+  EXPECT_FALSE(tv0->sameAs(tv1));
+
+  TensorView* tv2 = uniform(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  TensorView* tv3 = uniform(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  // deterministic rng op sharing all the same seed should be the same
+  EXPECT_TRUE(tv2->sameAs(tv3));
+}
+
 } // namespace nvfuser
