@@ -5379,6 +5379,15 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   bool is_found_ = false;
 };
 
+IterDomain* returnFirstIfRankThree(const TensorView* tv) {
+  const auto& logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  if (logical_domain.size() == 3) {
+    return logical_domain.at(0);
+  } else {
+    return nullptr;
+  }
+}
 } // namespace
 
 bool ForLoop::hasRuntimeReductionFunctions() const {
@@ -5755,5 +5764,179 @@ std::vector<PolymorphicValue> TopKOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
+
+GroupedMmaOp::GroupedMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* mat1,
+    Val* mat2,
+    Val* offsets,
+    Val* scale1,
+    Val* scale2)
+    : Expr(passkey) {
+  NVF_ERROR(out->isA<TensorView>(), "Output must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
+  addOutput(out);
+  addInput(mat1);
+  addInput(mat2);
+  addInput(offsets);
+
+  bool has_scale1 = scale1 != nullptr;
+  if (has_scale1) {
+    NVF_CHECK(
+        scale1->isA<TensorView>(),
+        "`scale1` must be a TensorView, but got: ",
+        scale1);
+    NVF_CHECK(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
+    addInput(scale1);
+    addInput(scale2);
+  }
+}
+
+std::string GroupedMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out() << " = GroupedMmaOp("
+                          << "mat1=" << matrix1() << ", "
+                          << "mat2=" << matrix2() << ", "
+                          << "offsets=" << offsets();
+  if (hasScale()) {
+    ss << ", "
+       << "scale1=" << scale1() << ", "
+       << "scale2=" << scale2();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string GroupedMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  NVF_ERROR(
+      (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
+      "GroupedMmaOp expects 3 or 5 inputs but received ",
+      inputs.size(),
+      " with scale flag: ",
+      hasScale() ? "true" : "false");
+
+  NVF_ERROR(
+      inputs[0].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 0 but got ",
+      inputs[0].type().name());
+
+  NVF_ERROR(
+      inputs[1].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position4 but got ",
+      inputs[1].type().name());
+
+  NVF_ERROR(
+      inputs[2].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 2 but got ",
+      inputs[2].type().name());
+
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& offsets = inputs[2].as<at::Tensor>();
+
+  at::Tensor result;
+  if (!hasScale()) {
+    // NOTE: at::_grouped_mm only supports bfloat16 as output at this moment,
+    // otherwise we should have requested the output dtype directly instead of
+    // casting the output afterwards.
+    result = at::_grouped_mm(mat1, mat2, offsets);
+    result = result.to(data_type_to_aten(out()->dtype()));
+    return {result};
+  }
+
+  NVF_ERROR(
+      inputs[3].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 3 but got ",
+      inputs[3].type().name());
+  NVF_ERROR(
+      inputs[4].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 4 but got ",
+      inputs[4].type().name());
+
+  auto scale1 = inputs[3].as<at::Tensor>();
+  auto scale2 = inputs[4].as<at::Tensor>();
+  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
+  // input matrices.
+  auto mat1_k_last = mat1.contiguous();
+  auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
+
+  // at::_scaled_grouped_mm limitation
+  NVF_CHECK(
+      scale1.size(-1) == 1 && scale2.size(-2) == 1,
+      "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+      scale1.sizes(),
+      " and ",
+      scale2.sizes());
+  // scale factor handling
+  // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+  if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
+    // case 1, aten API expects collapsed 1D scale with group dimension on the
+    // slower side.
+    scale1 = scale1.reshape(-1);
+    scale2 = scale2.reshape(-1);
+  } else {
+    // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
+    scale1 = scale1.squeeze(-1);
+    scale2 = scale2.squeeze(-2);
+  }
+  // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+  // moment, otherwise we should have requested the output dtype directly
+  // instead of casting the output afterwards.
+  result = at::_scaled_grouped_mm(
+      mat1_k_last,
+      mat2_k_last,
+      scale1,
+      scale2,
+      offsets,
+      std::nullopt,
+      std::nullopt,
+      at::ScalarType::BFloat16);
+  result = result.to(data_type_to_aten(out()->dtype()));
+  return {result};
+#else
+  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+#endif
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
+  // mat1 is [g, m, k] or [m, k]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix1()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
+  // mat2 is [g, k, n] or [k, n]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix2()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix1() const {
+  // matrix1 is [g, m, k] or [m, k]
+  return returnFirstIfRankThree(matrix1());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix2() const {
+  // matrix2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(matrix2());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
+  // output is [g, m, n] or [m, n]
+  return returnFirstIfRankThree(out());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
 
 } // namespace nvfuser
