@@ -323,13 +323,13 @@ bool Expr::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
   }
-  if (!isDeterministic() || !other->isDeterministic()) {
-    return false;
-  }
   if (!other->isA<Expr>()) {
     return false;
   }
   const Expr* other_expr = other->as<Expr>();
+  if (!isDeterministic() || !other_expr->isDeterministic()) {
+    return false;
+  }
   if (!sameOp(other_expr)) {
     return false;
   }
