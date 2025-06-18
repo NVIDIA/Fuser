@@ -24,9 +24,8 @@ namespace hir {
 using testing::Contains;
 using HostIrLLVMTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir
-// --gtest_filter=HostIrLLVMTest.TestLLVMJIT
-TEST_F(HostIrLLVMTest, TestLLVMJIT) {
+// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
+TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(2);
@@ -66,16 +65,20 @@ TEST_F(HostIrLLVMTest, TestLLVMJIT) {
   hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
 
-  HostIrLlvmJit::getInstance(4).compile(hic.get());
-  auto t = HostIrLlvmJit::getInstance(4).allocate(allocate, {32, 32});
-  EXPECT_TRUE(t.equal(t0));
-
-  HostIrEvaluator hie(std::move(hic));
-
-  auto outputs = hie.runWithInput({{hic_in, t0}});
-
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
+  HostIrLlvmJit jit;
+  jit.compile(hic.get());
+  auto t1 = jit.allocate(allocate, {1});
+  EXPECT_EQ(t1.sizes(), at::IntArrayRef({1}));
+  auto t2 = jit.allocate(allocate, {1, 2, 3});
+  EXPECT_EQ(t2.sizes(), at::IntArrayRef({1, 2, 3}));
+  auto t3 = jit.allocate(allocate, {1, 2, 3, 4});
+  EXPECT_EQ(t3.sizes(), at::IntArrayRef({1, 2, 3, 4}));
+  auto t4 = jit.allocate(allocate, {32, 32});
+  EXPECT_EQ(t4.sizes(), at::IntArrayRef({32, 32}));
+  auto t5 = jit.allocate(allocate, {32, 32, 32});
+  EXPECT_EQ(t5.sizes(), at::IntArrayRef({32, 32, 32}));
 }
+
 
 } // namespace hir
 

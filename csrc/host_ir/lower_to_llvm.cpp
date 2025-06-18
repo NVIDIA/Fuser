@@ -40,13 +40,13 @@
 namespace nvfuser {
 
 using at_empty_strided_func = at::Tensor(*)(const std::vector<int64_t>&, const std::vector<int64_t>&, const at::TensorOptions&);
-using at_empty_func = at::Tensor(*)(const std::vector<int64_t>&);
-using JitFuncPtr = void* (*)(int64_t*, int64_t, void*);
+// using at_empty_func = at::Tensor(*)(const std::vector<int64_t>&);
+using at_empty_func = void* (*)(int64_t*, int64_t, void*);
 
 // PIMPL implementation for HostIrLlvmJit
 struct HostIrLlvmJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  std::unordered_map<const kir::Allocate*, JitFuncPtr> allocate_funcs_;
+  std::unordered_map<const kir::Allocate*, at_empty_func> allocate_funcs_;
 };
 
 // Helper function to exit on error on LLVM JIT initialization
@@ -72,11 +72,8 @@ inline void ExitOnErr(llvm::Error&& Err) {
   }
 }
 
-llvm::orc::ThreadSafeModule generateAllocateFunc(const kir::Allocate* allocate) {
-  // Create LLVM context and module
-  auto ctx = std::make_unique<llvm::LLVMContext>();
-  llvm::LLVMContext& context = *ctx;
-  std::unique_ptr<llvm::Module> mod = std::make_unique<llvm::Module>("allocate_func", context);
+void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod, const std::string& func_name) {
+  llvm::LLVMContext& context = mod->getContext();
   llvm::IRBuilder<> builder(context);
   
   // Define function signature: at::Tensor func(const std::vector<int64_t>& strides)
@@ -89,12 +86,12 @@ llvm::orc::ThreadSafeModule generateAllocateFunc(const kir::Allocate* allocate) 
   llvm::FunctionType* func_type = llvm::FunctionType::get(
       void_ptr_type, {int64_ptr_type, int64_type, void_ptr_type}, false);
   
-  // Create the function
+  // Create the function with the custom name
   llvm::Function* func = llvm::Function::Create(
       func_type, 
       llvm::Function::ExternalLinkage, 
-      "create_tensor_from_sizes", 
-      mod.get()
+      func_name, 
+      mod
   );
   
   // Create basic block
@@ -116,7 +113,7 @@ llvm::orc::ThreadSafeModule generateAllocateFunc(const kir::Allocate* allocate) 
         empty_type,
         llvm::Function::ExternalLinkage,
         "at::empty",
-        mod.get()
+        mod
     );
   }
   
@@ -129,20 +126,18 @@ llvm::orc::ThreadSafeModule generateAllocateFunc(const kir::Allocate* allocate) 
   // Return the result
   builder.CreateRet(result);
   
-  mod->print(llvm::errs(), nullptr);
   // Verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
   if (llvm::verifyModule(*mod, &error_stream)) {
     NVF_ERROR(false, "LLVM module verification failed: " + error);
   }
-  llvm::outs() << "=== LLVM IR ===\n";
-  mod->print(llvm::outs(), nullptr);
 
-  return llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx));
+  // Print the module
+  // llvm::outs() << "=== LLVM IR ===\n";
+  // mod->print(llvm::outs(), nullptr);
+
 }
-
-
 
 // Constructor implementation
 HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
@@ -182,23 +177,31 @@ HostIrLlvmJit::HostIrLlvmJit(int num_threads) : pimpl_(new LlvmJitImpl) {
   ExitOnErr(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 }
 
-// The destructor must be defined here where LlvmJitImpl is a complete type.
 HostIrLlvmJit::~HostIrLlvmJit() = default;
-
-// Move constructor and assignment operator
-HostIrLlvmJit::HostIrLlvmJit(HostIrLlvmJit&&) noexcept = default;
-HostIrLlvmJit& HostIrLlvmJit::operator=(HostIrLlvmJit&&) noexcept = default;
 
 void HostIrLlvmJit::compile(const hir::HostIrContainer* container) {
   FUSER_PERF_SCOPE("HostIrLlvmJit::compile");
+  auto ctx = std::make_unique<llvm::LLVMContext>();
+  auto mod = std::make_unique<llvm::Module>("host_ir_container_"+std::to_string(reinterpret_cast<uintptr_t>(container)), *ctx);
+  std::unordered_map<const kir::Allocate*, std::string> allocate_func_names;
   for (auto expr : container->topLevelExprs()) {
     if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
-      llvm::orc::ThreadSafeModule mod = generateAllocateFunc(allocate);
-      ExitOnErr(pimpl_->jit->addIRModule(std::move(mod)));
-      auto func_addr = ExitOnErr(pimpl_->jit->lookup("create_tensor_from_sizes"));
-      auto func_ptr = func_addr.toPtr<JitFuncPtr>();
-      pimpl_->allocate_funcs_[allocate] = func_ptr;
+      // Generate a unique function name for this allocate
+      std::string func_name = "create_tensor_from_sizes_" + std::to_string(reinterpret_cast<uintptr_t>(allocate));
+      generateAllocateFunc(allocate, mod.get(), func_name);
+      // Store the mapping from allocate to function name
+      allocate_func_names[allocate] = func_name;
     }
+  }
+  
+  // Add the module to the JIT
+  ExitOnErr(pimpl_->jit->addIRModule(llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
+  
+  // Look up all functions and store their pointers
+  for (const auto& [allocate, func_name] : allocate_func_names) {
+    auto func_addr = ExitOnErr(pimpl_->jit->lookup(func_name));
+    auto func_ptr = func_addr.toPtr<at_empty_func>();
+    pimpl_->allocate_funcs_[allocate] = func_ptr;
   }
 }
 
@@ -210,11 +213,6 @@ at::Tensor HostIrLlvmJit::allocate(const kir::Allocate* allocate, const std::vec
   at::TensorOptions opts = at::TensorOptions().device(at::kCUDA);
   void* result = func_ptr(const_cast<int64_t*>(input_sizes.data()), input_sizes.size(), reinterpret_cast<void*>(&opts));
   return *reinterpret_cast<at::Tensor*>(result);
-}
-
-HostIrLlvmJit& HostIrLlvmJit::getInstance(int num_threads) {
-  static HostIrLlvmJit instance(num_threads);
-  return instance;
 }
 
 } // namespace nvfuser

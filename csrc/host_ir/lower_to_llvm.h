@@ -13,8 +13,6 @@ namespace nvfuser {
 
 class HostIrLlvmJit {
  public:
-  // Get singleton instance
-  static HostIrLlvmJit& getInstance(int num_threads = 4);
 
   // Compile a fusion associated with the given output TensorView.
   void compile(
@@ -25,11 +23,10 @@ class HostIrLlvmJit {
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes);
 
- private:
-  explicit HostIrLlvmJit(int num_threads = 4);
+  HostIrLlvmJit(int num_threads = 4);
   ~HostIrLlvmJit();
-  HostIrLlvmJit(HostIrLlvmJit&&) noexcept;
-  HostIrLlvmJit& operator=(HostIrLlvmJit&&) noexcept;
+
+ private:
   struct LlvmJitImpl;
   std::unique_ptr<LlvmJitImpl> pimpl_;
 };
