@@ -24,7 +24,7 @@ namespace hir {
 using testing::Contains;
 using HostIrLLVMTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir
+// NVFUSER_ENABLE=host_ir_lowering ./bin/test_llvm_compile
 // --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
 TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   Fusion fusion;
