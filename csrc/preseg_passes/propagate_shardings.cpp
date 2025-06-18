@@ -270,7 +270,7 @@ IterDomain* getOutermostLogicalId(
 void propagateDIDTransform(
     const TensorView* ref,
     TensorView* tv,
-    std::unordered_set<ParallelType> selected_parallel_types,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
   tv->setDeviceMesh(ref->getDeviceMesh());
 
@@ -362,7 +362,7 @@ void propagateDIDTransform(
 void propagateDIDTransform(
     const TensorView* ref,
     const std::vector<TensorView*>& tvs,
-    std::unordered_set<ParallelType> selected_parallel_types,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
   for (auto tv : tvs) {
     propagateDIDTransform(ref, tv, selected_parallel_types, direction);
