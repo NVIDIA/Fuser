@@ -141,7 +141,8 @@ bool Val::sameAs(const Statement* other) const {
     }
     // non-deterministic operation returns value that wouldn't be the same even
     // if the inputs are the same.
-    if (!isDeterministic() || !other_val->isDeterministic()) {
+    if (!definition_->isDeterministic() ||
+        !other_val->definition_->isDeterministic()) {
       return false;
     }
     if (!definition_->sameAs(other_val->definition_)) {
