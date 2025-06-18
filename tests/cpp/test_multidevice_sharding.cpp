@@ -19,7 +19,9 @@
 namespace nvfuser {
 
 using testing::Contains;
+using testing::Each;
 using testing::ElementsAre;
+using testing::Not;
 using testing::UnorderedElementsAre;
 
 // params: concrete vs symbolic input, sharded axis
@@ -987,6 +989,38 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
   EXPECT_TRUE(at::allclose(nvf_out, sharded_inp.view({b * s * h, e})));
+}
+
+TEST_F(MultiDeviceTest, AliasingRetainsSharding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeContigConcreteTensor({3 * d});
+  TensorView* tv1 = add(tv0, tv0);
+  TensorView* tv2 = set(tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor t0 = at::randn({3 * d}, tensor_options);
+  at::Tensor sharded_t0 = shardTensor(t0, 0, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_t0})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(nvf_out, sharded_t0 * 2));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Each(Not(HeuristicIs(SchedulerType::Communication))));
 }
 
 } // namespace nvfuser

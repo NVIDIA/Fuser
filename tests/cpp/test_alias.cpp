@@ -12,13 +12,12 @@
 #include <gtest/gtest.h>
 
 #include <alias_analysis.h>
-#include <csrc/multidevice/utils.h>
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/segment_inplace_update.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1636,37 +1635,6 @@ TEST_F(AliasTest, IntermediateTensorWithAllocation) {
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::PointWise),
           HeuristicIs(SchedulerType::ExprEval)));
-}
-
-TEST_F(AliasTest, SegmentSetRetainsSharding) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  DeviceMesh mesh({0, 1});
-  TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = add(tv0, tv0);
-  TensorView* tv2 = set(tv1);
-  fusion.addInput(tv0);
-  fusion.addOutput(tv1);
-  fusion.addOutput(tv2);
-
-  for (auto* tv : {tv0, tv1, tv2}) {
-    tv->setDeviceMesh(mesh);
-    tv->outer_split(0, mesh.size());
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  preseg_passes::OptimizationPass<
-      preseg_passes::MarkAliasesPreparePass>::runPass(&fusion);
-
-  // MAPP inserts a segment_set after the `add` op which becomes the fusion
-  // output definition. This segment_set should not be resharding.
-  auto* segment_set =
-      dynamic_cast<LoadStoreOp*>(fusion.outputs().at(0)->definition());
-  EXPECT_TRUE(
-      segment_set != nullptr &&
-      segment_set->opType() == LoadStoreOpType::SegmenterSet);
-  EXPECT_FALSE(isResharding(segment_set));
 }
 
 } // namespace nvfuser
