@@ -149,6 +149,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
               std::vector<Val*>{},
               kir::Asm::Options{/*volatile=*/true}));
     } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      NVF_ERROR(
+          ir_utils::getTvInput(ldst)->getMemoryType() == MemoryType::Local,
+          "StTMem requires write from register to tmem, ldst: ",
+          ldst->toString());
+
       const auto& tmem_info = GpuLower::current()->tmemInfo();
       std::stringstream ptx_ss;
       ptx_ss << "tcgen05.st.sync.aligned."
@@ -171,6 +176,9 @@ class LowerToInlinePtx : public kir::ExprMutator {
               std::vector<Val*>{},
               std::vector<Val*>{},
               kir::Asm::Options{/*volatile=*/true}));
+    } else if (ldst->opType() == LoadStoreOpType::SmemToTmem) {
+      // Copy from smem to tmem using tcgen05.cp 
+      
     }
   }
 
