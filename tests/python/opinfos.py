@@ -1301,7 +1301,6 @@ matmul_ops.append(matmul_opinfo)
 
 # torch._grouped_mm and torch._scaled_grouped_mm is not available prior to PyTorch 2.8.0
 if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
-
     grouped_mm_opinfo = OpInfo(
         lambda fd: fd.ops.grouped_mm,
         "grouped_mm",
