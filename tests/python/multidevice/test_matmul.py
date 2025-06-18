@@ -396,6 +396,10 @@ def test_matmul_allreduce_loop_split(multidevice_test):
 
 @pytest.mark.mpi
 def test_column_parallel_grouped_mm(multidevice_test):
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    if (prop.major, prop.minor) != (9, 0):
+        pytest.skip("at::_grouped_mm only supports sm90.")
+
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
