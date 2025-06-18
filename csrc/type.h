@@ -819,8 +819,7 @@ enum class LoadStoreOpType {
   CpAsyncBulkTensorTile,
   StMatrix,
   LdTMem,
-  StTMem,
-  SmemStTmem
+  StTMem
 };
 
 // Used to label what part of the circular buffered iterdomain
@@ -1156,17 +1155,7 @@ enum class TMemRegisterDataPath {
   Path16x256b,
   Path16x32bx2,
 };
-std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
-// Data path between TMem and smem.
-// .4x256b, .32x128b, .64x128b, .128x256b, .128x128b
-enum class TMemSmemDataPath {
-  Path4x256b,
-  Path32x128b,
-  Path64x128b,
-  Path128x256b,
-  Path128x128b,
-};
-std::ostream& operator<<(std::ostream&, TMemSmemDataPath);
+std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 } // namespace nvfuser

@@ -232,8 +232,7 @@ bool isCpAsyncBulk1DStore(const Expr* expr) {
 bool isLdStTMem(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::LdTMem ||
-        ldst->opType() == LoadStoreOpType::StTMem ||
-        ldst->opType() == LoadStoreOpType::SmemStTmem;
+        ldst->opType() == LoadStoreOpType::StTMem;
   }
   return false;
 }

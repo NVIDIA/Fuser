@@ -872,8 +872,6 @@ const char* load_store_type2string(LoadStoreOpType t) {
       return "LdTMem";
     case LoadStoreOpType::StTMem:
       return "StTMem";
-    case LoadStoreOpType::SmemStTmem:
-      return "SmemStTmem";
     default:
       NVF_THROW("Unexpected parallel type");
   }
