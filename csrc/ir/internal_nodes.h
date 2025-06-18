@@ -803,7 +803,7 @@ class RNGOp : public Expr {
                                             : nullptr;
   }
 
-  bool isDeterministic() const {
+  bool isDeterministic() const override {
     return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
@@ -820,10 +820,6 @@ class RNGOp : public Expr {
   int getPhiloxMultiple() const {
     return dtype() == DataType::Double ? 2 : 4;
   }
-
-  // need to override this because RNGOp is a special case since we need
-  // identical random seed and offset to be the same
-  bool sameAs(const Statement* other) const override;
 };
 
 //! Broadcast in to match out. The semantics are identical to torch.unsqueeze.

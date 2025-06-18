@@ -1269,19 +1269,6 @@ int64_t RNGOp::getOutputDims() const {
   return ndims;
 }
 
-bool RNGOp::sameAs(const Statement* other) const override {
-  if (this == other) {
-    return true;
-  }
-  // In order for RNG op to be the same, the op has to be deterministic
-  if (!isDeterministic() || !other->isDeterministic()) {
-    return false;
-  }
-  // Note: we don't check for seed/offset value here, because all inputs and
-  // attributes are checked in Expr::sameAs
-  return Expr::sameAs(other);
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
 BroadcastOp::BroadcastOp(
