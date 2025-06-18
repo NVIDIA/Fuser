@@ -133,6 +133,21 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
+// Returns true if the given id has a root-to-logical transform
+// if traversed from loop domain to root domain.
+bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
+  if (!tv->hasRoot()) {
+    return false;
+  }
+  auto logical_ids = IterVisitor::getInputsTo(
+      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+  return std::any_of(
+      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
+        return logical_val->isA<IterDomain>() &&
+            logical_val->as<IterDomain>()->isRFactorProduct();
+      });
+}
+
 // Applies the given transforms on ref to target using the ref2target map.
 void transformLoopDomain(
     TensorView* target,
@@ -140,7 +155,6 @@ void transformLoopDomain(
     std::unordered_map<IterDomain*, IterDomain*>& ref2target,
     const std::unordered_set<IterDomain*>& device_ids,
     PropagateDirection direction) {
-
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
       {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
       {device_ids.begin(), device_ids.end()});
@@ -151,21 +165,7 @@ void transformLoopDomain(
     transformed_loop.pushBack(id, std::monostate());
   }
 
-  auto has_root_to_logical_transform = [](IterDomain* id,
-                                          const TensorView* tv) -> bool {
-    if (!tv->hasRoot()) {
-      return false;
-    }
-    auto logical_ids = IterVisitor::getInputsTo(
-        {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-    return std::any_of(
-        logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-          return logical_val->isA<IterDomain>() &&
-              logical_val->as<IterDomain>()->isRFactorProduct();
-        });
-  };
-
-  auto validateSplit = [](Split* split, IterDomain* id) -> void {
+  auto validate_split = [](Split* split, IterDomain* id) -> void {
     NVF_ERROR(
         !split->innerSplit() && split->outer()->isDeviceDim(),
         "Expected the outer id of the split to be a device dimension. Got: ",
@@ -218,18 +218,14 @@ void transformLoopDomain(
         ? std::make_pair(target_id, target)
         : std::make_pair(ref_id, ref);
 
-    if (has_root_to_logical_transform(consumer.first, consumer.second)) {
-      validateSplit(split, target_id);
+    if (hasRootToLogicalTransform(consumer.first, consumer.second)) {
+      validate_split(split, target_id);
     }
 
     auto it = transformed_loop.erase(target_id).second;
     auto [outer, inner] =
         IterDomain::split(target_id, split->factor(), split->innerSplit());
 
-    // Parallelize the split outputs as the reference and update the loop
-    // domain.
-    outer->parallelize(split->outer()->getParallelType());
-    inner->parallelize(split->inner()->getParallelType());
     transformed_loop.insert(it, outer, std::monostate());
     transformed_loop.insert(it, inner, std::monostate());
 
@@ -239,8 +235,15 @@ void transformLoopDomain(
   }
 
   // Parallelize based on the ref2target map.
-  for (auto& [ref_id, target_id] : ref2target) {
-    target_id->parallelize(ref_id->getParallelType());
+  for (IterDomain* device_id : device_ids) {
+    NVF_ERROR(
+        ref2target.find(device_id) != ref2target.end(),
+        "Failed to propagate ",
+        device_id,
+        " to ",
+        target);
+    IterDomain* target_id = ref2target.at(device_id);
+    target_id->parallelize(device_id->getParallelType());
   }
 
   auto new_loop = std::views::keys(transformed_loop);
@@ -248,11 +251,9 @@ void transformLoopDomain(
 }
 
 // Traverses root-to-logical transforms to find the outermost logical ID.
-IterDomain* getOutermostLogicalId(
-    IterDomain* id,
-    const std::vector<IterDomain*>& logical_domain) {
+IterDomain* getOutermostLogicalId(IterDomain* id, const TensorView* tv) {
   auto transforms = DependencyCheck::getAllExprsBetween(
-      {id}, {logical_domain.begin(), logical_domain.end()});
+      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
 
   for (auto transform : transforms) {
     if (transform->isA<Split>()) {
@@ -294,7 +295,8 @@ void propagateDIDTransform(
 
   // Finds all device IDs that are dependent on the given id
   // and adds them to the ignored_device_ids set.
-  auto addIgnoredDeviceIds = [&](IterDomain* id) {
+  auto add_ignored_device_ids = [&ignored_device_ids,
+                                 &device_ids](IterDomain* id) {
     for (auto device_id : device_ids) {
       if (DependencyCheck::isDependencyOf(id, device_id)) {
         ignored_device_ids.insert(device_id);
@@ -302,8 +304,8 @@ void propagateDIDTransform(
     }
   };
 
-  auto isInDomain = [](IterDomain* id,
-                       const std::vector<IterDomain*>& domain) -> bool {
+  auto is_in_domain = [](IterDomain* id,
+                         const std::vector<IterDomain*>& domain) -> bool {
     return std::find(domain.begin(), domain.end(), id) != domain.end();
   };
 
@@ -311,19 +313,21 @@ void propagateDIDTransform(
     input_ids = getInputsInTargetDomain(
         {device_ids.begin(), device_ids.end()},
         {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()});
-    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
+    ref2target =
+        PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
   }
 
   if (direction == PropagateDirection::kBackward) {
     input_ids = getInputsInTargetDomain(
         {device_ids.begin(), device_ids.end()},
         {ref->getMaybeRootDomain().begin(), ref->getMaybeRootDomain().end()});
-    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
+    ref2target =
+        PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
   }
 
   for (IterDomain* ref_id : ir_utils::filterByType<IterDomain>(input_ids)) {
     if (ref2target.find(ref_id) == ref2target.end()) {
-      addIgnoredDeviceIds(ref_id);
+      add_ignored_device_ids(ref_id);
       continue;
     }
 
@@ -331,15 +335,13 @@ void propagateDIDTransform(
 
     // For forward: target_id may not be logical.
     // For backward: ref_id may not be logical.
-    IterDomain* outermost_ref_id =
-        getOutermostLogicalId(ref_id, ref->getLogicalDomain());
-    IterDomain* outermost_target_id =
-        getOutermostLogicalId(target_id, tv->getLogicalDomain());
+    IterDomain* outermost_ref_id = getOutermostLogicalId(ref_id, ref);
+    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
 
     if (outermost_target_id->isParallelized() ||
-        !isInDomain(outermost_target_id, tv->getLoopDomain())) {
+        !is_in_domain(outermost_target_id, tv->getLoopDomain())) {
       // Target ID is further transformed or is already parallelized.
-      addIgnoredDeviceIds(ref_id);
+      add_ignored_device_ids(ref_id);
       ref2target.erase(ref_id);
       continue;
     }
