@@ -312,7 +312,8 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
     const std::vector<IterDomain*>& loop_id,
     const std::vector<IterDomain*>& target_domain) {
   const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id.begin(), loop_id.end()}, {target_domain.begin(), target_domain.end()});
+      {loop_id.begin(), loop_id.end()},
+      {target_domain.begin(), target_domain.end()});
 
   std::unordered_set<IterDomain*> inputs_as_iter_domains;
   inputs_as_iter_domains.reserve(inputs_as_vals.size());
@@ -465,8 +466,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* c_root_id :
-           getInputsInTargetDomain({c_loop_id}, consumer->getMaybeRootDomain())) {
+      for (IterDomain* c_root_id : getInputsInTargetDomain(
+               {c_loop_id}, consumer->getMaybeRootDomain())) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }
