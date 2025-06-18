@@ -914,7 +914,7 @@ if(BUILD_TEST)
   if(BUILD_LLVM)
     set(LLVM_COMPILE_TEST_SRCS)
     list(APPEND LLVM_COMPILE_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_llvm_compilation.cpp
+      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
     )
     add_test(test_llvm_compile "${LLVM_COMPILE_TEST_SRCS}" "")
     target_link_libraries(test_llvm_compile PUBLIC LLVM_JIT)
