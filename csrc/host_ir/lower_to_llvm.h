@@ -11,7 +11,6 @@
 
 namespace nvfuser {
 
-using AllocateFunc = std::function<at::Tensor(const std::vector<at::Tensor>&)>;
 class HostIrLlvmJit {
  public:
   // Get singleton instance
@@ -33,6 +32,5 @@ class HostIrLlvmJit {
   HostIrLlvmJit& operator=(HostIrLlvmJit&&) noexcept;
   struct LlvmJitImpl;
   std::unique_ptr<LlvmJitImpl> pimpl_;
-  std::unordered_map<const kir::Allocate*, AllocateFunc> allocate_funcs_;
 };
 } // namespace nvfuser

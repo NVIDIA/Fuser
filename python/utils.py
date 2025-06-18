@@ -468,7 +468,7 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
-        f"-DNVFUSER_BUILD_WITH_LLVM={on_or_off(config.build_with_llvm)}",
+        f"-DBUILD_LLVM={on_or_off(config.build_with_llvm)}",
         "-B",
         cmake_build_dir,
     ]

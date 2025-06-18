@@ -27,7 +27,54 @@ using HostIrLLVMTest = NVFuserTest;
 // NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir
 // --gtest_filter=HostIrLLVMTest.TestLLVMJIT
 TEST_F(HostIrLLVMTest, TestLLVMJIT) {
-  HostIrLlvmJit::getInstance(4).compile(nullptr);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  fusion.addInput(in);
+
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
+  ke->compile(&fusion, {t0});
+
+  auto hic = std::make_unique<HostIrContainer>(1);
+  FusionGuard::setCurFusion(hic.get());
+
+  hic->addKernelExecutor(std::move(ke));
+
+  IrCloner ir_cloner(hic.get());
+  auto hic_in = ir_cloner.clone(in);
+  auto hic_out = ir_cloner.clone(out);
+
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
+
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+  auto launch_kernel = IrBuilder::create<LaunchKernel>(
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out},
+      cache_id);
+
+  hic->pushBackTopLevelExprs(allocate);
+  hic->pushBackTopLevelExprs(launch_kernel);
+
+  HostIrLlvmJit::getInstance(4).compile(hic.get());
+  auto t = HostIrLlvmJit::getInstance(4).allocate(allocate, {32, 32});
+  EXPECT_TRUE(t.equal(t0));
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({{hic_in, t0}});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
 } // namespace hir
