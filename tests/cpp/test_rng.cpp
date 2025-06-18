@@ -566,13 +566,13 @@ TEST_F(RNGTest, SameAsRNGOp) {
   Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
   Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
 
-  TensorView* tv0 = uniform(
+  TensorView* tv0 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/nullptr,
       /*philox_offset*/ nullptr);
 
-  TensorView* tv1 = uniform(
+  TensorView* tv1 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/nullptr,
@@ -581,13 +581,13 @@ TEST_F(RNGTest, SameAsRNGOp) {
   // non deterministic rng op should not be the same
   EXPECT_FALSE(tv0->sameAs(tv1));
 
-  TensorView* tv2 = uniform(
+  TensorView* tv2 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/dynamic_s_1,
       /*philox_offset*/ dynamic_s_2);
 
-  TensorView* tv3 = uniform(
+  TensorView* tv3 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/dynamic_s_1,
