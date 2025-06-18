@@ -21,11 +21,11 @@ namespace nvfuser {
 
 namespace hir {
 
-using HostIrLLVMTest = NVFuserTest;
+using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_llvm ./bin/test_llvm_compile
-// --gtest_filter=HostIrLLVMTest.TestLLVMJITAtenCall
-TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
+// NVFUSER_ENABLE=host_ir_jit ./bin/test_jit
+// --gtest_filter=HostIrJitTest.TestJITAtenCall
+TEST_F(HostIrJitTest, TestJITAtenCall) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(2);

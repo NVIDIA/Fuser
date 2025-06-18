@@ -38,12 +38,12 @@
 
 namespace nvfuser {
 
-using at_empty_func = void* (*)(int64_t*, int64_t, void*);
+using allocate_fn = void* (*)(int64_t*, int64_t, void*);
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  std::unordered_map<const kir::Allocate*, at_empty_func> allocate_funcs_;
+  std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
 };
 
 // Helper function to exit on error on LLVM JIT initialization
@@ -54,7 +54,6 @@ T ExitOnErr(llvm::Expected<T>&& E) {
         false,
         "LLVM JIT Initialization Error: ",
         llvm::toString(E.takeError()));
-    llvm::errs() << llvm::toString(E.takeError()) << "\n";
     exit(1);
   }
   return std::move(*E);
@@ -65,7 +64,6 @@ inline void ExitOnErr(llvm::Error&& Err) {
     NVF_ERROR(
         false,
         "LLVM JIT Initialization Error: " + llvm::toString(std::move(Err)));
-    llvm::errs() << llvm::toString(std::move(Err)) << "\n";
     exit(1);
   }
 }
@@ -105,17 +103,17 @@ void generateAllocateFunc(
   llvm::Value* options_arg = func->getArg(2); // void*    (TensorOptions*)
 
   // Get the at::empty function pointer (registered in the JIT)
-  llvm::Function* empty_func = mod->getFunction("at::empty");
-  if (!empty_func) {
+  llvm::Function* at_empty_func = mod->getFunction("at::empty");
+  if (!at_empty_func) {
     llvm::FunctionType* empty_type = llvm::FunctionType::get(
         void_ptr_type, {int64_ptr_type, int64_type, void_ptr_type}, false);
-    empty_func = llvm::Function::Create(
+    at_empty_func = llvm::Function::Create(
         empty_type, llvm::Function::ExternalLinkage, "at::empty", mod);
   }
 
   // Call at::empty
   llvm::Value* result =
-      builder.CreateCall(empty_func, {sizes_arg, ndim_arg, options_arg});
+      builder.CreateCall(at_empty_func, {sizes_arg, ndim_arg, options_arg});
 
   // Return the result
   builder.CreateRet(result);
@@ -126,10 +124,13 @@ void generateAllocateFunc(
   if (llvm::verifyModule(*mod, &error_stream)) {
     NVF_ERROR(false, "LLVM module verification failed: " + error);
   }
+  bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
 
-  // Print the module
-  // llvm::outs() << "=== LLVM IR ===\n";
-  // mod->print(llvm::outs(), nullptr);
+  if (debug_print) {
+    // Print the module
+    llvm::outs() << "=== LLVM IR ===\n";
+    mod->print(llvm::outs(), nullptr);
+  }
 }
 
 // Constructor implementation
@@ -210,7 +211,7 @@ void HostIrJit::compile(const hir::HostIrContainer* container) {
   // Look up all functions and store their pointers
   for (const auto& [allocate, func_name] : allocate_func_names) {
     auto func_addr = ExitOnErr(pimpl_->jit->lookup(func_name));
-    auto func_ptr = func_addr.toPtr<at_empty_func>();
+    auto func_ptr = func_addr.toPtr<allocate_fn>();
     pimpl_->allocate_funcs_[allocate] = func_ptr;
   }
 }
