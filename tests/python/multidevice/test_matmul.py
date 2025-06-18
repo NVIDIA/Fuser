@@ -481,9 +481,9 @@ def test_row_parallel_grouped_mm(multidevice_test):
             self.sched.set_allocation_as_loop(self.w)
 
     m = 32
-    inp = torch.randn(m, k, dtype=torch.bfloat16)
+    inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16)
     sharded_inp = multidevice_test.shard_tensor(inp, -1, mesh)
-    w = torch.randn(g, k, n, dtype=torch.bfloat16)
+    w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
     sharded_w = multidevice_test.shard_tensor(w, 1, mesh)
     assert m % g == 0
     group_sizes = [m // g] * g
