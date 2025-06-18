@@ -308,19 +308,17 @@ std::pair<Val*, bool> computeLoopIndex(
 
 } // namespace
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
+std::unordered_set<IterDomain*> getInputsInTargetDomain(
+    const std::vector<IterDomain*>& loop_id,
     const std::vector<IterDomain*>& target_domain) {
   const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id}, {target_domain.begin(), target_domain.end()});
+      {loop_id.begin(), loop_id.end()}, {target_domain.begin(), target_domain.end()});
 
-  std::vector<IterDomain*> inputs_as_iter_domains;
+  std::unordered_set<IterDomain*> inputs_as_iter_domains;
   inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  std::transform(
-      inputs_as_vals.begin(),
-      inputs_as_vals.end(),
-      std::back_inserter(inputs_as_iter_domains),
-      [](Val* val) { return val->as<IterDomain>(); });
+  for (auto val : inputs_as_vals) {
+    inputs_as_iter_domains.insert(val->as<IterDomain>());
+  }
   return inputs_as_iter_domains;
 }
 
@@ -454,7 +452,7 @@ bool haveDifferentShardings(
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
       for (IterDomain* p_logical_id :
-           getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain())) {
+           getInputsInTargetDomain({p_loop_id}, producer->getLogicalDomain())) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -468,7 +466,7 @@ bool haveDifferentShardings(
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
       for (IterDomain* c_root_id :
-           getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain())) {
+           getInputsInTargetDomain({c_loop_id}, consumer->getMaybeRootDomain())) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }
