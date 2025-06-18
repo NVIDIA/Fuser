@@ -417,7 +417,6 @@ def test_column_parallel_grouped_mm(multidevice_test):
             self.add_output(out)
 
         def multidevice_schedule(self):
-            # Set device mesh for all tensors
             for t in [self.inp, self.w, self.offsets]:
                 self.sched._set_device_mesh(t, mesh)
 
@@ -444,4 +443,62 @@ def test_column_parallel_grouped_mm(multidevice_test):
 
     torch.testing.assert_close(
         out, multidevice_test.shard_tensor(expected_out, -1, mesh)
+    )
+
+
+@pytest.mark.mpi
+def test_row_parallel_grouped_mm(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    g = 4
+    k = 16 * d
+    n = 16
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor(
+                [-1, k], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.w = self.define_tensor(
+                [g, k, n], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.offsets = self.define_tensor(
+                [g], dtype=DataType.Int32, contiguity=True
+            )
+            out = self.ops.grouped_mm(self.inp, self.w, self.offsets)
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.w, self.offsets]:
+                self.sched._set_device_mesh(t, mesh)
+
+            self.sched.split(self.inp, -1, d, False)
+            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.inp)
+
+            self.sched.split(self.w, 1, d, False)
+            self.sched.parallelize(self.w, 1, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.w)
+
+    m = 32
+    inp = torch.randn(m, k, dtype=torch.bfloat16)
+    sharded_inp = multidevice_test.shard_tensor(inp, -1, mesh)
+    w = torch.randn(g, k, n, dtype=torch.bfloat16)
+    sharded_w = multidevice_test.shard_tensor(w, 1, mesh)
+    assert m % g == 0
+    group_sizes = [m // g] * g
+    offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
+
+    group_outs = [
+        group_in @ group_w
+        for group_in, group_w in zip(inp.split(group_sizes), w.unbind())
+    ]
+    expected_out = torch.cat(group_outs, dim=0)
+
+    fd = Model()
+    (out,), _ = fd.execute([sharded_inp, sharded_w, offsets])
+
+    torch.testing.assert_close(
+        out.cpu(),
+        expected_out,
     )
