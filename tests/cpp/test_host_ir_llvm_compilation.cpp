@@ -52,9 +52,13 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
-  auto* allocate0 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* allocate1 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* allocate2 = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  // Test single compile with multiple allocates with different sizes
+  auto* allocate0 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* allocate1 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* allocate2 =
+      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
   auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
@@ -69,15 +73,14 @@ TEST_F(HostIrLLVMTest, TestLLVMJITAtenCall) {
   hic->pushBackTopLevelExprs(allocate2);
   hic->pushBackTopLevelExprs(launch_kernel);
 
-  // Test single allocate with different sizes
   HostIrJit jit;
   jit.compile(hic.get());
-  auto t0 = jit.allocate(allocate0, {32, 32});
-  auto t1 = jit.allocate(allocate1, {64, 64});
-  auto t2 = jit.allocate(allocate2, {16, 128});
-  EXPECT_EQ(t0.sizes(), at::IntArrayRef({32, 32}));
-  EXPECT_EQ(t1.sizes(), at::IntArrayRef({64, 64}));
-  EXPECT_EQ(t2.sizes(), at::IntArrayRef({16, 128}));
+  auto allocated_t0 = jit.allocate(allocate0, {32, 32});
+  auto allocated_t1 = jit.allocate(allocate1, {64, 64});
+  auto allocated_t2 = jit.allocate(allocate2, {16, 128});
+  EXPECT_EQ(allocated_t0.sizes(), at::IntArrayRef({32, 32}));
+  EXPECT_EQ(allocated_t1.sizes(), at::IntArrayRef({64, 64}));
+  EXPECT_EQ(allocated_t2.sizes(), at::IntArrayRef({16, 128}));
 }
 
 } // namespace hir
