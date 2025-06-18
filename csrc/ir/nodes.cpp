@@ -5817,6 +5817,7 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
       (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
       "GroupedMmaOp expects 3 or 5 inputs but received ",
@@ -5902,6 +5903,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       at::ScalarType::BFloat16);
   result = result.to(data_type_to_aten(out()->dtype()));
   return {result};
+#else
+  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+#endif
 }
 
 IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
