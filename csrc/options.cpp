@@ -207,6 +207,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
           {"parallel_serde", DisableOption::ParallelSerde},
