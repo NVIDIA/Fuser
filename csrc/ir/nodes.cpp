@@ -1229,7 +1229,10 @@ RNGOp::RNGOp(
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
-  addAttribute(philox_index);
+  // Cannot add nullptr to attributes
+  if (philox_index) {
+    addAttribute(philox_index);
+  }
 }
 
 std::string RNGOp::toString(int indent_size) const {
