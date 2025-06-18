@@ -87,6 +87,7 @@ bool isTvOp(const Expr* expr) {
   if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
           ArgsortOp,
+          GroupedMmaOp,
           TopKOp,
           UnaryOp,
           BinaryOp,
