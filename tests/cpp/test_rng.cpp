@@ -558,13 +558,11 @@ TEST_F(RNGTest, DifferentOffsets) {
   }
 }
 
-TEST_F(RNGTest, SameAsRNGOp) {
+TEST_F(RNGTest, SameAsRNGOpNonDeterministic) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
   Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
-  Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
-  Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
 
   TensorView* tv0 = rand(
       {dynamic_s_0},
@@ -578,8 +576,19 @@ TEST_F(RNGTest, SameAsRNGOp) {
       /*philox_seed=*/nullptr,
       /*philox_offset*/ nullptr);
 
-  // non deterministic rng op should not be the same
+  // non deterministic rng op should not be considered the same. Otherwise,
+  // optimizations would mistakenly treated them as interchangeable and CSE
+  // might remove one of those resulting in behavior change.
   EXPECT_FALSE(tv0->sameAs(tv1));
+}
+
+TEST_F(RNGTest, SameAsRNGOpDeterministic) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
 
   TensorView* tv2 = rand(
       {dynamic_s_0},
@@ -593,7 +602,8 @@ TEST_F(RNGTest, SameAsRNGOp) {
       /*philox_seed=*/dynamic_s_1,
       /*philox_offset*/ dynamic_s_2);
 
-  // deterministic rng op sharing all the same seed should be the same
+  // deterministic rng op sharing all the same seed would produce the same
+  // output, hence can be used interchangeably.
   EXPECT_TRUE(tv2->sameAs(tv3));
 }
 
