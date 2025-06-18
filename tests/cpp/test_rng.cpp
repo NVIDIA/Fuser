@@ -591,13 +591,13 @@ TEST_F(RNGTest, SameAsRNGOpDeterministic) {
   Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
   Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
 
-  TensorView* tv2 = rand(
+  TensorView* tv0 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/dynamic_s_1,
       /*philox_offset*/ dynamic_s_2);
 
-  TensorView* tv3 = rand(
+  TensorView* tv1 = rand(
       {dynamic_s_0},
       DataType::Float,
       /*philox_seed=*/dynamic_s_1,
@@ -606,7 +606,7 @@ TEST_F(RNGTest, SameAsRNGOpDeterministic) {
   EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
   // deterministic rng op sharing all the same seed would produce the same
   // output, hence can be used interchangeably.
-  EXPECT_TRUE(tv2->sameAs(tv3));
+  EXPECT_TRUE(tv0->sameAs(tv1));
 }
 
 } // namespace nvfuser
