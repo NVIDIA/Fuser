@@ -140,18 +140,10 @@ void transformLoopDomain(
     std::unordered_map<IterDomain*, IterDomain*>& ref2target,
     const std::unordered_set<IterDomain*>& device_ids,
     PropagateDirection direction) {
-  // Parallelize based on the ref2target map.
-  for (auto& [ref_id, target_id] : ref2target) {
-    target_id->parallelize(ref_id->getParallelType());
-  }
 
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
       {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
       {device_ids.begin(), device_ids.end()});
-
-  if (transforms.empty()) {
-    return;
-  }
 
   // Start with the original loop domain.
   LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
@@ -246,8 +238,33 @@ void transformLoopDomain(
     ref2target[split->inner()] = inner;
   }
 
+  // Parallelize based on the ref2target map.
+  for (auto& [ref_id, target_id] : ref2target) {
+    target_id->parallelize(ref_id->getParallelType());
+  }
+
   auto new_loop = std::views::keys(transformed_loop);
   target->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+// Traverses root-to-logical transforms to find the outermost logical ID.
+IterDomain* getOutermostLogicalId(
+    IterDomain* id,
+    const std::vector<IterDomain*>& logical_domain) {
+  auto transforms = DependencyCheck::getAllExprsBetween(
+      {id}, {logical_domain.begin(), logical_domain.end()});
+
+  for (auto transform : transforms) {
+    if (transform->isA<Split>()) {
+      id = transform->as<Split>()->outer();
+    } else if (transform->isA<Merge>()) {
+      NVF_ERROR(
+          id == transform->as<Merge>()->outer(),
+          "Expected the sharding to be on the outer reshaped id.");
+      id = transform->as<Merge>()->out();
+    }
+  }
+  return id;
 }
 
 void propagateDIDTransform(
@@ -273,7 +290,7 @@ void propagateDIDTransform(
 
   std::unordered_set<IterDomain*> ignored_device_ids;
   std::unordered_map<IterDomain*, IterDomain*> ref2target;
-  std::vector<Val*> input_ids;
+  std::unordered_set<IterDomain*> input_ids;
 
   // Finds all device IDs that are dependent on the given id
   // and adds them to the ignored_device_ids set.
@@ -285,43 +302,23 @@ void propagateDIDTransform(
     }
   };
 
-  // Traverses root-to-logical transforms to find the outermost logical ID.
-  auto getOutermostLogicalId =
-      [](IterDomain* id,
-         const std::vector<IterDomain*>& logical_domain) -> IterDomain* {
-    auto transforms = DependencyCheck::getAllExprsBetween(
-        {id}, {logical_domain.begin(), logical_domain.end()});
-
-    for (auto transform : transforms) {
-      if (transform->isA<Split>()) {
-        id = transform->as<Split>()->outer();
-      } else if (transform->isA<Merge>()) {
-        NVF_ERROR(
-            id == transform->as<Merge>()->outer(),
-            "Expected the sharding to be on the outer reshaped id.");
-        id = transform->as<Merge>()->out();
-      }
-    }
-    return id;
-  };
-
   auto isInDomain = [](IterDomain* id,
                        const std::vector<IterDomain*>& domain) -> bool {
     return std::find(domain.begin(), domain.end(), id) != domain.end();
   };
 
   if (direction == PropagateDirection::kForward) {
-    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer();
-    input_ids = IterVisitor::getInputsTo(
+    input_ids = getInputsInTargetDomain(
         {device_ids.begin(), device_ids.end()},
         {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()});
+    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
   }
 
   if (direction == PropagateDirection::kBackward) {
-    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer();
-    input_ids = IterVisitor::getInputsTo(
+    input_ids = getInputsInTargetDomain(
         {device_ids.begin(), device_ids.end()},
         {ref->getMaybeRootDomain().begin(), ref->getMaybeRootDomain().end()});
+    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
   }
 
   for (IterDomain* ref_id : ir_utils::filterByType<IterDomain>(input_ids)) {
@@ -343,6 +340,7 @@ void propagateDIDTransform(
         !isInDomain(outermost_target_id, tv->getLoopDomain())) {
       // Target ID is further transformed or is already parallelized.
       addIgnoredDeviceIds(ref_id);
+      ref2target.erase(ref_id);
       continue;
     }
 
@@ -413,7 +411,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       propagateDIDTransform(
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
-          /*selected_parallel_types=*/selected_parallel_types,
+          selected_parallel_types,
           PropagateDirection::kForward);
     }
   }
@@ -471,7 +469,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     propagateDIDTransform(
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
-        /*selected_parallel_types=*/selected_parallel_types,
+        selected_parallel_types,
         PropagateDirection::kBackward);
   }
 }
