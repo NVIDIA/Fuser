@@ -520,6 +520,7 @@ set(NVF_CUTLASS_CUDA_FLAGS
 set(NVFUSER_CUTLASS_SRCS)
 list(APPEND NVFUSER_CUTLASS_SRCS
     ${NVFUSER_CUTLASS}/fp8_blockwise_moe_kernel.cu
+    ${NVFUSER_CUTLASS}/prepare_moe_input.cu
     )
     add_library(nvf_cutlass STATIC ${NVFUSER_CUTLASS_SRCS})
 set_target_properties(nvf_cutlass PROPERTIES
