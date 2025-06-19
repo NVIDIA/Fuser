@@ -622,12 +622,6 @@ void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
 }
 
 void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
-  // Disable all activities
-  disableCuptiActivities();
-
-  // Force flush any remaining activities
-  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(1));
-
   // Unsubscribe if we have a valid handle, so no future callbacks will be
   // associated with this handle.
   if (subscriber_handle != nullptr) {
@@ -836,7 +830,6 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 }
 
 FusionProfiler::~FusionProfiler() {
-  reset();
   teardownCupti(subscriber_handle_);
 }
 
