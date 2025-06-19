@@ -2,6 +2,8 @@
 #include <nvf_cutlass.h>
 #include <cutlass_moe_helper.cuh>
 
+#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cutlass/arch/arch.h>
 #include <torch/torch.h>
 
@@ -68,13 +70,6 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
   // Architecture definitions
   using ArchTag = cutlass::arch::Sm100;
   using OperatorClass = cutlass::arch::OpClassTensorOp;
-  // For fp8 block scale.
-  // using ScaleConfig =
-  // cutlass::detail::Sm100BlockwiseScaleConfig<ScaleGranularityM,
-  // ScaleGranularityN, ScaleGranularityK, cute::UMMA::Major::K,
-  // cute::UMMA::Major::K>; using LayoutSFA =
-  // decltype(ScaleConfig::deduce_layoutSFA()); using LayoutSFB =
-  // decltype(ScaleConfig::deduce_layoutSFB());
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -138,7 +133,9 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
   cutlass::KernelHardwareInfo hw_info;
 
   hw_info.device_id = 0;
-  hw_info.sm_count = 1;
+  // For SM100 Blackwell, the number of SM is 148.
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  hw_info.sm_count = dev_prop->multiProcessorCount;
   // Currently, we are only able to do broadcast on either all or none a_scales
   // and on either all or none b_scales
   typename GemmKernel::EpilogueArguments epilogue_args{
@@ -148,10 +145,8 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
       static_cast<ElementD**>(out_ptrs.data_ptr()),
       static_cast<StrideC*>(stride_c.data_ptr())};
 
-  // Initialize problem_sizes_as_shapes correctly
   UnderlyingProblemShape* problem_sizes_as_shapes =
       static_cast<UnderlyingProblemShape*>(problem_sizes.data_ptr());
-  // Use prob_shape in the GEMM arguments
   typename GemmKernel::Arguments args{
       cutlass::gemm::GemmUniversalMode::kGrouped,
       {num_experts, problem_sizes_as_shapes, nullptr},
@@ -159,17 +154,21 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
       epilogue_args,
       hw_info};
 
+  at::cuda::CUDAGuard device_guard{(char)a_ptrs.get_device()};
+  const cudaStream_t stream =
+      at::cuda::getCurrentCUDAStream(a_ptrs.get_device());
+
   auto can_implement_status = gemm_op.can_implement(args);
   NVF_CHECK(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
   // Run the GEMM
-  auto status = gemm_op.initialize(args, workspace.data_ptr());
+  auto status = gemm_op.initialize(args, workspace.data_ptr(), stream);
 
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
-  status = gemm_op.run();
+  status = gemm_op.run(stream);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 
