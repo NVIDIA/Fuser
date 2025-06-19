@@ -1,5 +1,5 @@
-#include <nvf_cutlass.h>
 #include <cutlass_utils.h>
+#include <nvf_cutlass.h>
 #include <cutlass_moe_helper.cuh>
 
 #include <cutlass/arch/arch.h>
@@ -443,7 +443,8 @@ void fp8_blockwise_scaled_grouped_mm(
 
   NVF_CHECK(
       can_implement,
-      "fp8_blockwise_scaled_mm is not implemented for current compute capability: ",
+      "fp8_blockwise_scaled_mm is not implemented for current compute "
+      "capability: ",
       sm_version);
 }
 
