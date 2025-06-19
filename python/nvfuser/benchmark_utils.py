@@ -5,30 +5,8 @@
 import torch
 import atexit
 import sys
-
-try:
-    from cupti import cupti
-except ImportError:
-    print("CUPTI not installed. Installing cupti-python...")
-    import subprocess
-
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "cupti-python"])
-    from cupti import cupti
-
-
-try:
-    import cxxfilt
-
-    def demangle_kernel_name(mangled_name):
-        try:
-            return cxxfilt.demangle(mangled_name)
-        except Exception:
-            return mangled_name  # Return original if demangling fails
-
-except ImportError:
-
-    def demangle_kernel_name(mangled_name):
-        return mangled_name  # Return original if cxxfilt not available
+from cupti import cupti
+import cxxfilt
 
 
 # Base class for all timers used by pytest-benchmark.
@@ -44,6 +22,13 @@ class Timer:
 
     def cleanup(self):
         pass
+
+
+def demangle_kernel_name(mangled_name):
+    try:
+        return cxxfilt.demangle(mangled_name)
+    except Exception:
+        return mangled_name  # Return original if demangling fails
 
 
 def cupti_call_safe(func, *args):
