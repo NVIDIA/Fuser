@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <sstream>
+#include <stdexcept>
+
 namespace nvfuser::cutlass_kernels {
 
 struct cuda_error : public std::runtime_error {
