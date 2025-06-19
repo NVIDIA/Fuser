@@ -60,31 +60,31 @@ class CuptiProfiler:
     activity_kinds = [
         cupti.ActivityKind.CONCURRENT_KERNEL,
     ]
-    _subscriber_handle = None
 
-    @staticmethod
-    def enable_cupti_activities():
+    __subscriber_handle = None
+
+    def enable_cupti_activities(self):
         for activity_kind in CuptiProfiler.activity_kinds:
             cupti_call_safe(cupti.activity_enable, activity_kind)
 
-    @staticmethod
-    def disable_cupti_activities():
+    def disable_cupti_activities(self):
         for activity_kind in CuptiProfiler.activity_kinds:
             cupti_call_safe(cupti.activity_disable, activity_kind)
 
-    @staticmethod
-    def func_buffer_requested():
+    def func_buffer_requested(self):
+        # 8MB buffer size as recommended by CUPTI samples.
         buffer_size = 8 * 1024 * 1024
         max_num_records = 0
         return buffer_size, max_num_records
 
     def func_buffer_completed(self, activities: list[cupti.ActivityAPI]):
         for activity in activities:
+            # Activity.end and Activity.start are in nanoseconds.
             duration = (activity.end - activity.start) / 1e9
             self.profiler_output.append((demangle_kernel_name(activity.name), duration))
 
     def __init__(self):
-        if CuptiProfiler._subscriber_handle is not None:
+        if CuptiProfiler.__subscriber_handle is not None:
             raise RuntimeError(
                 "Only one instance of CuptiProfiler can be created. "
                 "CUPTI only supports one subscriber at a time."
@@ -94,7 +94,7 @@ class CuptiProfiler:
         self.profiler_output = []
 
         # Subscribe to CUPTI and register activity callbacks.
-        CuptiProfiler._subscriber_handle = cupti_call_safe(cupti.subscribe, None, None)
+        CuptiProfiler.__subscriber_handle = cupti_call_safe(cupti.subscribe, None, None)
         cupti_call_safe(
             cupti.activity_register_callbacks,
             self.func_buffer_requested,
@@ -111,14 +111,13 @@ class CuptiProfiler:
         cupti_call_safe(cupti.activity_flush_all, 0)
         return self.profiler_output
 
-    @classmethod
-    def teardown_cupti(cls):
-        if cls._subscriber_handle is None:
+    def teardown_cupti(self):
+        if self.__subscriber_handle is None:
             return
 
-        cupti_call_safe(cupti.unsubscribe, cls._subscriber_handle)
+        cupti_call_safe(cupti.unsubscribe, self.__subscriber_handle)
         cupti_call_safe(cupti.finalize)
-        cls._subscriber_handle = None
+        self.__subscriber_handle = None
 
 
 class CuptiTimer(Timer):
