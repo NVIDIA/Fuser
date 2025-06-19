@@ -17,6 +17,7 @@ class BuildConfig:
     cmake_only: bool = False
     build_setup: bool = True
     no_python: bool = False
+    no_cutlass: bool = False
     no_test: bool = False
     no_benchmark: bool = False
     no_ninja: bool = False
@@ -71,6 +72,12 @@ def parse_args():
         dest="no_python",
         action="store_true",
         help="Skips python API target libnvfuser.so",
+    )
+    parser.add_argument(
+        "--no-cutlass",
+        dest="no_cutlass",
+        action="store_true",
+        help="Skips building cutlass kernels",
     )
     parser.add_argument(
         "--no-test",
@@ -193,6 +200,7 @@ def create_build_config():
     config = BuildConfig(
         cmake_only=args.cmake_only,
         no_python=args.no_python,
+        no_cutlass=args.no_cutlass,
         no_test=args.no_test,
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
@@ -233,6 +241,8 @@ def override_build_config_from_env(config):
         config.build_setup = get_env_flag_bool("NVFUSER_BUILD_SETUP")
     if "NVFUSER_BUILD_NO_PYTHON" in os.environ:
         config.no_python = get_env_flag_bool("NVFUSER_BUILD_NO_PYTHON")
+    if "NVFUSER_BUILD_NO_CUTLASS" in os.environ:
+        config.no_cutlass = get_env_flag_bool("NVFUSER_BUILD_NO_CUTLASS")
     if "NVFUSER_BUILD_NO_TEST" in os.environ:
         config.no_test = get_env_flag_bool("NVFUSER_BUILD_NO_TEST")
     if "NVFUSER_BUILD_NO_BENCHMARK" in os.environ:
@@ -454,7 +464,7 @@ def cmake(config, relative_path):
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
-        f"-DBUILD_CUTLASS=1",
+        f"-DBUILD_CUTLASS={on_or_off(not config.no_cutlass)}",
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
