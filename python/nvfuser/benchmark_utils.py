@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-import atexit
 import sys
 from cupti import cupti
 import cxxfilt
@@ -49,22 +48,20 @@ class CuptiProfiler:
     # Private class variable to store the subscriber handle.
     __subscriber_handle = None
 
-    def enable_cupti_activities(self) -> None:
-        for activity_kind in CuptiProfiler.activity_kinds:
-            cupti_call_safe(cupti.activity_enable, activity_kind)
+    def _error_if_not_valid(self) -> None:
+        if not self.is_valid:
+            raise RuntimeError(
+                "CuptiProfiler is not valid. " "This instance has been torn down."
+            )
 
-    def disable_cupti_activities(self) -> None:
-        for activity_kind in CuptiProfiler.activity_kinds:
-            cupti_call_safe(cupti.activity_disable, activity_kind)
-
-    def func_buffer_requested(self) -> tuple[int, int]:
+    def _func_buffer_requested(self) -> tuple[int, int]:
         # 8MB buffer size as recommended by CUPTI samples.
         # max_num_records=0 indicates the buffer is filled with as many records as possible.
         buffer_size = 8 * 1024 * 1024
         max_num_records = 0
         return buffer_size, max_num_records
 
-    def func_buffer_completed(self, activities: list[cupti.ActivityAPI]) -> None:
+    def _func_buffer_completed(self, activities: list[cupti.ActivityAPI]) -> None:
         for activity in activities:
             # Activity.end and Activity.start are in nanoseconds.
             duration = (activity.end - activity.start) / 1e9
@@ -77,33 +74,40 @@ class CuptiProfiler:
                 "CUPTI only supports one subscriber at a time."
             )
 
-        atexit.register(self.teardown_cupti)
         self.profiler_output: list[tuple[str, float]] = []
 
         # Subscribe to CUPTI and register activity callbacks.
         CuptiProfiler.__subscriber_handle = cupti_call_safe(cupti.subscribe, None, None)
         cupti_call_safe(
             cupti.activity_register_callbacks,
-            self.func_buffer_requested,
-            self.func_buffer_completed,
+            self._func_buffer_requested,
+            self._func_buffer_completed,
         )
+        self.is_valid = True
 
     def start(self) -> None:
+        self._error_if_not_valid()
         cupti_call_safe(cupti.activity_flush_all, 1)
         self.profiler_output = []
-        self.enable_cupti_activities()
+        for activity_kind in CuptiProfiler.activity_kinds:
+            cupti_call_safe(cupti.activity_enable, activity_kind)
 
     def stop(self) -> list[tuple[str, float]]:
-        self.disable_cupti_activities()
+        self._error_if_not_valid()
+        for activity_kind in CuptiProfiler.activity_kinds:
+            cupti_call_safe(cupti.activity_disable, activity_kind)
         cupti_call_safe(cupti.activity_flush_all, 0)
         return self.profiler_output
 
     def teardown_cupti(self) -> None:
+        self._error_if_not_valid()
         if CuptiProfiler.__subscriber_handle is None:
             return
         cupti_call_safe(cupti.unsubscribe, CuptiProfiler.__subscriber_handle)
         cupti_call_safe(cupti.finalize)
         CuptiProfiler.__subscriber_handle = None
+        # Invalidate the profiler so it cannot be used again.
+        self.is_valid = False
 
 
 class CuptiTimer(Timer):
