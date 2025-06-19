@@ -13,7 +13,7 @@ namespace nvfuser::python {
 namespace {
 
 void bindGroupedGemm(py::module_& cutlass) {
-  const char* docstring =
+  const char* fp8_blockwise_scaled_grouped_mm_docstring =
       R"(fp8_blockwise_scaled_grouped_mm(Tensor output, Tensor a_ptrs, Tensor b_ptrs, Tensor out_ptrs, "
          "Tensor a_scales_ptrs, Tensor b_scales_ptrs, Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, "
          "Tensor stride_a, Tensor stride_b, Tensor stride_c, Tensor layout_sfa, Tensor layout_sfb, "
@@ -21,7 +21,16 @@ void bindGroupedGemm(py::module_& cutlass) {
   cutlass.def(
       "fp8_blockwise_scaled_grouped_mm",
       &cutlass_kernels::fp8_blockwise_scaled_grouped_mm,
-      docstring);
+      fp8_blockwise_scaled_grouped_mm_docstring);
+
+  const char* nvfp4_blockwise_scaled_grouped_mm_docstring =
+      R"(nvfp4_blockwise_scaled_grouped_mm(Tensor! output, Tensor a, Tensor b, Tensor a_blockscale, "
+					 "Tensor b_blockscale, Tensor alphas, Tensor ab_strides, Tensor c_strides, Tensor problem_sizes, "
+					 "Tensor expert_offsets, Tensor sf_offsets) -> ())";
+  cutlass.def(
+      "nvfp4_blockwise_scaled_grouped_mm",
+      &cutlass_kernels::nvfp4_blockwise_scaled_grouped_mm,
+      nvfp4_blockwise_scaled_grouped_mm_docstring);
 }
 
 } // namespace

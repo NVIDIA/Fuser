@@ -508,6 +508,7 @@ set(NVF_CUTLASS_CUDA_FLAGS
 set(NVFUSER_CUTLASS_SRCS)
 list(APPEND NVFUSER_CUTLASS_SRCS
     ${NVFUSER_CUTLASS}/fp8_blockwise_moe_kernel.cu
+    ${NVFUSER_CUTLASS}/nvfp4_blockwise_moe_kernel.cu
     ${NVFUSER_CUTLASS}/cutlass_utils.cpp
     )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
