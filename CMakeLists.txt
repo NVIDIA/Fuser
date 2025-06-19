@@ -499,7 +499,6 @@ FetchContent_Populate(repo-cutlass)
 
 set(NVF_CUTLASS_CUDA_FLAGS
     "-DNDEBUG"
-    "-DOPERATOR_NAMESPACE=sgl-kernel"
     "-O3"
     "-Xcompiler"
     "-fPIC"

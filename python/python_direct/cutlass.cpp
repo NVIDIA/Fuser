@@ -14,9 +14,10 @@ namespace {
 
 void bindGroupedGemm(py::module_& cutlass) {
   const char* docstring =
-      R"(fp8_blockwise_scaled_grouped_mm(Tensor output, Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor "
-         "stride_a, Tensor stride_b, Tensor stride_c, Tensor layout_sfa, Tensor layout_sfb, Tensor problem_sizes, Tensor "
-         "expert_offsets))";
+      R"(fp8_blockwise_scaled_grouped_mm(Tensor output, Tensor a_ptrs, Tensor b_ptrs, Tensor out_ptrs, "
+         "Tensor a_scales_ptrs, Tensor b_scales_ptrs, Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, "
+         "Tensor stride_a, Tensor stride_b, Tensor stride_c, Tensor layout_sfa, Tensor layout_sfb, "
+         "Tensor problem_sizes, Tensor expert_offsets, Tensor workspace))";
   cutlass.def(
       "fp8_blockwise_scaled_grouped_mm",
       &cutlass_kernels::fp8_blockwise_scaled_grouped_mm,
