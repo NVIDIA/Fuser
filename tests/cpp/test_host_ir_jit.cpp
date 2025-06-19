@@ -9,7 +9,7 @@
 
 #include <fusion.h>
 #include <global_allocator.h>
-#include <host_ir/compile_to_llvm.h>
+#include <host_ir/jit.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
 #include <ir/all_nodes.h>
@@ -23,7 +23,7 @@ namespace hir {
 
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-llvm
-// NVFUSER_ENABLE=host_ir_jit ./bin/test_jit
+// Run with: NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir_jit
 // --gtest_filter=HostIrJitTest.TestJITAtenCall
 TEST_F(HostIrJitTest, TestJITAtenCall) {
   Fusion fusion;
@@ -73,8 +73,7 @@ TEST_F(HostIrJitTest, TestJITAtenCall) {
   hic->pushBackTopLevelExprs(allocate2);
   hic->pushBackTopLevelExprs(launch_kernel);
 
-  HostIrJit jit;
-  jit.compile(hic.get());
+  HostIrJit jit(hic.get());
   auto allocated_t0 = jit.allocate(allocate0, {32, 32});
   auto allocated_t1 = jit.allocate(allocate1, {64, 64});
   auto allocated_t2 = jit.allocate(allocate2, {16, 128});

@@ -34,7 +34,7 @@
 
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h> // for c10::optional
-#include <host_ir/compile_to_llvm.h>
+#include <host_ir/jit.h>
 
 namespace nvfuser {
 
@@ -133,8 +133,46 @@ void generateAllocateFunc(
   }
 }
 
+void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_) {
+  if (allocate_funcs_.size() > 0) {
+    return;
+  }
+  if (!container) {
+    NVF_ERROR(false, "container is nullptr during host ir JIT compilation");
+    return;
+  }
+  FUSER_PERF_SCOPE("HostIrJit::compile");
+  auto ctx = std::make_unique<llvm::LLVMContext>();
+  auto mod = std::make_unique<llvm::Module>(
+      "host_ir_container_" +
+          std::to_string(reinterpret_cast<uintptr_t>(container)),
+      *ctx);
+  std::unordered_map<const kir::Allocate*, std::string> allocate_func_names;
+  for (auto expr : container->topLevelExprs()) {
+    if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
+      // Generate a unique function name for this allocate
+      std::string func_name = "create_tensor_from_sizes_" +
+          std::to_string(reinterpret_cast<uintptr_t>(allocate));
+      generateAllocateFunc(allocate, mod.get(), func_name);
+      // Store the mapping from allocate to function name
+      allocate_func_names[allocate] = func_name;
+    }
+  }
+
+  // Add the module to the JIT
+  ExitOnErr(jit->addIRModule(
+      llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
+
+  // Look up all functions and store their pointers
+  for (const auto& [allocate, func_name] : allocate_func_names) {
+    auto func_addr = ExitOnErr(jit->lookup(func_name));
+    auto func_ptr = func_addr.toPtr<allocate_fn>();
+    allocate_funcs_[allocate] = func_ptr;
+  }
+}
+
 // Constructor implementation
-HostIrJit::HostIrJit(int num_threads) : pimpl_(new LlvmJitImpl) {
+HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads) : pimpl_(new LlvmJitImpl) {
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   pimpl_->jit = ExitOnErr(
@@ -178,43 +216,10 @@ HostIrJit::HostIrJit(int num_threads) : pimpl_(new LlvmJitImpl) {
       llvm::orc::ExecutorSymbolDef(empty_addr, llvm::JITSymbolFlags::Exported);
 
   ExitOnErr(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
+  compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_);
 }
 
 HostIrJit::~HostIrJit() = default;
-
-void HostIrJit::compile(const hir::HostIrContainer* container) {
-  if (pimpl_->allocate_funcs_.size() > 0) {
-    return;
-  }
-  FUSER_PERF_SCOPE("HostIrJit::compile");
-  auto ctx = std::make_unique<llvm::LLVMContext>();
-  auto mod = std::make_unique<llvm::Module>(
-      "host_ir_container_" +
-          std::to_string(reinterpret_cast<uintptr_t>(container)),
-      *ctx);
-  std::unordered_map<const kir::Allocate*, std::string> allocate_func_names;
-  for (auto expr : container->topLevelExprs()) {
-    if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
-      // Generate a unique function name for this allocate
-      std::string func_name = "create_tensor_from_sizes_" +
-          std::to_string(reinterpret_cast<uintptr_t>(allocate));
-      generateAllocateFunc(allocate, mod.get(), func_name);
-      // Store the mapping from allocate to function name
-      allocate_func_names[allocate] = func_name;
-    }
-  }
-
-  // Add the module to the JIT
-  ExitOnErr(pimpl_->jit->addIRModule(
-      llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
-
-  // Look up all functions and store their pointers
-  for (const auto& [allocate, func_name] : allocate_func_names) {
-    auto func_addr = ExitOnErr(pimpl_->jit->lookup(func_name));
-    auto func_ptr = func_addr.toPtr<allocate_fn>();
-    pimpl_->allocate_funcs_[allocate] = func_ptr;
-  }
-}
 
 at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,

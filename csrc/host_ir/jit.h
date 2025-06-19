@@ -14,15 +14,13 @@ namespace nvfuser {
 
 class HostIrJit {
  public:
-  // Compile a host ir container.
-  void compile(const hir::HostIrContainer* container);
 
   // Run with the given input tensors.
   at::Tensor allocate(
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes);
 
-  HostIrJit(int num_threads = 4);
+  HostIrJit(hir::HostIrContainer* container = nullptr, int num_threads = 4);
   ~HostIrJit();
 
  private:
