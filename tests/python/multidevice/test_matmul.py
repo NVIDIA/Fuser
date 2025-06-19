@@ -240,57 +240,7 @@ def test_linear_reduce_scatter(multidevice_test):
 
 
 @pytest.mark.mpi
-def test_matmul_allreduce(multidevice_test):
-    d, b, s, e = multidevice_test.size, 1, 4, 8
-
-    class Model(FusionDefinition):
-        def definition(self) -> None:
-            # A pattern appeared in the backprop of the first linear layer in
-            # Transformer's MLP.
-            self.out_grad = self.define_tensor(
-                [d, b * s, e], contiguity=True, dtype=DataType.Half
-            )
-            self.weight = self.define_tensor(
-                [d, e, e], contiguity=True, dtype=DataType.Half
-            )
-            in_grad = self.ops.matmul(self.out_grad, self.weight)
-            in_grad = self.ops.sum(in_grad, [0])
-            in_grad = self.ops.reshape(in_grad, [b, s, e])
-            in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
-            self.add_output(in_grad)
-
-        def multidevice_schedule(self) -> None:
-            mesh = nvfuser.DeviceMesh(range(d))
-            for t in [self.out_grad, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-
-    rank = multidevice_test.rank
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    unsharded_out_grad = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
-    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
-    expected_in_grad = (
-        (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
-    )
-
-    out_grad = (
-        unsharded_out_grad.view([b * s, d, e])
-        .permute([1, 0, 2])
-        .contiguous()[rank : rank + 1]
-    )
-    weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
-
-    fd = Model()
-    (in_grad,), _ = fd.execute([out_grad.cuda(), weight.cuda()])
-    # Use the default rtol for half because the output, although being float32,
-    # is a straight cast from half.
-    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
-
-
-@pytest.mark.mpi
-def test_matmul_loop_split(multidevice_test):
+def test_column_parallel_matmul(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     e = 768
@@ -339,7 +289,7 @@ def test_matmul_loop_split(multidevice_test):
 
 
 @pytest.mark.mpi
-def test_matmul_allreduce_loop_split(multidevice_test):
+def test_row_parallel_matmul(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     e = 8
@@ -396,6 +346,10 @@ def test_matmul_allreduce_loop_split(multidevice_test):
 
 @pytest.mark.mpi
 def test_column_parallel_grouped_mm(multidevice_test):
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    if (prop.major, prop.minor) != (9, 0):
+        pytest.skip("at::_grouped_mm only supports sm90.")
+
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
