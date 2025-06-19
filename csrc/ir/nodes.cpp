@@ -217,8 +217,7 @@ std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   return {at::index_put(
       /*self=*/inputs.at(0).as<at::Tensor>(),
-      // NOTE: aten API doesn't allow the broadcast dimension
-      /*indices=*/{inputs.at(1).as<at::Tensor>().squeeze(-1)},
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
       /*values=*/inputs.at(2).as<at::Tensor>(),
       /*accumulate=*/true)};
 }
