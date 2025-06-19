@@ -107,12 +107,18 @@ class NVFBenchmark:
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
         self.device = device
-        if not BENCHMARK_CONFIG["with_nsys"]:
-            self._setup_timer(benchmark_fixture, device, precision)
+        self._setup_timer(benchmark_fixture, device, precision)
         self.benchmark = benchmark_fixture
 
     def _setup_timer(self, benchmark_fixture, device: str, precision: float):
         """Setup the appropriate timer based on device type."""
+        if BENCHMARK_CONFIG["with_nsys"]:
+            warnings.warn(
+                "NSYS is enabled. No profiler will be used and pytest will report wall-clock time. "
+                "Please refer to the nsys report for accurate timings."
+            )
+            return
+
         # Timer selection based on device
         timer_class = TorchProfileTimer if device == "cuda" else FusionProfileTimer
         benchmark_fixture._timer = timer_class()
