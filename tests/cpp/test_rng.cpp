@@ -558,4 +558,55 @@ TEST_F(RNGTest, DifferentOffsets) {
   }
 }
 
+TEST_F(RNGTest, SameAsRNGOpNonDeterministic) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* tv0 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  TensorView* tv1 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/nullptr,
+      /*philox_offset*/ nullptr);
+
+  // non-deterministic rng op should still be considered the same, given their
+  // inputs/attributes are the same
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
+  // value output from non-deterministic rng op should be considered different
+  EXPECT_FALSE(tv0->sameAs(tv1));
+}
+
+TEST_F(RNGTest, SameAsRNGOpDeterministic) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  Val* dynamic_s_0 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_1 = IrBuilder::create<Val>(DataType::Int);
+  Val* dynamic_s_2 = IrBuilder::create<Val>(DataType::Int);
+
+  TensorView* tv0 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  TensorView* tv1 = rand(
+      {dynamic_s_0},
+      DataType::Float,
+      /*philox_seed=*/dynamic_s_1,
+      /*philox_offset*/ dynamic_s_2);
+
+  EXPECT_TRUE(tv0->definition()->sameAs(tv1->definition()));
+  // deterministic rng op sharing all the same seed would produce the same
+  // output, hence can be used interchangeably.
+  EXPECT_TRUE(tv0->sameAs(tv1));
+}
+
 } // namespace nvfuser

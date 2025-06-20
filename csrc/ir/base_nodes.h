@@ -521,6 +521,10 @@ class NVF_API Expr : public Statement {
 
   bool sameAs(const Statement* other) const override;
 
+  virtual bool isDeterministic() const {
+    return true;
+  }
+
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const;
