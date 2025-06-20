@@ -35,10 +35,11 @@
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h> // for c10::optional
 #include <host_ir/jit.h>
+#include <functional>
 
 namespace nvfuser {
 
-using allocate_fn = void* (*)(int64_t*, int64_t, void*);
+using allocate_fn = std::function<void*(int64_t*, int64_t, void*)>;
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
@@ -71,11 +72,12 @@ inline void ExitOnErr(llvm::Error&& Err) {
 // Generate a function that calls at::empty_strided or at::empty
 void generateAllocateFunc(
     const kir::Allocate* allocate,
-    llvm::Module* mod,
-    const std::string& func_name) {
+    llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
   llvm::IRBuilder<> builder(context);
 
+  std::string func_name = "create_tensor_from_sizes_" +
+          std::to_string(reinterpret_cast<uintptr_t>(allocate));
   // Define function signature: at::Tensor func(const std::vector<int64_t>&
   // strides)
   llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
@@ -104,11 +106,11 @@ void generateAllocateFunc(
 
   // Get the at::empty function pointer (registered in the JIT)
   llvm::Function* at_empty_func = mod->getFunction("at::empty");
-  if (!at_empty_func) {
-    llvm::FunctionType* empty_type = llvm::FunctionType::get(
+  if (at_empty_func == nullptr) {
+    llvm::FunctionType* at_empty_func_type = llvm::FunctionType::get(
         void_ptr_type, {int64_ptr_type, int64_type, void_ptr_type}, false);
     at_empty_func = llvm::Function::Create(
-        empty_type, llvm::Function::ExternalLinkage, "at::empty", mod);
+        at_empty_func_type, llvm::Function::ExternalLinkage, "at::empty", mod);
   }
 
   // Call at::empty
@@ -121,13 +123,11 @@ void generateAllocateFunc(
   // Verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
-  if (llvm::verifyModule(*mod, &error_stream)) {
-    NVF_ERROR(false, "LLVM module verification failed: " + error);
-  }
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
 
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    // Print the module
+    // Print the LLVM IR module
     llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
   }
@@ -137,7 +137,7 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   if (allocate_funcs_.size() > 0) {
     return;
   }
-  if (!container) {
+  if (container == nullptr) {
     NVF_ERROR(false, "container is nullptr during host ir JIT compilation");
     return;
   }
@@ -151,11 +151,10 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   for (auto expr : container->topLevelExprs()) {
     if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
       // Generate a unique function name for this allocate
-      std::string func_name = "create_tensor_from_sizes_" +
-          std::to_string(reinterpret_cast<uintptr_t>(allocate));
-      generateAllocateFunc(allocate, mod.get(), func_name);
+      generateAllocateFunc(allocate, mod.get());
       // Store the mapping from allocate to function name
-      allocate_func_names[allocate] = func_name;
+      allocate_func_names[allocate] = "create_tensor_from_sizes_" +
+          std::to_string(reinterpret_cast<uintptr_t>(allocate));
     }
   }
 
@@ -166,8 +165,8 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   // Look up all functions and store their pointers
   for (const auto& [allocate, func_name] : allocate_func_names) {
     auto func_addr = ExitOnErr(jit->lookup(func_name));
-    auto func_ptr = func_addr.toPtr<allocate_fn>();
-    allocate_funcs_[allocate] = func_ptr;
+    // Lookup and reinterpret the function pointer to store in the map
+    allocate_funcs_[allocate] = allocate_fn(reinterpret_cast<void*(*)(int64_t*, int64_t, void*)>(func_addr.getValue()));
   }
 }
 
@@ -224,8 +223,8 @@ HostIrJit::~HostIrJit() = default;
 at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,
     const std::vector<int64_t>& input_sizes) {
-  if (!pimpl_->allocate_funcs_[allocate]) {
-    NVF_ERROR(false, "create_tensor_from_sizes function not found");
+  if (pimpl_->allocate_funcs_.find(allocate) == pimpl_->allocate_funcs_.end()) {
+    NVF_ERROR(false, "allocate function not found for ", allocate);
   }
   auto func_ptr = pimpl_->allocate_funcs_[allocate];
   at::TensorOptions opts = at::TensorOptions().device(at::kCUDA);

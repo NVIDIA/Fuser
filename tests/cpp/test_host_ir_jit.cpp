@@ -16,6 +16,7 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <random>
 
 namespace nvfuser {
 
@@ -52,13 +53,17 @@ TEST_F(HostIrJitTest, TestJITAtenCall) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
-  // Test single compile with multiple allocates with different sizes
-  auto* allocate0 =
+  // Adjust the number of allocates and calls to each allocate
+  int num_allocates = 10;
+  int num_calls_per_allocate = 10;
+  std::vector<kir::Allocate*> allocates;
+  for(int i = 0; i < num_allocates; i++) {
+    auto* allocate =
       IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* allocate1 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* allocate2 =
-      IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+    allocates.push_back(allocate);
+    hic->pushBackTopLevelExprs(allocate);
+  }
+  
   auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
@@ -68,18 +73,17 @@ TEST_F(HostIrJitTest, TestJITAtenCall) {
       std::vector<Val*>{hic_out},
       cache_id);
 
-  hic->pushBackTopLevelExprs(allocate0);
-  hic->pushBackTopLevelExprs(allocate1);
-  hic->pushBackTopLevelExprs(allocate2);
   hic->pushBackTopLevelExprs(launch_kernel);
 
   HostIrJit jit(hic.get());
-  auto allocated_t0 = jit.allocate(allocate0, {32, 32});
-  auto allocated_t1 = jit.allocate(allocate1, {64, 64});
-  auto allocated_t2 = jit.allocate(allocate2, {16, 128});
-  EXPECT_EQ(allocated_t0.sizes(), at::IntArrayRef({32, 32}));
-  EXPECT_EQ(allocated_t1.sizes(), at::IntArrayRef({64, 64}));
-  EXPECT_EQ(allocated_t2.sizes(), at::IntArrayRef({16, 128}));
+  for(auto* allocate : allocates) {
+    for(int i = 0; i < num_calls_per_allocate; i++) {
+      int first_dim = std::rand() % 100;
+      int second_dim = std::rand() % 100;
+      auto allocated_t = jit.allocate(allocate, {first_dim, second_dim});
+      EXPECT_EQ(allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
+    }
+  }
 }
 
 } // namespace hir
