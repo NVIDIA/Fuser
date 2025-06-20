@@ -31,8 +31,18 @@ void bindBaseNodes(py::module& nvfuser) {
           R"(Get string representation of Statement.)");
 
   // Val
-  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(
-      nvfuser, "Val");
+  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(nvfuser, "Val")
+      .def(
+          "is_symbolic",
+          &Val::isSymbolic,
+          R"(
+Check if this value is symbolic (not a concrete value).
+
+Returns
+-------
+bool
+    True if the value is symbolic, False otherwise.
+)");
 
   // Expr
   py::class_<Expr, Statement, std::unique_ptr<Expr, py::nodelete>>(
@@ -249,6 +259,32 @@ void bindDefineTensor(py::module& nvfuser) {
           py::return_value_policy::reference);
 }
 
+void bindScalar(py::module& nvfuser) {
+  nvfuser.def(
+      "define_scalar",
+      [](PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) {
+        PolymorphicValue cast_value(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value));
+        PrimDataType value_dtype(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(cast_value).type));
+        return IrBuilder::create<Val>(cast_value, value_dtype);
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
+  nvfuser.def(
+      "define_scalar",
+      [](PrimDataType dtype) {
+        return IrBuilder::create<Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindFusionIr(py::module& nvfuser) {
@@ -256,6 +292,7 @@ void bindFusionIr(py::module& nvfuser) {
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);
   bindDefineTensor(nvfuser);
+  bindScalar(nvfuser);
 }
 
 } // namespace nvfuser::python
