@@ -62,7 +62,7 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto [vocab, hidden, seq] = GetParam();
 
   std::vector<int64_t> shape1({seq, hidden});
-  std::vector<int64_t> shape2({seq, 1});
+  std::vector<int64_t> shape2({seq});
 
   auto tv_value = makeSymbolicTensor(shape1);
   fusion.addInput(tv_value);
@@ -96,14 +96,14 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   // see [ Note -- IndexPutAccumulateOp semantics ]
   // args:
   //     buf      [ ID_indexed_g0, ID_g0 ]
-  //     tv_index [ ID_indexing_g1, ID_broadcast ]
+  //     tv_index [ ID_indexing_g1 ]
   //     tv_value [ ID_indexing_g1, ID_g0 ]
   // output:
   //     out      [ ID_indexed_g0, ID_g0 ]
   map_logical({true, true}, buf, out);
   // depends on the size of ID_g0, it would map to ID_broadcast when hidden is
   // size-1 dimension
-  map_logical({false, hidden == 1}, tv_index, out);
+  map_logical({false}, tv_index, out);
   map_logical({false, true}, tv_value, out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
