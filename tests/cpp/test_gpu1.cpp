@@ -2198,7 +2198,7 @@ void test_op(
       std::make_index_sequence<size>{});
 }
 
-TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
+TEST_F(NVFuserTest, UnaryOps) {
   using OpTuple =
       std::tuple<at::Tensor (*)(const at::Tensor&), UnaryOpType, std::string>;
 
@@ -2355,7 +2355,7 @@ TEST_F(NVFuserTest, FusionUnaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
+TEST_F(NVFuserTest, BinaryOps) {
   using AtenFuncSig = at::Tensor (*)(const at::Tensor&, const at::Tensor&);
   using OpTuple = std::tuple<AtenFuncSig, BinaryOpType, std::string>;
 
@@ -2528,7 +2528,7 @@ TEST_F(NVFuserTest, FusionBinaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
+TEST_F(NVFuserTest, TernaryOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2613,7 +2613,7 @@ TEST_F(NVFuserTest, FusionTernaryOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
+TEST_F(NVFuserTest, CompoundOps) {
   std::vector<DataType> dtypes = {
       DataType::Double,
       DataType::Float,
@@ -2665,7 +2665,7 @@ TEST_F(NVFuserTest, FusionCompoundOps_CUDA) {
   }
 }
 
-TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
+TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
       {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
   std::vector<DataType> cast_targets(
@@ -2756,6 +2756,77 @@ TEST_F(NVFuserTest, BitCeilKernel) {
 
   EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
 }
+
+class AdvancedDtypeTest : public NVFuserFixtureParamTest<bool> {
+ protected:
+  bool use_dynamic_shape;
+  void SetUp() {
+    use_dynamic_shape = GetParam();
+  }
+};
+
+TEST_P(AdvancedDtypeTest, CopyKernelPointer) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype = PointerType{std::make_shared<DataType>(DataType::Float)};
+
+  TensorView* tv0 = use_dynamic_shape ? makeContigTensor(1, dtype)
+                                      : makeContigConcreteTensor({1024}, dtype);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt64).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 1LL << 62, {1024}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
+TEST_P(AdvancedDtypeTest, CopyKernel3ByteArray) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  DataType dtype = ArrayType{std::make_shared<DataType>(DataType::Byte), 3};
+
+  TensorView* tv0 = use_dynamic_shape ? makeContigTensor(1, dtype)
+                                      : makeContigConcreteTensor({300}, dtype);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {900}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
+std::string advancedDtypeTestName(const testing::TestParamInfo<bool>& info) {
+  const auto& dynamic_shape = info.param;
+  return "DynamicShape" + std::to_string(dynamic_shape);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    AdvancedDtypeTest,
+    testing::Values(false, true),
+    advancedDtypeTestName);
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
