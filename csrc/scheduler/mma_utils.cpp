@@ -514,6 +514,10 @@ std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
         id = split->in();
         continue;
       }
+    } else if (auto merge = dynamic_cast<Merge*>(id->definition());
+               merge && id == merge->out()) {
+      id = merge->inner();
+      continue;
     }
     // Didn't pass the inner most check, return empty.
     return std::nullopt;
