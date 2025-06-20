@@ -541,6 +541,7 @@ def run(config, version_tag, relative_path):
         # might can be treated by using `exclude_package_data`.
         nvfuser_common_package_data = [
             "lib/libnvfuser_codegen.so",
+            "lib/libnvf_cutlass.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",
