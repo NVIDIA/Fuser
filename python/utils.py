@@ -24,7 +24,6 @@ class BuildConfig:
     build_with_ucc: bool = False
     build_with_asan: bool = False
     build_without_distributed: bool = False
-    build_with_system_nvtx: bool = True
     explicit_error_check: bool = False
     overwrite_version: bool = False
     version_tag: str = None
@@ -207,7 +206,6 @@ def create_build_config():
         build_with_ucc=args.build_with_ucc,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
-        build_with_system_nvtx=not args.no_system_nvtx,
         explicit_error_check=args.explicit_error_check,
         wheel_name=args.wheel_name,
         build_dir=args.build_dir,
@@ -256,10 +254,6 @@ def override_build_config_from_env(config):
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
         config.build_without_distributed = get_env_flag_bool(
             "NVFUSER_BUILD_WITHOUT_DISTRIBUTED"
-        )
-    if "NVFUSER_BUILD_WITH_SYSTEM_NVTX" in os.environ:
-        config.build_with_system_nvtx = get_env_flag_bool(
-            "NVFUSER_BUILD_WITH_SYSTEM_NVTX"
         )
     if "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK" in os.environ:
         config.explicit_error_check = get_env_flag_bool(
@@ -468,7 +462,6 @@ def cmake(config, relative_path):
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
         "-B",
         cmake_build_dir,
     ]
