@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#ifdef NVFUSER_CUTLASS
+
 #include <bindings.h>
 #include <nvf_cutlass.h>
 
@@ -33,3 +35,5 @@ void bindCutlass(py::module& nvfuser) {
 }
 
 } // namespace nvfuser::python
+
+#endif

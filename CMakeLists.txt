@@ -471,9 +471,12 @@ install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
 if(BUILD_CUTLASS)
 enable_language(CUDA)
 
+option(NVFUSER_CUTLASS "Build nvFuser with cutlass" OFF)
 set(CUTLASS_STATUS "DISABLED - Detected Incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
+
 if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
 set (CUTLASS_STATUS = "ENABLED - Detected CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
+option(NVFUSER_CUTLASS "Build nvFuser with cutlass" ON)
 
 find_package(CUDAToolkit REQUIRED)
 include(FetchContent)
