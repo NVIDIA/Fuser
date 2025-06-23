@@ -20,7 +20,8 @@ class HostIrJit {
   // Run with the given input tensors.
   at::Tensor allocate(
       const kir::Allocate* allocate,
-      const std::vector<int64_t>& input_sizes);
+      const std::vector<int64_t>& input_sizes,
+      const std::vector<int64_t>& input_strides);
 
   HostIrJit(
       hir::HostIrContainer* container,
