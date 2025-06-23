@@ -1317,4 +1317,72 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_hidden_" << std::get<3>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // Enable warp specialization explicitly
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+
+  int64_t dim0 = 2048;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion_ptr->addInput(tv0);
+  fusion_ptr->addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv1, {0});
+  tv5 = maybeCastOp(dtype, tv5);
+  fusion_ptr->addOutput(tv5);
+  fusion_ptr->addOutput(tv6);
+  auto fusion_copy = *fusion_ptr;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+
+  // Get default heuristics and revise unroll_factor_iter_dom to 1
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerOuterPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler = SchedulerEntry::makeSchedulerInstance(
+      SchedulerType::InnerOuterPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+
+  // Revise unroll_factor_iter_dom to 1 to enable static warp reduction
+  heuristic_params->as<ReductionParams>()->unroll_factor_iter_dom = 1;
+
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+
+  // Validate that static warp reduction is used by checking the generated code
+  std::string kernel_code = ke.compiledKernel()->kernelString();
+
+  // Check for the specific static warp reduction function call
+  EXPECT_TRUE(
+      kernel_code.find("warp::staticWarpAllReduceTIDX<false, false") !=
+      std::string::npos)
+      << "Static warp reduction function 'warp::staticWarpAllReduceTIDX<false, "
+         "false' not found in kernel code";
+
+  testValidate(&fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
