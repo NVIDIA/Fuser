@@ -336,6 +336,9 @@ bool Expr::sameAs(const Statement* other) const {
   if (!sameOp(other_expr)) {
     return false;
   }
+  if (isDeterministic() != other->isDeterministic()) {
+    return false;
+  }
   for (const auto i : arange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
       return false;
