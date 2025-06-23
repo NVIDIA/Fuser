@@ -47,7 +47,8 @@
 
 namespace nvfuser {
 
-using allocate_fn = std::function<std::shared_ptr<at::Tensor>(int64_t*, int64_t, int64_t*, int64_t)>;
+using allocate_fn =
+    at::Tensor* (*)(int64_t*, int64_t, int64_t*, int64_t);
 
 class HostIrJitParams {
   private:
@@ -220,9 +221,7 @@ void generateAllocateFunc(
 
   // Create constants for type and device from params
   llvm::Value* dtype_constant = llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
-  std::cout << "generateAllocateFunc device_index: " << params.getDeviceId() << std::endl;
   llvm::Value* device_index_constant = llvm::ConstantInt::get(int64_type, params.getDeviceId());
-  device_index_constant->print(llvm::outs());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the JIT)
   llvm::Function* at_empty_strided_cuda_func = mod->getFunction("at::native::empty_strided_cuda");
@@ -245,12 +244,12 @@ void generateAllocateFunc(
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
 
-  // const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
-  // if (debug_print) {
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
     // Print the LLVM IR module
     llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
-  // }
+  }
 }
 
 void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& params) {
@@ -290,7 +289,9 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   for (const auto& [allocate, func_name] : allocate_func_names) {
     auto func_addr = ExitOnErr(jit->lookup(func_name));
     // Lookup and reinterpret the function pointer to store in the map
-    allocate_funcs_[allocate] = allocate_fn(reinterpret_cast<std::shared_ptr<at::Tensor>(*)(int64_t*, int64_t, int64_t*, int64_t)>(func_addr.getValue()));
+    allocate_funcs_[allocate] =
+        (allocate_fn)reinterpret_cast<at::Tensor* (*)(
+            int64_t*, int64_t, int64_t*, int64_t)>(func_addr.getValue());
   }
 }
 
@@ -316,18 +317,25 @@ HostIrJit::HostIrJit(
 
   // Create wrapper function pointer to at::native::empty_strided_cuda
   void* empty_strided_cuda_func_ptr = reinterpret_cast<void*>(
-      +[](int64_t* sizes, int64_t ndim, int64_t* strides, int64_t strides_ndim, int32_t dtype, int64_t device_index) -> std::shared_ptr<at::Tensor> {
+      +[](int64_t* sizes,
+          int64_t ndim,
+          int64_t* strides,
+          int64_t strides_ndim,
+          int32_t dtype,
+          int64_t device_index) -> at::Tensor* {
         at::IntArrayRef aten_sizes(sizes, ndim);
         at::IntArrayRef aten_strides(strides, strides_ndim);
         // Use the type and device passed as parameters
         at::ScalarType scalar_type = static_cast<at::ScalarType>(dtype);
-        std::cout << "wrapper dtype: " << dtype << std::endl;
-        std::cout << "wrapper device_index: " << device_index << std::endl;
-        std::cout << "wrapper sizes: " << ndim << std::endl;
-        std::cout << "wrapper strides: " << strides_ndim << std::endl;
-        at::Device device = at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
-        return std::make_shared<at::Tensor>(
-            at::native::empty_strided_cuda(aten_sizes, aten_strides, scalar_type, c10::nullopt, device, c10::nullopt));
+        at::Device device =
+            at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
+        return new at::Tensor(at::native::empty_strided_cuda(
+            aten_sizes,
+            aten_strides,
+            scalar_type,
+            c10::nullopt,
+            device,
+            c10::nullopt));
       });
 
   // Register at::native::empty_strided_cuda function in LLVM
@@ -373,7 +381,9 @@ at::Tensor HostIrJit::allocate(
   delete[] input_sizes_data;
   delete[] input_strides_data;
   
-  return *result; // Dereference the shared_ptr to return the tensor, we made a copy of the tensor
+  at::Tensor tensor = *result;
+  delete result;
+  return tensor;
 }
 
 } // namespace nvfuser
