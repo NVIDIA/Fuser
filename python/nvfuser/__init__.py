@@ -61,7 +61,7 @@ def disable_automatic_serialization():
 
 # NOTE(crcrpar): The main motivation of this dataclass is to avoid unexpected negative values being supplied to indexing such as embedding.
 # See NVIDIA/Fuser#4529.
-class InputDescriptor:
+class InputTensorFactory:
     """Dataclass to describe an input tensor."""
     low: Number
     high: Number
@@ -77,7 +77,7 @@ class InputDescriptor:
         if type(tensor) is not torch.Tensor:
             msg = f"Repro script only supports {torch.Tensor} but {type(tensor)}"
             raise RuntimeError(msg)
-        self.low, self.high = InputDescriptor._get_min_and_max(tensor)
+        self.low, self.high = InputTensorFactory._get_min_and_max(tensor)
         self.dtype = tensor.dtype
         self.device = f'"{str(tensor.device)}"'
         self.size = tuple(tensor.size())
@@ -99,19 +99,9 @@ class InputDescriptor:
         min_max = torch.aminmax(t)
         return min_max[0].cpu().item(), min_max[1].cpu().item()
 
-    def make_repro_tensor(self) -> torch.Tensor:
-        """Create a tensor of the same `low` and `high` as the saved input"""
-        return torch.testing.make_tensor(
-            self.size,
-            dtype=self.dtype,
-            device=self.device,
-            low=self.low,
-            high=self.high,
-            requires_grad=self.requires_grad,
-        ).as_strided(self.size, self.strides, self.storage_offset)
-
-    def to_make_tensor_str(self) -> str:
-        """Create a stringified :func:`InputDescriptor.make_repro_tensor`."""
+    # We might want to have a method that returns `torch.Tensor` in the future.
+    def __str__(self) -> str:
+        """String representing tensor factory of appropriate metadata."""
         return f"torch.testing.make_tensor({self.size}, dtype={self.dtype}, device={self.device}, low={self.low}, high={self.high}, requires_grad={self.requires_grad}).as_strided({self.size}, {self.strides}, {self.storage_offset})"
 
 
@@ -376,7 +366,7 @@ class FusionDefinition(_C._FusionDefinition):
 
             fake_mode = FakeTensorMode()
             self.fake_inputs = [fake_mode.from_tensor(inp) for inp in inputs]
-            self.input_descriptors = [InputDescriptor(tensor) for tensor in inputs]
+            self.input_descriptors = [InputTensorFactory(tensor) for tensor in inputs]
 
         if hasattr(self, "segments") and len(self.segments) > 0:
             return self._execute_segments(inputs, device=device, profile=profile)
@@ -569,7 +559,7 @@ class FusionDefinition(_C._FusionDefinition):
 
     def repro_script_for(
         self,
-        inputs: list[torch.Tensor] | list[InputDescriptor] | None = None,
+        inputs: list[torch.Tensor] | list[InputTensorFactory] | None = None,
     ) -> str:
         msg = "# CUDA devices:\n"
         for i in range(torch.cuda.device_count()):
@@ -589,9 +579,9 @@ class FusionDefinition(_C._FusionDefinition):
             for i in inputs:
                 # TODO(crcrpar): Think about how to support tensor wrapper subclasses such as DTensor
                 if isinstance(i, torch.Tensor):
-                    i = InputDescriptor(i)
-                if isinstance(i, InputDescriptor):
-                    msg += f"    {i.to_make_tensor_str()},\n"
+                    i = InputTensorFactory(i)
+                if isinstance(i, InputTensorFactory):
+                    msg += f"    {i},\n"
                 else:
                     input_as_string = str(i)
                     # `nan` and `inf` are stringified as is, which are not
