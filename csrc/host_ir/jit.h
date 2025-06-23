@@ -8,6 +8,8 @@
 #pragma once
 #include <fusion.h> // For TensorView and at::Tensor
 #include <host_ir/container.h> // For HostIrContainer
+#include <host_ir/executor.h> // For HostIrEvaluatorParams
+#include <multidevice/communicator.h> // For Communicator
 #include <memory> // For std::unique_ptr
 
 namespace nvfuser {
@@ -20,7 +22,11 @@ class HostIrJit {
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes);
 
-  HostIrJit(hir::HostIrContainer* container = nullptr, int num_threads = 4);
+  HostIrJit(
+      hir::HostIrContainer* container,
+      Communicator* communicator = &Communicator::getInstance(),
+      hir::HostIrEvaluatorParams params = hir::HostIrEvaluatorParams(),
+      int num_threads = 4);
   ~HostIrJit();
 
  private:
