@@ -48,7 +48,7 @@
 namespace nvfuser {
 
 using allocate_fn =
-    at::Tensor* (*)(int64_t*, int64_t, int64_t*, int64_t);
+    at::Tensor* (*)(const int64_t*, int64_t, const int64_t*, int64_t);
 
 class HostIrJitParams {
   private:
@@ -291,7 +291,7 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
     // Lookup and reinterpret the function pointer to store in the map
     allocate_funcs_[allocate] =
         (allocate_fn)reinterpret_cast<at::Tensor* (*)(
-            int64_t*, int64_t, int64_t*, int64_t)>(func_addr.getValue());
+            const int64_t*, int64_t, const int64_t*, int64_t)>(func_addr.getValue());
   }
 }
 
@@ -317,9 +317,9 @@ HostIrJit::HostIrJit(
 
   // Create wrapper function pointer to at::native::empty_strided_cuda
   void* empty_strided_cuda_func_ptr = reinterpret_cast<void*>(
-      +[](int64_t* sizes,
+      +[](const int64_t* sizes,
           int64_t ndim,
-          int64_t* strides,
+          const int64_t* strides,
           int64_t strides_ndim,
           int32_t dtype,
           int64_t device_index) -> at::Tensor* {
@@ -363,23 +363,12 @@ at::Tensor HostIrJit::allocate(
     NVF_ERROR(false, "allocate function not found for ", allocate);
   }
   auto func_ptr = pimpl_->allocate_funcs_[allocate];
-  int64_t* input_sizes_data = new int64_t[input_sizes.size()];
-  int64_t* input_strides_data = new int64_t[input_strides.size()];
   
-  for(size_t i = 0; i < input_sizes.size(); i++) {
-    input_sizes_data[i] = input_sizes[i];
-    input_strides_data[i] = input_strides[i];
-  }
-
   auto result = func_ptr(
-      input_sizes_data,
+      input_sizes.data(),
       input_sizes.size(),
-      input_strides_data,
+      input_strides.data(),
       input_strides.size());
-  
-  // Clean up allocated memory
-  delete[] input_sizes_data;
-  delete[] input_strides_data;
   
   at::Tensor tensor = *result;
   delete result;
