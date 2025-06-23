@@ -220,8 +220,9 @@ void generateAllocateFunc(
 
   // Create constants for type and device from params
   llvm::Value* dtype_constant = llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
-  std::cout << "device_index: " << params.getDeviceId() << std::endl;
+  std::cout << "generateAllocateFunc device_index: " << params.getDeviceId() << std::endl;
   llvm::Value* device_index_constant = llvm::ConstantInt::get(int64_type, params.getDeviceId());
+  device_index_constant->print(llvm::outs());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the JIT)
   llvm::Function* at_empty_strided_cuda_func = mod->getFunction("at::native::empty_strided_cuda");
@@ -244,12 +245,12 @@ void generateAllocateFunc(
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
 
-  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
-  if (debug_print) {
+  // const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  // if (debug_print) {
     // Print the LLVM IR module
     llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
-  }
+  // }
 }
 
 void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& params) {
@@ -320,13 +321,11 @@ HostIrJit::HostIrJit(
         at::IntArrayRef aten_strides(strides, strides_ndim);
         // Use the type and device passed as parameters
         at::ScalarType scalar_type = static_cast<at::ScalarType>(dtype);
-        
-        // Validate device index to prevent invalid device string
-        if (device_index < 0) {
-          device_index = 0; // Default to device 0 if invalid
-        }
-        
-        at::Device device = at::Device("cuda:" + std::to_string(device_index));
+        std::cout << "wrapper dtype: " << dtype << std::endl;
+        std::cout << "wrapper device_index: " << device_index << std::endl;
+        std::cout << "wrapper sizes: " << ndim << std::endl;
+        std::cout << "wrapper strides: " << strides_ndim << std::endl;
+        at::Device device = at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
         return std::make_shared<at::Tensor>(
             at::native::empty_strided_cuda(aten_sizes, aten_strides, scalar_type, c10::nullopt, device, c10::nullopt));
       });
@@ -356,12 +355,24 @@ at::Tensor HostIrJit::allocate(
     NVF_ERROR(false, "allocate function not found for ", allocate);
   }
   auto func_ptr = pimpl_->allocate_funcs_[allocate];
+  int64_t* input_sizes_data = new int64_t[input_sizes.size()];
+  int64_t* input_strides_data = new int64_t[input_strides.size()];
   
+  for(size_t i = 0; i < input_sizes.size(); i++) {
+    input_sizes_data[i] = input_sizes[i];
+    input_strides_data[i] = input_strides[i];
+  }
+
   auto result = func_ptr(
-      const_cast<int64_t*>(input_sizes.data()),
+      input_sizes_data,
       input_sizes.size(),
-      const_cast<int64_t*>(input_strides.data()),
+      input_strides_data,
       input_strides.size());
+  
+  // Clean up allocated memory
+  delete[] input_sizes_data;
+  delete[] input_strides_data;
+  
   return *result; // Dereference the shared_ptr to return the tensor, we made a copy of the tensor
 }
 
