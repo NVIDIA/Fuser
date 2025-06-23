@@ -63,6 +63,7 @@ def disable_automatic_serialization():
 # See NVIDIA/Fuser#4529.
 class InputTensorFactory:
     """Dataclass to describe an input tensor."""
+
     low: Number
     high: Number
     device: str
