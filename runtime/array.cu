@@ -48,6 +48,11 @@ constexpr int64_t vecSizeBit(int64_t vec_size) {
   return vec_size * sizeof(scalar_t) * 8;
 }
 
+template<>
+constexpr int64_t vecSizeBit<e2m1>(int64_t vec_size) {
+  return vec_size * 4;
+}
+
 template <typename scalar_t, int vec_size>
 __device__ void loadGeneric(scalar_t* to, scalar_t* from) {
   // It would be really nice to use memcpy here, but one example was failing
