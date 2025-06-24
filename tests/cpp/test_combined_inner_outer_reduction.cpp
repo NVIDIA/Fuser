@@ -1385,4 +1385,98 @@ TEST(StaticWarpReductionTest, StaticWarpReductionValidation) {
   testValidate(&fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(CombinedSchedulerTest, ThunderLayerNormBackward) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Define constants for dimensions
+  const int64_t dim0 = 16384;
+  const int64_t dim1 = 2048;
+  auto dim0_val = IrBuilder::create<Val>(dim0);
+  auto dim1_val = IrBuilder::create<Val>(dim1);
+  auto one_val = IrBuilder::create<Val>(1);
+
+  {
+    auto tv0 = makeContigConcreteTensor({dim1}, DataType::BFloat16);
+    fusion->addInput(tv0);
+    auto tv1 = makeContigConcreteTensor({dim0}, DataType::Float);
+    fusion->addInput(tv1);
+    auto tv2 = makeContigConcreteTensor({dim0, dim1}, DataType::BFloat16);
+    fusion->addInput(tv2);
+    auto tv3 = makeContigConcreteTensor({dim0, dim1}, DataType::BFloat16);
+    fusion->addInput(tv3);
+    auto tv4 = makeContigConcreteTensor({dim0, 1}, DataType::Float);
+    fusion->addInput(tv4);
+    auto tv8 = expand(broadcast(tv0, {true, false}), {dim0_val, dim1_val});
+    auto tv12 = expand(broadcast(tv1, {false, true}), {dim0_val, one_val});
+    auto tv13 = castOp(DataType::Float, tv2);
+    auto tv14 = castOp(DataType::Float, tv8);
+    auto tv18 = expand(broadcast(tv12, {false, false}), {dim0_val, dim1_val});
+    auto tv19 = castOp(DataType::Float, tv3);
+    auto tv20 = mul(tv14, tv13);
+    auto tv21 = sub(tv19, tv18);
+    auto tv22 = mul(tv21, tv20);
+    auto tv23 = sum(tv22, {1}, false, DataType::Null);
+    auto tv27 = expand(broadcast(tv23, {false, true}), {dim0_val, one_val});
+    auto tv31 = expand(broadcast(tv4, {false, false}), {dim0_val, dim1_val});
+    auto s32 = IrBuilder::create<Val>(3.0, DataType::Double);
+    auto tv33 = pow(tv4, s32);
+    auto s34 = IrBuilder::create<Val>(-0.5, DataType::Double);
+    auto tv35 = mul(s34, tv27);
+    auto tv36 = mul(tv31, tv20);
+    auto tv37 = mul(tv35, tv33);
+    auto tv38 = neg(tv36);
+    auto tv39 = sum(tv37, {1}, false, DataType::Null);
+    auto tv40 = sum(tv38, {1}, false, DataType::Null);
+    auto tv44 = expand(broadcast(tv1, {false, true}), {dim0_val, one_val});
+    auto tv48 = expand(broadcast(tv39, {false, true}), {dim0_val, one_val});
+    auto tv52 = expand(broadcast(tv40, {false, true}), {dim0_val, one_val});
+    auto tv56 = expand(broadcast(tv44, {false, false}), {dim0_val, dim1_val});
+    auto tv60 = expand(broadcast(tv48, {false, false}), {dim0_val, dim1_val});
+    auto tv61 = sum(tv52, {1}, false, DataType::Null);
+    auto tv62 = sub(tv19, tv56);
+    auto s63 = IrBuilder::create<Val>(2.0, DataType::Double);
+    auto tv64 = mul(s63, tv60);
+    auto tv68 = expand(broadcast(tv61, {false, true}), {dim0_val, one_val});
+    auto tv69 = mul(tv64, tv62);
+    auto tv73 = expand(broadcast(tv68, {false, false}), {dim0_val, dim1_val});
+    auto s74 = IrBuilder::create<Val>(2048.0, DataType::Double);
+    auto s75 = reciprocal(s74);
+    auto tv76 = mul(tv69, s75);
+    auto s77 = IrBuilder::create<Val>(0.000488281, DataType::Double);
+    auto tv78 = mul(s77, tv73);
+    auto tv79 = mul(tv21, tv31);
+    auto tv80 = add(tv78, tv76);
+    auto tv81 = mul(tv79, tv13);
+    auto tv82 = add(tv36, tv80);
+    auto tv83 = sum(tv81, {0}, false, DataType::Null);
+    auto tv84 = sum(tv13, {0}, false, DataType::Null);
+    auto tv85 = castOp(DataType::BFloat16, tv82);
+    auto tv86 = castOp(DataType::BFloat16, tv83);
+    auto tv87 = castOp(DataType::BFloat16, tv84);
+    fusion->addOutput(tv87);
+    fusion->addOutput(tv86);
+    fusion->addOutput(tv85);
+  }
+
+  auto fusion_copy = *fusion_ptr;
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_fp16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim1}, options_fp16);
+  auto t1 = at::randn({dim0}, options_fp32);
+  auto t2 = at::randn({dim0, dim1}, options_fp16);
+  auto t3 = at::randn({dim0, dim1}, options_fp16);
+  auto t4 = at::randn({dim0, 1}, options_fp32);
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
 } // namespace nvfuser
