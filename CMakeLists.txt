@@ -1028,6 +1028,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
+  ${NVFUSER_ROOT}/runtime/fp4_support.cu
   ${NVFUSER_ROOT}/runtime/fused_reduction.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu

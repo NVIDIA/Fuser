@@ -238,6 +238,8 @@ static std::string data_type2string(DataType t) {
               return "__e5m2";
             case DataType::Float8_e8m0fnu:
               return "__e8m0";
+            case DataType::Float4_e2m1:
+              return "e2m1";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:

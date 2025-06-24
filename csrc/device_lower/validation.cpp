@@ -600,7 +600,6 @@ class VectorizeValidator : public OptInDispatch {
     // Except for TMem, allow half2, float2, float4 and same sized vtypes.
     std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
     // TMem can vectorize up to 4096 bits.
-    bool is_tmem = false;
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
         (ldst->opType() == LoadStoreOpType::LdTMem ||
          ldst->opType() == LoadStoreOpType::StTMem)) {
@@ -609,7 +608,6 @@ class VectorizeValidator : public OptInDispatch {
       allowed_vector_sizes_bit.push_back(1024);
       allowed_vector_sizes_bit.push_back(2048);
       allowed_vector_sizes_bit.push_back(4096);
-      is_tmem = true;
     }
 
     NVF_CHECK(
@@ -619,9 +617,11 @@ class VectorizeValidator : public OptInDispatch {
             vector_size_bit) != allowed_vector_sizes_bit.end(),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size_bit,
-        " however, vector sizes only upto and including ",
-        is_tmem ? "4096 bits" : "128 bits",
-        " are supported.");
+        " bits, however, vector sizes starting from and including ",
+        allowed_vector_sizes_bit.front(),
+        " bits upto and including ",
+        allowed_vector_sizes_bit.back(),
+        " bits are supported.");
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def);
