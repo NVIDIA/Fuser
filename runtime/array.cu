@@ -48,7 +48,7 @@ constexpr int64_t vecSizeBit(int64_t vec_size) {
   return vec_size * sizeof(scalar_t) * 8;
 }
 
-template<>
+template <>
 constexpr int64_t vecSizeBit<e2m1>(int64_t vec_size) {
   return vec_size * 4;
 }
