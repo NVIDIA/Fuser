@@ -201,16 +201,20 @@ void getHeuristics(
         iter_unroll *= 2;
       }
 
-      // increase bdimx only when bdimy is not increased. This is a case where
-      // ping-pong is not used. Only happened when hidden size is very large,
-      // using ping-pong leads to register spills.
+      // consider increasing bdimx only when pingpong is not used.
       if (bdimy == 1) {
         int64_t new_bdimx = bdimx + 128;
+        // ensure new bdimx is within bounds and smem is enough
         bool can_increase = (new_bdimx <= max_bdimx) &&
             is_enough_smem(iter_unroll, n_stages, new_bdimx, bdimy);
         auto get_tail = [](int64_t a, int64_t b) {
           return a % b == 0 ? b : a % b;
         };
+        // try to increase bdimx only when:
+        // (1) Benifical from more register usage. When bdimx is 128, only 128 x
+        //     256 registers are used, should increase to use all 64K registers.
+        // (2) Benificial from divisible split.
+        // (3) Current bdimx leads to register spills.
         bool try_increase = (bdimx == 128) ||
             (get_tail(after_vect, new_bdimx) >= get_tail(after_vect, bdimx)) ||
             (!is_enough_regs(iter_unroll, bdimx, bdimy));
@@ -219,7 +223,6 @@ void getHeuristics(
           bdimx += 128;
         }
       }
-
       if (!is_updated) {
         break;
       }
@@ -824,8 +827,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
 
         // find tvs should be persistent due to grouped reduction.
-        // inline before iter unrolled dim to ensure accessible for both
+        // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
+        // (2) vectorize the last iter dim if possible.
         const auto& grouped_reduction_persistent_tvs =
             inner_outer_utils::getGroupedReductionPersistentTvs(
                 fusion, cached_tv, reduction_tvs);
