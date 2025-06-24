@@ -241,11 +241,11 @@ inline StructType StructHandle::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim);
 
-inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
+inline StructType globalTensorMetaData(const DataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
@@ -990,6 +990,50 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 // DataType::Null
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
+
+// NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
+// input/output TensorViews with these data types not supported by PyTorch.
+// For these cases, we use a PyTorch ScalarType as a proxy. If there exists
+// a scalar type with the same size, we use that. Otherwise, we use Byte and
+// and adjust the size of the last dimension. For example, if we have a
+// TensorView with shape [10, 4], and dtype is 3 bytes, then the corresponding
+// ScalarType is Byte, and the shape of the corresponding at::Tensor is [10,
+// 12].
+struct AdjustLastDim {
+  int64_t numerator;
+  int64_t denominator;
+  inline int64_t fromATenToNVF(int64_t aten_size) const {
+    int64_t dividend = aten_size * numerator;
+    int64_t remainder = dividend % denominator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          aten_size,
+          " Adjustment factor: ",
+          denominator);
+    }
+    return dividend / denominator;
+  }
+  inline int64_t fromNVFToATen(int64_t nvf_size) const {
+    int64_t dividend = nvf_size * denominator;
+    int64_t remainder = dividend % numerator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          nvf_size,
+          " Adjustment factor: ",
+          numerator);
+    }
+    return dividend / numerator;
+  }
+};
+// at_size * numerator / denominator is the size of the last dimension of the
+// corresponding TensorView.
+AdjustLastDim getLastDimAdjustment(const DataType& dtype);
 
 NVF_API std::ostream& operator<<(std::ostream&, const ValType);
 std::ostream& operator<<(std::ostream&, const PredicateType);
