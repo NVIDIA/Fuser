@@ -6876,6 +6876,12 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
     auto compile_opts = heuristic_params->cparams;
     compile_opts.maxrregcount = 32;
     compile_opts.enable_ptxas_verbose = true;
+
+    // nvrtc JIT caching may skip compilation, in which case no warning
+    // is produced. Disable caching to test the warning option.
+    DisableOptionsGuard disable_opt_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
+
     KernelExecutor ke;
     ke.compile(&fusion, {aten_input}, heuristic_params->lparams, compile_opts);
     auto cg_outputs = ke.run({aten_input});
@@ -7087,8 +7093,13 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   // intentionally set maxrregcount to 32 to trigger register spill
   heuristic_params->cparams.maxrregcount = 32;
 
-  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard enable_opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::WarnRegisterSpill);
+
+  // nvrtc JIT caching may skip compilation, in which case no warning
+  // is produced. Disable caching to test the warning option.
+  DisableOptionsGuard disable_opt_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
 
   // capture stdout and check stdout contains register spill warning
   captureStdout();
@@ -7102,7 +7113,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
 
   std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
-      << "Register spill is not captured!";
+      << "Register spill is not captured! NVRTC output: " << output;
 }
 
 // Test that DebugStreamGuard captures output
