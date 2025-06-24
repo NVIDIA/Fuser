@@ -2829,10 +2829,10 @@ INSTANTIATE_TEST_SUITE_P(
     advancedDtypeTestName);
 
 // Vectorize factor, dynamic_shape
-using Float4E2m1TestParams = std::tuple<int64_t, bool>;
+using Float4E2m1ManualScheduleTestParams = std::tuple<int64_t, bool>;
 
-class Float4E2m1TestAllArch
-    : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
+class Float4E2m1ManualScheduleTestAllArch
+    : public NVFuserFixtureParamTest<Float4E2m1ManualScheduleTestParams> {
  protected:
   int64_t vectorize_factor;
   bool dynamic_shape;
@@ -2841,7 +2841,7 @@ class Float4E2m1TestAllArch
   }
 };
 
-TEST_P(Float4E2m1TestAllArch, CopyKernelManualSchedule) {
+TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2876,8 +2876,8 @@ TEST_P(Float4E2m1TestAllArch, CopyKernelManualSchedule) {
   }
 }
 
-std::string fp4E2m1Name(
-    const testing::TestParamInfo<Float4E2m1TestParams>& info) {
+std::string fp4E2m1ManualScheduleName(
+    const testing::TestParamInfo<Float4E2m1ManualScheduleTestParams>& info) {
   const auto& [vectorize_factor, dynamic_shape] = info.param;
   return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" +
       std::to_string(dynamic_shape);
@@ -2885,11 +2885,70 @@ std::string fp4E2m1Name(
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    Float4E2m1TestAllArch,
+    Float4E2m1ManualScheduleTestAllArch,
     testing::Combine(
         testing::Values(1, 2, 4, 8, 16, 32),
         testing::Values(false, true)),
-    fp4E2m1Name);
+    fp4E2m1ManualScheduleName);
+
+using Float4E2m1SchedulerTestParams = std::tuple<int64_t, bool>;
+
+class Float4E2m1SchedulerTestAllArch
+    : public NVFuserFixtureParamTest<Float4E2m1SchedulerTestParams> {
+ protected:
+  int64_t size;
+  bool dynamic_shape;
+  void SetUp() {
+    std::tie(size, dynamic_shape) = GetParam();
+  }
+};
+
+TEST_P(Float4E2m1SchedulerTestAllArch, CopyKernel) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  TensorView* tv0 = dynamic_shape
+      ? makeContigTensor(1, DataType::Float4_e2m1)
+      : makeContigConcreteTensor({size}, DataType::Float4_e2m1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {size / 2}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
+std::string fp4E2m1SchedulerName(
+    const testing::TestParamInfo<Float4E2m1SchedulerTestParams>& info) {
+  const auto& [size, dynamic_shape] = info.param;
+  return "Size" + std::to_string(size) + "_DynamicShape" +
+      std::to_string(dynamic_shape);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Float4E2m1SchedulerTestAllArch,
+    testing::Combine(
+        testing::Values(
+            2,
+            64,
+            64 + 2,
+            1024,
+            1024 + 2,
+            64 * 1024,
+            64 * 1024 + 2,
+            1024 * 1024,
+            1024 * 1024 + 2,
+            64 * 1024 * 1024,
+            64 * 1024 * 1024 + 2),
+        testing::Values(false, true)),
+    fp4E2m1SchedulerName);
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
