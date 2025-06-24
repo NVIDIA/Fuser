@@ -738,10 +738,13 @@ void KernelExecutor::initializeExecutorEntry(
       }
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
-      auto dtype = data_type_to_aten(
-          input_tv->dtype() == DataType::Float4_e2m1 ? DataType::Byte
-                                                     : input_tv->dtype());
-      GlobalBufferInfo info{input_tv, shape_info, dtype, false, false, false};
+      GlobalBufferInfo info{
+          input_tv,
+          shape_info,
+          data_type_to_aten(input_tv->dtype()),
+          false,
+          false,
+          false};
       input_info.emplace_back(info);
     }
   }
