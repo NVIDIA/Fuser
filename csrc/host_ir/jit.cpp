@@ -153,35 +153,13 @@ void createGlobalVariables(llvm::Module* mod, const HostIrJitParams& params) {
   
 }
 
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
-    TensorView* tv,
-    const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
-  auto size_stride = inferAllocationShape(tv, expr_eval);
-  if (!tv->hasAllocation()) {
-    return size_stride;
-  }
-  auto options =
-      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-  auto meta_tensor =
-      at::empty_strided(size_stride.first, size_stride.second, options);
-  // TODO(jiej): we should refactor it here, there's no need to use
-  // meta_tensor at all, size + stride should be used directly in the
-  // `transformFromAllocationToLogical`
-  meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
-  return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
-}
-
 // Generate a function that calls at::native::empty_strided_cuda
 void generateAllocateFunc(
     const kir::Allocate* allocate,
     llvm::Module* mod,
     const HostIrJitParams& params) {
+
+
 
   at::ScalarType type = data_type_to_aten(allocate->buffer()->dtype() == DataType::Index ? PrimDataType::Int : allocate->buffer()->dtype());
 
@@ -213,7 +191,7 @@ void generateAllocateFunc(
   llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides_ndim)
 
   // Bounds checking for ndim
-  size_t compile_time_ndim = allocate->buffer()->as<TensorView>()->getLogicalDomain().size();
+  size_t compile_time_ndim = TensorDomain::noReductions(allocate->buffer()->as<TensorView>()->getLogicalDomain()).size();
   llvm::Value* compile_time_ndim_val =
       llvm::ConstantInt::get(int64_type, compile_time_ndim);
   llvm::Value* cmp =
@@ -269,6 +247,7 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   if (allocate_funcs_.size() > 0) {
     return;
   }
+  
   if (container == nullptr) {
     NVF_ERROR(false, "container is nullptr during host ir JIT compilation");
     return;
