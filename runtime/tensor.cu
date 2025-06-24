@@ -5,21 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+template <typename T>
+struct PointerHelper {
+  using type = T*;
+};
+
+template <>
+struct PointerHelper<e2m1> {
+  using type = e2m1_ptr;
+};
+
+template <typename T>
+using Pointer = typename PointerHelper<T>::type;
+
 template <typename T, int Dims, int AllocDims = Dims>
 struct Tensor {
   __device__ T& operator[](nvfuser_index_t ind) {
-    // For e2m1, the generated indices is in the unit of 4bits,
-    // so we need to divide by 2 to get the byte index.
-    if constexpr (std::is_same_v<T, e2m1>) {
-      // For performance reason, we do not check the index is even,
-      // but we assume the index is even.
-      // assert(ind % 2 == 0);
-      ind /= 2;
-    }
     return data[ind];
   };
 
-  T* data;
+  Pointer<T> data;
   Array<nvfuser_index_t, Dims, 1> logical_size;
   Array<nvfuser_index_t, AllocDims, 1> alloc_stride;
 };
