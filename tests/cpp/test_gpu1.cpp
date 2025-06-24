@@ -2831,21 +2831,23 @@ INSTANTIATE_TEST_SUITE_P(
 // Vectorize factor, dynamic_shape
 using Float4E2m1TestParams = std::tuple<int64_t, bool>;
 
-class Float4E2m1Test : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
+class Float4E2m1TestAllArch
+    : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
  protected:
   int64_t vectorize_factor;
   bool dynamic_shape;
   void SetUp() {
     std::tie(vectorize_factor, dynamic_shape) = GetParam();
-    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
   }
 };
 
-TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
+TEST_P(Float4E2m1TestAllArch, CopyKernelManualSchedule) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = dynamic_shape ? makeContigTensor(1, DataType::Float4_e2m1) : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
+  TensorView* tv0 = dynamic_shape
+      ? makeContigTensor(1, DataType::Float4_e2m1)
+      : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2860,24 +2862,33 @@ TEST_P(Float4E2m1Test, CopyKernelManualSchedule) {
   at::Tensor input = at::randint(0, 256, {1024}, options);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {input});
-  auto outputs = ke.run({input});
-
-  std::cout << outputs[0].as<at::Tensor>().sizes() << std::endl;
-  std::cout << outputs[0].as<at::Tensor>().strides() << std::endl;
-
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+  if (vectorize_factor == 1) {
+    EXPECT_THAT(
+        [&]() { ke.compile(&fusion, {input}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Tried to vectorize a dim resulting in a word size of 4 bits, "
+            "however, vector sizes starting from and including 8 bits upto and "
+            "including 128 bits are supported.")));
+  } else {
+    ke.compile(&fusion, {input});
+    auto outputs = ke.run({input});
+    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+  }
 }
 
-std::string fp4E2m1Name(const testing::TestParamInfo<Float4E2m1Test::ParamType>& info) {
-      const auto& [vectorize_factor, dynamic_shape] = info.param;
-      return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" + std::to_string(dynamic_shape);
-    }
+std::string fp4E2m1Name(
+    const testing::TestParamInfo<Float4E2m1TestParams>& info) {
+  const auto& [vectorize_factor, dynamic_shape] = info.param;
+  return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" +
+      std::to_string(dynamic_shape);
+}
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    Float4E2m1Test,
-    testing::Combine(testing::Values(1, 2, 4, 8, 16, 32), testing::Values(false, true)),
+    Float4E2m1TestAllArch,
+    testing::Combine(
+        testing::Values(1, 2, 4, 8, 16, 32),
+        testing::Values(false, true)),
     fp4E2m1Name);
 
 TEST_F(NVFuserTest, BitCeilEval) {
