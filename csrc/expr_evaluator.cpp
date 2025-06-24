@@ -71,18 +71,18 @@ void validateValWithConcreteValue(
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
-    auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
-        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
-        (value->dtype() == DataType::Float4_e2m1 && actual_dtype == DataType::Byte) ||
-            (value->dtype() == actual_dtype),
+        (value->dtype() == DataType::Index &&
+         (t.scalar_type() == torch::kInt64 ||
+          t.scalar_type() == torch::kInt32)) ||
+            (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
         tv->toString(),
         ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
-        actual_dtype);
+        t.scalar_type());
     // Intermediate tensorviews marked as CPU scalars will be created as meta
     // tensors during compilation. For example, for fusions containing SDPA fwd
     // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
@@ -147,14 +147,20 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  if (tv->dtype() == DataType::Float4_e2m1) {
-    if (!logical_sizes.empty()) {
-      // PyTorch does not natively support fp4. We represent fp4 tensor
-      // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
-      // We need to adjust the logical domain to reflect this.
-      logical_sizes[logical_sizes.size() - 1] *= 2;
-    }
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!logical_sizes.empty()) {
+    auto& last_dim = logical_sizes.back();
+    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
+
   for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {

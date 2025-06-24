@@ -184,6 +184,19 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     concrete_sizes[concrete_sizes.size() - 1] = last_dim / 2;
   }
 
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
+  }
+
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
 
   return {concrete_sizes, strides};

@@ -314,7 +314,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& alloc_strides,
     PrimDataType idx_type,
-    bool is_fp4,
+    AdjustLastDim adjust_last_dim,
     const std::vector<int64_t>& unsharded_logical_sizes) {
   std::vector<std::byte> bytes;
   NVF_ERROR(
@@ -337,13 +337,20 @@ std::vector<std::byte> tensorToBytes(
         bytes.end(),
         (std::byte*)size_to_use.data(),
         (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
-    if (is_fp4 && !size_to_use.empty()) {
-      // PyTorch does not natively support fp4. We represent fp4 tensor
-      // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
-      // We need to adjust the logical domain to reflect this.
-      int64_t& last_size = *reinterpret_cast<int64_t*>(bytes.data() + bytes.size() - sizeof(int64_t));
-      last_size *= 2;
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!size_to_use.empty()) {
+      int64_t& last_size = *reinterpret_cast<int64_t*>(
+          bytes.data() + bytes.size() - sizeof(int64_t));
+      last_size = adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
     }
+
     bytes.insert(
         bytes.end(),
         (std::byte*)alloc_strides.data(),
@@ -355,13 +362,19 @@ std::vector<std::byte> tensorToBytes(
         sizeof(int32_t) * alloc_strides.size());
     bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
     std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
-    if (is_fp4 && !logical_size32.empty()) {
-      // PyTorch does not natively support fp4. We represent fp4 tensor
-      // of shape [N1, N2, ..., Nk] as uint8 tensor of shape [N1, N2, ..., Nk/2].
-      // We need to adjust the logical domain to reflect this.
-      int32_t& last_size = logical_size32[logical_size32.size() - 1];
-      last_size *= 2;
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!logical_size32.empty()) {
+      int32_t& last_size = logical_size32.back();
+      last_size = (int32_t)adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
     }
+
     bytes.insert(
         bytes.end(),
         (std::byte*)logical_size32.data(),

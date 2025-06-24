@@ -852,7 +852,7 @@ void KernelExecutor::computeArgs(
               ? buffer_info.shape_info.logical_strides
               : buffer_info.shape_info.allocation_strides,
           idx_type,
-          buffer_info.tv->dtype() == DataType::Float4_e2m1,
+          getLastDimAdjustment(buffer_info.tv->dtype()),
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
