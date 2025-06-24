@@ -82,7 +82,7 @@ void validateValWithConcreteValue(
         ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
-        t.scalar_type());
+        aten_to_data_type(concrete_value.as<at::Tensor>().scalar_type()));
     // Intermediate tensorviews marked as CPU scalars will be created as meta
     // tensors during compilation. For example, for fusions containing SDPA fwd
     // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
