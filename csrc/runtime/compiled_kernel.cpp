@@ -66,8 +66,8 @@
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
-#include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fp4_support.h>
+#include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
 #include <nvfuser_resources/fused_welford_helper.h>
 #include <nvfuser_resources/fused_welford_impl.h>
