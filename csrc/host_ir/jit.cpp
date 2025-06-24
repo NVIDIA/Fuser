@@ -40,8 +40,6 @@
 
 // Include the actual header files instead of forward declarations
 #include <multidevice/communicator.h>
-#include <host_ir/executor.h>
-#include <host_ir/host_ir.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 
@@ -299,11 +297,23 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
 HostIrJit::HostIrJit(
     hir::HostIrContainer* container,
     Communicator* communicator,
-    hir::HostIrEvaluatorParams params,
-    int num_threads) : pimpl_(new LlvmJitImpl) {
+    int num_threads)
+    : HostIrJit(
+          container,
+          communicator,
+          hir::HostIrEvaluatorParams{},
+          num_threads) {}
+
+HostIrJit::HostIrJit(
+    hir::HostIrContainer* container,
+    Communicator* communicator,
+    const hir::HostIrEvaluatorParams& params,
+    int num_threads)
+    : pimpl_(new LlvmJitImpl) {
   // Initialize params with passed parameters
-  pimpl_->params_ = std::make_unique<HostIrJitParams>(container, communicator, params);
-  
+  pimpl_->params_ =
+      std::make_unique<HostIrJitParams>(container, communicator, params);
+
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   pimpl_->jit = ExitOnErr(
@@ -362,6 +372,7 @@ at::Tensor HostIrJit::allocate(
   if (pimpl_->allocate_funcs_.find(allocate) == pimpl_->allocate_funcs_.end()) {
     NVF_ERROR(false, "allocate function not found for ", allocate);
   }
+  FUSER_PERF_SCOPE("HostIrJit::allocate");
   auto func_ptr = pimpl_->allocate_funcs_[allocate];
   
   auto result = func_ptr(
