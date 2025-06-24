@@ -249,6 +249,8 @@ const char* dtypeToPyString(PrimDataType t) {
       return "DataType.Float8_e4m3fn";
     case DataType::Float8_e5m2:
       return "DataType.Float8_e5m2";
+    case DataType::Float8_e8m0fnu:
+      return "DataType.Float8_e8m0fnu";
     case DataType::Int:
       return "DataType.Int";
     case DataType::Int32:

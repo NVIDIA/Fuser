@@ -2667,7 +2667,7 @@ TEST_F(NVFuserTest, CompoundOps) {
 
 TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
-      {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
+      {DataType::Float8_e4m3fn, DataType::Float8_e5m2, DataType::Float8_e8m0fnu});
   std::vector<DataType> cast_targets(
       {DataType::Double, DataType::Float, DataType::BFloat16, DataType::Half});
 

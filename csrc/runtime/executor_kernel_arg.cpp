@@ -260,11 +260,16 @@ std::vector<std::byte> polymorphicValueToBytes(
       at::Float8_e5m2 v8 = (at::Float8_e5m2)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e5m2));
+    } else if (dtype == DataType::Float8_e8m0fnu) {
+      at::Float8_e8m0fnu v8 = (at::Float8_e8m0fnu)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e8m0fnu));
     } else {
       NVF_THROW(
           "Cannot convert double to ",
           dtype,
-          " type: only half, bfloat16, float and double are supported.");
+          " type: only half, bfloat16, float, double, fp8_e4m3fn, fp8_e5m2, "
+          "fp8_e8m0fnu are supported.");
     }
   } else if (argument.is<std::complex<double>>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");

@@ -40,6 +40,12 @@ void MinimumDeviceVersion::dispatch(Val* val) {
         "CUDA version");
 #endif // (CUDA_VERSION >= 12010)
   }
+  if (val->dtype() == DataType::Float8_e8m0fnu) {
+    ensureVersion(
+        {10, 0},
+        "Fusion contains Float8_e8m0fnu values which was introduced in Blackwell "
+        "(10.0)");
+  }
   IterVisitor::dispatch(val);
 }
 

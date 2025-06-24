@@ -20,6 +20,7 @@
 #include <c10/util/BFloat16.h>
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Float8_e5m2.h>
+#include <c10/util/Float8_e8m0fnu.h>
 #include <c10/util/Half.h>
 
 #include <cfloat>
