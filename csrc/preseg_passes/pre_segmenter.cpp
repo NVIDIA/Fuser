@@ -85,13 +85,18 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
-  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
   OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
   OptimizationPass<MoveGatherPass>::runPass(fusion);
+
+  // This pass should be the last presegmentation pass.
+  // It transforms the allocation domains of tvs with device mesh to
+  // inherit DID splits. Before this pass, the allocation domains are
+  // permutations of the logical domains.
+  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
