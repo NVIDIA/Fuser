@@ -479,7 +479,7 @@ class VectorizeValidator : public OptInDispatch {
     // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
     // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
     // For example, for fp4 tensor, we use Byte as the corresponding ATen
-    // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bit.
+    // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
     int64_t aten_element_size_bit =
         c10::elementSize(data_type_to_aten(tv->dtype())) * 8;
     // Contiguity is based on logical domain.
@@ -534,10 +534,10 @@ class VectorizeValidator : public OptInDispatch {
           ", innermost id: ",
           last_alloc_dim);
 
-      // Because aten_element_size_bit is the minimum unit (one element) in ATen,
-      // if one vector is smaller than one element, regardless of the contiguity
-      // of the ATen tensor, we can always vectorize because an element in ATen
-      // tensor is always contiguous by design.
+      // Because aten_element_size_bit is the minimum unit (one element) in
+      // ATen, if one vector is smaller than one element, regardless of the
+      // contiguity of the ATen tensor, we can always vectorize because an
+      // element in ATen tensor is always contiguous by design.
       auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
           aten_element_size_bit % vector_word_size_bit == 0 ||
@@ -564,7 +564,8 @@ class VectorizeValidator : public OptInDispatch {
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
-    validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name, vector_word_size_bit);
+    validateAllocationVectorizedId(
+        vec_alloc_id, dep_alloc_ids, tv, name, vector_word_size_bit);
 
     return vec_alloc_id;
   }
@@ -725,7 +726,11 @@ class VectorizeValidator : public OptInDispatch {
               .getReplay();
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              c2p_map.at(v_id), producer_tv, "producer", tv_def, vector_size_bit);
+              c2p_map.at(v_id),
+              producer_tv,
+              "producer",
+              tv_def,
+              vector_size_bit);
     }
 
     // For aligned vectorize, the extent of a vectorized domain must

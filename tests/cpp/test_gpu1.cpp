@@ -2971,7 +2971,8 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
+  at::Tensor input =
+      at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
 
   KernelExecutor ke;
 
