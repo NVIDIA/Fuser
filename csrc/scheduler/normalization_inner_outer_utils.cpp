@@ -293,7 +293,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
 std::vector<TensorView*> getGroupedReductionPersistentTvs(
     Fusion* fusion,
-    TensorView* inner_bcast_tv,
+    TensorView* cached_input,
     const std::vector<TensorView*>& reduction_tvs) {
   std::vector<TensorView*> res;
   // Get all fusion outputs that are consumers of reduction tvs
@@ -303,7 +303,7 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
   std::unordered_set<TensorView*> c_of_reductions;
   for (auto output : reduction_to_output) {
     auto chains_to_output =
-        DependencyCheck::getAllDependencyChains(inner_bcast_tv, output);
+        DependencyCheck::getAllDependencyChains(cached_input, output);
     for (auto chain : chains_to_output) {
       auto tv_chain = ir_utils::filterByType<TensorView>(chain);
       bool is_reduction_chain =
@@ -325,11 +325,10 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
     }
   }
   for (auto tv : p_of_reductions) {
-    // must exists in both set, not same as inner_bcast_tv, and
+    // must exists in both set, and
     // has multiple consumers, i.e., exclude chain unary ops from
-    // inner_bcast_tv to the actual persistent tv.
-    if (c_of_reductions.count(tv) && tv != inner_bcast_tv &&
-        ir_utils::consumerTvsOf(tv).size() > 1) {
+    // cached_input to the actual persistent tv.
+    if (c_of_reductions.count(tv) && ir_utils::consumerTvsOf(tv).size() > 1) {
       res.push_back(tv);
     }
   }
