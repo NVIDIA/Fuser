@@ -76,6 +76,7 @@ enum class PrimDataType {
   BFloat16,
   Float8_e4m3fn,
   Float8_e5m2,
+  Float4_e2m1,
   // Integral types
   Char,
   Short,
@@ -186,6 +187,7 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
+  static constexpr PrimDataType Float4_e2m1 = PrimDataType::Float4_e2m1;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Index = PrimDataType::Index;
@@ -1102,6 +1104,8 @@ constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
       return sizeof(at::Float8_e4m3fn) * 8;
     case DataType::Float8_e5m2:
       return sizeof(at::Float8_e5m2) * 8;
+    case DataType::Float4_e2m1:
+      return 4;
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Char:
