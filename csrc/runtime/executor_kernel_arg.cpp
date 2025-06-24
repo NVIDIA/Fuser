@@ -351,11 +351,21 @@ std::vector<std::byte> tensorToBytes(
           "DataType not supported");
     }
 
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_strides.data(),
-        (std::byte*)alloc_strides.data() +
-            sizeof(int64_t) * alloc_strides.size());
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      if (i == alloc_strides.size() - 1 && !adjust_last_dim.isTrivial()) {
+        NVF_ERROR(
+            raw_stride == 1,
+            "The last dimension must be contiguou for non-trivial "
+            "AdjustLastDim");
+      }
+      int64_t stride = adjust_last_dim.fromATenToNVF(raw_stride);
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride,
+          (std::byte*)&stride + sizeof(int64_t));
+    }
   } else {
     bytes.reserve(
         sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
@@ -380,13 +390,22 @@ std::vector<std::byte> tensorToBytes(
         (std::byte*)logical_size32.data(),
         (std::byte*)logical_size32.data() +
             sizeof(int32_t) * logical_size32.size());
-    std::vector<int32_t> alloc_stride32(
-        alloc_strides.begin(), alloc_strides.end());
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_stride32.data(),
-        (std::byte*)alloc_stride32.data() +
-            sizeof(int32_t) * alloc_stride32.size());
+
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      if (i == alloc_strides.size() - 1 && !adjust_last_dim.isTrivial()) {
+        NVF_ERROR(
+            raw_stride == 1,
+            "The last dimension must be contiguou for non-trivial "
+            "AdjustLastDim");
+      }
+      int32_t stride32 = (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride32,
+          (std::byte*)&stride32 + sizeof(int32_t));
+    }
   }
   return bytes;
 }
