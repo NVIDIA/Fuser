@@ -360,8 +360,7 @@ void PrecomputedValues::bindTensorMetaData(
   const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
   if (!logical_sizes.empty()) {
     auto& last_dim = logical_sizes.back();
-    last_dim *= adjust_last_dim.numerator;
-    last_dim /= adjust_last_dim.denominator;
+    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
   } else {
     NVF_ERROR(
         adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,

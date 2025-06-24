@@ -182,8 +182,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
   if (!concrete_sizes.empty()) {
     auto& last_dim = concrete_sizes.back();
-    last_dim *= adjust_last_dim.denominator;
-    last_dim /= adjust_last_dim.numerator;
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
   } else {
     NVF_ERROR(
         adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,

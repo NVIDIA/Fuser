@@ -1002,6 +1002,26 @@ NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
 struct AdjustLastDim {
   int64_t numerator;
   int64_t denominator;
+  inline int64_t fromATenToNVF(int64_t aten_size) const {
+    int64_t dividend = aten_size * numerator;
+    int64_t remainder = dividend % denominator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the adjustment factor. ",
+          "Last dimension: ", aten_size, " Adjustment factor: ", denominator);
+    }
+    return dividend / denominator;
+  }
+  inline int64_t fromNVFToATen(int64_t nvf_size) const {
+    int64_t dividend = nvf_size * denominator;
+    int64_t remainder = dividend % numerator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the adjustment factor. ",
+          "Last dimension: ", nvf_size, " Adjustment factor: ", numerator);
+    }
+    return dividend / numerator;
+  }
 };
 // at_size * numerator / denominator is the size of the last dimension of the
 // corresponding TensorView.

@@ -344,8 +344,7 @@ std::vector<std::byte> tensorToBytes(
     if (!size_to_use.empty()) {
       int64_t& last_size = *reinterpret_cast<int64_t*>(
           bytes.data() + bytes.size() - sizeof(int64_t));
-      last_size *= adjust_last_dim.numerator;
-      last_size /= adjust_last_dim.denominator;
+      last_size = adjust_last_dim.fromATenToNVF(last_size);
     } else {
       NVF_ERROR(
           adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
@@ -369,8 +368,7 @@ std::vector<std::byte> tensorToBytes(
     // in type.h for more details.
     if (!logical_size32.empty()) {
       int32_t& last_size = logical_size32.back();
-      last_size *= adjust_last_dim.numerator;
-      last_size /= adjust_last_dim.denominator;
+      last_size = (int32_t)adjust_last_dim.fromATenToNVF(last_size);
     } else {
       NVF_ERROR(
           adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
