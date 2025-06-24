@@ -31,4 +31,17 @@ void fp8_blockwise_scaled_grouped_mm(
     const torch::Tensor& expert_offsets,
     const torch::Tensor& workspace);
 
+void nvfp4_blockwise_scaled_grouped_mm(
+    torch::Tensor& output,
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& a_blockscale,
+    const torch::Tensor& b_blockscales,
+    const torch::Tensor& alphas,
+    const torch::Tensor& ab_strides,
+    const torch::Tensor& c_strides,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets,
+    const torch::Tensor& sf_offsets);
+
 } // namespace nvfuser::cutlass_kernels
