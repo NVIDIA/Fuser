@@ -11,6 +11,7 @@
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+#include <host_ir/jit.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>
@@ -165,6 +166,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   }
 
   std::unique_ptr<HostIrContainer> container_;
+  std::unique_ptr<HostIrJit> jit_;
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
   // Stores concrete computed values

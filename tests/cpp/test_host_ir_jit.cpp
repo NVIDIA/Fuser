@@ -80,8 +80,9 @@ TEST_F(HostIrJitTest, TestJITAtenCall) {
     for(int i = 0; i < num_calls_per_allocate; i++) {
       int first_dim = std::rand() % 100;
       int second_dim = std::rand() % 100;
-      auto allocated_t = jit.allocate(allocate, {first_dim, second_dim});
+      auto allocated_t = jit.allocate(allocate, {first_dim, second_dim}, {second_dim, 1});
       EXPECT_EQ(allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
+      EXPECT_EQ(allocated_t.strides(), at::IntArrayRef({second_dim, 1}));
     }
   }
 }

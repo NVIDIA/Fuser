@@ -197,6 +197,11 @@ HostIrEvaluator::HostIrEvaluator(
     Communicator* communicator,
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
+      jit_(std::make_unique<HostIrJit>(
+          container_.get(),
+          communicator,
+          params,
+          4)),
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
@@ -722,7 +727,31 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
+// void HostIrEvaluator::handle(kir::Allocate* allocate) {
+//   NVF_ERROR(
+//       allocate->buffer()->isA<TensorView>(),
+//       "Allocation must be on a TensorView but got ",
+//       allocate->buffer());
+//   TensorView* tv = allocate->buffer()->as<TensorView>();
+//   if (expr_evaluator_.isKnown(tv)) {
+//     return;
+//   }
+//   GlobalBufferInfo info =
+//       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+//   c10::Device device =
+//       communicator_ ? communicator_->device() : at::Device("cuda:0");
+//   auto tensor = at::native::empty_strided_cuda(
+//       info.shape_info.logical_sizes,
+//       info.shape_info.logical_strides,
+//       info.type,
+//       c10::nullopt,
+//       device,
+//       c10::nullopt);
+//   expr_evaluator_.bind(tv, tensor);
+// }
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
@@ -731,17 +760,8 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
-  GlobalBufferInfo info =
-      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
-  c10::Device device =
-      communicator_ ? communicator_->device() : at::Device("cuda:0");
-  auto tensor = at::native::empty_strided_cuda(
-      info.shape_info.logical_sizes,
-      info.shape_info.logical_strides,
-      info.type,
-      c10::nullopt,
-      device,
-      c10::nullopt);
+  auto shape_info = inferTensorShapes(tv, expr_evaluator_);
+  auto tensor = jit_->allocate(allocate, shape_info.logical_sizes, shape_info.logical_strides);
   expr_evaluator_.bind(tv, tensor);
 }
 
