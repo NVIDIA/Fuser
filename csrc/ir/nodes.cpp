@@ -1229,7 +1229,12 @@ RNGOp::RNGOp(
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
-  addAttribute(philox_index);
+  // adding nullptr to attributes triggers assert. Though I question if this
+  // should be the default behavior and any use of attributes should check for
+  // nullptr instead.
+  if (philox_index) {
+    addAttribute(philox_index);
+  }
 }
 
 std::string RNGOp::toString(int indent_size) const {
