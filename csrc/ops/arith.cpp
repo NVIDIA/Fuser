@@ -2283,6 +2283,141 @@ TensorView* argsort(
   return out->as<TensorView>();
 }
 
+namespace {
+// Create output tensor for grouped matrix multiplication
+// For grouped MM, determine output shape based on mat1 and mat2 structures.
+// [rk] is the reduction axis for the matmul operation, it only exists if k is
+// not broadcast.
+//
+// case 1:
+//   mat1   [m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [g, m, n, [rk]]
+// case 2:
+//   mat1   [g, m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [m, n, [rk]]
+// case 3:
+//   mat1   [m, k]
+//   mat2   [g, k, n]
+//   offset [g]
+//   output -> [m, n, [rk]]
+TensorView* createGroupedMmaOutput(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    std::optional<DataType> dtype) {
+  const auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  const auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  const auto offs_domain =
+      TensorDomain::noReductions(offsets->getLogicalDomain());
+
+  IterDomain* k_id_mat1 = mat1_domain.back();
+  IterDomain* k_id_mat2 = mat2_domain.at(mat2_domain.size() - 2);
+
+  NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
+  NVF_CHECK(
+      k_id_mat1->isBroadcast() == k_id_mat2->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
+
+  std::vector<IterDomain*> out_domain;
+
+  if (mat1_domain.size() == 2 && mat2_domain.size() == 2) {
+    out_domain = {
+        offs_domain[0]->cloneWithoutRFactor(),
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
+  } else if (mat1_domain.size() == 3 && mat2_domain.size() == 2) {
+    out_domain = {
+        mat1_domain[1]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
+  } else if (mat1_domain.size() == 2 && mat2_domain.size() == 3) {
+    out_domain = {
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[2]->cloneWithoutRFactor()};
+  } else {
+    NVF_THROW(
+        "Unexpected operand ranks. If two 3D tensors, you should use "
+        "bmm/matmul instead of grouped_mm: ",
+        mat1,
+        " and ",
+        mat2);
+  }
+
+  // Following the semantics of matmul, output has a reduction axis rk if k is
+  // not broadcast
+  if (!k_id_mat1->isBroadcast()) {
+    out_domain.push_back(ops::newOutputIterDomain(
+        {k_id_mat1, k_id_mat2},
+        /*force_iter_type=*/IterType::Reduction));
+  }
+
+  auto* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype.has_value() ? dtype.value() : mat1->getDataType().value());
+  return out;
+}
+} // namespace
+
+TensorView* grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    TensorView* scale1,
+    TensorView* scale2,
+    std::optional<DataType> dtype) {
+  bool has_scale = scale1 != nullptr;
+  NVF_CHECK(
+      has_scale == (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
+      has_scale ? "true" : "false",
+      " and scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+
+  TensorView* out = createGroupedMmaOutput(mat1, mat2, offsets, dtype);
+
+  if (!has_scale) {
+    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
+    return out;
+  }
+
+  int64_t scale1_rank =
+      std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
+  int64_t scale2_rank =
+      std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
+  int64_t mat1_rank =
+      std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
+  int64_t mat2_rank =
+      std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
+  int64_t out_rank =
+      std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
+
+  NVF_CHECK_EQ(
+      scale1_rank,
+      std::max(mat1_rank, out_rank),
+      "mat1 rank: ",
+      mat1_rank,
+      ", out rank: ",
+      out_rank,
+      ", scale1 rank: ",
+      scale1_rank);
+  NVF_CHECK_EQ(
+      scale2_rank,
+      std::max(mat2_rank, out_rank),
+      "mat2 rank: ",
+      mat2_rank,
+      ", out rank: ",
+      out_rank,
+      ", scale2 rank: ",
+      scale2_rank);
+
+  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+  return out;
+}
+
 TopKResult topk(
     TensorView* inp,
     Val* k,

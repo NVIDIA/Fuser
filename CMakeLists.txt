@@ -575,6 +575,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -812,6 +813,7 @@ if(BUILD_TEST)
 
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
   )
   add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
@@ -1041,6 +1043,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
+  ${NVFUSER_ROOT}/runtime/topk.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu

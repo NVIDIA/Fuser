@@ -167,7 +167,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());

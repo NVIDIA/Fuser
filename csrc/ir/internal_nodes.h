@@ -803,7 +803,7 @@ class RNGOp : public Expr {
                                             : nullptr;
   }
 
-  bool isDeterministic() const {
+  bool isDeterministic() const override {
     return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
@@ -2858,6 +2858,157 @@ class ArgsortOp : public Expr {
   bool isStable() const {
     return attribute<bool>(2);
   }
+};
+
+//! NOTE -- [ Grouped Matrix Multiplication semantics ]
+//!
+//! This operation performs a grouped matrix multiplication.
+//!
+//! Parameters:
+//! - out: output tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - offsets: 1D offsets tensor, specifying the ending index of each group
+//! - scale1: scale tensor for matrix1 (optional)
+//! - scale2: scale tensor for matrix2 (optional)
+//!
+//! The offsets tensor is a vector tensor of length `num_groups` that specifies
+//! the ending index of each group in the matrix1 and matrix2 tensors.
+//!
+//! Given the number of groups as G, the operation conceptually runs G matmuls.
+//! There are three configurations of grouping, reflected by ranks of input
+//! matrices:
+//!
+//! Note 0: f(0) = 0 : offset[0]
+//!         f(i) = offset(i-1) : offset(i), when i >= 1;
+//!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
+//! Note 1: scales don't need to follow broadcast rules against corresponding
+//!         matrices on the k-dimension. Hardware uses blocked scale factors.
+//!         so the corresponding scale factor on k-dimension is shared by fixed
+//!         number of consecutive elements.
+//!         e.g. Given k as the size of k-dimension on input matrices, and the
+//!         scale factor has size k' on k-dimension.
+//!         For mxfp8, k' = k // 32. Each scale factor is shared by 32
+//!         consecutive elements.
+//! Note 2: output could have a reduction axis rk if k is not broadcast on
+//! inputs.
+//!
+//!     Case 1: grouped k-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ g, k', n]
+//!       requires: offsets[g-1] == k
+//!       output: out[ g, m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
+//!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 2: grouped m-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
+//!               scale1[ m, k' ], scale2[ g, k', n ]
+//!       requires: offsets[g-1] == m
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
+//!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 3: grouped n-dimension:
+//!       inputs: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ k', n ]
+//!       requires: offsets[g-1] == n
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
+//!                           @(mat2[ 0:k, f(i) ] * scale2[ 0:k', f(i) ])
+//!
+class GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* mat1,
+      Val* mat2,
+      Val* offsets,
+      Val* scale1 = nullptr,
+      Val* scale2 = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get group offset input vector
+  TensorView* offsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    if (hasScale()) {
+      return input(3)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    if (hasScale()) {
+      return input(4)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // True if scale factors are present
+  bool hasScale() const {
+    return inputs().size() == 5;
+  }
+
+  // Get the IterDomain for the k-dimension of the first input matrix
+  IterDomain* getKDimOfMatrix1() const;
+
+  // Get the IterDomain for the k-dimension of the second input matrix
+  IterDomain* getKDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the first input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix1() const;
+
+  // Get the IterDomain for the group dimension of the second input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the output matrix, returns
+  // nullptr if not present
+  IterDomain* getGroupDimOfOutput() const;
 };
 
 //! TopK operation that finds the k largest or smallest elements
