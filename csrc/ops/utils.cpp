@@ -595,8 +595,8 @@ Val* getMaximumValue(DataType v) {
       break;
     case DataType::Float8_e8m0fnu:
       // e8m0 is finite.
-      return IrBuilder::create<Val>(static_cast<double>(
-          std::numeric_limits<c10::Float8_e8m0fnu>::max()));
+      return IrBuilder::create<Val>(
+          static_cast<double>(std::numeric_limits<c10::Float8_e8m0fnu>::max()));
       break;
     case (DataType::Int):
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());

@@ -1236,21 +1236,21 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::BFloat16, DataType::Float8_e4m3fn):
       return "__bfloat2e4m3";
 
-    case supported_switch_pair(DataType::Float8_e8m0, DataType::Float):
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Float):
       return "__e8m02float";
-    case supported_switch_pair(DataType::Float8_e8m0, DataType::Double):
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Double):
       return "__e8m02double";
-    case supported_switch_pair(DataType::Float8_e8m0, DataType::Half):
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Half):
       return "__e8m02half";
-    case supported_switch_pair(DataType::Float8_e8m0, DataType::BFloat16):
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::BFloat16):
       return "__e8m02bfloat";
-    case supported_switch_pair(DataType::Float, DataType::Float8_e8m0):
+    case supported_switch_pair(DataType::Float, DataType::Float8_e8m0fnu):
       return "__float2e8m0";
-    case supported_switch_pair(DataType::Double, DataType::Float8_e8m0):
+    case supported_switch_pair(DataType::Double, DataType::Float8_e8m0fnu):
       return "__double2e8m0";
-    case supported_switch_pair(DataType::Half, DataType::Float8_e8m0):
+    case supported_switch_pair(DataType::Half, DataType::Float8_e8m0fnu):
       return "__half2e8m0";
-    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e8m0):
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e8m0fnu):
       return "__bfloat2e8m0";
 
     default:
@@ -1755,7 +1755,8 @@ int max_digits10(DataType dtype) {
     return 4;
   } else if (dtype == DataType::Float8_e4m3fn) {
     return 3;
-  } else if (dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
+  } else if (
+      dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
     return 2;
   } else {
     NVF_CHECK(

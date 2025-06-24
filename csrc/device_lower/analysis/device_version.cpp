@@ -43,8 +43,8 @@ void MinimumDeviceVersion::dispatch(Val* val) {
   if (val->dtype() == DataType::Float8_e8m0fnu) {
     ensureVersion(
         {10, 0},
-        "Fusion contains Float8_e8m0fnu values which was introduced in Blackwell "
-        "(10.0)");
+        "Fusion contains Float8_e8m0fnu values which was introduced in "
+        "Blackwell (10.0)");
   }
   IterVisitor::dispatch(val);
 }
