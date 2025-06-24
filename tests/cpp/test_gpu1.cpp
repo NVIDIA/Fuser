@@ -2699,13 +2699,23 @@ TEST_F(NVFuserTest, Fp8CastOps) {
       at::Tensor t0 = at::randn({1, 4}, options);
 
       KernelExecutor ke;
-#if (CUDA_VERSION >= 12010)
-      if (!deviceMajorMinorCheck(8, 9)) {
-#elif (CUDA_VERSION >= 11080)
-      if (!deviceMajorMinorCheck(9)) {
+      bool unsupported_device = false;
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+#if (CUDA_VERSION >= 12070)
+        unsupported_device = !deviceMajorMinorCheck(10);
 #else
-      if (true) {
+        unsupported_device = true;
 #endif
+      } else {
+#if (CUDA_VERSION >= 12010)
+        unsupported_device = !deviceMajorMinorCheck(8, 9);
+#elif (CUDA_VERSION >= 11080)
+        unsupported_device = !deviceMajorMinorCheck(9);
+#else
+        unsupported_device = true;
+#endif
+      }
+      if (unsupported_device) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
             testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
