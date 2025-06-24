@@ -5849,63 +5849,66 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   const auto& offsets = inputs[2].as<at::Tensor>();
 
   at::Tensor result;
-  if (!hasScale()) {
-    // NOTE: at::_grouped_mm only supports bfloat16 as output at this moment,
-    // otherwise we should have requested the output dtype directly instead of
-    // casting the output afterwards.
-    result = at::_grouped_mm(mat1, mat2, offsets);
-    result = result.to(data_type_to_aten(out()->dtype()));
-    return {result};
-  }
+  if (hasScale()) {
+    NVF_ERROR(
+        inputs[3].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 3 but got ",
+        inputs[3].type().name());
+    NVF_ERROR(
+        inputs[4].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 4 but got ",
+        inputs[4].type().name());
 
-  NVF_ERROR(
-      inputs[3].is<at::Tensor>(),
-      "GroupedMmaOp expects tensor input at position 3 but got ",
-      inputs[3].type().name());
-  NVF_ERROR(
-      inputs[4].is<at::Tensor>(),
-      "GroupedMmaOp expects tensor input at position 4 but got ",
-      inputs[4].type().name());
+    auto scale1 = inputs[3].as<at::Tensor>();
+    auto scale2 = inputs[4].as<at::Tensor>();
+    // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
+    // both input matrices.
+    auto mat1_k_last = mat1.contiguous();
+    auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
 
-  auto scale1 = inputs[3].as<at::Tensor>();
-  auto scale2 = inputs[4].as<at::Tensor>();
-  // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on both
-  // input matrices.
-  auto mat1_k_last = mat1.contiguous();
-  auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
-
-  // at::_scaled_grouped_mm limitation
-  NVF_CHECK(
-      scale1.size(-1) == 1 && scale2.size(-2) == 1,
-      "Scale1 and scale2 must have size 1 at the k dimension. Got ",
-      scale1.sizes(),
-      " and ",
-      scale2.sizes());
-  // scale factor handling
-  // see NOTE -- [ Grouped Matrix Multiplication semantics ]
-  if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
-    // case 1, aten API expects collapsed 1D scale with group dimension on the
-    // slower side.
-    scale1 = scale1.reshape(-1);
-    scale2 = scale2.reshape(-1);
+    // at::_scaled_grouped_mm limitation
+    NVF_CHECK(
+        scale1.size(-1) == 1 && scale2.size(-2) == 1,
+        "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+        scale1.sizes(),
+        " and ",
+        scale2.sizes());
+    // scale factor handling
+    // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+    if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
+      // case 1, aten API expects collapsed 1D scale with group dimension on the
+      // slower side.
+      scale1 = scale1.reshape(-1);
+      scale2 = scale2.reshape(-1);
+    } else {
+      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
+      // out.
+      scale1 = scale1.squeeze(-1);
+      scale2 = scale2.squeeze(-2);
+    }
+    // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+    // moment, otherwise we should have requested the output dtype directly
+    // instead of casting the output afterwards.
+    result = at::_scaled_grouped_mm(
+        mat1_k_last,
+        mat2_k_last,
+        scale1,
+        scale2,
+        offsets,
+        std::nullopt,
+        std::nullopt,
+        at::ScalarType::BFloat16);
   } else {
-    // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k out.
-    scale1 = scale1.squeeze(-1);
-    scale2 = scale2.squeeze(-2);
+    result = at::_grouped_mm(mat1, mat2, offsets);
   }
-  // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
-  // moment, otherwise we should have requested the output dtype directly
-  // instead of casting the output afterwards.
-  result = at::_scaled_grouped_mm(
-      mat1_k_last,
-      mat2_k_last,
-      scale1,
-      scale2,
-      offsets,
-      std::nullopt,
-      std::nullopt,
-      at::ScalarType::BFloat16);
+
   result = result.to(data_type_to_aten(out()->dtype()));
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+
   return {result};
 #else
   NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
