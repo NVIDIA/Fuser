@@ -475,7 +475,7 @@ class VectorizeValidator : public OptInDispatch {
       std::string name,
       int64_t vector_word_size_bit) {
     // aten_element_size_bit is the minimum unit (one element) of tv's
-    // corresponding at::Tensor it may or may not be the same as
+    // corresponding at::Tensor. It may or may not be the same as
     // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
     // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
     // For example, for fp4 tensor, we use Byte as the corresponding ATen
