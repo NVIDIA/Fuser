@@ -85,29 +85,6 @@ class HostIrJitParams {
   c10::Device getDevice() const { 
     return communicator_ ? communicator_->device() : at::Device("cuda:0"); 
   }
-  
-  // Method to update global variables in LLVM module (if needed at runtime)
-  void updateGlobalVariables(llvm::Module* mod) const {
-    llvm::LLVMContext& context = mod->getContext();
-    llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
-    llvm::Type* bool_type = llvm::Type::getInt1Ty(context);
-    
-    // Update device index
-    if (auto* device_index_global = mod->getGlobalVariable("device_index")) {
-      device_index_global->setInitializer(llvm::ConstantInt::get(int64_type, getDeviceId()));
-    }
-    
-    // Update local device index
-    if (auto* local_device_index_global = mod->getGlobalVariable("local_device_index")) {
-      local_device_index_global->setInitializer(llvm::ConstantInt::get(int64_type, getLocalDeviceIndex()));
-    }
-    
-    // Update device availability
-    if (auto* device_available_global = mod->getGlobalVariable("device_available")) {
-      bool is_available = (communicator_ != nullptr && communicator_->is_available());
-      device_available_global->setInitializer(llvm::ConstantInt::get(bool_type, is_available));
-    }
-  }
 };
 
 // PIMPL implementation for HostIrJit
@@ -141,7 +118,7 @@ inline void ExitOnErr(llvm::Error&& Err) {
   }
 }
 
-// Helper function to create global variables for shared parameters
+// Helper function to create global variables for shared parameters, not used for now
 void createGlobalVariables(llvm::Module* mod, const HostIrJitParams& params) {
   // // Note: We're now using constants instead of global variables for better performance
   // // This function is kept for potential future use if runtime-modifiable globals are needed
@@ -176,6 +153,30 @@ void createGlobalVariables(llvm::Module* mod, const HostIrJitParams& params) {
   
 }
 
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  auto size_stride = inferAllocationShape(tv, expr_eval);
+  if (!tv->hasAllocation()) {
+    return size_stride;
+  }
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto meta_tensor =
+      at::empty_strided(size_stride.first, size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // meta_tensor at all, size + stride should be used directly in the
+  // `transformFromAllocationToLogical`
+  meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
+  return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
 // Generate a function that calls at::native::empty_strided_cuda
 void generateAllocateFunc(
     const kir::Allocate* allocate,
@@ -186,23 +187,17 @@ void generateAllocateFunc(
 
   llvm::LLVMContext& context = mod->getContext();
   llvm::IRBuilder<> builder(context);
-
-  // Create constants directly from params (more efficient than loading from globals)
-  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
-  
-  std::string func_name = "create_tensor_from_sizes_" +
+ std::string func_name = "create_tensor_from_sizes_" +
           std::to_string(reinterpret_cast<uintptr_t>(allocate));
-  
-  // Define function signature: std::shared_ptr<at::Tensor> func(int64_t*, int64_t, int64_t*, int64_t)
-  // The type and device are embedded as constants in the function
+
+  // Define function signature: at::Tensor* func(int64_t*, int64_t, int64_t*, int64_t)
+  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
   llvm::Type* int64_ptr_type = int64_type->getPointerTo();
   llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
   llvm::PointerType* void_ptr_type =
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
   llvm::FunctionType* func_type = llvm::FunctionType::get(
       void_ptr_type, {int64_ptr_type, int64_type, int64_ptr_type, int64_type}, false);
-
-  // Create the function with the custom name
   llvm::Function* func = llvm::Function::Create(
       func_type, llvm::Function::ExternalLinkage, func_name, mod);
 
@@ -216,6 +211,26 @@ void generateAllocateFunc(
   llvm::Value* ndim_arg = func->getArg(1);      // int64_t   (ndim)
   llvm::Value* strides_arg = func->getArg(2);   // int64_t* (strides)
   llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides_ndim)
+
+  // Bounds checking for ndim
+  size_t compile_time_ndim = allocate->buffer()->as<TensorView>()->getLogicalDomain().size();
+  llvm::Value* compile_time_ndim_val =
+      llvm::ConstantInt::get(int64_type, compile_time_ndim);
+  llvm::Value* cmp =
+      builder.CreateICmpEQ(ndim_arg, compile_time_ndim_val, "ndim_check");
+  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
+  llvm::BasicBlock* then_bb =
+      llvm::BasicBlock::Create(context, "if.then", parent_func);
+  llvm::BasicBlock* else_bb =
+      llvm::BasicBlock::Create(context, "if.else", parent_func);
+  builder.CreateCondBr(cmp, then_bb, else_bb);
+  builder.SetInsertPoint(else_bb);
+  llvm::Function* trap_func =
+      llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
+  builder.CreateCall(trap_func, {});
+  builder.CreateUnreachable();
+
+  builder.SetInsertPoint(then_bb);
 
   // Create constants for type and device from params
   llvm::Value* dtype_constant = llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
