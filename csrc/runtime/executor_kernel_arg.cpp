@@ -353,13 +353,7 @@ std::vector<std::byte> tensorToBytes(
 
     // Adjust the strides to support DataType that is not supported by PyTorch.
     // See the comment of getLastDimAdjustment in type.h for more details.
-    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
-      if (i == alloc_strides.size() - 1 && !adjust_last_dim.isTrivial()) {
-        NVF_ERROR(
-            raw_stride == 1,
-            "The last dimension must be contiguou for non-trivial "
-            "AdjustLastDim");
-      }
+    for (auto raw_stride : alloc_strides) {
       int64_t stride = adjust_last_dim.fromATenToNVF(raw_stride);
       bytes.insert(
           bytes.end(),
@@ -393,13 +387,7 @@ std::vector<std::byte> tensorToBytes(
 
     // Adjust the strides to support DataType that is not supported by PyTorch.
     // See the comment of getLastDimAdjustment in type.h for more details.
-    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
-      if (i == alloc_strides.size() - 1 && !adjust_last_dim.isTrivial()) {
-        NVF_ERROR(
-            raw_stride == 1,
-            "The last dimension must be contiguou for non-trivial "
-            "AdjustLastDim");
-      }
+    for (auto raw_stride : alloc_strides) {
       int32_t stride32 = (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
       bytes.insert(
           bytes.end(),
