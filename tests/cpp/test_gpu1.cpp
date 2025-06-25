@@ -2953,6 +2953,34 @@ TEST_F(NVFuserTest, BitCeilEval) {
   }
 }
 
+using Float4E2m1Test = NVFuserTest;
+
+TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 2);
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input =
+      at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
+
+  KernelExecutor ke;
+
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+}
+
 // Start off simple, block on the outer dim
 // block stride + thread all reduce + unrolling on inner dim
 TEST_F(NVFuserTest, FusionReduction1_CUDA) {

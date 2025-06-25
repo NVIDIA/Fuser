@@ -353,8 +353,29 @@ std::vector<std::byte> tensorToBytes(
 
     // Adjust the strides to support DataType that is not supported by PyTorch.
     // See the comment of getLastDimAdjustment in type.h for more details.
-    for (auto raw_stride : alloc_strides) {
-      int64_t stride = adjust_last_dim.fromATenToNVF(raw_stride);
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // [Adjust all strides but not the last one]
+      // raw_stride is in the unit of "ATen elements". For the case where
+      // the DataType is not supported by PyTorch, we want to convert the
+      // unit to "NVFuser elements". For example, for fp4 tensor, we use Byte
+      // as the corresponding ATen ScalarType, so the unit of raw_stride is 8
+      // bits, and here we want to convert the unit to 4 bits. This conversion
+      // should happen on all dimensions except the last one. Why is the last
+      // dimension special? The definition of a dimension's "stride" is, if you
+      // increment the index of this dimension by 1, how many units do you need
+      // to skip in memory? For dimensions other than the last one, the meaning
+      // of "unit" has changes, but the definition of "increment by one" remains
+      // the same, so we need to adjust the stride to account for the change of
+      // definition of "unit". For the last dimension, the definition of "unit"
+      // changes the same way as the other dimensions, but besides that, because
+      // we adjusted the logical size of the last dimension, the definition of
+      // "increment by one" also changes. We need to account for both changes,
+      // not just the change of definition of "unit". The effect of the
+      // definition change of "unit" and the definition change of "increment by
+      // one" cancel each other, so we just use the raw_stride as is.
+      int64_t stride = (i == size_to_use.size() - 1)
+          ? raw_stride
+          : adjust_last_dim.fromATenToNVF(raw_stride);
       bytes.insert(
           bytes.end(),
           (std::byte*)&stride,
@@ -387,8 +408,11 @@ std::vector<std::byte> tensorToBytes(
 
     // Adjust the strides to support DataType that is not supported by PyTorch.
     // See the comment of getLastDimAdjustment in type.h for more details.
-    for (auto raw_stride : alloc_strides) {
-      int32_t stride32 = (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // See [Adjust all strides but not the last one]
+      int32_t stride32 = (i == size_to_use.size() - 1)
+          ? raw_stride
+          : (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
       bytes.insert(
           bytes.end(),
           (std::byte*)&stride32,
