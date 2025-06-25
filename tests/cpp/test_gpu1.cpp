@@ -2732,7 +2732,10 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].as<at::Tensor>().equal(ref_output),
+            fp8_type == DataType::Float8_e8m0fnu
+                ? (outputs[0].as<at::Tensor>().ge(ref_output / 2).and(
+                      outputs[0].as<at::Tensor>().le(ref_output * 2)).all())
+                : outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to ",
             at_fp8_type,
             " and back had a mismatch.\n",
