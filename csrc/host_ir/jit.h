@@ -10,12 +10,10 @@
 #include <host_ir/container.h> // For HostIrContainer
 #include <multidevice/communicator.h> // For Communicator
 #include <memory> // For std::unique_ptr
+#include <utils.h>
 
 namespace nvfuser {
 
-namespace hir {
-struct HostIrEvaluatorParams;
-} // namespace hir
 
 class HostIrJit {
  public:
@@ -26,20 +24,14 @@ class HostIrJit {
       const std::vector<int64_t>& input_sizes,
       const std::vector<int64_t>& input_strides);
 
-  // Constructor with explicit params
-  HostIrJit(
-      hir::HostIrContainer* container,
-      Communicator* communicator,
-      const hir::HostIrEvaluatorParams& params,
-      int num_threads);
-
   // Overloaded constructor for default params
   HostIrJit(
       hir::HostIrContainer* container,
       Communicator* communicator = &Communicator::getInstance(),
-      int num_threads = 4);
+      const hir::HostIrEvaluatorParams& evaluator_params = hir::HostIrEvaluatorParams(),
+      int num_threads = hostIrJitCompileThreads);
 
-  ~HostIrJit();
+  ~HostIrJit() = default;
 
  private:
   struct LlvmJitImpl;

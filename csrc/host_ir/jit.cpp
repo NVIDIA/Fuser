@@ -51,47 +51,24 @@ using allocate_fn =
 class HostIrJitParams {
   private:
   Communicator* communicator_;
-  hir::HostIrEvaluatorParams params_;
-  // Cache Fusions, KernelExecutors
-  std::unordered_map<hir::HostUnit*, std::unique_ptr<ExecutorAbstract>> executors_;
-  std::unordered_map<hir::HostUnit*, FusionExecutorCache> fec_;
-  using StreamKey = std::variant<int64_t, hir::Stream*>;
-  std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
-  std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
-  const int64_t my_local_device_index_;
-  // IpcHandleCache ipc_handle_cache_;
+  hir::HostIrEvaluatorParams evaluator_params_;
+  
 
   public:
-  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator, hir::HostIrEvaluatorParams params) : 
+  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator, hir::HostIrEvaluatorParams evaluator_params) : 
   communicator_(communicator), 
-  params_(params),
-  my_local_device_index_(communicator_ ? communicator_->local_rank() : 0){
-    const DeviceIdxType device_index = (communicator_ != nullptr && communicator_->is_available())
-      ? communicator_->deviceId() : 0;
-    streams_.insert(
-        {container->getDefaultStream(),
-        c10::cuda::getDefaultCUDAStream(
-            static_cast<c10::DeviceIndex>(device_index))});
-  }
+  evaluator_params_(evaluator_params){}
   
   // Getters for accessing the parameters
   Communicator* getCommunicator() const { return communicator_; }
-  const hir::HostIrEvaluatorParams& getParams() const { return params_; }
-  int64_t getLocalDeviceIndex() const { return my_local_device_index_; }
-  int64_t getDeviceId() const { 
-    return (communicator_ != nullptr && communicator_->is_available()) 
-      ? communicator_->deviceId() : 0; 
-  }
-  c10::Device getDevice() const { 
-    return communicator_ ? communicator_->device() : at::Device("cuda:0"); 
-  }
+  const hir::HostIrEvaluatorParams& getEvaluatorParams() const { return evaluator_params_; }
 };
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
-  std::unique_ptr<HostIrJitParams> params_;
+  std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default; // unique_ptr handles cleanup automatically
 };
@@ -122,12 +99,7 @@ inline void ExitOnErr(llvm::Error&& Err) {
 void generateAllocateFunc(
     const kir::Allocate* allocate,
     llvm::Module* mod,
-    const HostIrJitParams& params) {
-  at::ScalarType type = data_type_to_aten(
-      allocate->buffer()->dtype() == DataType::Index
-          ? PrimDataType::Int
-          : allocate->buffer()->dtype());
-
+    const HostIrJitParams& host_ir_jit_params) {
   llvm::LLVMContext& context = mod->getContext();
 
   // Define function signature: void(i64*, i64, i64*, i64, void*)
@@ -175,10 +147,6 @@ void generateAllocateFunc(
   auto logical_domain = TensorDomain::noReductions(
       allocate->buffer()->as<TensorView>()->getLogicalDomain());
   size_t compile_time_ndim = logical_domain.size();
-  // for (auto* dim : logical_domain) {
-  //   if (dim->extent()->isConst()) {
-  //   }
-  // }
   llvm::Value* compile_time_ndim_val =
       llvm::ConstantInt::get(int64_type, compile_time_ndim);
   llvm::Value* cmp =
@@ -198,10 +166,14 @@ void generateAllocateFunc(
   builder.SetInsertPoint(then_bb);
 
   // Create constants for type and device from params
+   at::ScalarType data_type = data_type_to_aten(
+      allocate->buffer()->dtype() == DataType::Index
+          ? PrimDataType::Int
+          : allocate->buffer()->dtype());
   llvm::Value* dtype_constant =
-      llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
+      llvm::ConstantInt::get(int32_type, static_cast<int32_t>(data_type));
   llvm::Value* device_index_constant =
-      llvm::ConstantInt::get(int64_type, params.getDeviceId());
+      llvm::ConstantInt::get(int64_type, host_ir_jit_params.getCommunicator()->deviceId());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
@@ -253,7 +225,7 @@ void generateAllocateFunc(
   }
 }
 
-void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& params) {
+void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& host_ir_jit_params) {
   if (allocate_funcs_.size() > 0) {
     return;
   }
@@ -273,10 +245,19 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   for (auto expr : container->topLevelExprs()) {
     if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
       // Generate a unique function name for this allocate
-      generateAllocateFunc(allocate, mod.get(), params);
+      generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
       // Store the mapping from allocate to function name
       allocate_func_names[allocate] = "create_tensor_from_sizes_" +
           std::to_string(reinterpret_cast<uintptr_t>(allocate));
+    }
+    else if (auto for_loop = dynamic_cast<const ForLoop*>(expr)) {
+      for (auto expr : for_loop->body().exprs()) {
+        if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
+          generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
+          allocate_func_names[allocate] = "create_tensor_from_sizes_" +
+          std::to_string(reinterpret_cast<uintptr_t>(allocate));
+        }
+      }
     }
   }
 
@@ -294,26 +275,15 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   }
 }
 
-// Constructor implementation
 HostIrJit::HostIrJit(
     hir::HostIrContainer* container,
     Communicator* communicator,
-    int num_threads)
-    : HostIrJit(
-          container,
-          communicator,
-          hir::HostIrEvaluatorParams{},
-          num_threads) {}
-
-HostIrJit::HostIrJit(
-    hir::HostIrContainer* container,
-    Communicator* communicator,
-    const hir::HostIrEvaluatorParams& params,
+    const hir::HostIrEvaluatorParams& evaluator_params,
     int num_threads)
     : pimpl_(new LlvmJitImpl) {
   // Initialize params with passed parameters
-  pimpl_->params_ =
-      std::make_unique<HostIrJitParams>(container, communicator, params);
+  pimpl_->host_ir_jit_params_ =
+      std::make_unique<HostIrJitParams>(container, communicator, evaluator_params);
 
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
@@ -327,6 +297,7 @@ HostIrJit::HostIrJit(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
   // Create wrapper function pointer to at::native::empty_strided_cuda
+  // TODO: Remove this wrapper in the future
   void* empty_strided_cuda_func_ptr = reinterpret_cast<void*>(
       +[](const int64_t* sizes,
           int64_t ndim,
@@ -361,11 +332,9 @@ HostIrJit::HostIrJit(
   
   // Only compile if container is provided
   if (container) {
-    compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_, *pimpl_->params_);
+    compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_, *pimpl_->host_ir_jit_params_);
   }
 }
-
-HostIrJit::~HostIrJit() = default;
 
 at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,
