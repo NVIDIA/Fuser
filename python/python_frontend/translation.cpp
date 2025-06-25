@@ -1153,20 +1153,46 @@ class FusionTranslator : public OptInConstDispatch {
         TensorDomain::noReductions(out_tv->getLogicalDomain()).size());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(
-        new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
-            {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
-             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
-             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
-            {fd_->recordingState(output())},
-            ("ops.grouped_mm"),
-            serde::RecordType::Ternary_TV,
-            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
-                [](TensorView* matrix1,
-                   TensorView* matrix2,
-                   TensorView* offsets) {
-                  return grouped_mm(matrix1, matrix2, offsets);
-                })));
+    // TODO: add support for scale1, scale2, alpha, bias and beta
+    if (gmm_op->input().size() == 3) {
+      fd_->defineRecord(
+          new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+              {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+               fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
+               fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
+              {fd_->recordingState(output())},
+              ("ops.grouped_mm"),
+              serde::RecordType::Ternary_TV,
+              static_cast<
+                  TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                  [](TensorView* matrix1,
+                     TensorView* matrix2,
+                     TensorView* offsets) {
+                    return grouped_mm(matrix1, matrix2, offsets);
+                  })));
+    } else {
+      fd_->defineRecord(new ScaledGroupedMmaOpRecord(
+          {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+           fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
+           fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets())),
+           gmm_op->hasScale()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->scale1()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasScale()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->scale2()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasAlpha()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->alpha()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasBias()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->bias()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasBeta()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->beta()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+          {fd_->recordingState(output())},
+          std::get<PrimDataType>(out_tv->dtype().type)));
+    }
   }
 
   // Map TopKOp to python frontend

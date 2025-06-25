@@ -3312,7 +3312,17 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
         fd.getFusionState(args_.at(3).index)->template as<TensorView>();
     auto scale2 =
         fd.getFusionState(args_.at(4).index)->template as<TensorView>();
-    auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2, dtype_);
+    auto alpha = (args_.at(5).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(5).index)->as<TensorView>()
+        : nullptr;
+    auto bias = (args_.at(6).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(6).index)->as<TensorView>()
+        : nullptr;
+    auto beta = (args_.at(7).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(7).index)->as<TensorView>()
+        : nullptr;
+    auto output = grouped_mm(
+        mat1, mat2, offsets, scale1, scale2, alpha, bias, beta, dtype_);
     fd.setFusionState(outputs().at(0).index, output);
   }
 

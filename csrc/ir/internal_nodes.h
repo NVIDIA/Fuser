@@ -2937,7 +2937,10 @@ class GroupedMmaOp : public Expr {
       Val* mat2,
       Val* offsets,
       Val* scale1 = nullptr,
-      Val* scale2 = nullptr);
+      Val* scale2 = nullptr,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2974,7 +2977,7 @@ class GroupedMmaOp : public Expr {
   // Get scale factor for first input matrix, returns nullptr if not present
   TensorView* scale1() const {
     if (hasScale()) {
-      return input(3)->as<TensorView>();
+      return input(attribute<int64_t>(0))->as<TensorView>();
     }
     return nullptr;
   }
@@ -2982,14 +2985,50 @@ class GroupedMmaOp : public Expr {
   // Get scale factor for second input matrix, returns nullptr if not present
   TensorView* scale2() const {
     if (hasScale()) {
-      return input(4)->as<TensorView>();
+      return input(attribute<int64_t>(0) + 1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(3))->as<TensorView>();
     }
     return nullptr;
   }
 
   // True if scale factors are present
   bool hasScale() const {
-    return inputs().size() == 5;
+    return attribute<int64_t>(0) != -1;
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(3) != -1;
   }
 
   // Get the IterDomain for the k-dimension of the first input matrix

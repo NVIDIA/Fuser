@@ -3717,7 +3717,10 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor offsets,
          Tensor scale1,
          Tensor scale2,
-         std::optional<PrimDataType> dtype) -> Tensor {
+         std::optional<PrimDataType> dtype,
+         std::optional<Tensor> alpha,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> beta) -> Tensor {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3732,7 +3735,16 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(mat2()),
              fd->recordingState(offsets()),
              fd->recordingState(scale1()),
-             fd->recordingState(scale2())},
+             fd->recordingState(scale2()),
+             alpha.has_value()
+                 ? fd->recordingState(alpha.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             bias.has_value()
+                 ? fd->recordingState(bias.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             beta.has_value()
+                 ? fd->recordingState(beta.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
             {fd->recordingState(output())},
             dtype));
         return output;
@@ -3760,6 +3772,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("scale1"),
       py::arg("scale2"),
       py::arg("dtype") = std::nullopt,
+      py::arg("alpha") = std::nullopt,
+      py::arg("bias") = std::nullopt,
+      py::arg("beta") = std::nullopt,
       py::return_value_policy::reference);
 
   nvf_ops.def(

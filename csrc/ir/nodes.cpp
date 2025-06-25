@@ -5776,7 +5776,10 @@ GroupedMmaOp::GroupedMmaOp(
     Val* mat2,
     Val* offsets,
     Val* scale1,
-    Val* scale2)
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
     : Expr(passkey) {
   NVF_ERROR(out->isA<TensorView>(), "Output must be a TensorView");
   NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
@@ -5787,6 +5790,12 @@ GroupedMmaOp::GroupedMmaOp(
   addInput(mat2);
   addInput(offsets);
 
+  int64_t offset = 3;
+  int64_t scale_offset = -1;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
+
   bool has_scale1 = scale1 != nullptr;
   if (has_scale1) {
     NVF_CHECK(
@@ -5796,7 +5805,47 @@ GroupedMmaOp::GroupedMmaOp(
     NVF_CHECK(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
     addInput(scale1);
     addInput(scale2);
+    scale_offset = offset;
+    offset += 2;
   }
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset;
+    offset += 1;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset;
+    offset += 1;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset;
+    offset += 1;
+  }
+
+  addDataAttribute(scale_offset);
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
 }
 
 std::string GroupedMmaOp::toString(int indent_size) const {
@@ -5809,6 +5858,18 @@ std::string GroupedMmaOp::toString(int indent_size) const {
     ss << ", "
        << "scale1=" << scale1() << ", "
        << "scale2=" << scale2();
+  }
+  if (hasAlpha()) {
+    ss << ", "
+       << "alpha=" << alpha();
+  }
+  if (hasBias()) {
+    ss << ", "
+       << "bias=" << bias();
+  }
+  if (hasBeta()) {
+    ss << ", "
+       << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();

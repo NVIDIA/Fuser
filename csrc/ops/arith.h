@@ -736,13 +736,18 @@ NVF_API TensorView* argsort(
 //! Grouped matrix multiplication
 //!
 //! Performs matrix multiplication on grouped sets of matrices using offsets
-//! to define variable-sized groups.
+//! to define variable-sized groups. This op computes:
+//!
+//! alpha * grouped_mm((mat1 * scale1), (mat2 * scale2), offsets) + bias * beta
 //!
 //! \param mat1 First set of matrices
 //! \param mat2 Second set of matrices
 //! \param offsets Offsets tensor defining group boundaries
 //! \param scale1 Scale tensor for mat1
 //! \param scale2 Scale tensor for mat2
+//! \param alpha Global Scaling factor for mat1@mat2
+//! \param bias Bias tensor
+//! \param beta Scale tensor for bias
 //! \return Result of grouped matrix multiplication
 NVF_API TensorView* grouped_mm(
     TensorView* mat1,
@@ -750,6 +755,9 @@ NVF_API TensorView* grouped_mm(
     TensorView* offsets,
     TensorView* scale1 = nullptr,
     TensorView* scale2 = nullptr,
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
     std::optional<DataType> dtype = std::nullopt);
 
 //! TopK operation: find the k largest or smallest elements along a dimension

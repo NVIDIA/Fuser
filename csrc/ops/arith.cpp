@@ -2368,6 +2368,9 @@ TensorView* grouped_mm(
     TensorView* offsets,
     TensorView* scale1,
     TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
     std::optional<DataType> dtype) {
   bool has_scale = scale1 != nullptr;
   NVF_CHECK(
@@ -2377,44 +2380,55 @@ TensorView* grouped_mm(
       " and scale2 : ",
       scale2 != nullptr ? "true" : "false");
 
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      has_bias == (beta != nullptr),
+      "bias and beta needs to be non-null or both null, got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+
   TensorView* out = createGroupedMmaOutput(mat1, mat2, offsets, dtype);
 
+  // sanity check on scale1 and scale2
   if (!has_scale) {
-    IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets);
-    return out;
+    int64_t scale1_rank =
+        std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
+    int64_t scale2_rank =
+        std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
+    int64_t mat1_rank =
+        std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
+    int64_t mat2_rank =
+        std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
+    int64_t out_rank =
+        std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
+
+    NVF_CHECK_EQ(
+        scale1_rank,
+        std::max(mat1_rank, out_rank),
+        "mat1 rank: ",
+        mat1_rank,
+        ", out rank: ",
+        out_rank,
+        ", scale1 rank: ",
+        scale1_rank);
+    NVF_CHECK_EQ(
+        scale2_rank,
+        std::max(mat2_rank, out_rank),
+        "mat2 rank: ",
+        mat2_rank,
+        ", out rank: ",
+        out_rank,
+        ", scale2 rank: ",
+        scale2_rank);
   }
 
-  int64_t scale1_rank =
-      std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
-  int64_t scale2_rank =
-      std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
-  int64_t mat1_rank =
-      std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
-  int64_t mat2_rank =
-      std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
-  int64_t out_rank =
-      std::ssize(TensorDomain::noReductions(out->getLogicalDomain()));
+  // NOTE: we don't sanity check on alpha, bias and beta for now, because the
+  // semantics of alpha, bias and beta are defined by fallback path and is
+  // subject to change.
 
-  NVF_CHECK_EQ(
-      scale1_rank,
-      std::max(mat1_rank, out_rank),
-      "mat1 rank: ",
-      mat1_rank,
-      ", out rank: ",
-      out_rank,
-      ", scale1 rank: ",
-      scale1_rank);
-  NVF_CHECK_EQ(
-      scale2_rank,
-      std::max(mat2_rank, out_rank),
-      "mat2 rank: ",
-      mat2_rank,
-      ", out rank: ",
-      out_rank,
-      ", scale2 rank: ",
-      scale2_rank);
-
-  IrBuilder::create<GroupedMmaOp>(out, mat1, mat2, offsets, scale1, scale2);
+  IrBuilder::create<GroupedMmaOp>(
+      out, mat1, mat2, offsets, scale1, scale2, alpha, bias, beta);
   return out;
 }
 
