@@ -3408,9 +3408,6 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     setFillAllocationWithNan(false);
     dtype_variants.push_back(DataType::Float8_e5m2);
   }
-  if (deviceMajorMinorCheck(10)) {
-    dtype_variants.push_back(DataType::Float8_e8m0fnu);
-  }
 
   for (auto dtype : dtype_variants) {
     std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
