@@ -2723,8 +2723,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
       if (unsupported_device) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
-            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_")));
+            testing::ThrowsMessage<nvfuser::nvfError>(
+                testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
@@ -2733,8 +2733,11 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
         NVF_CHECK(
             fp8_type == DataType::Float8_e8m0fnu
-                ? (outputs[0].as<at::Tensor>().ge(ref_output / 2)
-                       .logical_and(outputs[0].as<at::Tensor>().le(ref_output * 2))
+                ? (outputs[0]
+                       .as<at::Tensor>()
+                       .ge(ref_output / 2)
+                       .logical_and(
+                           outputs[0].as<at::Tensor>().le(ref_output * 2))
                        .all()
                        .item<bool>())
                 : outputs[0].as<at::Tensor>().equal(ref_output),
