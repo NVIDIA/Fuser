@@ -482,6 +482,7 @@ class NVFuserTest(TestCase):
         device=None,
         is_clonable=True,
         supports_segmentation=True,
+        validate=False,
     ):
         fc = FusionCache.get()
         before_fusions = fc.num_fusions()
@@ -503,6 +504,10 @@ class NVFuserTest(TestCase):
             _enable_options=_enable_options,
             _disable_options=_disable_options,
         )
+
+        # validate against evaluation
+        if validate:
+            fd.validate(inputs)
 
         self.assertTrue(
             check_captured_python_definition(out, fd, inputs_captured, device)

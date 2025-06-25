@@ -157,9 +157,6 @@ class TestRepro(NVFuserTest):
             fd.add_output(T253)
             fd.add_output(T254)
 
-        with FusionDefinition() as fd:
-            fusion_func(fd)
-
         inputs = [
             torch.testing.make_tensor(
                 (1, 64, 16384, 128), dtype=torch.bfloat16, device="cuda:0"
@@ -177,7 +174,8 @@ class TestRepro(NVFuserTest):
                 (1, 64, 16384, 128), dtype=torch.bfloat16, device="cuda:0"
             ),
         ]
-        outputs = fd.execute(inputs)
+
+        self.exec_nvfuser(fusion_func, inputs, validate=True)
 
     def test_issue4459(self):
         def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
@@ -335,9 +333,6 @@ class TestRepro(NVFuserTest):
             fd.add_output(T217)
             fd.add_output(T220)
 
-        with FusionDefinition() as fd:
-            nvfuser_fusion_id0(fd)
-
         inputs = [
             torch.randn(128, dtype=torch.float32, device="cuda:0").as_strided(
                 (4, 32), (1, 4)
@@ -354,4 +349,5 @@ class TestRepro(NVFuserTest):
                 (4, 320, 66, 66), dtype=torch.float32, device="cuda:0"
             ),
         ]
-        fd.execute(inputs)
+
+        self.exec_nvfuser(nvfuser_fusion_id0, inputs, validate=True)
