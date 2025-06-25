@@ -34,6 +34,14 @@ endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
+cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
+
+if(NVFUSER_HOST_IR_JIT)
+  add_compile_definitions(NVFUSER_HOST_IR_JIT)
+endif()
+
+message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
+
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -293,7 +301,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-if(BUILD_LLVM)
+if(NVFUSER_HOST_IR_JIT)
   # Add LLVM JIT related dependencies
   find_package(LLVM 18.1 REQUIRED CONFIG)
   llvm_map_components_to_libnames(LLVM_LIBS
@@ -407,7 +415,7 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
-if(BUILD_LLVM)
+if(NVFUSER_HOST_IR_JIT)
   target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 endif()
 
@@ -911,7 +919,7 @@ if(BUILD_TEST)
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
 
-  if(BUILD_LLVM)
+  if(NVFUSER_HOST_IR_JIT)
     set(LLVM_COMPILE_TEST_SRCS)
     list(APPEND LLVM_COMPILE_TEST_SRCS
       ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
@@ -1130,6 +1138,7 @@ message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
+message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)

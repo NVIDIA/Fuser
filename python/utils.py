@@ -25,7 +25,7 @@ class BuildConfig:
     build_without_distributed: bool = False
     build_with_system_nvtx: bool = True
     explicit_error_check: bool = False
-    build_with_llvm: bool = False
+    build_with_host_ir_jit: bool = False
     overwrite_version: bool = False
     version_tag: str = None
     build_type: str = "Release"
@@ -98,10 +98,10 @@ def parse_args():
         help="Build nvfuser with UCC support",
     )
     parser.add_argument(
-        "--build-with-llvm",
-        dest="build_with_llvm",
+        "--build-with-host-ir-jit",
+        dest="build_with_host_ir_jit",
         action="store_true",
-        help="Build nvfuser with LLVM support",
+        help="Build nvfuser with Host IR JIT support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -204,7 +204,7 @@ def create_build_config():
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
-        build_with_llvm=args.build_with_llvm,
+        build_with_host_ir_jit=args.build_with_host_ir_jit,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
         build_with_system_nvtx=not args.no_system_nvtx,
@@ -249,8 +249,8 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
-    if "NVFUSER_BUILD_WITH_LLVM" in os.environ:
-        config.build_with_llvm = get_env_flag_bool("NVFUSER_BUILD_WITH_LLVM")
+    if "NVFUSER_HOST_IR_JIT" in os.environ:
+        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
@@ -468,7 +468,7 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
-        f"-DBUILD_LLVM={on_or_off(config.build_with_llvm)}",
+        f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
         "-B",
         cmake_build_dir,
     ]

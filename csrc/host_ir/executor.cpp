@@ -197,11 +197,13 @@ HostIrEvaluator::HostIrEvaluator(
     Communicator* communicator,
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
+#ifdef NVFUSER_HOST_IR_JIT
       jit_(std::make_unique<HostIrJit>(
           container_.get(),
           communicator,
           params,
           4)),
+#endif
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
@@ -727,29 +729,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
-// void HostIrEvaluator::handle(kir::Allocate* allocate) {
-//   NVF_ERROR(
-//       allocate->buffer()->isA<TensorView>(),
-//       "Allocation must be on a TensorView but got ",
-//       allocate->buffer());
-//   TensorView* tv = allocate->buffer()->as<TensorView>();
-//   if (expr_evaluator_.isKnown(tv)) {
-//     return;
-//   }
-//   GlobalBufferInfo info =
-//       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
-//   c10::Device device =
-//       communicator_ ? communicator_->device() : at::Device("cuda:0");
-//   auto tensor = at::native::empty_strided_cuda(
-//       info.shape_info.logical_sizes,
-//       info.shape_info.logical_strides,
-//       info.type,
-//       c10::nullopt,
-//       device,
-//       c10::nullopt);
-//   expr_evaluator_.bind(tv, tensor);
-// }
-
+#ifdef NVFUSER_HOST_IR_JIT
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
@@ -764,6 +744,30 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   auto tensor = jit_->allocate(allocate, shape_info.logical_sizes, shape_info.logical_strides);
   expr_evaluator_.bind(tv, tensor);
 }
+#else
+void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  NVF_ERROR(
+      allocate->buffer()->isA<TensorView>(),
+      "Allocation must be on a TensorView but got ",
+      allocate->buffer());
+  TensorView* tv = allocate->buffer()->as<TensorView>();
+  if (expr_evaluator_.isKnown(tv)) {
+    return;
+  }
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  c10::Device device =
+      communicator_ ? communicator_->device() : at::Device("cuda:0");
+  auto tensor = at::native::empty_strided_cuda(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+  expr_evaluator_.bind(tv, tensor);
+}
+#endif
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
