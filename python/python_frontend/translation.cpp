@@ -1154,7 +1154,7 @@ class FusionTranslator : public OptInConstDispatch {
     map_val_to_fd_index_.emplace(out_tv, output());
 
     // TODO: add support for scale1, scale2, alpha, bias and beta
-    if (gmm_op->input().size() == 3) {
+    if (gmm_op->inputs().size() == 3) {
       fd_->defineRecord(
           new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
               {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
