@@ -982,5 +982,6 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
 
 constexpr int64_t hostIrJitCompileThreads = 16;
 
+constexpr std::string_view hostIrJitAllocateFuncName = "Allocate";
 
 } // namespace nvfuser

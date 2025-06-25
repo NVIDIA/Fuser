@@ -118,7 +118,7 @@ void generateAllocateFunc(
        void_ptr_type},
       false);
 
-  std::string func_name = "create_tensor_from_sizes_" +
+  std::string func_name = hostIrJitAllocateFuncName + "_" +
       std::to_string(reinterpret_cast<uintptr_t>(allocate));
   llvm::Function* func = llvm::Function::Create(
       func_type,
@@ -247,14 +247,14 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
       // Generate a unique function name for this allocate
       generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
       // Store the mapping from allocate to function name
-      allocate_func_names[allocate] = "create_tensor_from_sizes_" +
+      allocate_func_names[allocate] = hostIrJitAllocateFuncName + "_" +
           std::to_string(reinterpret_cast<uintptr_t>(allocate));
     }
     else if (auto for_loop = dynamic_cast<const ForLoop*>(expr)) {
       for (auto expr : for_loop->body().exprs()) {
         if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
           generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
-          allocate_func_names[allocate] = "create_tensor_from_sizes_" +
+          allocate_func_names[allocate] = hostIrJitAllocateFuncName + "_" +
           std::to_string(reinterpret_cast<uintptr_t>(allocate));
         }
       }
