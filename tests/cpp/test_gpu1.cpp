@@ -2733,8 +2733,10 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
         NVF_CHECK(
             fp8_type == DataType::Float8_e8m0fnu
-                ? (outputs[0].as<at::Tensor>().ge(ref_output / 2).logical_and(
-                      outputs[0].as<at::Tensor>().le(ref_output * 2)).all())
+                ? (outputs[0].as<at::Tensor>().ge(ref_output / 2)
+                       .logical_and(outputs[0].as<at::Tensor>().le(ref_output * 2))
+                       .all()
+                       .item<bool>())
                 : outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to ",
             at_fp8_type,
