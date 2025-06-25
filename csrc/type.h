@@ -484,8 +484,9 @@ inline DataType getDataType(const PolymorphicValue& value) {
     } else if constexpr (std::is_same_v<T, Opaque>) {
       if (value.is<T>()) {
         const auto& opaque = value.as<T>();
-        dtype = DataType(OpaqueType{
-            .type_info = opaque.any().type(), .size = opaque.size()});
+        dtype = DataType(
+            OpaqueType{
+                .type_info = opaque.any().type(), .size = opaque.size()});
       }
     }
   });
@@ -992,7 +993,9 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 // DataType::Null
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
-NVF_API at::ScalarType data_type_to_aten(const DataType& data_type, const DataType& index_type);
+NVF_API at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type);
 
 // NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
 // input/output TensorViews with these data types not supported by PyTorch.

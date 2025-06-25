@@ -481,7 +481,9 @@ class VectorizeValidator : public OptInDispatch {
     // For example, for fp4 tensor, we use Byte as the corresponding ATen
     // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
     int64_t aten_element_size_bit =
-        c10::elementSize(data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) * 8;
+        c10::elementSize(
+            data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) *
+        8;
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;

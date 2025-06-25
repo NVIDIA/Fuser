@@ -1347,7 +1347,9 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
   }
 }
 
-at::ScalarType data_type_to_aten(const DataType& data_type, const DataType& index_type) {
+at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type) {
   if (data_type == DataType::Index) {
     return data_type_to_aten(index_type);
   }

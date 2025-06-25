@@ -370,9 +370,9 @@ std::vector<std::byte> tensorToBytes(
       // changes the same way as the other dimensions, but besides that, because
       // we adjusted the logical size of the last dimension, the definition of
       // "increment by one" also changes. We need to account for both changes,
-      // not just the change of definition of "unit". The effect of the definition
-      // change of "unit" and the definition change of "increment by one" cancel
-      // each other, so we just use the raw_stride as is.
+      // not just the change of definition of "unit". The effect of the
+      // definition change of "unit" and the definition change of "increment by
+      // one" cancel each other, so we just use the raw_stride as is.
       int64_t stride = (i == size_to_use.size() - 1)
           ? raw_stride
           : adjust_last_dim.fromATenToNVF(raw_stride);
