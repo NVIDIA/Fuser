@@ -125,6 +125,7 @@ class FusionDefinition:
     def define_scalar(self, *args, **kwargs):
         """
         Define a new scalar input for the fusion.
+        It is added as a fusion input if it is a symbolic value.
         Parameters
         ----------
         *args
