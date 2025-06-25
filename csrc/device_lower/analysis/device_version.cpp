@@ -48,8 +48,8 @@ void MinimumDeviceVersion::dispatch(Val* val) {
         "Blackwell (10.0)");
 #else
     NVF_ERROR(
-        "Fusion contains Float8_e8m0fnu values which was not supported in given "
-        "CUDA version");
+        "Fusion contains Float8_e8m0fnu values which was not supported in "
+        "given CUDA version");
 #endif // (CUDA_VERSION >= 12070)
   }
   IterVisitor::dispatch(val);

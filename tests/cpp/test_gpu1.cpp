@@ -2719,7 +2719,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
             testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_xxx values")));
+                "Reason: Fusion contains Float8_")));
       } else {
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});

@@ -397,7 +397,7 @@ __device__ __inline__ __e8m0 __float2e8m0(const float f) {
   constexpr float f_const_zero = 0.f;
   unsigned short _tmp_buffer;
   __e8m0 val;
-  asm("{cvt.rz.satfinite.ue8m0x2.f32 %0, %1, %2;}"
+  asm("{cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %2;}"
       : "=h"(_tmp_buffer)
       : "f"(f_const_zero), "f"(f));
   memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
