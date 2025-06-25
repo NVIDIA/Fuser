@@ -5962,6 +5962,293 @@ TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Check if resize input IDs are predicated. Repro of issue
+// https://github.com/NVIDIA/Fuser/issues/3710.
+TEST_F(PredicateIndexingTest, SplitThenPad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 4;
+  const int64_t i1 = 32;
+
+  auto zero = fusion.zeroVal();
+
+  auto tv0 = makeContigConcreteTensor({i0 * i1});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 =
+      reshape(tv1, {IrBuilder::create<Val>(i0), IrBuilder::create<Val>(i1)});
+  auto tv3 = pad(tv2, {zero, IrBuilder::create<Val>(i1)});
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+
+  scheduler_tools::propagateResizeToInputs(tv3->definition());
+
+  inlineMost();
+
+  // tv1 should be scheduled as:
+  //
+  // T1_l_float[iS11{4}, iS13{64}]
+  //  logical domain : (iS1{128})
+  //  contiguity: t
+  //   Outer split: iS1{128} by factor 4 -> iS11{4}, iS12{32}
+  //   Resize: iS12{32} by 0 and 32 -> iS13{64}
+  // loop domain : (iS11{4}, iS13{64})
+  //
+  // In addition to its logical ID, the resize input ID should be
+  // predicated.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // Without index hoist and expr simplification, the predicate
+      // should look like:
+      //
+      // (((((((i0 * 32LL) + i1) >= 0LL) &&
+      // (((i0 * 32LL) + i1) < 128LL)) &&
+      // (i1 >= 0LL)) &&
+      // (i1 < 32LL)))
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+
+      Val* zero = tv->fusion()->zeroVal();
+
+      auto resize = dynamic_cast<Resize*>(tv->axis(1)->definition());
+      NVF_ERROR(resize != nullptr);
+
+      auto logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), createInt(i1)), loop_indices.at(1));
+
+      auto resize_idx = loop_indices.at(1);
+
+      return andExpr(
+          andExpr(
+              andExpr(
+                  geExpr(logical_idx, zero),
+                  ltExpr(logical_idx, createInt(i0 * i1))),
+              geExpr(resize_idx, zero)),
+          ltExpr(resize_idx, createInt(i1)));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0 * i1}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateIndexingTest, SplitThenPadTwice) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 4;
+  const int64_t i1 = 32;
+
+  auto zero = fusion.zeroVal();
+
+  auto tv0 = makeContigConcreteTensor({i0 * i1});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 =
+      reshape(tv1, {IrBuilder::create<Val>(i0), IrBuilder::create<Val>(i1)});
+  auto tv3 = pad(tv2, {zero, IrBuilder::create<Val>(1L)});
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(1L), zero});
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  scheduler_tools::propagateResizeToInputs(tv3->definition());
+  scheduler_tools::propagateResizeToInputs(tv4->definition());
+
+  inlineMost();
+
+  // tv1 should be scheduled as:
+  //
+  // T1_l_float[iS14{4}, iS18{34}] ca_pos( 2 )
+  //  logical domain : (iS1{128})
+  //  contiguity: t
+  //   Outer split: iS1{128} by factor 4 -> iS14{4}, iS15{32}
+  //   Resize: iS15{32} by 0 and 1 -> iS16{33}
+  //   Resize: iS16{33} by 1 and 0 -> iS18{34}
+  //  loop domain : (iS14{4}, iS18{34})
+  //
+  // In addition to its logical ID, the two resize input IDs should be
+  // predicated.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // Without index hoist and expr simplification, the predicate
+      // should look like:
+      //
+      // (((((((((i0 * 32LL) + (i1 - 1LL)) >= 0LL) &&
+      // (((i0 * 32LL) + (i1 - 1LL)) < 128LL)) &&
+      // ((i1 - 1LL) >= 0LL)) &&
+      // ((i1 - 1LL) < 33LL)) &&
+      // ((i1 - 1LL) >= 0LL)) &&
+      // ((i1 - 1LL) < 32LL)))
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+
+      Val* zero = tv->fusion()->zeroVal();
+      Val* one = tv->fusion()->oneVal();
+
+      auto resize = dynamic_cast<Resize*>(tv->axis(1)->definition());
+      NVF_ERROR(resize != nullptr);
+
+      auto logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), createInt(i1)),
+          subExpr(loop_indices.at(1), one));
+
+      auto resize_idx = subExpr(loop_indices.at(1), one);
+
+      return andExpr(
+          andExpr(
+              andExpr(
+                  andExpr(
+                      andExpr(
+                          geExpr(logical_idx, zero),
+                          ltExpr(logical_idx, createInt(i0 * i1))),
+                      geExpr(resize_idx, zero)),
+                  ltExpr(resize_idx, createInt(i1 + 1))),
+              geExpr(resize_idx, zero)),
+          ltExpr(resize_idx, createInt(i1)));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0 * i1}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// Testing a split reshape followed by slice and pad, which is a
+// common pattern in RoPE.
+TEST_F(PredicateIndexingTest, SplitThenSliceAndPad) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const int64_t i0 = 4;
+  const int64_t i1 = 32;
+
+  auto zero = fusion.zeroVal();
+
+  auto tv0 = makeContigConcreteTensor({i0 * i1});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 =
+      reshape(tv1, {IrBuilder::create<Val>(i0), IrBuilder::create<Val>(i1)});
+  auto tv3 = slice(
+      tv2,
+      {{zero, IrBuilder::create<Val>(i0)},
+       {IrBuilder::create<Val>(i1 / 2), IrBuilder::create<Val>(i1)}});
+  auto tv4 = pad(tv3, {zero, IrBuilder::create<Val>(i1 / 2)});
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  scheduler_tools::propagateResizeToInputs(tv3->definition());
+  scheduler_tools::propagateResizeToInputs(tv4->definition());
+
+  inlineMost();
+
+  // tv1 should be scheduled as:
+  //
+  // T1_l_float[iS14{4}, iS18{32}] ca_pos( 2 )
+  //  logical domain : (iS1{128})
+  //  contiguity: t
+  //   Outer split: iS1{128} by factor 4 -> iS14{4}, iS15{32}
+  //   Resize: iS15{32} by -16 and 0 -> iS16{16}
+  //   Resize: iS16{16} by 0 and 16 -> iS18{32}
+  //  loop domain : (iS14{4}, iS18{32})
+  //
+  // In addition to its logical ID, the input of the second resize
+  // should be predicated. The first resize should not be predicated
+  // as its input can be known to cover the output since the expansion
+  // factors are static, so as long as the index of the
+  // output is within the boundary, its index should never need to be
+  // predicated.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      if (tv->name() != 1) {
+        return nullptr;
+      }
+
+      // Without index hoist and expr simplification, the predicate
+      // should look like:
+      //
+      // (((((((i0 * 32LL) + (i1 + 16LL)) >= 0LL) &&
+      // (((i0 * 32LL) + (i1 + 16LL)) < 128LL)) &&
+      // (i1 >= 0LL)) &&
+      // (i1 < 16LL)))
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+
+      Val* zero = tv->fusion()->zeroVal();
+
+      auto resize = dynamic_cast<Resize*>(tv->axis(1)->definition());
+      NVF_ERROR(resize != nullptr);
+
+      auto logical_idx = addExpr(
+          mulExpr(loop_indices.at(0), createInt(i1)),
+          addExpr(loop_indices.at(1), createInt(i1 / 2)));
+
+      auto resize_idx = loop_indices.at(1);
+
+      return andExpr(
+          andExpr(
+              andExpr(
+                  geExpr(logical_idx, zero),
+                  ltExpr(logical_idx, createInt(i0 * i1))),
+              geExpr(resize_idx, zero)),
+          ltExpr(resize_idx, createInt(i1 / 2)));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({i0 * i1}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 // Repro of issue #3505. The indexing WAR for resize triggered an
 // assertion due to loop promotion.
 TEST_F(IndexingTest, Issue3505Repro1) {
