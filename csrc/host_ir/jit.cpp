@@ -46,7 +46,7 @@
 namespace nvfuser {
 
 using allocate_fn =
-    at::Tensor* (*)(const int64_t*, int64_t, const int64_t*, int64_t);
+    void (*)(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&);
 
 class HostIrJitParams {
   private:
@@ -118,80 +118,67 @@ inline void ExitOnErr(llvm::Error&& Err) {
   }
 }
 
-// Helper function to create global variables for shared parameters, not used for now
-void createGlobalVariables(llvm::Module* mod, const HostIrJitParams& params) {
-  // // Note: We're now using constants instead of global variables for better performance
-  // // This function is kept for potential future use if runtime-modifiable globals are needed
-  
-  // llvm::LLVMContext& context = mod->getContext();
-  // llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
-  // llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
-  // llvm::Type* bool_type = llvm::Type::getInt1Ty(context);
-  // llvm::Type* ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  
-  // // Example: Global memory pool size (if needed for runtime configuration)
-  // if (!mod->getGlobalVariable("memory_pool_size")) {
-  //   new llvm::GlobalVariable(
-  //       *mod,
-  //       int64_type,
-  //       false,
-  //       llvm::GlobalValue::InternalLinkage,
-  //       llvm::ConstantInt::get(int64_type, 1024 * 1024 * 1024), // 1GB default
-  //       "memory_pool_size");
-  // }
-  
-  // // Example: Global stream ID (if needed for runtime configuration)
-  // if (!mod->getGlobalVariable("default_stream_id")) {
-  //   new llvm::GlobalVariable(
-  //       *mod,
-  //       int32_type,
-  //       false,
-  //       llvm::GlobalValue::InternalLinkage,
-  //       llvm::ConstantInt::get(int32_type, 0), // Default stream
-  //       "default_stream_id");
-  // }
-  
-}
-
 // Generate a function that calls at::native::empty_strided_cuda
 void generateAllocateFunc(
     const kir::Allocate* allocate,
     llvm::Module* mod,
     const HostIrJitParams& params) {
-
-
-
-  at::ScalarType type = data_type_to_aten(allocate->buffer()->dtype() == DataType::Index ? PrimDataType::Int : allocate->buffer()->dtype());
+  at::ScalarType type = data_type_to_aten(
+      allocate->buffer()->dtype() == DataType::Index
+          ? PrimDataType::Int
+          : allocate->buffer()->dtype());
 
   llvm::LLVMContext& context = mod->getContext();
-  llvm::IRBuilder<> builder(context);
- std::string func_name = "create_tensor_from_sizes_" +
-          std::to_string(reinterpret_cast<uintptr_t>(allocate));
 
-  // Define function signature: at::Tensor* func(int64_t*, int64_t, int64_t*, int64_t)
+  // Define function signature: void(i64*, i64, i64*, i64, void*)
+  // The last void* is for at::Tensor&
   llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
   llvm::Type* int64_ptr_type = int64_type->getPointerTo();
   llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
   llvm::PointerType* void_ptr_type =
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
   llvm::FunctionType* func_type = llvm::FunctionType::get(
-      void_ptr_type, {int64_ptr_type, int64_type, int64_ptr_type, int64_type}, false);
+      llvm::Type::getVoidTy(context),
+      {int64_ptr_type,
+       int64_type,
+       int64_ptr_type,
+       int64_type,
+       void_ptr_type},
+      false);
+
+  std::string func_name = "create_tensor_from_sizes_" +
+      std::to_string(reinterpret_cast<uintptr_t>(allocate));
   llvm::Function* func = llvm::Function::Create(
-      func_type, llvm::Function::ExternalLinkage, func_name, mod);
+      func_type,
+      llvm::Function::ExternalLinkage,
+      func_name, // Use the generated unique name
+      mod);
 
-  // Create basic block
-  llvm::BasicBlock* entry_block =
-      llvm::BasicBlock::Create(context, "entry", func);
-  builder.SetInsertPoint(entry_block);
+  // Set argument names for better readability in IR
+  func->getArg(0)->setName("sizes");
+  func->getArg(1)->setName("ndim");
+  func->getArg(2)->setName("strides");
+  func->getArg(3)->setName("strides_ndim");
+  func->getArg(4)->setName("out_tensor");
 
-  // Get function arguments
-  llvm::Value* sizes_arg = func->getArg(0);     // int64_t* (sizes)
-  llvm::Value* ndim_arg = func->getArg(1);      // int64_t   (ndim)
-  llvm::Value* strides_arg = func->getArg(2);   // int64_t* (strides)
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
+  llvm::IRBuilder<> builder(entry);
+
+  // Get arguments from the function
+  llvm::Value* sizes_arg = func->getArg(0); // const int64_t*
+  llvm::Value* ndim_arg = func->getArg(1); // int64_t
+  llvm::Value* strides_arg = func->getArg(2); // const int64_t*
   llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides_ndim)
+  llvm::Value* out_tensor_arg = func->getArg(4); // at::Tensor&
 
   // Bounds checking for ndim
-  size_t compile_time_ndim = TensorDomain::noReductions(allocate->buffer()->as<TensorView>()->getLogicalDomain()).size();
+  auto logical_domain = TensorDomain::noReductions(
+      allocate->buffer()->as<TensorView>()->getLogicalDomain());
+  size_t compile_time_ndim = logical_domain.size();
+  // for (auto* dim : logical_domain) {
+  //   if (dim->extent()->isConst()) {
+  //   }
+  // }
   llvm::Value* compile_time_ndim_val =
       llvm::ConstantInt::get(int64_type, compile_time_ndim);
   llvm::Value* cmp =
@@ -211,24 +198,47 @@ void generateAllocateFunc(
   builder.SetInsertPoint(then_bb);
 
   // Create constants for type and device from params
-  llvm::Value* dtype_constant = llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
-  llvm::Value* device_index_constant = llvm::ConstantInt::get(int64_type, params.getDeviceId());
+  llvm::Value* dtype_constant =
+      llvm::ConstantInt::get(int32_type, static_cast<int32_t>(type));
+  llvm::Value* device_index_constant =
+      llvm::ConstantInt::get(int64_type, params.getDeviceId());
 
-  // Get the at::native::empty_strided_cuda function pointer (registered in the JIT)
-  llvm::Function* at_empty_strided_cuda_func = mod->getFunction("at::native::empty_strided_cuda");
+  // Get the at::native::empty_strided_cuda function pointer (registered in the
+  // JIT)
+  llvm::Function* at_empty_strided_cuda_func =
+      mod->getFunction("at::native::empty_strided_cuda");
   if (at_empty_strided_cuda_func == nullptr) {
-    llvm::FunctionType* at_empty_strided_cuda_func_type = llvm::FunctionType::get(
-        void_ptr_type, {int64_ptr_type, int64_type, int64_ptr_type, int64_type, int32_type, int64_type}, false);
+    llvm::FunctionType* at_empty_strided_cuda_func_type =
+        llvm::FunctionType::get(
+            builder.getVoidTy(),
+            {int64_ptr_type,
+             int64_type,
+             int64_ptr_type,
+             int64_type,
+             int32_type,
+             int64_type,
+             void_ptr_type},
+            false);
     at_empty_strided_cuda_func = llvm::Function::Create(
-        at_empty_strided_cuda_func_type, llvm::Function::ExternalLinkage, "at::native::empty_strided_cuda", mod);
+        at_empty_strided_cuda_func_type,
+        llvm::Function::ExternalLinkage,
+        "at::native::empty_strided_cuda",
+        mod);
   }
 
   // Call at::native::empty_strided_cuda with constants
-  llvm::Value* result =
-      builder.CreateCall(at_empty_strided_cuda_func, {sizes_arg, ndim_arg, strides_arg, strides_ndim_arg, dtype_constant, device_index_constant});
+  builder.CreateCall(
+      at_empty_strided_cuda_func,
+      {sizes_arg,
+       ndim_arg,
+       strides_arg,
+       strides_ndim_arg,
+       dtype_constant,
+       device_index_constant,
+       out_tensor_arg});
 
   // Return the result
-  builder.CreateRet(result);
+  builder.CreateRetVoid();
 
   // Verify the module
   std::string error;
@@ -259,9 +269,6 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
           std::to_string(reinterpret_cast<uintptr_t>(container)),
       *ctx);
   
-  // Create global variables once for the entire module
-  createGlobalVariables(mod.get(), params);
-  
   std::unordered_map<const kir::Allocate*, std::string> allocate_func_names;
   for (auto expr : container->topLevelExprs()) {
     if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
@@ -281,9 +288,9 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   for (const auto& [allocate, func_name] : allocate_func_names) {
     auto func_addr = ExitOnErr(jit->lookup(func_name));
     // Lookup and reinterpret the function pointer to store in the map
-    allocate_funcs_[allocate] =
-        (allocate_fn)reinterpret_cast<at::Tensor* (*)(
-            const int64_t*, int64_t, const int64_t*, int64_t)>(func_addr.getValue());
+    allocate_funcs_[allocate] = (allocate_fn)reinterpret_cast<void (*)(
+        const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
+        func_addr.getValue());
   }
 }
 
@@ -326,20 +333,21 @@ HostIrJit::HostIrJit(
           const int64_t* strides,
           int64_t strides_ndim,
           int32_t dtype,
-          int64_t device_index) -> at::Tensor* {
+          int64_t device_index,
+          at::Tensor& out_tensor) {
         at::IntArrayRef aten_sizes(sizes, ndim);
         at::IntArrayRef aten_strides(strides, strides_ndim);
         // Use the type and device passed as parameters
         at::ScalarType scalar_type = static_cast<at::ScalarType>(dtype);
         at::Device device =
             at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
-        return new at::Tensor(at::native::empty_strided_cuda(
+        out_tensor = at::native::empty_strided_cuda(
             aten_sizes,
             aten_strides,
             scalar_type,
             c10::nullopt,
             device,
-            c10::nullopt));
+            c10::nullopt);
       });
 
   // Register at::native::empty_strided_cuda function in LLVM
@@ -368,15 +376,15 @@ at::Tensor HostIrJit::allocate(
   }
   FUSER_PERF_SCOPE("HostIrJit::allocate");
   auto func_ptr = pimpl_->allocate_funcs_[allocate];
-  
-  auto result = func_ptr(
+
+  at::Tensor tensor;
+  func_ptr(
       input_sizes.data(),
       input_sizes.size(),
       input_strides.data(),
-      input_strides.size());
-  
-  at::Tensor tensor = *result;
-  delete result;
+      input_strides.size(),
+      tensor);
+
   return tensor;
 }
 
