@@ -513,6 +513,7 @@ if(BUILD_CUTLASS)
     list(APPEND NVFUSER_CUTLASS_SRCS
         ${NVFUSER_CUTLASS}/fp8_blockwise_moe_kernel.cu
 	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+	${NVFUSER_CUTLASS}/nvfp4_quantize.cu
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
         )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})

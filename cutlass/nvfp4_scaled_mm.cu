@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <cutlass_utils.h>
+#include <exceptions.h>
 #include <nvf_cutlass.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -13,11 +14,13 @@
 #include <torch/torch.h>
 
 #include "cutlass/cutlass.h"
-#include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/gemm/collective/collective_builder.hpp"
 #include "cutlass/gemm/device/gemm_universal_adapter.h"
 #include "cutlass/gemm/kernel/gemm_universal.hpp"
 #include "cutlass/util/packed_stride.hpp"
+
+namespace nvfuser::cutlass_kernels {
 
 using namespace cute;
 
@@ -76,40 +79,45 @@ struct Fp4GemmSm100 {
   using ClusterShape = typename KernelTraits<T>::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits<T>::PerSmTileShape_MNK;
 
-  using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
-      ArchTag,
-      OperatorClass,
-      PerSmTileShape_MNK,
-      ClusterShape,
-      cutlass::epilogue::collective::EpilogueTileAuto,
-      ElementAccumulator,
-      ElementAccumulator,
-      ElementC,
-      LayoutCTag,
-      AlignmentC,
-      ElementD,
-      LayoutDTag,
-      AlignmentD,
-      cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag,
+          AlignmentC,
+          ElementD,
+          LayoutDTag,
+          AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
 
-  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-      ArchTag,
-      OperatorClass,
-      ElementA,
-      LayoutATag,
-      AlignmentA,
-      ElementB,
-      LayoutBTag,
-      AlignmentB,
-      ElementAccumulator,
-      MmaTileShape,
-      ClusterShape,
-      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
-          sizeof(typename CollectiveEpilogue::SharedStorage))>,
-      cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          ElementA,
+          LayoutATag,
+          AlignmentA,
+          ElementB,
+          LayoutBTag,
+          AlignmentB,
+          ElementAccumulator,
+          MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
 
-  using GemmKernel =
-      cutlass::gemm::kernel::GemmUniversal<Shape<int, int, int, int>, CollectiveMainloop, CollectiveEpilogue, void>;
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      Shape<int, int, int, int>,
+      CollectiveMainloop,
+      CollectiveEpilogue,
+      void>;
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
   using StrideA = typename Gemm::GemmKernel::StrideA;
   using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
@@ -143,7 +151,8 @@ typename T::Gemm::Arguments args_from_options(
   using StrideA = typename T::StrideA;
   using StrideB = typename T::StrideB;
   using StrideD = typename T::StrideD;
-  using Sm100BlkScaledConfig = typename T::Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
+  using Sm100BlkScaledConfig =
+      typename T::Gemm::GemmKernel::CollectiveMainloop::Sm100BlkScaledConfig;
 
   int m = static_cast<int>(M);
   int n = static_cast<int>(N);
@@ -152,8 +161,10 @@ typename T::Gemm::Arguments args_from_options(
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
 
-  auto layout_SFA = Sm100BlkScaledConfig::tile_atom_to_shape_SFA(cute::make_shape(m, n, k, 1));
-  auto layout_SFB = Sm100BlkScaledConfig::tile_atom_to_shape_SFB(cute::make_shape(m, n, k, 1));
+  auto layout_SFA = Sm100BlkScaledConfig::tile_atom_to_shape_SFA(
+      cute::make_shape(m, n, k, 1));
+  auto layout_SFB = Sm100BlkScaledConfig::tile_atom_to_shape_SFB(
+      cute::make_shape(m, n, k, 1));
 
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
@@ -167,8 +178,8 @@ typename T::Gemm::Arguments args_from_options(
        layout_SFA,
        static_cast<ElementSFB const*>(scales_b.data_ptr()),
        layout_SFB},
-      {     // Epilogue arguments
-       {},  // epilogue.thread
+      {// Epilogue arguments
+       {}, // epilogue.thread
        static_cast<ElementD const*>(output.data_ptr()),
        stride_D,
        static_cast<ElementD*>(output.data_ptr()),
@@ -192,10 +203,12 @@ void runGemm(
     cudaStream_t stream) {
   typename Fp4GemmSm100<T>::Gemm gemm;
 
-  auto arguments = args_from_options<Fp4GemmSm100<T>>(output, a, b, scales_a, scales_b, alpha, m, n, k);
+  auto arguments = args_from_options<Fp4GemmSm100<T>>(
+      output, a, b, scales_a, scales_b, alpha, m, n, k);
 
   size_t workspace_size = Fp4GemmSm100<T>::Gemm::get_workspace_size(arguments);
-  auto const workspace_options = torch::TensorOptions().dtype(torch::kUInt8).device(a.device());
+  auto const workspace_options =
+      torch::TensorOptions().dtype(torch::kUInt8).device(a.device());
   auto workspace = torch::empty(workspace_size, workspace_options);
 
   auto can_implement_status = gemm.can_implement(arguments);
@@ -227,11 +240,13 @@ void runGemm(
       "Unsupported CUTLASS version. Set VLLM_CUTLASS_SRC_DIR to "
       "a CUTLASS 3.8 source directory to enable support.");
 }
-#endif  // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
+#endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
-#define CHECK_TYPE(x, st, m) NVF_CHECK(x.scalar_type() == st, "Inconsistency of Tensor type:", m)
+#define CHECK_TYPE(x, st, m) \
+  NVF_CHECK(x.scalar_type() == st, "Inconsistency of Tensor type:", m)
 #define CHECK_TH_CUDA(x, m) NVF_CHECK(x.is_cuda(), m, "must be a CUDA tensor")
-#define CHECK_CONTIGUOUS(x, m) NVF_CHECK(x.is_contiguous(), m, "must be contiguous")
+#define CHECK_CONTIGUOUS(x, m) \
+  NVF_CHECK(x.is_contiguous(), m, "must be contiguous")
 #define CHECK_INPUT(x, st, m) \
   CHECK_TH_CUDA(x, m);        \
   CHECK_CONTIGUOUS(x, m);     \
@@ -339,16 +354,20 @@ void cutlass_scaled_fp4_mm_sm100a(
       ")");
 
   auto out_dtype = output.dtype();
-  at::cuda::CUDAGuard device_guard{(char)a.get_device()};
+  at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
 
   if (out_dtype == at::ScalarType::Half) {
-    runGemm<cutlass::half_t>(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
+    runGemm<cutlass::half_t>(
+        output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else if (out_dtype == at::ScalarType::BFloat16) {
-    runGemm<cutlass::bfloat16_t>(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
+    runGemm<cutlass::bfloat16_t>(
+        output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else if (out_dtype == at::ScalarType::Float) {
     runGemm<float>(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else {
     NVF_CHECK(false, "Unsupported output data type of nvfp4 mm");
   }
 }
+
+} // namespace nvfuser::cutlass_kernels
