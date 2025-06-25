@@ -1032,6 +1032,9 @@ struct AdjustLastDim {
     }
     return dividend / numerator;
   }
+  bool isTrivial() const {
+    return numerator == 1 && denominator == 1;
+  }
 };
 // at_size * numerator / denominator is the size of the last dimension of the
 // corresponding TensorView.
