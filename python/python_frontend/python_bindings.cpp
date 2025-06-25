@@ -3717,10 +3717,10 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor offsets,
          Tensor scale1,
          Tensor scale2,
-         std::optional<PrimDataType> dtype,
          std::optional<Tensor> alpha,
          std::optional<Tensor> bias,
-         std::optional<Tensor> beta) -> Tensor {
+         std::optional<Tensor> beta,
+         std::optional<PrimDataType> dtype) -> Tensor {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3771,10 +3771,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("offsets"),
       py::arg("scale1"),
       py::arg("scale2"),
-      py::arg("dtype") = std::nullopt,
       py::arg("alpha") = std::nullopt,
       py::arg("bias") = std::nullopt,
       py::arg("beta") = std::nullopt,
+      py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
 
   nvf_ops.def(

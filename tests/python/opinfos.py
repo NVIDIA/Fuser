@@ -1346,6 +1346,9 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
             ArgumentType.Symbolic,
             ArgumentType.Symbolic,
             ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
         ),
     )
 
