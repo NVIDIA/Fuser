@@ -825,4 +825,28 @@ TEST_F(ExprEvalTest, NamedScalar) {
   EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
 }
 
+TEST_F(ExprEvalTest, View_FlattenToMinusOneAsInput) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeSymbolicTensor(2);
+  auto* out_dim_size = IrBuilder::create<Val>(DataType::Int);
+  TensorView* out = reshape(in, {out_dim_size});
+  fusion.addInput(in);
+  fusion.addInput(out_dim_size);
+  fusion.addOutput(out);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({2, 3}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  evaluator.bind(out_dim_size, -1);
+  auto out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(out_tensor, in_tensor.view({-1})));
+}
+
 } // namespace nvfuser

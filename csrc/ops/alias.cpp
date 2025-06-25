@@ -150,6 +150,41 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // domain.
   std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
+
+  // We don't compute numel unless we need to, and then we compute it only once
+  // to encourage hoisting
+  Val* numel = nullptr;
+  const auto neg_one_size = [&numel, &inp_dom, &new_sizes](size_t pos) {
+    if (numel == nullptr) {
+      numel = FusionGuard::getCurFusion()->oneVal();
+      for (const auto j : arange(inp_dom.size())) {
+        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
+      }
+    }
+
+    Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
+    for (const auto j : arange(new_sizes.size())) {
+      if (pos == j) {
+        continue;
+      }
+      Val* new_size =
+          SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_sizes.at(j));
+      other_new_numel =
+          SimplifyingIrBuilder::mulExpr(other_new_numel, new_size);
+    }
+    // In case numel is 0, other_new_numel might also be 0 and we would hit a
+    // division by zero. In such cases, using 1 as the denominator will cause
+    // us to properly compute 0 for this extent.
+    other_new_numel = SimplifyingIrBuilder::whereExpr(
+        eq(other_new_numel, FusionGuard::getCurFusion()->zeroVal()),
+        FusionGuard::getCurFusion()->oneVal(),
+        other_new_numel);
+
+    Val* new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
+    NVF_ERROR(new_size->dtype() == DataType::Index);
+    return simplifyExpr(new_size);
+  };
+
   for (const auto i : arange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
     if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
@@ -162,20 +197,13 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
           "A maximum of one value of -1 can be provided to reshape.");
       found_neg_one = true;
 
-      Val* numel = FusionGuard::getCurFusion()->oneVal();
-      Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
-      for (const auto j : arange(inp_dom.size())) {
-        numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
-      }
-      for (const auto j : arange(new_sizes.size())) {
-        if (i == j) {
-          continue;
-        }
-        other_new_numel =
-            SimplifyingIrBuilder::mulExpr(other_new_numel, new_sizes.at(j));
-      }
-      new_size = SimplifyingIrBuilder::divExpr(numel, other_new_numel);
-      new_size = simplifyExpr(new_size);
+      new_size = neg_one_size(i);
+    } else if (!new_size->isConstScalar()) {
+      // Dynamic size could be -1. Here we build a correct shape expression
+      new_size = where(
+          eq(new_size, IrBuilder::create<Val>(-1L, DataType::Index)),
+          neg_one_size(i),
+          new_size);
     }
     new_size = SimplifyingIrBuilder::maybeCastExpr(DataType::Index, new_size);
     auto rf_id =
