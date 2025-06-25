@@ -2698,6 +2698,11 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       at::Tensor t0 = at::randn({1, 4}, options);
 
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+        // e8m0 can only represent positive values
+        t0 = t0.abs() + 1e-6;
+      }
+
       KernelExecutor ke;
       bool unsupported_device = false;
       if (fp8_type == DataType::Float8_e8m0fnu) {
@@ -2727,9 +2732,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            fp8_type == DataType::Float8_e8m0fnu
-                ? (outputs[0].as<at::Tensor>() - ref_output).abs().max() <= 0.5
-                : outputs[0].as<at::Tensor>().equal(ref_output),
+            outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to ",
             at_fp8_type,
             " and back had a mismatch.\n",
