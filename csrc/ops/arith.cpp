@@ -2391,7 +2391,7 @@ TensorView* grouped_mm(
   TensorView* out = createGroupedMmaOutput(mat1, mat2, offsets, dtype);
 
   // sanity check on scale1 and scale2
-  if (!has_scale) {
+  if (has_scale) {
     int64_t scale1_rank =
         std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
     int64_t scale2_rank =
