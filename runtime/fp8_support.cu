@@ -411,9 +411,9 @@ __device__ __inline__ float __e8m02float(const __e8m0 b) {
   float val;
   asm("{\n\t"
       ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.ue8m0x2 buf0, %1;\n\t"
+      "cvt.rn.bf16x2.ue8m0x2 buf0, %1;\n\t"
       "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f32.f16 %0, %1;\n\t"
+      "cvt.f32.bf16 %0, %1;\n\t"
       "}"
       : "=f"(val)
       : "h"(_tmp_buffer));
