@@ -164,6 +164,21 @@ std::vector<bool> getExpanded(
     const std::vector<int64_t>& shape,
     const std::vector<std::optional<bool>>& contiguity,
     const std::vector<int64_t>& stride_order) {
+  NVF_CHECK(
+      contiguity.size() == shape.size(),
+      "Length of contiguity argument (",
+      contiguity.size(),
+      ") must match that of shape argument (",
+      shape.size(),
+      ")");
+  NVF_CHECK(
+      stride_order.empty() || stride_order.size() == shape.size(),
+      "Length of stride_order argument (",
+      stride_order.size(),
+      ") must be zero or match that of shape argument (",
+      shape.size(),
+      ")");
+
   size_t rank = shape.size();
   std::vector<bool> is_expand(rank);
   for (size_t index : arange(rank)) {
@@ -178,9 +193,9 @@ std::vector<bool> getExpanded(
     // index `contig_index = rank - 1 - stride_order[index]`
     const size_t contig_index = stride_order.empty()
         ? index
-        : rank - 1 - static_cast<size_t>(stride_order[index]);
-    const bool is_broadcast = !contiguity[contig_index].has_value();
-    const bool has_non_broadcast_size = (shape[index] != 1);
+        : rank - 1 - static_cast<size_t>(stride_order.at(index));
+    const bool is_broadcast = !contiguity.at(contig_index).has_value();
+    const bool has_non_broadcast_size = (shape.at(index) != 1);
     // A root dimension is expand dimension if:
     //   The dimension is marked a broadcast; and
     //   The dimension has an expanded extent.
