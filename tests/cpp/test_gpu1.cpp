@@ -2728,7 +2728,9 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
         NVF_CHECK(
             outputs[0].as<at::Tensor>().equal(ref_output),
-            "cast to fp8 and back had a mismatch.\n",
+            "cast to ",
+            at_fp8_type,
+            " and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
             outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
