@@ -448,12 +448,6 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 namespace schedule_matmul {
 void AmpereMinus::validate() const {
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  const int cc = device_prop->major * 10 + device_prop->minor;
-  NVF_ERROR(
-      cc >= 75 && cc < 90,
-      "This matmul scheduler is restricted to Ampere and Turing.");
-
   NVF_CHECK(
       params_->tiling_strategy == MatmulParams::TilingStrategy::OneTilePerCTA,
       "Ampere & Turing matmul scheduler does not support scheduling persistent "

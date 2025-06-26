@@ -227,6 +227,8 @@ static std::string data_type2string(DataType t) {
               return "__e4m3";
             case DataType::Float8_e5m2:
               return "__e5m2";
+            case DataType::Float4_e2m1:
+              return "e2m1";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:
@@ -1343,6 +1345,15 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     // and the shape of the corresponding at::Tensor is [10, 12].
     return at::ScalarType::Byte;
   }
+}
+
+at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type) {
+  if (data_type == DataType::Index) {
+    return data_type_to_aten(index_type);
+  }
+  return data_type_to_aten(data_type);
 }
 
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
