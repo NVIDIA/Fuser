@@ -119,15 +119,15 @@ def test_embedding_bwd_baseline_benchmark(
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("embedding_fn_name", ["embedding_fun", "embedding_indexing"])
-@pytest.mark.parametrize("rmsnorm_fn_name", ["rmsnorm_sqrt", "rmsnorm_rsqrt"])
+@pytest.mark.parametrize("embedding_fn", FNS)
+@pytest.mark.parametrize("rmsnorm_fn", RMS_NORM_FNS)
 def test_embedding_rmsnorm_inference(
     benchmark,
     seq_length: int,
     vocab_hidden: tuple,
     dtype: torch.dtype,
-    embedding_fn_name: str,
-    rmsnorm_fn_name: str,
+    embedding_fn: Callable,
+    rmsnorm_fn: Callable,
     executor: str,
 ):
     kwargs = {}
@@ -137,19 +137,6 @@ def test_embedding_rmsnorm_inference(
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
     rmsnorm_weights = torch.randn(vocab_hidden[1], device="cuda", dtype=dtype)
-
-    # Map string names back to functions
-    embedding_fn_map = {
-        "embedding_fun": embedding,
-        "embedding_indexing": embedding_indexing,
-    }
-    rmsnorm_fn_map = {
-        "rmsnorm_sqrt": rmsnorm,
-        "rmsnorm_rsqrt": rmsnorm_rsqrt,
-    }
-    
-    embedding_fn = embedding_fn_map[embedding_fn_name]
-    rmsnorm_fn = rmsnorm_fn_map[rmsnorm_fn_name]
 
     def fn(inputs: list):
         indices, embedding_table, rmsnorm_weights = inputs
