@@ -14,13 +14,14 @@
 #ifdef NVFUSER_HOST_IR_JIT
 #include <host_ir/jit.h>
 #endif
-#include <c10/cuda/CUDAStream.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>
 #include <runtime/executor_abstract.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
+
+#include <c10/cuda/CUDAStream.h>
 
 namespace nvfuser {
 

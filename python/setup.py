@@ -63,8 +63,7 @@
 #   NVFUSER_BUILD_CPP_STANDARD=STANDARD
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
-#   NVFUSER_BUILD_WITH_LLVM
-#     Build nvfuser with LLVM support
+
 
 import sys
 
