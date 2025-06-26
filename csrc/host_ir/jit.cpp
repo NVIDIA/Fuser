@@ -226,6 +226,7 @@ void generateAllocateFunc(
 }
 
 void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& host_ir_jit_params) {
+  FUSER_PERF_SCOPE("HostIrJit::compile");
   if (allocate_funcs_.size() > 0) {
     return;
   }
@@ -234,7 +235,6 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
     NVF_ERROR(false, "container is nullptr during host ir JIT compilation");
     return;
   }
-  FUSER_PERF_SCOPE("HostIrJit::compile");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>(
       "host_ir_container_" +
@@ -335,6 +335,8 @@ HostIrJit::HostIrJit(
     compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_, *pimpl_->host_ir_jit_params_);
   }
 }
+
+HostIrJit::~HostIrJit() = default;
 
 at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,

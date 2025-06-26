@@ -999,10 +999,10 @@ struct HostIrEvaluatorParams {
   int64_t number_of_streams = 4;
 };
 
+}
 constexpr int64_t hostIrJitCompileThreads = 16;
 
 constexpr std::string_view hostIrJitAllocateFuncName = "Allocate";
 
-}
 
 } // namespace nvfuser

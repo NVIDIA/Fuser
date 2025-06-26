@@ -30,7 +30,7 @@ class HostIrJit {
       const hir::HostIrEvaluatorParams& evaluator_params = hir::HostIrEvaluatorParams(),
       int num_threads = hostIrJitCompileThreads);
 
-  ~HostIrJit() = default;
+  ~HostIrJit();
 
  private:
   struct LlvmJitImpl;
