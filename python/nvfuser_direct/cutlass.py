@@ -3,9 +3,15 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-from nvfuser_direct import nvf_cutlass
+from typing import Tuple
+from . import _C_DIRECT  # noqa: F401,F403
+from ._C_DIRECT import nvf_cutlass  # noqa: F401,F403
 
-assert (torch.cuda.get_device_capability() >= (10, 0), "Nvfp4 Requires compute capability of 10 or above.")
+assert torch.cuda.get_device_capability() >= (
+    10,
+    0,
+), "Nvfp4 Requires compute capability of 10 or above."
+
 
 def cutlass_nvfp4_scaled_mm(
     a: torch.Tensor,
@@ -18,13 +24,11 @@ def cutlass_nvfp4_scaled_mm(
     assert a.ndim == 2 and b.ndim == 2
     m, n = a.shape[0], b.shape[0]
     out = torch.empty((m, n), dtype=out_dtype, device=a.device)
-    nvf_cutlass.nvfp4_scaled_mm(
-        out, a, b, block_scale_a, block_scale_b, alpha
-    )
+    nvf_cutlass.nvfp4_scaled_mm(out, a, b, block_scale_a, block_scale_b, alpha)
     return out
 
 
-def nvfp4_quantize(
+def cutlass_nvfp4_quantize(
     input: torch.Tensor, input_global_scale: torch.Tensor
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -70,8 +74,6 @@ def nvfp4_quantize(
         (rounded_m, rounded_n // 4), device=device, dtype=torch.int32
     )
 
-    nvf_cutlass.nvfp4_quantize(
-        output, output_scale, input, input_global_scale
-    )
+    nvf_cutlass.nvfp4_quantize(output, output_scale, input, input_global_scale)
     output_scale = output_scale.view(torch.float8_e4m3fn)
     return output, output_scale

@@ -5,7 +5,7 @@
 
 import pytest
 import torch
-from nvfuser_direct import nvf_cutlass
+from nvfuser_direct import cutlass_nvfp4_quantize
 
 if torch.cuda.get_device_capability() < (10, 0):
     pytest.skip(
@@ -137,7 +137,7 @@ def test_quantize_to_fp4(
     global_scale = FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX / tensor_amax
     out_ref, scale_ref = ref_nvfp4_quant(x, global_scale)
 
-    out, out_scale = nvf_cutlass.nvfp4_quantize(x, global_scale)
+    out, out_scale = cutlass_nvfp4_quantize(x, global_scale)
     scale_ans = recover_swizzled_scales(out_scale, m, n)
     out_ans = cast_from_fp4(out, m, n)
 
@@ -160,7 +160,7 @@ def test_quantize_to_fp4_padded(pad_shape: tuple[int, int]) -> None:
     global_scale = FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX / tensor_amax
     out_ref, scale_ref = ref_nvfp4_quant(x, global_scale)
 
-    out, out_scale = nvf_cutlass.nvfp4_quantize(x, global_scale)
+    out, out_scale = cutlass_nvfp4_quantize(x, global_scale)
 
     scale_ans = recover_swizzled_scales(out_scale, m, n)
     out_ans = cast_from_fp4(out, m, n)
