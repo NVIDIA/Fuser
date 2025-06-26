@@ -598,14 +598,14 @@ Val* getMaximumValue(DataType v) {
       return IrBuilder::create<Val>(
           static_cast<double>(std::numeric_limits<c10::Float8_e8m0fnu>::max()));
       break;
-    case (DataType::Int):
+    case DataType::Int:
       return IrBuilder::create<Val>(std::numeric_limits<int64_t>::max());
       break;
-    case (DataType::Int32):
+    case DataType::Int32:
       return IrBuilder::create<Val>(
           (int64_t)std::numeric_limits<int32_t>::max());
       break;
-    case (DataType::Bool):
+    case DataType::Bool:
       return IrBuilder::create<Val>(true);
       break;
     default:
