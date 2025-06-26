@@ -1227,6 +1227,10 @@ NVF_API CompiledKernel::CompiledKernel(
   if (lowered_->kernel()->summary().has_argsort ||
       lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
+    // As of CUDA 13, the CUB header files are moved to the cccl
+    // subdirectory. This include path is not necessary pre 13 but is
+    // added anyway as it should be just a no-op.
+    compile_params_.include_paths.push_back("/usr/local/cuda/include/cccl");
   }
 }
 
