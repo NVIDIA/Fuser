@@ -5884,13 +5884,6 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
-      (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
-      "GroupedMmaOp expects 3 or 5 inputs but received ",
-      inputs.size(),
-      " with scale flag: ",
-      hasScale() ? "true" : "false");
-
-  NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
       inputs[0].type().name());
@@ -5908,6 +5901,40 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& offsets = inputs[2].as<at::Tensor>();
+
+  std::optional<at::Tensor> alpha = std::nullopt;
+  std::optional<at::Tensor> bias = std::nullopt;
+  std::optional<at::Tensor> beta = std::nullopt;
+  if (hasAlpha()) {
+    int alpha_offset = attribute<int64_t>(1);
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = attribute<int64_t>(2);
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = attribute<int64_t>(3);
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
 
   at::Tensor result;
   if (hasScale()) {
@@ -5947,6 +5974,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale1 = scale1.squeeze(-1);
       scale2 = scale2.squeeze(-2);
     }
+    NVF_ERROR(!beta.has_value(), "beta is not supported yet");
     // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
     // moment, otherwise we should have requested the output dtype directly
     // instead of casting the output afterwards.
@@ -5956,11 +5984,13 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         scale1,
         scale2,
         offsets,
-        std::nullopt,
-        std::nullopt,
+        bias,
+        alpha,
         at::ScalarType::BFloat16);
   } else {
-    result = at::_grouped_mm(mat1, mat2, offsets);
+    NVF_ERROR(!alpha.has_value(), "alpha is not supported yet");
+    NVF_ERROR(!beta.has_value(), "beta is not supported yet");
+    result = at::_grouped_mm(mat1, mat2, offsets, bias);
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
