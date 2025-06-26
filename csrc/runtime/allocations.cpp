@@ -241,7 +241,7 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
     case at::ScalarType::Float8_e8m0fnu:
-    // case at::ScalarType::Float4_e2m1fn_x2:
+      // case at::ScalarType::Float4_e2m1fn_x2:
       t.fill_(std::nan(""));
       break;
     case at::ScalarType::ComplexHalf:

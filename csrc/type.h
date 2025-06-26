@@ -378,66 +378,26 @@ struct IsPrimitiveNativeType : std::false_type {};
   template <>                                                  \
   struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float,
-    float);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Double,
-    double);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Half,
-    at::Half);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::BFloat16,
-    at::BFloat16);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float8_e4m3fn,
-    at::Float8_e4m3fn);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float8_e5m2,
-    at::Float8_e5m2);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Float8_e8m0fnu,
-    at::Float8_e8m0fnu);
-// DEFINE_DATATYPE_TO_NATIVE_TYPE(
-//     DataType::Float4_e2m1fn,
-//     at::Float4_e2m1fn_x2);
-// DEFINE_DATATYPE_TO_NATIVE_TYPE(
-//     DataType::Float4_e2m1fn_x2,
-//     at::Float4_e2m1fn_x2);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Char,
-    int8_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Short,
-    int16_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Int32,
-    int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Int,
-    int64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Byte,
-    uint8_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::UInt16,
-    uint16_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::UInt32,
-    uint32_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::UInt64,
-    uint64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::Bool,
-    bool);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::ComplexFloat,
-    std::complex<float>);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(
-    DataType::ComplexDouble,
-    std::complex<double>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Double, double);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::BFloat16, at::BFloat16);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e4m3fn, at::Float8_e4m3fn);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e5m2, at::Float8_e5m2);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e8m0fnu, at::Float8_e8m0fnu);
+// DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float4_e2m1fn_x2,
+// at::Float4_e2m1fn_x2);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Char, int8_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Short, int16_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Byte, uint8_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt16, uint16_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt64, uint64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexFloat, std::complex<float>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexDouble, std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
 

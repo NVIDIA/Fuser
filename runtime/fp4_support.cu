@@ -23,7 +23,7 @@ struct __e2m1_ptr {
     // it. assert(index % 2 == 0);
     return raw_ptr[index / 2];
   }
-  e2m1& operator[](int64_t index) {
+  __e2m1& operator[](int64_t index) {
     // For performance reason, we do not check the index is even, but we assume
     // it. assert(index % 2 == 0);
     return raw_ptr[index / 2];
