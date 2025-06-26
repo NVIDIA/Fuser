@@ -2667,7 +2667,9 @@ TEST_F(NVFuserTest, CompoundOps) {
 
 TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
-      {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
+      {DataType::Float8_e4m3fn,
+       DataType::Float8_e5m2,
+       DataType::Float8_e8m0fnu});
   std::vector<DataType> cast_targets(
       {DataType::Double, DataType::Float, DataType::BFloat16, DataType::Half});
 
@@ -2696,18 +2698,33 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       at::Tensor t0 = at::randn({1, 4}, options);
 
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+        // e8m0 can only represent positive values
+        t0 = t0.abs() + 1e-6;
+      }
+
       KernelExecutor ke;
-#if (CUDA_VERSION >= 12010)
-      if (!deviceMajorMinorCheck(8, 9)) {
-#elif (CUDA_VERSION >= 11080)
-      if (!deviceMajorMinorCheck(9)) {
+      bool unsupported_device = false;
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+#if (CUDA_VERSION >= 12070)
+        unsupported_device = !deviceMajorMinorCheck(10);
 #else
-      if (true) {
+        unsupported_device = true;
 #endif
+      } else {
+#if (CUDA_VERSION >= 12010)
+        unsupported_device = !deviceMajorMinorCheck(8, 9);
+#elif (CUDA_VERSION >= 11080)
+        unsupported_device = !deviceMajorMinorCheck(9);
+#else
+        unsupported_device = true;
+#endif
+      }
+      if (unsupported_device) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
-            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_xxx values")));
+            testing::ThrowsMessage<nvfuser::nvfError>(
+                testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
@@ -2715,8 +2732,18 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].as<at::Tensor>().equal(ref_output),
-            "cast to fp8 and back had a mismatch.\n",
+            fp8_type == DataType::Float8_e8m0fnu
+                ? (outputs[0]
+                       .as<at::Tensor>()
+                       .ge(ref_output / 2)
+                       .logical_and(
+                           outputs[0].as<at::Tensor>().le(ref_output * 2))
+                       .all()
+                       .item<bool>())
+                : outputs[0].as<at::Tensor>().equal(ref_output),
+            "cast to ",
+            at_fp8_type,
+            " and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
             outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");

@@ -217,6 +217,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       case DataType::BFloat16:
       case DataType::Float8_e4m3fn:
       case DataType::Float8_e5m2:
+      case DataType::Float8_e8m0fnu:
         return "f";
       case DataType::Int:
         // We use the LL suffix for int64_t literals
