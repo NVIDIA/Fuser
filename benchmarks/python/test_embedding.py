@@ -50,6 +50,7 @@ RMS_NORM_FNS = [
 ]
 
 
+
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
@@ -112,9 +113,15 @@ def test_embedding_bwd_baseline_benchmark(
         [outputs, grads, *fwd_inputs],
     )
 
+
+
+
+
 # Almost all transformer models use rmsnorm after the embedding layer and nvFuser should be able to fuse this.
 # To run this benchmark and group results by embedding size and sequence length, use:
 # pytest --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype test_embedding.py  -k "test_embedding_rmsnorm_inference" --benchmark-eager --benchmark-thunder --benchmark-torchcompile
+# pytest --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype test_embedding.py  -k "test_embedding_rmsnorm_inference" --benchmark-thunder
+# NVFUSER_DUMP=scheduler_params,python_definition pytest -vvvs --benchmark-group-by=group,param:vocab_hidden,param:seq_length,param:dtype ./benchmarks/python/test_embedding.py  -k "test_embedding_rmsnorm_inference and 32064 and float16 and rsqrt and embedding-dtype and 16384" --benchmark-thunder --benchmark-json ./tmp.json 2>&1 |tee 1.log
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
@@ -145,8 +152,17 @@ def test_embedding_rmsnorm_inference(
         ).to(dtype)
 
     benchmark_fn = with_executor(executor, fn, **kwargs)
+
+    def compute_iobytes(seq_length : int, hidden_size: int, dtype: torch.dtype):
+        # indices(seq_length)
+        # embedding(seq_length, hidden_size), should not use vocab size
+        # rmsnorm_weights(hidden_size)
+        # output(seq_length, hidden_size)
+        return int(torch.int.itemsize * seq_length + dtype.itemsize * (2 * seq_length * hidden_size + hidden_size))
+
     run_benchmark(
         benchmark,
         benchmark_fn,
         [indices, embedding_table, rmsnorm_weights],
+        iobytes=compute_iobytes(seq_length, vocab_hidden[1], dtype),
     )
