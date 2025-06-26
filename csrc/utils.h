@@ -1002,7 +1002,7 @@ struct HostIrEvaluatorParams {
 }
 constexpr int64_t hostIrJitCompileThreads = 16;
 
-constexpr std::string_view hostIrJitAllocateFuncName = "Allocate";
+constexpr std::string hostIrJitAllocateFuncName = "Allocate";
 
 
 } // namespace nvfuser
