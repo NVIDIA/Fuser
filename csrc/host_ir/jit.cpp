@@ -72,7 +72,11 @@ struct HostIrJit::LlvmJitImpl {
 
 // Helper function to check for and throw errors from LLVM
 void throwIfError(llvm::Error&& err) {
-    NVF_ERROR(err,llvm::toString(std::move(err)));
+  if (err) {
+    // We are not throwing our own error type here and instead just forwarding
+    // the error string from LLVM.
+    NVF_THROW(llvm::toString(std::move(err)));
+  }
 }
 
 template <typename T>
@@ -106,7 +110,7 @@ void generateAllocateFunc(
        void_ptr_type},
       false);
 
-  std::string func_name = ir_utils::varName(allocate->as<Val>());
+  std::string func_name = ir_utils::varName(allocate->buffer()->as<Val>());
   llvm::Function* func = llvm::Function::Create(
       func_type,
       llvm::Function::ExternalLinkage,
@@ -220,19 +224,19 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
   NVF_ERROR(container != nullptr, "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>(
-      ir_utils::varName(container->as<Val>()),
+      "host_ir_jit_module",
       *ctx);
-  std::vector<const kir::Allocate*> allocate_exprs;
-  for (auto expr : container->topLevelExprs()) {
-    if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
+  std::vector<kir::Allocate*> allocate_exprs;
+  for (auto* expr : container->topLevelExprs()) {
+    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
       // Generate a unique function name for this allocate
       generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
       // Store the mapping from allocate to function name
       allocate_exprs.push_back(allocate);
     }
-    else if (auto for_loop = dynamic_cast<const ForLoop*>(expr)) {
-      for (auto expr : for_loop->body().exprs()) {
-        if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
+    else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
+      for (auto* expr : for_loop->body().exprs()) {
+        if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
           generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
           allocate_exprs.push_back(allocate);
         }
@@ -245,8 +249,8 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
 
   // Look up all functions and store their pointers
-  for (const auto& allocate : allocate_exprs) {
-    auto func_name = ir_utils::varName(allocate->as<Val>());
+  for (auto* allocate : allocate_exprs) {
+    auto func_name = ir_utils::varName(allocate->buffer()->as<Val>());
     auto func_addr = throwIfError(jit->lookup(func_name));
     // Lookup and reinterpret the function pointer to store in the map
     allocate_funcs_[allocate] = reinterpret_cast<void (*)(
