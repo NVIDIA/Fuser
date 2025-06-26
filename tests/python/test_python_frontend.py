@@ -4068,9 +4068,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
 
-    @pytest.mark.skipif(
-        reason="Temporarily disabled due to CUDA 13 compatibility."
-    )
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4108,9 +4106,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
 
-    @pytest.mark.skipif(
-        reason="Temporarily disabled due to CUDA 13 compatibility."
-    )
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler_user_schedule(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4140,9 +4136,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
 
-    @pytest.mark.skipif(
-        reason="Temporarily disabled due to CUDA 13 compatibility."
-    )
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler_with_noncodegen_kernels(self):
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
