@@ -45,20 +45,21 @@
 
 namespace nvfuser {
 
-using allocate_fn =
-    std::function<void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
+using allocate_fn = std::function<
+    void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
 class HostIrJitParams {
-  private:
+ private:
   Communicator* communicator_;
-  
-  public:
-  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator) : 
-  communicator_(communicator)
-  {}
-  
+
+ public:
+  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator)
+      : communicator_(communicator) {}
+
   // Getters for accessing the parameters
-  Communicator* getCommunicator() const { return communicator_; }
+  Communicator* getCommunicator() const {
+    return communicator_;
+  }
 };
 
 // PIMPL implementation for HostIrJit
@@ -103,11 +104,7 @@ void generateAllocateFunc(
       llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
   llvm::FunctionType* func_type = llvm::FunctionType::get(
       llvm::Type::getVoidTy(context),
-      {int64_ptr_type,
-       int64_type,
-       int64_ptr_type,
-       int64_type,
-       void_ptr_type},
+      {int64_ptr_type, int64_type, int64_ptr_type, int64_type, void_ptr_type},
       false);
 
   std::string func_name = ir_utils::varName(allocate->buffer()->as<Val>());
@@ -157,14 +154,14 @@ void generateAllocateFunc(
   builder.SetInsertPoint(then_bb);
 
   // Create constants for type and device from params
-   at::ScalarType data_type = data_type_to_aten(
+  at::ScalarType data_type = data_type_to_aten(
       allocate->buffer()->dtype() == DataType::Index
           ? PrimDataType::Int
           : allocate->buffer()->dtype());
   llvm::Value* dtype_constant =
       llvm::ConstantInt::get(int32_type, static_cast<int32_t>(data_type));
-  llvm::Value* device_index_constant =
-      llvm::ConstantInt::get(int64_type, host_ir_jit_params.getCommunicator()->deviceId());
+  llvm::Value* device_index_constant = llvm::ConstantInt::get(
+      int64_type, host_ir_jit_params.getCommunicator()->deviceId());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
@@ -205,7 +202,9 @@ void generateAllocateFunc(
   // Verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
-  NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
+  NVF_ERROR(
+      !llvm::verifyModule(*mod, &error_stream),
+      "LLVM module verification failed: " + error);
 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
@@ -215,17 +214,21 @@ void generateAllocateFunc(
   }
 }
 
-void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& host_ir_jit_params) {
+void compile(
+    const hir::HostIrContainer* container,
+    llvm::orc::LLJIT* jit,
+    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_,
+    const HostIrJitParams& host_ir_jit_params) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   // If the JIT is already compiled, return
   if (allocate_funcs_.size() > 0) {
     return;
   }
-  NVF_ERROR(container != nullptr, "container is nullptr during host ir JIT compilation");
+  NVF_ERROR(
+      container != nullptr,
+      "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
-  auto mod = std::make_unique<llvm::Module>(
-      "host_ir_jit_module",
-      *ctx);
+  auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   std::vector<kir::Allocate*> allocate_exprs;
   for (auto* expr : container->topLevelExprs()) {
     if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
@@ -233,8 +236,7 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
       generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
       // Store the mapping from allocate to function name
       allocate_exprs.push_back(allocate);
-    }
-    else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
       for (auto* expr : for_loop->body().exprs()) {
         if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
           generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
@@ -275,20 +277,20 @@ HostIrJit::HostIrJit(
   llvm::orc::JITDylib& dest_dynamic_lib = pimpl_->jit->getMainJITDylib();
   auto mangler = llvm::orc::MangleAndInterner(
       dest_dynamic_lib.getExecutionSession(), pimpl_->jit->getDataLayout());
-  dest_dynamic_lib.addGenerator(
-      throwIfError(llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
+  dest_dynamic_lib.addGenerator(throwIfError(
+      llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
   // Create wrapper function pointer to at::native::empty_strided_cuda
   // TODO: Remove this wrapper in the future
-  void* empty_strided_cuda_func_ptr = reinterpret_cast<void*>(
-      +[](const int64_t* sizes,
-          int64_t ndim,
-          const int64_t* strides,
-          int64_t strides_ndim,
-          int32_t dtype,
-          int64_t device_index,
-          at::Tensor& out_tensor) {
+  void* empty_strided_cuda_func_ptr =
+      reinterpret_cast<void*>(+[](const int64_t* sizes,
+                                  int64_t ndim,
+                                  const int64_t* strides,
+                                  int64_t strides_ndim,
+                                  int32_t dtype,
+                                  int64_t device_index,
+                                  at::Tensor& out_tensor) {
         at::IntArrayRef aten_sizes(sizes, ndim);
         at::IntArrayRef aten_strides(strides, strides_ndim);
         // Use the type and device passed as parameters
@@ -308,14 +310,19 @@ HostIrJit::HostIrJit(
   auto empty_strided_cuda_addr =
       llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] = llvm::orc::ExecutorSymbolDef(
-      empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
+      llvm::orc::ExecutorSymbolDef(
+          empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
-  
+
   // Only compile if container is provided
   if (container) {
-    compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_, *pimpl_->host_ir_jit_params_);
+    compile(
+        container,
+        pimpl_->jit.get(),
+        pimpl_->allocate_funcs_,
+        *pimpl_->host_ir_jit_params_);
   }
 }
 
@@ -327,7 +334,10 @@ at::Tensor HostIrJit::allocate(
     const std::vector<int64_t>& input_strides) {
   FUSER_PERF_SCOPE("HostIrJit::allocate");
   auto allocate_func_iter = pimpl_->allocate_funcs_.find(allocate);
-  NVF_ERROR(allocate_func_iter != pimpl_->allocate_funcs_.end(), "allocate function not found for ", allocate);
+  NVF_ERROR(
+      allocate_func_iter != pimpl_->allocate_funcs_.end(),
+      "allocate function not found for ",
+      allocate);
   auto& func_ptr = allocate_func_iter->second;
 
   at::Tensor tensor;
