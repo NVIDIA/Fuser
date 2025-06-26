@@ -23,7 +23,7 @@ namespace nvfuser {
 namespace hir {
 
 using HostIrJitTest = NVFuserTest;
-// Build with: python setup.py install --build-with-llvm
+// Build with: python setup.py install --build-with-host-ir-jit
 // Run with: NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir_jit
 // --gtest_filter=HostIrJitTest.TestJITAtenCall
 TEST_F(HostIrJitTest, TestJITAtenCall) {

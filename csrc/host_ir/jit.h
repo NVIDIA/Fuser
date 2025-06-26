@@ -11,6 +11,7 @@
 #include <multidevice/communicator.h> // For Communicator
 #include <memory> // For std::unique_ptr
 #include <utils.h>
+#include <host_ir/params.h>
 namespace nvfuser {
 
 
@@ -27,8 +28,7 @@ class HostIrJit {
   HostIrJit(
       hir::HostIrContainer* container,
       Communicator* communicator = &Communicator::getInstance(),
-      const hir::HostIrEvaluatorParams& evaluator_params = hir::HostIrEvaluatorParams(),
-      int num_threads = hostIrJitCompileThreads);
+      int num_threads = kHostIrJitCompileThreads);
 
   ~HostIrJit();
 

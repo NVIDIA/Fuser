@@ -46,22 +46,19 @@
 namespace nvfuser {
 
 using allocate_fn =
-    void (*)(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&);
+    std::function<void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
 class HostIrJitParams {
   private:
   Communicator* communicator_;
-  hir::HostIrEvaluatorParams evaluator_params_;
   
-
   public:
-  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator, hir::HostIrEvaluatorParams evaluator_params) : 
-  communicator_(communicator), 
-  evaluator_params_(evaluator_params){}
+  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator) : 
+  communicator_(communicator)
+  {}
   
   // Getters for accessing the parameters
   Communicator* getCommunicator() const { return communicator_; }
-  const hir::HostIrEvaluatorParams& getEvaluatorParams() const { return evaluator_params_; }
 };
 
 // PIMPL implementation for HostIrJit
@@ -73,33 +70,24 @@ struct HostIrJit::LlvmJitImpl {
   ~LlvmJitImpl() = default; // unique_ptr handles cleanup automatically
 };
 
-// Helper function to exit on error on LLVM JIT initialization
-template <typename T>
-T ExitOnErr(llvm::Expected<T>&& E) {
-  if (!E) {
-    NVF_ERROR(
-        false,
-        "LLVM JIT Initialization Error: ",
-        llvm::toString(E.takeError()));
-    exit(1);
-  }
-  return std::move(*E);
+// Helper function to check for and throw errors from LLVM
+void throwIfError(llvm::Error&& err) {
+    NVF_ERROR(err,llvm::toString(std::move(err)));
 }
 
-inline void ExitOnErr(llvm::Error&& Err) {
-  if (Err) {
-    NVF_ERROR(
-        false,
-        "LLVM JIT Initialization Error: " + llvm::toString(std::move(Err)));
-    exit(1);
+template <typename T>
+T throwIfError(llvm::Expected<T>&& E) {
+  if (!E) {
+    throwIfError(E.takeError());
   }
+  return std::move(*E);
 }
 
 // Generate a function that calls at::native::empty_strided_cuda
 void generateAllocateFunc(
     const kir::Allocate* allocate,
-    llvm::Module* mod,
-    const HostIrJitParams& host_ir_jit_params) {
+    const HostIrJitParams& host_ir_jit_params,
+    llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
 
   // Define function signature: void(i64*, i64, i64*, i64, void*)
@@ -118,8 +106,7 @@ void generateAllocateFunc(
        void_ptr_type},
       false);
 
-  std::string func_name = hostIrJitAllocateFuncName + "_" +
-      std::to_string(reinterpret_cast<uintptr_t>(allocate));
+  std::string func_name = ir_utils::varName(allocate->as<Val>());
   llvm::Function* func = llvm::Function::Create(
       func_type,
       llvm::Function::ExternalLinkage,
@@ -178,7 +165,7 @@ void generateAllocateFunc(
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
   llvm::Function* at_empty_strided_cuda_func =
-      mod->getFunction("at::native::empty_strided_cuda");
+      mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
   if (at_empty_strided_cuda_func == nullptr) {
     llvm::FunctionType* at_empty_strided_cuda_func_type =
         llvm::FunctionType::get(
@@ -194,7 +181,7 @@ void generateAllocateFunc(
     at_empty_strided_cuda_func = llvm::Function::Create(
         at_empty_strided_cuda_func_type,
         llvm::Function::ExternalLinkage,
-        "at::native::empty_strided_cuda",
+        kHostIrJitEmptyStridedCudaFuncName,
         mod);
   }
 
@@ -209,7 +196,6 @@ void generateAllocateFunc(
        device_index_constant,
        out_tensor_arg});
 
-  // Return the result
   builder.CreateRetVoid();
 
   // Verify the module
@@ -227,49 +213,43 @@ void generateAllocateFunc(
 
 void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_, const HostIrJitParams& host_ir_jit_params) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
+  // If the JIT is already compiled, return
   if (allocate_funcs_.size() > 0) {
     return;
   }
-  
-  if (container == nullptr) {
-    NVF_ERROR(false, "container is nullptr during host ir JIT compilation");
-    return;
-  }
+  NVF_ERROR(container != nullptr, "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>(
-      "host_ir_container_" +
-          std::to_string(reinterpret_cast<uintptr_t>(container)),
+      ir_utils::varName(container->as<Val>()),
       *ctx);
-  
-  std::unordered_map<const kir::Allocate*, std::string> allocate_func_names;
+  std::vector<const kir::Allocate*> allocate_exprs;
   for (auto expr : container->topLevelExprs()) {
     if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
       // Generate a unique function name for this allocate
-      generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
+      generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
       // Store the mapping from allocate to function name
-      allocate_func_names[allocate] = hostIrJitAllocateFuncName + "_" +
-          std::to_string(reinterpret_cast<uintptr_t>(allocate));
+      allocate_exprs.push_back(allocate);
     }
     else if (auto for_loop = dynamic_cast<const ForLoop*>(expr)) {
       for (auto expr : for_loop->body().exprs()) {
         if (auto allocate = dynamic_cast<const kir::Allocate*>(expr)) {
-          generateAllocateFunc(allocate, mod.get(), host_ir_jit_params);
-          allocate_func_names[allocate] = hostIrJitAllocateFuncName + "_" +
-          std::to_string(reinterpret_cast<uintptr_t>(allocate));
+          generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
+          allocate_exprs.push_back(allocate);
         }
       }
     }
   }
 
   // Add the module to the JIT
-  ExitOnErr(jit->addIRModule(
+  throwIfError(jit->addIRModule(
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
 
   // Look up all functions and store their pointers
-  for (const auto& [allocate, func_name] : allocate_func_names) {
-    auto func_addr = ExitOnErr(jit->lookup(func_name));
+  for (const auto& allocate : allocate_exprs) {
+    auto func_name = ir_utils::varName(allocate->as<Val>());
+    auto func_addr = throwIfError(jit->lookup(func_name));
     // Lookup and reinterpret the function pointer to store in the map
-    allocate_funcs_[allocate] = (allocate_fn)reinterpret_cast<void (*)(
+    allocate_funcs_[allocate] = reinterpret_cast<void (*)(
         const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
         func_addr.getValue());
   }
@@ -278,22 +258,21 @@ void compile(const hir::HostIrContainer* container, llvm::orc::LLJIT* jit, std::
 HostIrJit::HostIrJit(
     hir::HostIrContainer* container,
     Communicator* communicator,
-    const hir::HostIrEvaluatorParams& evaluator_params,
     int num_threads)
     : pimpl_(new LlvmJitImpl) {
   // Initialize params with passed parameters
   pimpl_->host_ir_jit_params_ =
-      std::make_unique<HostIrJitParams>(container, communicator, evaluator_params);
+      std::make_unique<HostIrJitParams>(container, communicator);
 
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
-  pimpl_->jit = ExitOnErr(
+  pimpl_->jit = throwIfError(
       llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
   llvm::orc::JITDylib& dest_dynamic_lib = pimpl_->jit->getMainJITDylib();
   auto mangler = llvm::orc::MangleAndInterner(
       dest_dynamic_lib.getExecutionSession(), pimpl_->jit->getDataLayout());
   dest_dynamic_lib.addGenerator(
-      ExitOnErr(llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
+      throwIfError(llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
   // Create wrapper function pointer to at::native::empty_strided_cuda
@@ -325,10 +304,10 @@ HostIrJit::HostIrJit(
   auto empty_strided_cuda_addr =
       llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler("at::native::empty_strided_cuda")] = llvm::orc::ExecutorSymbolDef(
+  symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] = llvm::orc::ExecutorSymbolDef(
       empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
 
-  ExitOnErr(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
+  throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
   
   // Only compile if container is provided
   if (container) {
@@ -342,11 +321,10 @@ at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,
     const std::vector<int64_t>& input_sizes,
     const std::vector<int64_t>& input_strides) {
-  if (pimpl_->allocate_funcs_.find(allocate) == pimpl_->allocate_funcs_.end()) {
-    NVF_ERROR(false, "allocate function not found for ", allocate);
-  }
   FUSER_PERF_SCOPE("HostIrJit::allocate");
-  auto func_ptr = pimpl_->allocate_funcs_[allocate];
+  auto allocate_func_iter = pimpl_->allocate_funcs_.find(allocate);
+  NVF_ERROR(allocate_func_iter != pimpl_->allocate_funcs_.end(), "allocate function not found for ", allocate);
+  auto& func_ptr = allocate_func_iter->second;
 
   at::Tensor tensor;
   func_ptr(
