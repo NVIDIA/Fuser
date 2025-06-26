@@ -356,7 +356,7 @@ def define_tensor_error_generator(
             "contiguity": [True, True, True],
             "dtype": DataType.Float,
         },
-        "The size of contiguity must equal to the number of non-broadcasting IterDomains",
+        "Length of contiguity argument (3) must match that of shape argument (2)",
     )
 
     check_empty_tensor_size = ErrorSample(

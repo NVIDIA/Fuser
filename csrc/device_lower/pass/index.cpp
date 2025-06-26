@@ -2783,7 +2783,8 @@ void IndexLowering::handle(const CatOp* cat) {
 
   DataType dt = out->dtype();
   bool use_bitwise_or = dt == DataType::Half || dt == DataType::BFloat16 ||
-      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2;
+      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2 ||
+      dt == DataType::Float8_e8m0fnu;
   BinaryOpType op_type =
       use_bitwise_or ? BinaryOpType::BitwiseOr : BinaryOpType::Add;
 

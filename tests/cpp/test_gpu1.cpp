@@ -2667,7 +2667,9 @@ TEST_F(NVFuserTest, CompoundOps) {
 
 TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
-      {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
+      {DataType::Float8_e4m3fn,
+       DataType::Float8_e5m2,
+       DataType::Float8_e8m0fnu});
   std::vector<DataType> cast_targets(
       {DataType::Double, DataType::Float, DataType::BFloat16, DataType::Half});
 
@@ -2696,18 +2698,33 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       at::Tensor t0 = at::randn({1, 4}, options);
 
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+        // e8m0 can only represent positive values
+        t0 = t0.abs() + 1e-6;
+      }
+
       KernelExecutor ke;
-#if (CUDA_VERSION >= 12010)
-      if (!deviceMajorMinorCheck(8, 9)) {
-#elif (CUDA_VERSION >= 11080)
-      if (!deviceMajorMinorCheck(9)) {
+      bool unsupported_device = false;
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+#if (CUDA_VERSION >= 12070)
+        unsupported_device = !deviceMajorMinorCheck(10);
 #else
-      if (true) {
+        unsupported_device = true;
 #endif
+      } else {
+#if (CUDA_VERSION >= 12010)
+        unsupported_device = !deviceMajorMinorCheck(8, 9);
+#elif (CUDA_VERSION >= 11080)
+        unsupported_device = !deviceMajorMinorCheck(9);
+#else
+        unsupported_device = true;
+#endif
+      }
+      if (unsupported_device) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
-            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_xxx values")));
+            testing::ThrowsMessage<nvfuser::nvfError>(
+                testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
@@ -2715,8 +2732,18 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].as<at::Tensor>().equal(ref_output),
-            "cast to fp8 and back had a mismatch.\n",
+            fp8_type == DataType::Float8_e8m0fnu
+                ? (outputs[0]
+                       .as<at::Tensor>()
+                       .ge(ref_output / 2)
+                       .logical_and(
+                           outputs[0].as<at::Tensor>().le(ref_output * 2))
+                       .all()
+                       .item<bool>())
+                : outputs[0].as<at::Tensor>().equal(ref_output),
+            "cast to ",
+            at_fp8_type,
+            " and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
             outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
@@ -2829,10 +2856,10 @@ INSTANTIATE_TEST_SUITE_P(
     advancedDtypeTestName);
 
 // Vectorize factor, dynamic_shape
-using Float4E2m1TestParams = std::tuple<int64_t, bool>;
+using Float4E2m1ManualScheduleTestParams = std::tuple<int64_t, bool>;
 
-class Float4E2m1TestAllArch
-    : public NVFuserFixtureParamTest<Float4E2m1TestParams> {
+class Float4E2m1ManualScheduleTestAllArch
+    : public NVFuserFixtureParamTest<Float4E2m1ManualScheduleTestParams> {
  protected:
   int64_t vectorize_factor;
   bool dynamic_shape;
@@ -2841,7 +2868,7 @@ class Float4E2m1TestAllArch
   }
 };
 
-TEST_P(Float4E2m1TestAllArch, CopyKernelManualSchedule) {
+TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2876,8 +2903,56 @@ TEST_P(Float4E2m1TestAllArch, CopyKernelManualSchedule) {
   }
 }
 
-std::string fp4E2m1Name(
-    const testing::TestParamInfo<Float4E2m1TestParams>& info) {
+TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = dynamic_shape ? TensorViewBuilder()
+                                        .ndims(2)
+                                        .dtype(DataType::Float4_e2m1)
+                                        .shape({-1, -1})
+                                        .contiguity({false, true})
+                                        .build()
+                                  : TensorViewBuilder()
+                                        .ndims(2)
+                                        .dtype(DataType::Float4_e2m1)
+                                        .shape({2048, 2048})
+                                        .contiguity({false, true})
+                                        .build();
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->merge(0);
+  tv1->split(0, vectorize_factor);
+  tv1->split(0, 128);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(2)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input =
+      at::randint(0, 256, {2048, 2048}, options).narrow(1, 0, 1024);
+
+  KernelExecutor ke;
+  if (vectorize_factor == 1) {
+    EXPECT_THAT(
+        [&]() { ke.compile(&fusion, {input}); },
+        testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+            "Tried to vectorize a dim resulting in a word size of 4 bits, "
+            "however, vector sizes starting from and including 8 bits upto and "
+            "including 128 bits are supported.")));
+  } else {
+    ke.compile(&fusion, {input});
+    auto outputs = ke.run({input});
+    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+  }
+}
+
+std::string fp4E2m1ManualScheduleName(
+    const testing::TestParamInfo<Float4E2m1ManualScheduleTestParams>& info) {
   const auto& [vectorize_factor, dynamic_shape] = info.param;
   return "Vectorize" + std::to_string(vectorize_factor) + "_DynamicShape" +
       std::to_string(dynamic_shape);
@@ -2885,11 +2960,11 @@ std::string fp4E2m1Name(
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    Float4E2m1TestAllArch,
+    Float4E2m1ManualScheduleTestAllArch,
     testing::Combine(
         testing::Values(1, 2, 4, 8, 16, 32),
         testing::Values(false, true)),
-    fp4E2m1Name);
+    fp4E2m1ManualScheduleName);
 
 TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
@@ -2903,6 +2978,34 @@ TEST_F(NVFuserTest, BitCeilEval) {
     uint64_t result = (uint64_t)v1->evaluate();
     EXPECT_EQ(std::bit_ceil(value), result);
   }
+}
+
+using Float4E2m1Test = NVFuserTest;
+
+TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1);
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  tv1->split(0, 2);
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input =
+      at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
+
+  KernelExecutor ke;
+
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
 }
 
 // Start off simple, block on the outer dim
