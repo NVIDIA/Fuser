@@ -30,7 +30,7 @@ bool preferWarpSpecialized(
   if (at::cuda::getCurrentDeviceProperties()->major < 10) {
     return false;
   }
-  // False, if any of the inputs is not concretized
+  // False, if any of the inputs is dynamically shaped
   // TODO: extend to support dynamic inputs, warp specialization requires
   // static CTA size
   auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
