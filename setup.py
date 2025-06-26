@@ -30,6 +30,9 @@
 #   --build-with-ucc
 #     Build nvfuser with UCC support. You may need to specify environment variables of UCC_HOME, UCC_DIR, UCX_HOME, UCX_DIR.
 #
+#   --build-with-llvm
+#     Build nvfuser with LLVM support
+#
 #   --build-without-distributed
 #     Build nvfuser without multidevice support
 #
