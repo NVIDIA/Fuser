@@ -48,6 +48,7 @@
 #include <cmath>
 #include <cstring>
 #include <fstream>
+#include <regex>
 #include <vector>
 
 #include <cuda_runtime.h>
@@ -65,6 +66,7 @@
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
+#include <nvfuser_resources/fp4_support.h>
 #include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
 #include <nvfuser_resources/fused_welford_helper.h>
@@ -100,6 +102,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
   ss << nvfuser_resources::fp8_support_cu;
+  ss << nvfuser_resources::fp4_support_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
@@ -605,6 +608,16 @@ void fillCompileOptions(
     }
   }
 
+  if (isOptionDisabled(DisableOption::NvrtcCaching)) {
+    // JIT caching is introduced in 12.9. It's always disabled in
+    // prior versions.
+    int major, minor;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&major, &minor));
+    if ((major == 12 && minor >= 9) || major > 12) {
+      nvrtc_compile_driver.setOption("--no-cache");
+    }
+  }
+
   for (const auto& include_path : compile_params.include_paths) {
     nvrtc_compile_driver.setOption("-I" + include_path);
   }
@@ -612,24 +625,26 @@ void fillCompileOptions(
 
 // Dump ptxas output if register spill is detected
 int warnRegisterSpill(const std::string& compile_log) {
-  auto getRegisterSpillInfo = [](const std::string& log, const char* subStr) {
-    auto it_end =
-        std::search(log.begin(), log.end(), subStr, subStr + strlen(subStr)) -
-        1;
-    auto it_beg = it_end - 1;
-    while (!std::isspace(*(it_beg - 1))) {
-      it_beg--;
-    }
-    std::string str(it_beg, it_end);
-    return std::stoi(str);
+  // Get a matching int from a given nvrtc compile log that matches a
+  // pattern of "\d+ sub_str", e.g., in the case of "4 bytes stack
+  // frame", 4 would be returned.
+  auto get_preceding_int = [](const std::string& log,
+                              const std::string& sub_str) -> int64_t {
+    std::regex pattern("(\\d+) " + sub_str);
+    std::smatch matches;
+    NVF_ERROR(
+        std::regex_search(log, matches, pattern),
+        "Unexpected compile log: ",
+        log);
+    return std::stoi(matches[1]);
   };
 
-  const char* str_stack = "bytes stack frame";
-  const char* str_store = "bytes spill stores";
-  const char* str_load = "bytes spill loads";
-  int stack_count = getRegisterSpillInfo(compile_log, str_stack);
-  int store_count = getRegisterSpillInfo(compile_log, str_store);
-  int load_count = getRegisterSpillInfo(compile_log, str_load);
+  const std::string str_stack = "bytes stack frame";
+  const std::string str_store = "bytes spill stores";
+  const std::string str_load = "bytes spill loads";
+  int stack_count = get_preceding_int(compile_log, str_stack);
+  int store_count = get_preceding_int(compile_log, str_store);
+  int load_count = get_preceding_int(compile_log, str_load);
   int allowed_spill = 0;
   if (isOptionEnabled(EnableOption::WarnRegisterSpill)) {
     auto optionArgs = getEnableOptionArguments(EnableOption::WarnRegisterSpill);
@@ -1212,6 +1227,10 @@ NVF_API CompiledKernel::CompiledKernel(
   if (lowered_->kernel()->summary().has_argsort ||
       lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
+    // As of CUDA 13, the CUB header files are moved to the cccl
+    // subdirectory. This include path is not necessary pre 13 but is
+    // added anyway as it should be just a no-op.
+    compile_params_.include_paths.push_back("/usr/local/cuda/include/cccl");
   }
 }
 

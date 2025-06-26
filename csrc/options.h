@@ -137,6 +137,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel

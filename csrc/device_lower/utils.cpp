@@ -87,6 +87,7 @@ bool isTvOp(const Expr* expr) {
   if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
           ArgsortOp,
+          GroupedMmaOp,
           TopKOp,
           UnaryOp,
           BinaryOp,
@@ -2136,6 +2137,24 @@ bool isWarpSpecializedLoop(ForLoop* loop) {
           .getCircularBufferOptionsFor(loop->iter_domain())
           .type);
 }
+
+bool isCopyOnly(Expr* expr) {
+  return expr
+      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
+  }
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
