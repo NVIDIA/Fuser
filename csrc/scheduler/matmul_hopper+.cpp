@@ -957,19 +957,11 @@ void HopperPlus::doEpilogueTileSplit(TensorView* tv) const {
     tv->reorder({{-2, -1}});
     //   [..., (Mo * No), Mn, Nn, Me, Ne]
   }
-  tv->printTransforms();
 }
 
 void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
-  // Default epilogue tile is same as warp tile
-  const int64_t ldst_matrix_smem_m = params_->tile_sizes.epilogue_tile.m == -1L
-      ? params_->tile_sizes.warp_tile.m
-      : params_->tile_sizes.epilogue_tile.m;
-  const int64_t ldst_matrix_smem_n = params_->tile_sizes.epilogue_tile.n == -1L
-      ? params_->tile_sizes.warp_tile.n
-      : params_->tile_sizes.epilogue_tile.n;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
 
