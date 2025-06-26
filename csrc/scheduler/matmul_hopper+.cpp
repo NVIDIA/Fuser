@@ -459,12 +459,12 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
                                 iS130{256}  <--- Get rid of CGA dim
           */
           int64_t sibling_axis = inner_axis + 1;
-          while (sibling_axis < merged_roles.size() &&
+          while (sibling_axis < (int64_t)merged_roles.size() &&
                  merged_roles.at(sibling_axis) != merged_roles.at(i)) {
             ++sibling_axis;
           }
           NVF_ERROR(
-              sibling_axis < merged_roles.size(),
+              sibling_axis < (int64_t)merged_roles.size(),
               "Could not find sibling axis to merge");
           tv->merge(inner_axis, sibling_axis);
           tv->reorder({{inner_axis, sibling_axis - 1}});
