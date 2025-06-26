@@ -6,22 +6,20 @@
  */
 // clang-format on
 #pragma once
-#include <fusion.h> // For TensorView and at::Tensor
-#include <host_ir/container.h> // For HostIrContainer
-#include <multidevice/communicator.h> // For Communicator
+#include <fusion.h>
+#include <host_ir/container.h>
+#include <multidevice/communicator.h>
 #include <utils.h>
-#include <memory> // For std::unique_ptr
+#include <memory>
 namespace nvfuser {
 
 class HostIrJit {
  public:
-  // Run with the given input tensors.
   at::Tensor allocate(
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes,
       const std::vector<int64_t>& input_strides);
 
-  // Overloaded constructor for default params
   HostIrJit(
       hir::HostIrContainer* container,
       int num_threads = kHostIrJitCompileThreads);

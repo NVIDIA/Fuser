@@ -33,12 +33,11 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <ATen/ATen.h>
-#include <c10/core/MemoryFormat.h> // for c10::optional
+#include <c10/core/MemoryFormat.h>
 #include <host_ir/jit.h>
 #include <functional>
 #include <memory>
 
-// Include the actual header files instead of forward declarations
 #include <multidevice/communicator.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -67,7 +66,7 @@ struct HostIrJit::LlvmJitImpl {
   std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
   std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
   LlvmJitImpl() = default;
-  ~LlvmJitImpl() = default; // unique_ptr handles cleanup automatically
+  ~LlvmJitImpl() = default;
 };
 
 // Helper function to check for and throw errors from LLVM
