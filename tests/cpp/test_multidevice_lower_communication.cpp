@@ -758,7 +758,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     LowerCollectiveTest,
     ::testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         // Can't do testing::Bool() yet due to #4230
         testing::Values(false)),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&

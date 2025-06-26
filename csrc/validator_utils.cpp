@@ -104,9 +104,12 @@ std::pair<double, double> getTolerance(
         return {abs_tol, abs_tol * 0.01};
       }
     }
-    // TODO: fp8 likely will need higher tolerance.
+    // TODO: fp8 & fp4 likely will need higher tolerance.
     case DataType::Float8_e4m3fn:
     case DataType::Float8_e5m2:
+    case DataType::Float8_e8m0fnu:
+    case DataType::Float4_e2m1fn:
+    case DataType::Float4_e2m1fn_x2:
     case DataType::BFloat16: {
       // Copied from float case
       const auto& sum_tolerance_entry = tolerances.sum_tolerances_half;

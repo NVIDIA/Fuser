@@ -2667,7 +2667,9 @@ TEST_F(NVFuserTest, CompoundOps) {
 
 TEST_F(NVFuserTest, Fp8CastOps) {
   std::vector<DataType> fp8_variants(
-      {DataType::Float8_e4m3fn, DataType::Float8_e5m2});
+      {DataType::Float8_e4m3fn,
+       DataType::Float8_e5m2,
+       DataType::Float8_e8m0fnu});
   std::vector<DataType> cast_targets(
       {DataType::Double, DataType::Float, DataType::BFloat16, DataType::Half});
 
@@ -2696,18 +2698,33 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       at::Tensor t0 = at::randn({1, 4}, options);
 
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+        // e8m0 can only represent positive values
+        t0 = t0.abs() + 1e-6;
+      }
+
       KernelExecutor ke;
-#if (CUDA_VERSION >= 12010)
-      if (!deviceMajorMinorCheck(8, 9)) {
-#elif (CUDA_VERSION >= 11080)
-      if (!deviceMajorMinorCheck(9)) {
+      bool unsupported_device = false;
+      if (fp8_type == DataType::Float8_e8m0fnu) {
+#if (CUDA_VERSION >= 12070)
+        unsupported_device = !deviceMajorMinorCheck(10);
 #else
-      if (true) {
+        unsupported_device = true;
 #endif
+      } else {
+#if (CUDA_VERSION >= 12010)
+        unsupported_device = !deviceMajorMinorCheck(8, 9);
+#elif (CUDA_VERSION >= 11080)
+        unsupported_device = !deviceMajorMinorCheck(9);
+#else
+        unsupported_device = true;
+#endif
+      }
+      if (unsupported_device) {
         ASSERT_THAT(
             [&]() { ke.compile(&fusion, {t0}); },
-            testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-                "Reason: Fusion contains Float8_xxx values")));
+            testing::ThrowsMessage<nvfuser::nvfError>(
+                testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
@@ -2715,8 +2732,18 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].as<at::Tensor>().equal(ref_output),
-            "cast to fp8 and back had a mismatch.\n",
+            fp8_type == DataType::Float8_e8m0fnu
+                ? (outputs[0]
+                       .as<at::Tensor>()
+                       .ge(ref_output / 2)
+                       .logical_and(
+                           outputs[0].as<at::Tensor>().le(ref_output * 2))
+                       .all()
+                       .item<bool>())
+                : outputs[0].as<at::Tensor>().equal(ref_output),
+            "cast to ",
+            at_fp8_type,
+            " and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
             outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
@@ -2846,8 +2873,8 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   FusionGuard fg(&fusion);
 
   TensorView* tv0 = dynamic_shape
-      ? makeContigTensor(1, DataType::Float4_e2m1)
-      : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
+      ? makeContigTensor(1, DataType::Float4_e2m1fn)
+      : makeContigConcreteTensor({2048}, DataType::Float4_e2m1fn);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2859,7 +2886,8 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024}, options);
+  at::Tensor input = at::randint(0, 256, {1024}, options)
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2882,13 +2910,13 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
 
   TensorView* tv0 = dynamic_shape ? TensorViewBuilder()
                                         .ndims(2)
-                                        .dtype(DataType::Float4_e2m1)
+                                        .dtype(DataType::Float4_e2m1fn)
                                         .shape({-1, -1})
                                         .contiguity({false, true})
                                         .build()
                                   : TensorViewBuilder()
                                         .ndims(2)
-                                        .dtype(DataType::Float4_e2m1)
+                                        .dtype(DataType::Float4_e2m1fn)
                                         .shape({2048, 2048})
                                         .contiguity({false, true})
                                         .build();
@@ -2906,8 +2934,9 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input =
-      at::randint(0, 256, {2048, 2048}, options).narrow(1, 0, 1024);
+  at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
+                         .narrow(1, 0, 1024)
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2959,7 +2988,7 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1);
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2971,8 +3000,10 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input =
-      at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
+  at::Tensor input = at::randint(0, 256, {1024, 2}, options)
+                         .narrow(1, 0, 1)
+                         .squeeze()
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
 
