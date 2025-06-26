@@ -1310,7 +1310,9 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         reference=torch._grouped_mm,
     )
 
-    def scaled_grouped_mm_wrapper(mat1, mat2, offsets, scale1, scale2, alpha, bias, beta, dtype):
+    def scaled_grouped_mm_wrapper(
+        mat1, mat2, offsets, scale1, scale2, alpha, bias, beta, dtype
+    ):
         assert beta is None
         # mat1 needs to be in column major while mat2 needs to be in row major.
         row_major_mat2 = mat2.transpose(-1, -2).contiguous().transpose(-1, -2)
