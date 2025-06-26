@@ -47,6 +47,17 @@ namespace nvfuser {
 using allocate_fn = std::function<
     void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
+/*
+input: cache id
+output: KernelArgumentHolder
+*/ 
+struct KernelArgumentHolderPair {
+  void* args;      // KernelArgumentHolder* for inputs
+  void* outputs;   // KernelArgumentHolder* for outputs
+};
+
+using launch_kernel_fn = std::function<KernelArgumentHolderPair(int64_t, at::Tensor**, at::Tensor**)>;
+
 class HostIrJitParams {
  private:
   Communicator* communicator_;
@@ -64,7 +75,9 @@ class HostIrJitParams {
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
+  std::unordered_map<const hir::LaunchKernel*, launch_kernel_fn> launch_kernel_funcs_;
   std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
+
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -82,6 +95,187 @@ T throwIfError(llvm::Expected<T>&& E) {
     throwIfError(E.takeError());
   }
   return std::move(*E);
+}
+
+// Generate a function for LaunchKernel runtime
+void generateLaunchKernelFunc(
+    const hir::LaunchKernel* launch_kernel,
+    llvm::Module* mod) {
+  llvm::LLVMContext& context = mod->getContext();
+  llvm::IRBuilder<> builder(context);
+
+  std::string func_name = launch_kernel->toString();
+  
+  // Since we registered the wrapper functions with these exact names,
+  // we can look them up directly without mangling
+  std::string constructor_name = "KernelArgumentHolder::KernelArgumentHolder";
+  std::string set_cache_name = "KernelArgumentHolder::setCacheId";
+  std::string set_device_name = "KernelArgumentHolder::setDeviceIndex";
+  std::string push_name = "KernelArgumentHolder::push";
+  
+  // Look up functions using the registered names
+  llvm::Function* constructor_func = mod->getFunction(constructor_name);
+  if (!constructor_func) {
+    // Create function declaration for constructor
+    llvm::FunctionType* ctor_type = llvm::FunctionType::get(
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // return KernelArgumentHolder*
+      {}, // no parameters for default constructor
+      false
+    );
+    constructor_func = llvm::Function::Create(
+      ctor_type, llvm::Function::ExternalLinkage, constructor_name, mod
+    );
+  }
+
+  llvm::Function* push_func = mod->getFunction(push_name);
+  if (!push_func) {
+    // Create function declaration for member function
+    std::vector<llvm::Type*> param_types = {
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // this pointer
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))    // at::Tensor object (passed as pointer for simplicity)
+    };
+    llvm::FunctionType* push_type = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(context), param_types, false
+    );
+    push_func = llvm::Function::Create(
+      push_type, llvm::Function::ExternalLinkage, push_name, mod
+    );
+  }
+  
+  llvm::Function* set_cache_func = mod->getFunction(set_cache_name);
+  if (!set_cache_func) {
+    // Create function declaration for member function
+    std::vector<llvm::Type*> param_types = {
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // this pointer
+      llvm::Type::getInt64Ty(context)    // size_t parameter
+    };
+    llvm::FunctionType* set_cache_type = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(context), param_types, false
+    );
+    set_cache_func = llvm::Function::Create(
+      set_cache_type, llvm::Function::ExternalLinkage, set_cache_name, mod
+    );
+  }
+  
+  llvm::Function* set_device_func = mod->getFunction(set_device_name);
+  if (!set_device_func) {
+    // Create function declaration for setDeviceIndex
+    std::vector<llvm::Type*> param_types = {
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)) // this pointer only
+    };
+    llvm::FunctionType* set_device_type = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(context), param_types, false
+    );
+    set_device_func = llvm::Function::Create(
+      set_device_type, llvm::Function::ExternalLinkage, set_device_name, mod
+    );
+  }
+  
+  // Create the main function
+  // Parameters: cache_id, input_tensors_ptr, output_tensors_ptr
+  std::vector<llvm::Type*> param_types = {
+    llvm::Type::getInt64Ty(context),  // cache_id
+    llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))), // input_tensors_ptr (at::Tensor**)
+    llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)))  // output_tensors_ptr (at::Tensor**)
+  };
+  
+  // Create struct type for return value
+  std::vector<llvm::Type*> struct_elements = {
+    llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // args pointer
+    llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))  // outputs pointer
+  };
+  llvm::StructType* return_struct_type = llvm::StructType::create(context, struct_elements, "KernelArgumentHolderPair");
+  
+  llvm::FunctionType* main_func_type = llvm::FunctionType::get(
+    return_struct_type, // return KernelArgumentHolderPair
+    param_types,
+    false
+  );
+  
+  llvm::Function* main_func = llvm::Function::Create(
+    main_func_type, llvm::Function::ExternalLinkage, func_name, mod
+  );
+  
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", main_func);
+  builder.SetInsertPoint(entry);
+  
+  // Get function arguments
+  llvm::Value* cache_id_arg = main_func->getArg(0);
+  llvm::Value* input_tensors_ptr = main_func->getArg(1);
+  llvm::Value* output_tensors_ptr = main_func->getArg(2);
+  
+  // Create KernelArgumentHolder args (for inputs)
+  llvm::Value* args_ptr = builder.CreateCall(constructor_func, {});
+  
+  // Set cache ID if not monostate (cache_id != -1)
+  llvm::Value* monostate_check = builder.CreateICmpNE(cache_id_arg, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), -1));
+  llvm::BasicBlock* set_cache_block = llvm::BasicBlock::Create(context, "set_cache", main_func);
+  llvm::BasicBlock* skip_cache_block = llvm::BasicBlock::Create(context, "skip_cache", main_func);
+  builder.CreateCondBr(monostate_check, set_cache_block, skip_cache_block);
+  
+  builder.SetInsertPoint(set_cache_block);
+  builder.CreateCall(set_cache_func, {args_ptr, cache_id_arg});
+  builder.CreateBr(skip_cache_block);
+  
+  builder.SetInsertPoint(skip_cache_block);
+  
+  // Push all input tensors to args
+  for (size_t i = 0; i < launch_kernel->inputs().size(); ++i) {
+    llvm::Value* tensor_ptr = builder.CreateGEP(
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
+      input_tensors_ptr, 
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), i)
+    );
+    llvm::Value* input_tensor = builder.CreateLoad(
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
+      tensor_ptr
+    );
+    
+    // Push tensor to args - pass the tensor pointer to our wrapper
+    builder.CreateCall(push_func, {args_ptr, input_tensor});
+  }
+  
+  // Create KernelArgumentHolder outputs (for outputs)
+  llvm::Value* outputs_ptr = builder.CreateCall(constructor_func, {});
+  
+  // Push all output tensors to outputs
+  for (size_t i = 0; i < launch_kernel->outputs().size(); ++i) {
+    llvm::Value* tensor_ptr = builder.CreateGEP(
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
+      output_tensors_ptr, 
+      llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), i)
+    );
+    llvm::Value* output_tensor = builder.CreateLoad(
+      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
+      tensor_ptr
+    );
+    
+    // Push tensor to outputs - pass the tensor pointer to our wrapper
+    builder.CreateCall(push_func, {outputs_ptr, output_tensor});
+  }
+  
+  // Set device index on args
+  builder.CreateCall(set_device_func, {args_ptr});
+  
+  // Create the return struct
+  llvm::Value* return_struct = llvm::UndefValue::get(return_struct_type);
+  return_struct = builder.CreateInsertValue(return_struct, args_ptr, 0);
+  return_struct = builder.CreateInsertValue(return_struct, outputs_ptr, 1);
+  
+  // Return the struct containing both args and outputs
+  builder.CreateRet(return_struct);
+
+  // Verify the module
+  std::string error;
+  llvm::raw_string_ostream error_stream(error);
+  NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
+
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
+    // Print the LLVM IR module
+    llvm::outs() << "=== LLVM IR ===\n";
+    mod->print(llvm::outs(), nullptr);
+  }
 }
 
 // Generate kir::Allocate runtime function
@@ -212,6 +406,7 @@ void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
     std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_,
+    std::unordered_map<const hir::LaunchKernel*, launch_kernel_fn>& launch_kernel_funcs_,
     const HostIrJitParams& host_ir_jit_params) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   // If the JIT is already compiled, return
@@ -224,6 +419,7 @@ void compile(
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   std::vector<kir::Allocate*> allocate_exprs;
+  std::vector<hir::LaunchKernel*> launch_kernel_exprs;
   for (auto* expr : container->topLevelExprs()) {
     if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
       generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
@@ -235,6 +431,9 @@ void compile(
           allocate_exprs.push_back(allocate);
         }
       }
+    } else if (auto* launch_kernel = dynamic_cast<hir::LaunchKernel*>(expr)) {
+      generateLaunchKernelFunc(launch_kernel, mod.get());
+      launch_kernel_exprs.push_back(launch_kernel);
     }
   }
 
@@ -248,6 +447,12 @@ void compile(
     auto func_addr = throwIfError(jit->lookup(func_name));
     allocate_funcs_[allocate] = reinterpret_cast<void (*)(
         const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
+        func_addr.getValue());
+  }
+  for (auto* launch_kernel : launch_kernel_exprs) {
+    auto func_name = launch_kernel->toString();
+    auto func_addr = throwIfError(jit->lookup(func_name));
+    launch_kernel_funcs_[launch_kernel] = reinterpret_cast<KernelArgumentHolderPair(*)(int64_t, at::Tensor**, at::Tensor**)>(
         func_addr.getValue());
   }
 }
@@ -293,13 +498,54 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
             c10::nullopt);
       });
 
+  // Register KernelArgumentHolder functions
+  void* kernel_argument_holder_constructor_func_ptr = reinterpret_cast<void*>(
+      +[]() -> KernelArgumentHolder* {
+        return new KernelArgumentHolder();
+      });
+
+  void* kernel_argument_holder_set_cache_id_func_ptr = reinterpret_cast<void*>(
+      +[](KernelArgumentHolder* self, size_t id) {
+        self->setCacheId(id);
+      });
+
+  void* kernel_argument_holder_set_device_index_func_ptr = reinterpret_cast<void*>(
+      +[](KernelArgumentHolder* self) {
+        self->setDeviceIndex();
+      });
+
+   void* kernel_argument_holder_push_func_ptr = reinterpret_cast<void*>(
+      +[](KernelArgumentHolder* self, at::Tensor* tensor_ptr) {
+        // std::cout << "Wrapper function called with tensor_ptr: " << tensor_ptr << std::endl;
+        if (tensor_ptr == nullptr) {
+          // std::cout << "ERROR: tensor_ptr is null!" << std::endl;
+          return;
+        }
+        // std::cout << "About to call self->push(*tensor_ptr)" << std::endl;
+        self->push(*tensor_ptr);
+        // std::cout << "Successfully called push" << std::endl;
+      });
+
   // Register wrapper functions in JIT
-  auto empty_strided_cuda_addr =
-      llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
+  auto empty_strided_cuda_addr = llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
+  auto kernel_argument_holder_constructor_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_constructor_func_ptr);
+  auto kernel_argument_holder_set_cache_id_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_cache_id_func_ptr);
+  auto kernel_argument_holder_set_device_index_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_device_index_func_ptr);
+  auto kernel_argument_holder_push_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_push_func_ptr); 
+
+  // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
       llvm::orc::ExecutorSymbolDef(
           empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("KernelArgumentHolder::KernelArgumentHolder")] = 
+      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_constructor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("KernelArgumentHolder::setCacheId")] = 
+      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_set_cache_id_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("KernelArgumentHolder::setDeviceIndex")] = 
+      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_set_device_index_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("KernelArgumentHolder::push")] = 
+      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_push_addr, llvm::JITSymbolFlags::Exported);
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
@@ -308,6 +554,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
       container,
       pimpl_->jit.get(),
       pimpl_->allocate_funcs_,
+      pimpl_->launch_kernel_funcs_,
       *pimpl_->host_ir_jit_params_);
 }
 
@@ -334,6 +581,52 @@ at::Tensor HostIrJit::allocate(
       tensor);
 
   return tensor;
+}
+
+HostIrJit::LaunchKernelResult HostIrJit::launchKernel(
+    const hir::LaunchKernel* launch_kernel,
+    int64_t cache_id,
+    const std::vector<at::Tensor>& inputs,
+    const std::vector<at::Tensor>& outputs) {
+  if (pimpl_->launch_kernel_funcs_.find(launch_kernel) == pimpl_->launch_kernel_funcs_.end()) {
+    NVF_ERROR(false, "launch kernel function not found for ", launch_kernel);
+  }
+  
+  auto func_ptr = pimpl_->launch_kernel_funcs_[launch_kernel];
+  
+  // std::cout << "Calling LLVM function with:" << std::endl;
+  // std::cout << "  cache_id: " << cache_id << std::endl;
+  // std::cout << "  inputs.size(): " << inputs.size() << std::endl;
+  // std::cout << "  outputs.size(): " << outputs.size() << std::endl;
+  
+  // Convert const std::vector<at::Tensor>& to at::Tensor** arrays
+  std::vector<at::Tensor*> input_ptrs;
+  input_ptrs.reserve(inputs.size());
+  for (const auto& tensor : inputs) {
+    input_ptrs.push_back(const_cast<at::Tensor*>(&tensor));
+  }
+  
+  std::vector<at::Tensor*> output_ptrs;
+  output_ptrs.reserve(outputs.size());
+  for (const auto& tensor : outputs) {
+    output_ptrs.push_back(const_cast<at::Tensor*>(&tensor));
+  }
+  
+  // Get raw pointer arrays
+  at::Tensor** input_array = input_ptrs.data();
+  at::Tensor** output_array = output_ptrs.data();
+  
+  KernelArgumentHolderPair result = func_ptr(cache_id, input_array, output_array);
+  
+  // Use unique_ptr to manage memory automatically
+  std::unique_ptr<KernelArgumentHolder> args_ptr(reinterpret_cast<KernelArgumentHolder*>(result.args));
+  std::unique_ptr<KernelArgumentHolder> outputs_ptr(reinterpret_cast<KernelArgumentHolder*>(result.outputs));
+  
+  // Move the objects out of the unique_ptrs to return by value
+  KernelArgumentHolder args = std::move(*args_ptr);
+  KernelArgumentHolder outputs_holder = std::move(*outputs_ptr);
+  
+  return LaunchKernelResult{std::move(args), std::move(outputs_holder)};
 }
 
 } // namespace nvfuser

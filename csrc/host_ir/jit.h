@@ -15,10 +15,21 @@ namespace nvfuser {
 
 class HostIrJit {
  public:
+  struct LaunchKernelResult {
+    KernelArgumentHolder args;
+    KernelArgumentHolder outputs;
+  };
+
   at::Tensor allocate(
       const kir::Allocate* allocate,
       const std::vector<int64_t>& input_sizes,
       const std::vector<int64_t>& input_strides);
+
+LaunchKernelResult launchKernel(
+      const hir::LaunchKernel* launch_kernel,
+      int64_t cache_id,
+      const std::vector<at::Tensor>& inputs,
+      const std::vector<at::Tensor>& outputs);
 
   HostIrJit(
       hir::HostIrContainer* container,

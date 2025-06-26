@@ -351,6 +351,48 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
+#ifdef NVFUSER_HOST_IR_JIT
+void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
+
+  PolymorphicValue cache_id_poly = expr_evaluator_.evaluate(launch_kernel->cacheId());
+  int64_t cache_id = -1;
+  if (!cache_id_poly.is<std::monostate>()) {
+    cache_id = static_cast<int64_t>(cache_id_poly.as<int64_t>());
+  }
+
+  std::vector<at::Tensor> inputs;
+  for (auto& input : launch_kernel->inputs()) {
+    inputs.push_back(getKnownConcreteValue(input).as<at::Tensor>());
+  }
+
+  // All output buffers are known already, pass them to the executor
+  std::vector<at::Tensor> outputs;
+  for (Val* output : launch_kernel->outputs()) {
+    if (expr_evaluator_.isKnown(output)) {
+      outputs.push_back(getKnownConcreteValue(output).as<at::Tensor>());
+    }
+  }
+
+  auto result = jit_->launchKernel(launch_kernel, cache_id, inputs, outputs);
+  auto& kah_args = result.args;
+  auto& kah_outputs = result.outputs;
+
+  NVF_ERROR_EQ(
+      kah_outputs.size(),
+      std::ssize(launch_kernel->outputs()),
+      "Not all outputs to the kernel were preallocated");
+      
+  // run the compiled kernel
+  container_->getKernelExecutor(launch_kernel->groupId())
+      ->run(
+          kah_args,
+          kah_outputs,
+          launch_kernel->launchParams(),
+          launch_kernel->compileParams());
+}
+
+#else
+
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
   PolymorphicValue cache_id =
@@ -385,6 +427,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
           launch_kernel->launchParams(),
           launch_kernel->compileParams());
 }
+#endif
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
