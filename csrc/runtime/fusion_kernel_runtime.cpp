@@ -483,24 +483,26 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       switch (group_to_run->schedulerType()) {
         case SchedulerType::Communication: {
           auto deviceid = Communicator::getInstance().deviceId();
-          NVF_ERROR(
-              group_to_run->exprs().size() == 1,
-              "Communication segments must contain only one Expr");
-          for (auto* expr : convertSingleOpToCommunication(
+          NVF_ERROR_EQ(
+              group_to_run->exprs().size(),
+              1,
+              "Communication segments must contain only one Expr.");
+          for (auto* e : convertSingleOpToCommunication(
                    ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
             NVF_ERROR(
-                expr->isA<Communication>(),
-                "Exprs in a Communication group should be Communication");
+                e->isA<Communication>(),
+                "Exprs in a Communication group should be Communication: ",
+                e);
             // Allocate the recv buffers of communications
-            auto* communication = expr->as<Communication>();
+            auto* communication = e->as<Communication>();
             TensorView* tv = communication->out();
             if (tv->getDeviceMesh().has(deviceid)) {
               auto* allocate =
                   IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
               hic->pushBackTopLevelExprs(allocate);
             }
-            hic->pushBackTopLevelExprs(expr);
-            auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+            hic->pushBackTopLevelExprs(communication);
+            auto wait = IrBuilder::create<hir::Wait>(communication);
             hic->pushBackTopLevelExprs(wait);
           }
         } break;

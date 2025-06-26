@@ -1003,7 +1003,7 @@ int64_t getVectorizationFactor(
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size
     const auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
+        dataTypeSizeByte(inp_or_out->dtype(), runtime_info.getIndexType());
     max_vec_size = std::min(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);

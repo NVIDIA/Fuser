@@ -1146,6 +1146,29 @@ class FusionTranslator : public OptInConstDispatch {
         argsortop->isStable()));
   }
 
+  // Map GroupedMmaOp to python frontend
+  void handle(const GroupedMmaOp* gmm_op) final {
+    TensorView* out_tv = gmm_op->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(
+        TensorDomain::noReductions(out_tv->getLogicalDomain()).size());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(
+        new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+            {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
+             fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
+            {fd_->recordingState(output())},
+            ("ops.grouped_mm"),
+            serde::RecordType::Ternary_TV,
+            static_cast<TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                [](TensorView* matrix1,
+                   TensorView* matrix2,
+                   TensorView* offsets) {
+                  return grouped_mm(matrix1, matrix2, offsets);
+                })));
+  }
+
   // Map TopKOp to python frontend
   void handle(const TopKOp* topkop) final {
     // Create outputs for this RecordFunctor

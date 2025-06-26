@@ -103,10 +103,10 @@ static void NvFuserScheduler_SoftmaxDropout(
   // All the same size
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * 5 * at_scores.numel() *
-          int64_t(dataTypeSize(dtype)) +
+          dataTypeSizeByte(dtype) +
       // bool mask
       int64_t(benchmark_state.iterations()) * at_scores.numel() *
-          int64_t(dataTypeSize(DataType::Bool)));
+          int64_t(dataTypeSizeByte(DataType::Bool)));
 }
 
 //------------------------------------------------------------------------------
@@ -154,10 +154,10 @@ static void Baseline_Softmax_Dropout(
   // All the same size
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) * 5 * attention_scores.numel() *
-          int64_t(dataTypeSize(dtype)) +
+          dataTypeSizeByte(dtype) +
       // bool mask
       int64_t(benchmark_state.iterations()) * attention_scores.numel() *
-          int64_t(dataTypeSize(DataType::Bool)));
+          int64_t(dataTypeSizeByte(DataType::Bool)));
 }
 
 //------------------------------------------------------------------------------

@@ -259,6 +259,13 @@ void scheduleLdStMatrixForMmaOutput(
     int64_t tile_m,
     int64_t tile_n);
 
+// Apply to the TensorView after block tiling and parallelization, but before
+// applying mma allocation to loop domain.
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    TensorView* tv,
+    int64_t ldst_tile_m,
+    int64_t ldst_tile_n);
+
 void checkDimSize(
     TensorView* tv,
     std::vector<int64_t> axis,

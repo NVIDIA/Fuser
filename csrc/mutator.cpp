@@ -158,6 +158,11 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
   std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
 
+  std::optional<std::vector<IterDomain*>> alternate_domain = std::nullopt;
+  if (td->alternateLoop().has_value()) {
+    alternate_domain = updateIdVec(td->alternateLoop().value());
+  }
+
   if (!mutated) {
     return;
   }
@@ -168,6 +173,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
       logical_dom,
       allocation_dom,
       domain,
+      alternate_domain,
       td->contiguity(),
       additional_ids);
   registerMutation(td, mutated_val);

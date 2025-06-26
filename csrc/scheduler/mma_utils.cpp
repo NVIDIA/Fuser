@@ -66,11 +66,11 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
   const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
   const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[0]);
+      ab_factor * dataTypeSizeByte(data_types[0]);
   const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[1]);
-  const int64_t smem_c =
-      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSize(data_types[2]);
+      ab_factor * dataTypeSizeByte(data_types[1]);
+  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+      dataTypeSizeByte(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
 }
@@ -970,7 +970,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1281,7 +1281,7 @@ void scheduleTMAStoreOuterSplit(TensorView* tv, MmaInputSmemSwizzle swizzle) {
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1328,7 +1328,7 @@ void scheduleLdStMatrixForMmaOutput(
       "We only support 16x16 and 16x16 stmatrix now");
 
   NVF_CHECK(
-      dataTypeSize(tv->dtype()) == 2,
+      dataTypeSizeByte(tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
   // NOTE: There can be iterDomains to left of the mma output if there is cta
@@ -1351,6 +1351,75 @@ void scheduleLdStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
+}
+
+// Apply to the TensorView after block tiling and parallelization, but before
+// applying mma allocation to loop domain.
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    TensorView* tv,
+    int64_t ldst_tile_m,
+    int64_t ldst_tile_n) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  AbstractTensor abstract_tensor(tv->getLoopDomain());
+  // (GM, GN, cta_m * cta_n, warp_m, warp_n)
+
+  // Split by TMA shared memory box
+  abstract_tensor.split(-1, 64);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
+
+  // Split by (16, 16) matrix for LdStMatrix.x4
+  abstract_tensor.split(-2, ldst_tile_m);
+  abstract_tensor.split(-1, ldst_tile_n);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+  // Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.
+
+  // For shared memory addressing, each thread specifies a row for each (8, 8)
+  // matrix. e.g., For stmatrix.x4, 32 threads move a (16, 16) matrix.
+
+  // Inside the tile box [16, 16], we can think of it as 4 8x8 tiles:
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T0   *  T2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T1   *  T3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+
+  // Split inner-dimension by 8 to traverse the rows of the (8, 8) matrices.
+  abstract_tensor.split(-1, 8);
+  // (no(4), mo(4), nio(4), mi(16), niio(2), niii(8))
+
+  // The tile is stored in row-major order, so issue four stmatrix.x4
+  // operations along the M dimension for a 128 thread warp group.
+  // Also, traverse along 16 rows first before moving along column dimension.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
+  // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
+
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+
+  // Merge no and nio to create a single serial IterDomain
+  // This ^^^ is an artifact of matmul scheduling functions.
+  abstract_tensor.merge(-4, -3);
+  // (no * nio)(16), (niio * mo * mi)(128), niii(8))
+
+  return abstract_tensor;
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
@@ -2407,7 +2476,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -2646,9 +2716,9 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
       swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
 
   auto dtype = shared_mem_tv->getDataType().value();
-  const int64_t B128_elements = 128 / dataTypeSize(dtype);
-  const int64_t B64_elements = 64 / dataTypeSize(dtype);
-  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+  const int64_t B128_elements = 128 / dataTypeSizeByte(dtype);
+  const int64_t B64_elements = 64 / dataTypeSizeByte(dtype);
+  const int64_t B32_elements = 32 / dataTypeSizeByte(dtype);
 
   if (inner_dim_size % B128_elements == 0) {
     return MmaInputSmemSwizzle::B128;
