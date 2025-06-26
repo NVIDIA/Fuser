@@ -71,6 +71,30 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
+
+// Dim check helper function
+void dimCheck(
+    llvm::Value* ndim_arg,
+    llvm::Value* ndim_val,
+    llvm::IRBuilder<> &builder,
+    llvm::Module* mod) {
+  llvm::LLVMContext& context = mod->getContext();
+  llvm::Value* cmp =
+      builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
+  llvm::Function* trap_func =
+      llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
+  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
+  llvm::BasicBlock* dim_check_pass_bb =
+      llvm::BasicBlock::Create(context, "dim_check_pass", parent_func);
+  llvm::BasicBlock* dim_check_fail_bb =
+      llvm::BasicBlock::Create(context, "dim_check_fail", parent_func);
+  builder.CreateCondBr(cmp, dim_check_pass_bb, dim_check_fail_bb);
+  builder.SetInsertPoint(dim_check_fail_bb);
+  builder.CreateCall(trap_func, {});
+  builder.CreateUnreachable();
+  builder.SetInsertPoint(dim_check_pass_bb);
+}
+
 // Generate kir::Allocate runtime function
 void generateAllocateFunc(
     const kir::Allocate* allocate,
@@ -108,9 +132,9 @@ void generateAllocateFunc(
 
   // Get arguments from the function
   llvm::Value* sizes_arg = func->getArg(0); // const int64_t*
-  llvm::Value* ndim_arg = func->getArg(1); // int64_t
+  llvm::Value* shape_ndim_arg = func->getArg(1); // int64_t (shape ndim)
   llvm::Value* strides_arg = func->getArg(2); // const int64_t*
-  llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides_ndim)
+  llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides ndim)
   llvm::Value* out_tensor_arg = func->getArg(4); // at::Tensor&
 
   // Bounds checking for ndim
@@ -119,31 +143,10 @@ void generateAllocateFunc(
   int64_t ndim = std::ssize(logical_domain);
   llvm::Value* ndim_val =
       llvm::ConstantInt::get(int64_type, ndim);
-  llvm::Value* cmp =
-      builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
-  llvm::Function* trap_func =
-      llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
-  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
-  llvm::BasicBlock* shape_ndim_check_pass_bb =
-      llvm::BasicBlock::Create(context, "shape_ndim_check_pass", parent_func);
-  llvm::BasicBlock* shape_ndim_check_fail_bb =
-      llvm::BasicBlock::Create(context, "shape_ndim_check_fail", parent_func);
-  builder.CreateCondBr(cmp, shape_ndim_check_pass_bb, shape_ndim_check_fail_bb);
-  builder.SetInsertPoint(shape_ndim_check_fail_bb);
-  builder.CreateCall(trap_func, {});
-  builder.CreateUnreachable();
-  builder.SetInsertPoint(shape_ndim_check_pass_bb);
-  llvm::Value* stride_ndim_cmp = 
-      builder.CreateICmpEQ(strides_ndim_arg, ndim_arg, "stride_ndim_check");
-  llvm::BasicBlock* stride_ndim_check_pass_bb = 
-      llvm::BasicBlock::Create(context, "stride_ndim_check_pass", parent_func);
-  llvm::BasicBlock* stride_ndim_check_fail_bb = 
-      llvm::BasicBlock::Create(context, "stride_ndim_check_fail", parent_func);
-  builder.CreateCondBr(stride_ndim_cmp, stride_ndim_check_pass_bb, stride_ndim_check_fail_bb);
-  builder.SetInsertPoint(stride_ndim_check_fail_bb);
-  builder.CreateCall(trap_func, {});
-  builder.CreateUnreachable();
-  builder.SetInsertPoint(stride_ndim_check_pass_bb);
+  // Check shape ndim
+  dimCheck(shape_ndim_arg, ndim_val, builder, mod);
+  // Check strides ndim
+  dimCheck(strides_ndim_arg, shape_ndim_arg, builder, mod);
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -182,7 +185,7 @@ void generateAllocateFunc(
   builder.CreateCall(
       at_empty_strided_cuda_func,
       {sizes_arg,
-       ndim_arg,
+       shape_ndim_arg,
        strides_arg,
        strides_ndim_arg,
        dtype_constant,
