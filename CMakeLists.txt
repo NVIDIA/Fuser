@@ -34,14 +34,6 @@ endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
-cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
-
-if(NVFUSER_HOST_IR_JIT)
-  add_compile_definitions(NVFUSER_HOST_IR_JIT)
-endif()
-
-message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
-
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -301,7 +293,13 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
+cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
+
+
+message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
+
 if(NVFUSER_HOST_IR_JIT)
+  add_compile_definitions(NVFUSER_HOST_IR_JIT)
   # Add LLVM JIT related dependencies
   find_package(LLVM 18.1 REQUIRED CONFIG)
   llvm_map_components_to_libnames(LLVM_LIBS

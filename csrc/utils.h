@@ -981,8 +981,4 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   };
 };
 
-constexpr int64_t kHostIrJitCompileThreads = 4;
-
-constexpr std::string_view kHostIrJitEmptyStridedCudaFuncName = "empty_strided_cuda";
-
 } // namespace nvfuser

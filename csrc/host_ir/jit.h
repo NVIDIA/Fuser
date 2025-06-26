@@ -9,10 +9,12 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <multidevice/communicator.h>
-#include <utils.h>
 #include <memory>
 namespace nvfuser {
 
+constexpr int64_t kHostIrJitCompileThreads = 4;
+
+constexpr std::string_view kHostIrJitEmptyStridedCudaFuncName = "empty_strided_cuda";
 class HostIrJit {
  public:
   at::Tensor allocate(
@@ -27,7 +29,7 @@ class HostIrJit {
   ~HostIrJit();
 
  private:
-  struct LlvmJitImpl;
+ struct LlvmJitImpl;
   std::unique_ptr<LlvmJitImpl> pimpl_;
 };
 } // namespace nvfuser

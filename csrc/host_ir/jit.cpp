@@ -47,24 +47,11 @@ namespace nvfuser {
 using allocate_fn = std::function<
     void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
-class HostIrJitParams {
- private:
-  Communicator* communicator_;
-
- public:
-  HostIrJitParams(hir::HostIrContainer* container)
-      : communicator_(&Communicator::getInstance()) {}
-
-  Communicator* getCommunicator() const {
-    return communicator_;
-  }
-};
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
-  std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -87,7 +74,6 @@ T throwIfError(llvm::Expected<T>&& E) {
 // Generate kir::Allocate runtime function
 void generateAllocateFunc(
     const kir::Allocate* allocate,
-    const HostIrJitParams& host_ir_jit_params,
     llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
 
@@ -130,23 +116,34 @@ void generateAllocateFunc(
   // Bounds checking for ndim
   auto logical_domain = TensorDomain::noReductions(
       allocate->buffer()->as<TensorView>()->getLogicalDomain());
-  size_t compile_time_ndim = logical_domain.size();
-  llvm::Value* compile_time_ndim_val =
-      llvm::ConstantInt::get(int64_type, compile_time_ndim);
+  int64_t ndim = std::ssize(logical_domain);
+  llvm::Value* ndim_val =
+      llvm::ConstantInt::get(int64_type, ndim);
   llvm::Value* cmp =
-      builder.CreateICmpEQ(ndim_arg, compile_time_ndim_val, "ndim_check");
-  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
-  llvm::BasicBlock* then_bb =
-      llvm::BasicBlock::Create(context, "if.then", parent_func);
-  llvm::BasicBlock* else_bb =
-      llvm::BasicBlock::Create(context, "if.else", parent_func);
-  builder.CreateCondBr(cmp, then_bb, else_bb);
-  builder.SetInsertPoint(else_bb);
+      builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
   llvm::Function* trap_func =
       llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
+  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
+  llvm::BasicBlock* shape_ndim_check_pass_bb =
+      llvm::BasicBlock::Create(context, "shape_ndim_check_pass", parent_func);
+  llvm::BasicBlock* shape_ndim_check_fail_bb =
+      llvm::BasicBlock::Create(context, "shape_ndim_check_fail", parent_func);
+  builder.CreateCondBr(cmp, shape_ndim_check_pass_bb, shape_ndim_check_fail_bb);
+  builder.SetInsertPoint(shape_ndim_check_fail_bb);
   builder.CreateCall(trap_func, {});
   builder.CreateUnreachable();
-  builder.SetInsertPoint(then_bb);
+  builder.SetInsertPoint(shape_ndim_check_pass_bb);
+  llvm::Value* stride_ndim_cmp = 
+      builder.CreateICmpEQ(strides_ndim_arg, ndim_arg, "stride_ndim_check");
+  llvm::BasicBlock* stride_ndim_check_pass_bb = 
+      llvm::BasicBlock::Create(context, "stride_ndim_check_pass", parent_func);
+  llvm::BasicBlock* stride_ndim_check_fail_bb = 
+      llvm::BasicBlock::Create(context, "stride_ndim_check_fail", parent_func);
+  builder.CreateCondBr(stride_ndim_cmp, stride_ndim_check_pass_bb, stride_ndim_check_fail_bb);
+  builder.SetInsertPoint(stride_ndim_check_fail_bb);
+  builder.CreateCall(trap_func, {});
+  builder.CreateUnreachable();
+  builder.SetInsertPoint(stride_ndim_check_pass_bb);
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -156,7 +153,7 @@ void generateAllocateFunc(
   llvm::Value* dtype_constant =
       llvm::ConstantInt::get(int32_type, static_cast<int32_t>(data_type));
   llvm::Value* device_index_constant = llvm::ConstantInt::get(
-      int64_type, host_ir_jit_params.getCommunicator()->deviceId());
+      int64_type, Communicator::getInstance().deviceId());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
@@ -211,8 +208,8 @@ void generateAllocateFunc(
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
-    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_,
-    const HostIrJitParams& host_ir_jit_params) {
+    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_
+    ) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   // If the JIT is already compiled, return
   if (allocate_funcs_.size() > 0) {
@@ -226,12 +223,12 @@ void compile(
   std::vector<kir::Allocate*> allocate_exprs;
   for (auto* expr : container->topLevelExprs()) {
     if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
+      generateAllocateFunc(allocate, mod.get());
       allocate_exprs.push_back(allocate);
     } else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
       for (auto* expr : for_loop->body().exprs()) {
         if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-          generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
+          generateAllocateFunc(allocate, mod.get());
           allocate_exprs.push_back(allocate);
         }
       }
@@ -252,11 +249,10 @@ void compile(
   }
 }
 
+HostIrJit::~HostIrJit() = default;
+
 HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
     : pimpl_(new LlvmJitImpl) {
-  // Initialize params with passed parameters
-  pimpl_->host_ir_jit_params_ = std::make_unique<HostIrJitParams>(container);
-
   // Initialize LLVM
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
@@ -307,11 +303,9 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   compile(
       container,
       pimpl_->jit.get(),
-      pimpl_->allocate_funcs_,
-      *pimpl_->host_ir_jit_params_);
+      pimpl_->allocate_funcs_
+      );
 }
-
-HostIrJit::~HostIrJit() = default;
 
 at::Tensor HostIrJit::allocate(
     const kir::Allocate* allocate,

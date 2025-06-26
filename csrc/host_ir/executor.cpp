@@ -725,7 +725,6 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
-#ifdef NVFUSER_HOST_IR_JIT
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
@@ -736,21 +735,12 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
+  #ifdef NVFUSER_HOST_IR_JIT
   auto shape_info = inferTensorShapes(tv, expr_evaluator_);
   auto tensor = jit_->allocate(
       allocate, shape_info.logical_sizes, shape_info.logical_strides);
-  expr_evaluator_.bind(tv, tensor);
-}
-#else
-void HostIrEvaluator::handle(kir::Allocate* allocate) {
-  NVF_ERROR(
-      allocate->buffer()->isA<TensorView>(),
-      "Allocation must be on a TensorView but got ",
-      allocate->buffer());
-  TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (expr_evaluator_.isKnown(tv)) {
-    return;
-  }
+
+  #else
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -762,9 +752,9 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
+  #endif
   expr_evaluator_.bind(tv, tensor);
 }
-#endif
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =
