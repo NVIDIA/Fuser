@@ -1347,6 +1347,15 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
   }
 }
 
+at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type) {
+  if (data_type == DataType::Index) {
+    return data_type_to_aten(index_type);
+  }
+  return data_type_to_aten(data_type);
+}
+
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
   if (dtype == DataType::Index) {
     return AdjustLastDim{1, 1};

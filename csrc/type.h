@@ -992,6 +992,9 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 // DataType::Null
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
+NVF_API at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type);
 
 // NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
 // input/output TensorViews with these data types not supported by PyTorch.
@@ -1031,6 +1034,9 @@ struct AdjustLastDim {
           numerator);
     }
     return dividend / numerator;
+  }
+  bool isTrivial() const {
+    return numerator == 1 && denominator == 1;
   }
 };
 // at_size * numerator / denominator is the size of the last dimension of the
