@@ -113,7 +113,8 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
        base_type == DataType::Half || base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
        base_type == DataType::Float8_e5m2 ||
-       base_type == DataType::Float8_e8m0fnu)) {
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
@@ -121,16 +122,27 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
        base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
        base_type == DataType::Float8_e5m2 ||
-       base_type == DataType::Float8_e8m0fnu)) {
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
       (base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if (wider_type == DataType::BFloat16 &&
-      base_type == DataType::Float8_e8m0fnu) {
+      (base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e4m3fn &&
+      (base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e5m2 &&
+      (base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
@@ -179,7 +191,8 @@ bool isSupportedTypeByDevice(DataType dtype) {
   if (dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2) {
     return major_ver >= 9;
   }
-  if (dtype == DataType::Float8_e8m0fnu) {
+  if (dtype == DataType::Float8_e8m0fnu || dtype == DataType::Float4_e2m1fn ||
+      dtype == DataType::Float4_e2m1fn_x2) {
     return major_ver >= 10;
   }
   return true;
@@ -238,8 +251,10 @@ static std::string data_type2string(DataType t) {
               return "__e5m2";
             case DataType::Float8_e8m0fnu:
               return "__e8m0";
-            case DataType::Float4_e2m1:
-              return "e2m1";
+            case DataType::Float4_e2m1fn:
+              return "__e2m1";
+            case DataType::Float4_e2m1fn_x2:
+              return "__e2m1_x2";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:
@@ -1278,6 +1293,8 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Float8_e5m2;
     case at::ScalarType::Float8_e8m0fnu:
       return DataType::Float8_e8m0fnu;
+    // case at::ScalarType::Float4_e2m1fn_x2:
+    //   return DataType::Float4_e2m1fn;
     case at::ScalarType::Char:
       return DataType::Char;
     case at::ScalarType::Short:
@@ -1322,6 +1339,10 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
         return at::ScalarType::Float8_e5m2;
       case DataType::Float8_e8m0fnu:
         return at::ScalarType::Float8_e8m0fnu;
+      // case DataType::Float4_e2m1fn_x2:
+      //   return at::ScalarType::Float4_e2m1fn_x2;
+      // case DataType::Float4_e2m1fn:
+      //   return at::ScalarType::Float4_e2m1fn_x2;
       case DataType::Index:
         NVF_THROW(
             "Index is determined at compile time,",
@@ -1616,7 +1637,10 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Float8_e4m3fn:
     case DataType::Float8_e5m2:
     case DataType::Float8_e8m0fnu:
+    case DataType::Float4_e2m1fn:
       return "f";
+    case DataType::Float4_e2m1fn_x2:
+      return "f4x2_";
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
@@ -1751,6 +1775,7 @@ int max_digits10(DataType dtype) {
   //   fp8_e5m2       3           2
   //   fp8_e4m3       4           3
   //   fp8_e8m0       1           2
+  //   fp4_e2m1       2           2
   //   bfloat16       8           4
   //   float16       11           5
   //   float32       24           9
@@ -1768,6 +1793,8 @@ int max_digits10(DataType dtype) {
     return 3;
   } else if (
       dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
+    return 2;
+  } else if (dtype == DataType::Float4_e2m1fn) {
     return 2;
   } else {
     NVF_CHECK(
