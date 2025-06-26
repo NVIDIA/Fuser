@@ -11,7 +11,6 @@
 #include <multidevice/communicator.h> // For Communicator
 #include <memory> // For std::unique_ptr
 #include <utils.h>
-#include <host_ir/executor.h>
 namespace nvfuser {
 
 
