@@ -23,7 +23,7 @@ namespace nvfuser::cutlass_kernels {
 template <typename T>
 struct TypeConverter {
   using Type = half2;
-};  // keep for generality
+}; // keep for generality
 
 template <>
 struct TypeConverter<half2> {
@@ -53,7 +53,8 @@ struct TypeConverter<__nv_bfloat16> {
 // Convert 8 float32 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
   // PTX instructions used here requires sm100a.
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && __CUDA_ARCH_HAS_FEATURE__(SM100_ALL)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    __CUDA_ARCH_HAS_FEATURE__(SM100_ALL)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -85,7 +86,8 @@ inline __device__ uint32_t fp32_vec_to_e2m1(float (&array)[8]) {
 // Convert 4 float2 values into 8 e2m1 values (represented as one uint32_t).
 inline __device__ uint32_t fp32_vec_to_e2m1(float2 (&array)[4]) {
   // PTX instructions used here requires sm100a.
-#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && __CUDA_ARCH_HAS_FEATURE__(SM100_ALL)
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000) && \
+    __CUDA_ARCH_HAS_FEATURE__(SM100_ALL)
   uint32_t val;
   asm volatile(
       "{\n"
@@ -122,9 +124,14 @@ inline __device__ float reciprocal_approximate_ftz(float a) {
 }
 
 template <class SFType, int CVT_FP4_NUM_THREADS_PER_SF>
-__device__ uint8_t* cvt_quant_to_fp4_get_sf_out_offset(int rowIdx, int colIdx, int numCols, SFType* SFout) {
+__device__ uint8_t* cvt_quant_to_fp4_get_sf_out_offset(
+    int rowIdx,
+    int colIdx,
+    int numCols,
+    SFType* SFout) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
-  static_assert(CVT_FP4_NUM_THREADS_PER_SF == 1 || CVT_FP4_NUM_THREADS_PER_SF == 2);
+  static_assert(
+      CVT_FP4_NUM_THREADS_PER_SF == 1 || CVT_FP4_NUM_THREADS_PER_SF == 2);
 
   // One pair of threads write one SF to global memory.
   // TODO: stage through smem for packed STG.32
@@ -157,8 +164,9 @@ __device__ uint8_t* cvt_quant_to_fp4_get_sf_out_offset(int rowIdx, int colIdx, i
     int64_t innerKStride = 1;
 
     // Compute the global offset.
-    int64_t SFOffset = mTileIdx * mTileStride + kTileIdx * kTileStride + outerMIdx * outerMStride +
-                       innerMIdx * innerMStride + innerKIdx * innerKStride;
+    int64_t SFOffset = mTileIdx * mTileStride + kTileIdx * kTileStride +
+        outerMIdx * outerMStride + innerMIdx * innerMStride +
+        innerKIdx * innerKStride;
 
     return reinterpret_cast<uint8_t*>(SFout) + SFOffset;
   }
@@ -179,7 +187,8 @@ struct PackedVec<__nv_fp8_e4m3> {
 
 // Quantizes the provided PackedVec into the uint32_t output
 template <class Type, bool UE8M0_SF = false>
-__device__ uint32_t cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
+__device__ uint32_t
+cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal, uint8_t* SFout) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
   // Get absolute maximum values among the local 8 values.
   auto localMax = __habs2(vec.elts[0]);
@@ -216,8 +225,10 @@ __device__ uint32_t cvt_warp_fp16_to_fp4(PackedVec<Type>& vec, float SFScaleVal,
   // Get the output scale.
   // Recipe: final_scale = reciprocal(fp32(fp8(SFValue * SFScaleVal))) *
   //                       reciprocal(SFScaleVal))
-  float outputScale =
-      SFValue != 0 ? reciprocal_approximate_ftz(SFValue * reciprocal_approximate_ftz(SFScaleVal)) : 0.0f;
+  float outputScale = SFValue != 0
+      ? reciprocal_approximate_ftz(
+            SFValue * reciprocal_approximate_ftz(SFScaleVal))
+      : 0.0f;
 
   if (SFout) {
     // Write the SF to global memory (STG.8).
@@ -256,11 +267,19 @@ __launch_bounds__(512, 4) cvt_fp16_to_fp4(
 #else
 cvt_fp16_to_fp4(
 #endif
-    int32_t numRows, int32_t numCols, Type const* in, float const* SFScale, uint32_t* out, uint32_t* SFout) {
+    int32_t numRows,
+    int32_t numCols,
+    Type const* in,
+    float const* SFScale,
+    uint32_t* out,
+    uint32_t* SFout) {
 #if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 1000)
   using PackedVec = PackedVec<Type>;
-  static constexpr int CVT_FP4_NUM_THREADS_PER_SF = (CVT_FP4_SF_VEC_SIZE / CVT_FP4_ELTS_PER_THREAD);
-  static_assert(sizeof(PackedVec) == sizeof(Type) * CVT_FP4_ELTS_PER_THREAD, "Vec size is not matched.");
+  static constexpr int CVT_FP4_NUM_THREADS_PER_SF =
+      (CVT_FP4_SF_VEC_SIZE / CVT_FP4_ELTS_PER_THREAD);
+  static_assert(
+      sizeof(PackedVec) == sizeof(Type) * CVT_FP4_ELTS_PER_THREAD,
+      "Vec size is not matched.");
 
   // Get the global scaling factor, which will be applied to the SF.
   // Note SFScale is the same as next GEMM's alpha, which is
@@ -269,7 +288,8 @@ cvt_fp16_to_fp4(
 
   // Input tensor row/col loops.
   for (int rowIdx = blockIdx.x; rowIdx < numRows; rowIdx += gridDim.x) {
-    for (int colIdx = threadIdx.x; colIdx < numCols / CVT_FP4_ELTS_PER_THREAD; colIdx += blockDim.x) {
+    for (int colIdx = threadIdx.x; colIdx < numCols / CVT_FP4_ELTS_PER_THREAD;
+         colIdx += blockDim.x) {
       int64_t inOffset = rowIdx * (numCols / CVT_FP4_ELTS_PER_THREAD) + colIdx;
       PackedVec in_vec = reinterpret_cast<PackedVec const*>(in)[inOffset];
       // Get the output tensor offset.
@@ -277,10 +297,12 @@ cvt_fp16_to_fp4(
       int64_t outOffset = inOffset;
       auto& out_pos = out[outOffset];
 
-      auto sf_out =
-          cvt_quant_to_fp4_get_sf_out_offset<uint32_t, CVT_FP4_NUM_THREADS_PER_SF>(rowIdx, colIdx, numCols, SFout);
+      auto sf_out = cvt_quant_to_fp4_get_sf_out_offset<
+          uint32_t,
+          CVT_FP4_NUM_THREADS_PER_SF>(rowIdx, colIdx, numCols, SFout);
 
-      out_pos = cvt_warp_fp16_to_fp4<Type, UE8M0_SF>(in_vec, SFScaleVal, sf_out);
+      out_pos =
+          cvt_warp_fp16_to_fp4<Type, UE8M0_SF>(in_vec, SFScaleVal, sf_out);
     }
   }
 #endif
@@ -307,10 +329,20 @@ void invokeFP4Quantization(
   // Launch the cvt kernel.
   if (useUE8M0) {
     cvt_fp16_to_fp4<T, true><<<grid, block, 0, stream>>>(
-        m, n, input, SFScale, reinterpret_cast<uint32_t*>(output), reinterpret_cast<uint32_t*>(SFOuput));
+        m,
+        n,
+        input,
+        SFScale,
+        reinterpret_cast<uint32_t*>(output),
+        reinterpret_cast<uint32_t*>(SFOuput));
   } else {
     cvt_fp16_to_fp4<T, false><<<grid, block, 0, stream>>>(
-        m, n, input, SFScale, reinterpret_cast<uint32_t*>(output), reinterpret_cast<uint32_t*>(SFOuput));
+        m,
+        n,
+        input,
+        SFScale,
+        reinterpret_cast<uint32_t*>(output),
+        reinterpret_cast<uint32_t*>(SFOuput));
   }
 }
 
@@ -342,10 +374,10 @@ void nvfp4_quantize(
     torch::Tensor& output_scale,
     const torch::Tensor& input,
     const torch::Tensor& input_scale) {
-  int32_t m = (int32_t) input.size(0);
-  int32_t n = (int32_t) input.size(1);
+  int32_t m = (int32_t)input.size(0);
+  int32_t n = (int32_t)input.size(1);
 
-  TORCH_CHECK(n % 16 == 0, "The N dimension must be multiple of 16.");
+  NVF_CHECK(n % 16 == 0, "The N dimension must be multiple of 16.");
 
   int multiProcessorCount = getMultiProcessorCount();
 
@@ -353,7 +385,8 @@ void nvfp4_quantize(
   auto sf_out = static_cast<int32_t*>(output_scale.data_ptr());
   auto output_ptr = static_cast<int64_t*>(output.data_ptr());
   at::cuda::CUDAGuard device_guard{(int8_t)input.get_device()};
-  const cudaStream_t stream = at::cuda::getCurrentCUDAStream(input.get_device());
+  const cudaStream_t stream =
+      at::cuda::getCurrentCUDAStream(input.get_device());
 
   // We don't support e8m0 scales at this moment.
   bool useUE8M0 = false;
@@ -361,17 +394,37 @@ void nvfp4_quantize(
   switch (input.scalar_type()) {
     case torch::kHalf: {
       auto input_ptr = reinterpret_cast<half const*>(input.data_ptr());
-      invokeFP4Quantization(m, n, input_ptr, input_scale_ptr, output_ptr, sf_out, useUE8M0, multiProcessorCount, stream);
+      invokeFP4Quantization(
+          m,
+          n,
+          input_ptr,
+          input_scale_ptr,
+          output_ptr,
+          sf_out,
+          useUE8M0,
+          multiProcessorCount,
+          stream);
       break;
     }
     case torch::kBFloat16: {
       auto input_ptr = reinterpret_cast<__nv_bfloat16 const*>(input.data_ptr());
-      invokeFP4Quantization(m, n, input_ptr, input_scale_ptr, output_ptr, sf_out, useUE8M0, multiProcessorCount, stream);
+      invokeFP4Quantization(
+          m,
+          n,
+          input_ptr,
+          input_scale_ptr,
+          output_ptr,
+          sf_out,
+          useUE8M0,
+          multiProcessorCount,
+          stream);
       break;
     }
     default: {
-      std::cerr << "Observing: " << input.scalar_type() << " for the input datatype which is invalid";
-      throw std::runtime_error("Unsupported input data type for quantize_to_fp4.");
+      std::cerr << "Observing: " << input.scalar_type()
+                << " for the input datatype which is invalid";
+      throw std::runtime_error(
+          "Unsupported input data type for quantize_to_fp4.");
     }
   }
 }
