@@ -117,4 +117,89 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
 }
 
+TEST_F(IndexPut, 1D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto buffer_size_val = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(buffer_size_val);
+
+  auto index_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(index_tv);
+
+  auto value_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(value_tv);
+
+  auto acc_tv = zeros({buffer_size_val}, DataType::Int);
+
+  auto tv3 = indexPutAccumulate(acc_tv, index_tv, value_tv);
+  fusion.addOutput(tv3);
+
+  const std::vector<int64_t> out_shape{32};
+  const int64_t index_size = 8;
+  const std::vector<int64_t> value_shape{index_size};
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  auto at_value_tv = at::ones(value_shape, options);
+  auto at_index_tv = at::randint(0, out_shape[0], {index_size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(
+      {out_shape[0], at_index_tv, at_value_tv});
+
+  testValidate(
+      &fusion,
+      outputs,
+      {out_shape[0], at_index_tv, at_value_tv},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(IndexPut, 3D) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto buffer_size_val = IrBuilder::create<Val>(DataType::Index);
+  fusion.addInput(buffer_size_val);
+
+  auto index_tv = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(index_tv);
+
+  auto value_tv = makeSymbolicTensor(3, DataType::Int);
+  fusion.addInput(value_tv);
+
+  auto acc_tv = zeros(
+      {buffer_size_val,
+       value_tv->axis(1)->extent(),
+       value_tv->axis(2)->extent()},
+      DataType::Int);
+
+  auto tv3 = indexPutAccumulate(acc_tv, index_tv, value_tv);
+  fusion.addOutput(tv3);
+
+  const std::vector<int64_t> out_shape{32, 4, 8};
+  const int64_t index_size = 8;
+  const std::vector<int64_t> value_shape{
+      index_size, out_shape[1], out_shape[2]};
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  auto at_value_tv = at::ones(value_shape, options);
+  auto at_index_tv = at::randint(0, out_shape[0], {index_size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(
+      {out_shape[0], at_index_tv, at_value_tv});
+
+  testValidate(
+      &fusion,
+      outputs,
+      {out_shape[0], at_index_tv, at_value_tv},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
