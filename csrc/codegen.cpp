@@ -232,6 +232,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         return "ULL";
       case DataType::Index:
         return getLiteralSuffix(kernel_->indexType());
+      case DataType::Float4_e2m1fn_x2:
+        NVF_THROW("Float4_e2m1fn_x2 should be converted to Float4_e2m1fn in fusion definition");
       default:
         return "";
     }

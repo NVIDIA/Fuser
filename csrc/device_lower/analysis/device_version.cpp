@@ -40,7 +40,7 @@ void MinimumDeviceVersion::dispatch(Val* val) {
         "CUDA version");
 #endif // (CUDA_VERSION >= 12010)
   }
-  if (val->dtype() == DataType::Float8_e8m0fnu) {
+  if (val->dtype() == DataType::Float8_e8m0fnu || val->dtype() == DataType::Float4_e2m1fn) {
 #if (CUDA_VERSION >= 12070)
     ensureVersion(
         {10, 0},
@@ -51,6 +51,9 @@ void MinimumDeviceVersion::dispatch(Val* val) {
         "Fusion contains Float8_e8m0fnu values which was not supported in "
         "given CUDA version");
 #endif // (CUDA_VERSION >= 12070)
+  }
+  if (val->dtype() == DataType::Float4_e2m1fn_x2) {
+    NVF_THROW("Float4_e2m1fn_x2 should be converted to Float4_e2m1fn in fusion definition");
   }
   IterVisitor::dispatch(val);
 }

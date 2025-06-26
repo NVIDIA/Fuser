@@ -12,6 +12,7 @@
 #include <visibility.h>
 
 #include <c10/core/ScalarType.h>
+// #include <c10/util/Float4_e2m1fn_x2.h>
 
 #include <polymorphic_value.h>
 
@@ -77,7 +78,8 @@ enum class PrimDataType {
   Float8_e4m3fn,
   Float8_e5m2,
   Float8_e8m0fnu,
-  Float4_e2m1,
+  Float4_e2m1fn,
+  Float4_e2m1fn_x2,
   // Integral types
   Char,
   Short,
@@ -188,7 +190,9 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
-  static constexpr PrimDataType Float4_e2m1 = PrimDataType::Float4_e2m1;
+  static constexpr PrimDataType Float4_e2m1fn = PrimDataType::Float4_e2m1fn;
+  static constexpr PrimDataType Float4_e2m1fn_x2 =
+      PrimDataType::Float4_e2m1fn_x2;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Float8_e8m0fnu = PrimDataType::Float8_e8m0fnu;
@@ -274,6 +278,10 @@ inline bool isFloatingPointType(DataType dtype) {
       dtype == DataType::Float8_e8m0fnu;
 }
 
+inline bool isPackedType(const DataType& dtype) {
+  return dtype == DataType::Float4_e2m1fn_x2;
+}
+
 // Returns if the datatype is an integer type
 inline bool isIntegralType(DataType dtype) {
   return std::visit(
@@ -355,12 +363,6 @@ struct DataTypeToAtenType;
 template <typename NativeType>
 struct NativeTypeToDataType;
 
-template <at::ScalarType aten_type>
-struct AtenTypeToDataType;
-
-template <at::ScalarType aten_type>
-struct AtenTypeToNativeType;
-
 template <typename NativeType>
 struct IsPrimitiveNativeType : std::false_type {};
 
@@ -376,93 +378,68 @@ struct IsPrimitiveNativeType : std::false_type {};
   template <>                                                  \
   struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(          \
-    data_type, at_type, native_type)                      \
-  DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type); \
-  template <>                                             \
-  struct AtenTypeToDataType<at_type> {                    \
-    static constexpr PrimDataType type = data_type;       \
-  };                                                      \
-  template <>                                             \
-  struct AtenTypeToNativeType<at_type> {                  \
-    using type = native_type;                             \
-  }
-
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Float,
-    at::ScalarType::Float,
     float);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Double,
-    at::ScalarType::Double,
     double);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Half,
-    at::ScalarType::Half,
     at::Half);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::BFloat16,
-    at::ScalarType::BFloat16,
     at::BFloat16);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Float8_e4m3fn,
-    at::ScalarType::Float8_e4m3fn,
     at::Float8_e4m3fn);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Float8_e5m2,
-    at::ScalarType::Float8_e5m2,
     at::Float8_e5m2);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Float8_e8m0fnu,
-    at::ScalarType::Float8_e8m0fnu,
     at::Float8_e8m0fnu);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+// DEFINE_DATATYPE_TO_NATIVE_TYPE(
+//     DataType::Float4_e2m1fn,
+//     at::Float4_e2m1fn_x2);
+// DEFINE_DATATYPE_TO_NATIVE_TYPE(
+//     DataType::Float4_e2m1fn_x2,
+//     at::Float4_e2m1fn_x2);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Char,
-    at::ScalarType::Char,
     int8_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Short,
-    at::ScalarType::Short,
     int16_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Int32,
-    at::ScalarType::Int,
     int);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Int,
-    at::ScalarType::Long,
     int64_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Byte,
-    at::ScalarType::Byte,
     uint8_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::UInt16,
-    at::ScalarType::UInt16,
     uint16_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::UInt32,
-    at::ScalarType::UInt32,
     uint32_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::UInt64,
-    at::ScalarType::UInt64,
     uint64_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::Bool,
-    at::ScalarType::Bool,
     bool);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexFloat,
-    at::ScalarType::ComplexFloat,
     std::complex<float>);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
     DataType::ComplexDouble,
-    at::ScalarType::ComplexDouble,
     std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
-#undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
 
 inline DataType getDataType(const PolymorphicValue& value) {
   std::optional<DataType> dtype = std::nullopt;
@@ -1119,7 +1096,9 @@ constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
       return sizeof(at::Float8_e5m2) * 8;
     case DataType::Float8_e8m0fnu:
       return sizeof(at::Float8_e8m0fnu) * 8;
-    case DataType::Float4_e2m1:
+    case DataType::Float4_e2m1fn_x2:
+      return 8;
+    case DataType::Float4_e2m1fn:
       return 4;
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
