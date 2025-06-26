@@ -64,7 +64,6 @@
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
-
 import sys
 
 from utils import (
