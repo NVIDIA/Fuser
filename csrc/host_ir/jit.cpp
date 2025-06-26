@@ -53,10 +53,9 @@ class HostIrJitParams {
   Communicator* communicator_;
 
  public:
-  HostIrJitParams(hir::HostIrContainer* container, Communicator* communicator)
-      : communicator_(communicator) {}
+  HostIrJitParams(hir::HostIrContainer* container)
+      : communicator_(&Communicator::getInstance()) {}
 
-  // Getters for accessing the parameters
   Communicator* getCommunicator() const {
     return communicator_;
   }
@@ -74,8 +73,6 @@ struct HostIrJit::LlvmJitImpl {
 // Helper function to check for and throw errors from LLVM
 void throwIfError(llvm::Error&& err) {
   if (err) {
-    // We are not throwing our own error type here and instead just forwarding
-    // the error string from LLVM.
     NVF_THROW(llvm::toString(std::move(err)));
   }
 }
@@ -88,7 +85,7 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
-// Generate a function that calls at::native::empty_strided_cuda
+// Generate kir::Allocate runtime function
 void generateAllocateFunc(
     const kir::Allocate* allocate,
     const HostIrJitParams& host_ir_jit_params,
@@ -150,7 +147,6 @@ void generateAllocateFunc(
       llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
   builder.CreateCall(trap_func, {});
   builder.CreateUnreachable();
-
   builder.SetInsertPoint(then_bb);
 
   // Create constants for type and device from params
@@ -208,7 +204,6 @@ void generateAllocateFunc(
 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    // Print the LLVM IR module
     llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
   }
@@ -232,9 +227,7 @@ void compile(
   std::vector<kir::Allocate*> allocate_exprs;
   for (auto* expr : container->topLevelExprs()) {
     if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      // Generate a unique function name for this allocate
       generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
-      // Store the mapping from allocate to function name
       allocate_exprs.push_back(allocate);
     } else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
       for (auto* expr : for_loop->body().exprs()) {
@@ -254,22 +247,18 @@ void compile(
   for (auto* allocate : allocate_exprs) {
     auto func_name = ir_utils::varName(allocate->buffer()->as<Val>());
     auto func_addr = throwIfError(jit->lookup(func_name));
-    // Lookup and reinterpret the function pointer to store in the map
     allocate_funcs_[allocate] = reinterpret_cast<void (*)(
         const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
         func_addr.getValue());
   }
 }
 
-HostIrJit::HostIrJit(
-    hir::HostIrContainer* container,
-    Communicator* communicator,
-    int num_threads)
+HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
     : pimpl_(new LlvmJitImpl) {
   // Initialize params with passed parameters
-  pimpl_->host_ir_jit_params_ =
-      std::make_unique<HostIrJitParams>(container, communicator);
+  pimpl_->host_ir_jit_params_ = std::make_unique<HostIrJitParams>(container);
 
+  // Initialize LLVM
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
   pimpl_->jit = throwIfError(
@@ -281,7 +270,7 @@ HostIrJit::HostIrJit(
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
-  // Create wrapper function pointer to at::native::empty_strided_cuda
+  // Create wrapper function for at::native::empty_strided_cuda
   // TODO: Remove this wrapper in the future
   void* empty_strided_cuda_func_ptr =
       reinterpret_cast<void*>(+[](const int64_t* sizes,
@@ -293,7 +282,6 @@ HostIrJit::HostIrJit(
                                   at::Tensor& out_tensor) {
         at::IntArrayRef aten_sizes(sizes, ndim);
         at::IntArrayRef aten_strides(strides, strides_ndim);
-        // Use the type and device passed as parameters
         at::ScalarType scalar_type = static_cast<at::ScalarType>(dtype);
         at::Device device =
             at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
@@ -306,7 +294,7 @@ HostIrJit::HostIrJit(
             c10::nullopt);
       });
 
-  // Register at::native::empty_strided_cuda function in LLVM
+  // Register wrapper functions in JIT
   auto empty_strided_cuda_addr =
       llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
   llvm::orc::SymbolMap symbolMap;
@@ -316,14 +304,12 @@ HostIrJit::HostIrJit(
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
-  // Only compile if container is provided
-  if (container) {
-    compile(
-        container,
-        pimpl_->jit.get(),
-        pimpl_->allocate_funcs_,
-        *pimpl_->host_ir_jit_params_);
-  }
+  // Compile the module
+  compile(
+      container,
+      pimpl_->jit.get(),
+      pimpl_->allocate_funcs_,
+      *pimpl_->host_ir_jit_params_);
 }
 
 HostIrJit::~HostIrJit() = default;

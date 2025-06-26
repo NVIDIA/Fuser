@@ -9,15 +9,12 @@
 #include <fusion.h> // For TensorView and at::Tensor
 #include <host_ir/container.h> // For HostIrContainer
 #include <multidevice/communicator.h> // For Communicator
-#include <memory> // For std::unique_ptr
 #include <utils.h>
-#include <host_ir/params.h>
+#include <memory> // For std::unique_ptr
 namespace nvfuser {
-
 
 class HostIrJit {
  public:
-
   // Run with the given input tensors.
   at::Tensor allocate(
       const kir::Allocate* allocate,
@@ -27,7 +24,6 @@ class HostIrJit {
   // Overloaded constructor for default params
   HostIrJit(
       hir::HostIrContainer* container,
-      Communicator* communicator = &Communicator::getInstance(),
       int num_threads = kHostIrJitCompileThreads);
 
   ~HostIrJit();

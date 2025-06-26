@@ -198,9 +198,7 @@ HostIrEvaluator::HostIrEvaluator(
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
 #ifdef NVFUSER_HOST_IR_JIT
-      jit_(std::make_unique<HostIrJit>(
-          container_.get(),
-          communicator)),
+      jit_(std::make_unique<HostIrJit>(container_.get())),
 #endif
       communicator_(communicator),
       params_(params),
@@ -739,7 +737,8 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
     return;
   }
   auto shape_info = inferTensorShapes(tv, expr_evaluator_);
-  auto tensor = jit_->allocate(allocate, shape_info.logical_sizes, shape_info.logical_strides);
+  auto tensor = jit_->allocate(
+      allocate, shape_info.logical_sizes, shape_info.logical_strides);
   expr_evaluator_.bind(tv, tensor);
 }
 #else
