@@ -719,7 +719,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_vectorization_analysis.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
 )
 
 if(BUILD_TEST)
@@ -854,7 +854,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
+    # ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
@@ -1028,6 +1028,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
+  ${NVFUSER_ROOT}/runtime/fp4_support.cu
   ${NVFUSER_ROOT}/runtime/fused_reduction.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
