@@ -76,6 +76,7 @@ enum class PrimDataType {
   BFloat16,
   Float8_e4m3fn,
   Float8_e5m2,
+  Float4_e2m1,
   // Integral types
   Char,
   Short,
@@ -186,6 +187,7 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
+  static constexpr PrimDataType Float4_e2m1 = PrimDataType::Float4_e2m1;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
   static constexpr PrimDataType Index = PrimDataType::Index;
@@ -241,11 +243,11 @@ inline StructType StructHandle::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim);
 
-inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
+inline StructType globalTensorMetaData(const DataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
@@ -990,6 +992,56 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 // DataType::Null
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
+NVF_API at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type);
+
+// NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
+// input/output TensorViews with these data types not supported by PyTorch.
+// For these cases, we use a PyTorch ScalarType as a proxy. If there exists
+// a scalar type with the same size, we use that. Otherwise, we use Byte and
+// and adjust the size of the last dimension. For example, if we have a
+// TensorView with shape [10, 4], and dtype is 3 bytes, then the corresponding
+// ScalarType is Byte, and the shape of the corresponding at::Tensor is [10,
+// 12].
+struct AdjustLastDim {
+  int64_t numerator;
+  int64_t denominator;
+  inline int64_t fromATenToNVF(int64_t aten_size) const {
+    int64_t dividend = aten_size * numerator;
+    int64_t remainder = dividend % denominator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          aten_size,
+          " Adjustment factor: ",
+          denominator);
+    }
+    return dividend / denominator;
+  }
+  inline int64_t fromNVFToATen(int64_t nvf_size) const {
+    int64_t dividend = nvf_size * denominator;
+    int64_t remainder = dividend % numerator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          nvf_size,
+          " Adjustment factor: ",
+          numerator);
+    }
+    return dividend / numerator;
+  }
+  bool isTrivial() const {
+    return numerator == 1 && denominator == 1;
+  }
+};
+// at_size * numerator / denominator is the size of the last dimension of the
+// corresponding TensorView.
+AdjustLastDim getLastDimAdjustment(const DataType& dtype);
 
 NVF_API std::ostream& operator<<(std::ostream&, const ValType);
 std::ostream& operator<<(std::ostream&, const PredicateType);
@@ -1058,6 +1110,8 @@ constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
       return sizeof(at::Float8_e4m3fn) * 8;
     case DataType::Float8_e5m2:
       return sizeof(at::Float8_e5m2) * 8;
+    case DataType::Float4_e2m1:
+      return 4;
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Char:

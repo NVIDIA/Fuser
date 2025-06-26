@@ -19,7 +19,9 @@
 namespace nvfuser {
 
 using testing::Contains;
+using testing::Each;
 using testing::ElementsAre;
+using testing::Not;
 using testing::UnorderedElementsAre;
 
 // params: concrete vs symbolic input, sharded axis
@@ -735,6 +737,71 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
+using InsertReshardingTestParams = std::tuple<bool, bool, bool>;
+
+class InsertReshardingTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<InsertReshardingTestParams> {};
+
+TEST_P(InsertReshardingTest, Execute) {
+  auto [is_tv0_tv5_sharded, is_tv1_tv4_sharded, is_tv2_tv3_sharded] =
+      GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = mul(tv0, tv0);
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = sum(tv2, {1});
+  TensorView* tv4 = broadcast(tv3, {false, true, false});
+  TensorView* tv5 = mul(tv2, tv4);
+
+  fusion->addInput(tv0);
+  // Due to #4642, we can't add tv1 as output.
+  // fusion->addOutput(tv1);
+  fusion->addOutput(tv5);
+
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  for (auto* tv : {tv0, tv1, tv2, tv3, tv4, tv5}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  if (is_tv0_tv5_sharded) {
+    tv0->axis(1)->parallelize(ParallelType::DIDx);
+    tv5->axis(1)->parallelize(ParallelType::DIDx);
+  }
+  if (is_tv1_tv4_sharded) {
+    tv1->axis(1)->parallelize(ParallelType::DIDx);
+    tv4->axis(1)->parallelize(ParallelType::DIDx);
+  }
+  if (is_tv2_tv3_sharded) {
+    tv2->axis(1)->parallelize(ParallelType::DIDx);
+    tv3->axis(1)->parallelize(ParallelType::DIDx);
+  }
+
+  at::Tensor t0 = at::randint(3, {2, mesh.size(), 5}, tensor_options);
+  at::Tensor t2 = t0 + t0 * t0;
+  at::Tensor t5 = t2 * t2.sum({1}, /*keepdim=*/true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  if (is_tv0_tv5_sharded) {
+    t0 = shardTensor(t0, 1, mesh);
+    t5 = shardTensor(t5, 1, mesh);
+  }
+
+  auto outs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outs, {t0}, {t5}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    InsertReshardingTest,
+    ::testing::Combine(
+        ::testing::Bool(),
+        ::testing::Bool(),
+        ::testing::Bool()));
+
 TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -987,6 +1054,38 @@ TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
   EXPECT_TRUE(at::allclose(nvf_out, sharded_inp.view({b * s * h, e})));
+}
+
+TEST_F(MultiDeviceTest, AliasingRetainsSharding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeContigConcreteTensor({3 * d});
+  TensorView* tv1 = add(tv0, tv0);
+  TensorView* tv2 = set(tv1);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor t0 = at::randn({3 * d}, tensor_options);
+  at::Tensor sharded_t0 = shardTensor(t0, 0, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_t0})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(at::allclose(nvf_out, sharded_t0 * 2));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Each(Not(HeuristicIs(SchedulerType::Communication))));
 }
 
 } // namespace nvfuser

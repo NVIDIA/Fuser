@@ -13,9 +13,7 @@
 #include <tests/cpp/validator.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <algorithm>
 #include <cstdint>
-#include <random>
 #include <vector>
 
 namespace nvfuser {
