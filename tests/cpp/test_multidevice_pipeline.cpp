@@ -328,8 +328,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 }
 
 namespace {
-auto all_backends =
-    testing::Values(CommunicatorBackend::kNccl);
+auto all_backends = testing::Values(CommunicatorBackend::kNccl);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
