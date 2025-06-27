@@ -555,10 +555,11 @@ void fillCompileOptions(
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     nvrtc_compile_driver.setOption("-DNVFUSER_PROFILE_KERNEL");
   }
-  if (isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
+  bool is_ptxas_verbose = isDebugDumpEnabled(DebugDumpOption::PrintPtxasLog) ||
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
       isOptionEnabled(EnableOption::WarnRegisterSpill) ||
-      compile_params.enable_ptxas_verbose) {
+      compile_params.enable_ptxas_verbose;
+  if (is_ptxas_verbose) {
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
@@ -608,7 +609,7 @@ void fillCompileOptions(
     }
   }
 
-  if (isOptionDisabled(DisableOption::NvrtcCaching)) {
+  if (isOptionDisabled(DisableOption::NvrtcCaching) || is_ptxas_verbose) {
     // JIT caching is introduced in 12.9. It's always disabled in
     // prior versions.
     int major, minor;
