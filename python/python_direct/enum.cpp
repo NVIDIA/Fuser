@@ -50,6 +50,11 @@ void bindEnums(py::module& nvfuser) {
       .value("unswitch", ParallelType::Unswitch)
       .value("vectorize", ParallelType::Vectorize)
       .value("stream", ParallelType::Stream);
+
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc)
+      .value("cuda", CommunicatorBackend::kCuda);
 }
 
 } // namespace nvfuser::python
