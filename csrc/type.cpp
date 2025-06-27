@@ -1293,8 +1293,8 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Float8_e5m2;
     case at::ScalarType::Float8_e8m0fnu:
       return DataType::Float8_e8m0fnu;
-    // case at::ScalarType::Float4_e2m1fn_x2:
-    //   return DataType::Float4_e2m1fn;
+    case at::ScalarType::Float4_e2m1fn_x2:
+      return DataType::Float4_e2m1fn;
     case at::ScalarType::Char:
       return DataType::Char;
     case at::ScalarType::Short:
@@ -1339,10 +1339,10 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
         return at::ScalarType::Float8_e5m2;
       case DataType::Float8_e8m0fnu:
         return at::ScalarType::Float8_e8m0fnu;
-      // case DataType::Float4_e2m1fn_x2:
-      //   return at::ScalarType::Float4_e2m1fn_x2;
-      // case DataType::Float4_e2m1fn:
-      //   return at::ScalarType::Float4_e2m1fn_x2;
+      case DataType::Float4_e2m1fn_x2:
+        return at::ScalarType::Float4_e2m1fn_x2;
+      case DataType::Float4_e2m1fn:
+        return at::ScalarType::Float4_e2m1fn_x2;
       case DataType::Index:
         NVF_THROW(
             "Index is determined at compile time,",
