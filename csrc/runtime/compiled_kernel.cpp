@@ -559,6 +559,12 @@ void fillCompileOptions(
       isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose) ||
       isOptionEnabled(EnableOption::WarnRegisterSpill) ||
       compile_params.enable_ptxas_verbose) {
+    // disable nvrtc caching for ptxas verbose output
+    int major, minor;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&major, &minor));
+    if ((major == 12 && minor >= 9) || major > 12) {
+      nvrtc_compile_driver.setOption("--no-cache");
+    }
     // show register usage in compilation log
     if (compile_to_sass) {
       nvrtc_compile_driver.setOption("--ptxas-options");
