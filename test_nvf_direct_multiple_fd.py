@@ -89,5 +89,5 @@ with FusionDefinition() as fd:
     define_mul_forward(fd)
     multidevice_schedule(fd, in_dtensors)
 
-outputs = fd.execute(in_dtensors)
+outputs = fd.multigpu_execute(in_dtensors)
 print(outputs)
