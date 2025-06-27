@@ -821,7 +821,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         if (cached_tv->getMemoryType() == MemoryType::Shared) {
           continue;
         }
-        // skip tvs that are already vectorized
+        // skip tvs that are already vectorized in general vectorization
+        // analysis and propagation.
         if (cached_tv->axis(-1)->getParallelType() == ParallelType::Vectorize) {
           continue;
         }

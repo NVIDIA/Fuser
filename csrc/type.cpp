@@ -112,19 +112,37 @@ bool isInclusiveType(const DataType& base_type, const DataType& wider_type) {
       (base_type == DataType::Double || base_type == DataType::Float ||
        base_type == DataType::Half || base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Float || wider_type == DataType::ComplexFloat) &&
       (base_type == DataType::Float || base_type == DataType::Half ||
        base_type == DataType::BFloat16 ||
        base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Half || wider_type == DataType::BFloat16) &&
       (base_type == DataType::Float8_e4m3fn ||
-       base_type == DataType::Float8_e5m2)) {
+       base_type == DataType::Float8_e5m2 ||
+       base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::BFloat16 &&
+      (base_type == DataType::Float8_e8m0fnu ||
+       base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e4m3fn &&
+      (base_type == DataType::Float4_e2m1fn)) {
+    return true;
+  }
+  if (wider_type == DataType::Float8_e5m2 &&
+      (base_type == DataType::Float4_e2m1fn)) {
     return true;
   }
   if ((wider_type == DataType::Int || wider_type == DataType::Double ||
@@ -172,6 +190,10 @@ bool isSupportedTypeByDevice(DataType dtype) {
   }
   if (dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2) {
     return major_ver >= 9;
+  }
+  if (dtype == DataType::Float8_e8m0fnu || dtype == DataType::Float4_e2m1fn ||
+      dtype == DataType::Float4_e2m1fn_x2) {
+    return major_ver >= 10;
   }
   return true;
 }
@@ -227,6 +249,12 @@ static std::string data_type2string(DataType t) {
               return "__e4m3";
             case DataType::Float8_e5m2:
               return "__e5m2";
+            case DataType::Float8_e8m0fnu:
+              return "__e8m0";
+            case DataType::Float4_e2m1fn:
+              return "__e2m1";
+            case DataType::Float4_e2m1fn_x2:
+              return "__e2m1_x2";
             case DataType::Index:
               return "nvfuser_index_t";
             case DataType::Char:
@@ -1225,6 +1253,23 @@ static const char* supported_casts2string(std::pair<DataType, DataType> t) {
     case supported_switch_pair(DataType::BFloat16, DataType::Float8_e4m3fn):
       return "__bfloat2e4m3";
 
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Float):
+      return "__e8m02float";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Double):
+      return "__e8m02double";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::Half):
+      return "__e8m02half";
+    case supported_switch_pair(DataType::Float8_e8m0fnu, DataType::BFloat16):
+      return "__e8m02bfloat";
+    case supported_switch_pair(DataType::Float, DataType::Float8_e8m0fnu):
+      return "__float2e8m0";
+    case supported_switch_pair(DataType::Double, DataType::Float8_e8m0fnu):
+      return "__double2e8m0";
+    case supported_switch_pair(DataType::Half, DataType::Float8_e8m0fnu):
+      return "__half2e8m0";
+    case supported_switch_pair(DataType::BFloat16, DataType::Float8_e8m0fnu):
+      return "__bfloat2e8m0";
+
     default:
       return nullptr;
   }
@@ -1246,6 +1291,10 @@ DataType aten_to_data_type(const at::ScalarType& scalar_type) {
       return DataType::Float8_e4m3fn;
     case at::ScalarType::Float8_e5m2:
       return DataType::Float8_e5m2;
+    case at::ScalarType::Float8_e8m0fnu:
+      return DataType::Float8_e8m0fnu;
+    // case at::ScalarType::Float4_e2m1fn_x2:
+    //   return DataType::Float4_e2m1fn;
     case at::ScalarType::Char:
       return DataType::Char;
     case at::ScalarType::Short:
@@ -1288,6 +1337,12 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
         return at::ScalarType::Float8_e4m3fn;
       case DataType::Float8_e5m2:
         return at::ScalarType::Float8_e5m2;
+      case DataType::Float8_e8m0fnu:
+        return at::ScalarType::Float8_e8m0fnu;
+      // case DataType::Float4_e2m1fn_x2:
+      //   return at::ScalarType::Float4_e2m1fn_x2;
+      // case DataType::Float4_e2m1fn:
+      //   return at::ScalarType::Float4_e2m1fn_x2;
       case DataType::Index:
         NVF_THROW(
             "Index is determined at compile time,",
@@ -1343,6 +1398,15 @@ at::ScalarType data_type_to_aten(const DataType& data_type) {
     // and the shape of the corresponding at::Tensor is [10, 12].
     return at::ScalarType::Byte;
   }
+}
+
+at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type) {
+  if (data_type == DataType::Index) {
+    return data_type_to_aten(index_type);
+  }
+  return data_type_to_aten(data_type);
 }
 
 AdjustLastDim getLastDimAdjustment(const DataType& dtype) {
@@ -1572,7 +1636,11 @@ std::string typePrefix(const DataType data_type) {
     case DataType::BFloat16:
     case DataType::Float8_e4m3fn:
     case DataType::Float8_e5m2:
+    case DataType::Float8_e8m0fnu:
+    case DataType::Float4_e2m1fn:
       return "f";
+    case DataType::Float4_e2m1fn_x2:
+      return "f4x2_";
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
@@ -1706,6 +1774,8 @@ int max_digits10(DataType dtype) {
   //    Type      Precision   max_digits10
   //   fp8_e5m2       3           2
   //   fp8_e4m3       4           3
+  //   fp8_e8m0       1           2
+  //   fp4_e2m1       2           2
   //   bfloat16       8           4
   //   float16       11           5
   //   float32       24           9
@@ -1721,7 +1791,10 @@ int max_digits10(DataType dtype) {
     return 4;
   } else if (dtype == DataType::Float8_e4m3fn) {
     return 3;
-  } else if (dtype == DataType::Float8_e5m2) {
+  } else if (
+      dtype == DataType::Float8_e5m2 || dtype == DataType::Float8_e8m0fnu) {
+    return 2;
+  } else if (dtype == DataType::Float4_e2m1fn) {
     return 2;
   } else {
     NVF_CHECK(

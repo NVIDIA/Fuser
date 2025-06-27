@@ -66,6 +66,7 @@
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
+#include <nvfuser_resources/fp4_support.h>
 #include <nvfuser_resources/fp8_support.h>
 #include <nvfuser_resources/fused_reduction.h>
 #include <nvfuser_resources/fused_welford_helper.h>
@@ -101,6 +102,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fp16_support_cu;
   ss << nvfuser_resources::bf16_support_cu;
   ss << nvfuser_resources::fp8_support_cu;
+  ss << nvfuser_resources::fp4_support_cu;
 
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
@@ -1225,6 +1227,10 @@ NVF_API CompiledKernel::CompiledKernel(
   if (lowered_->kernel()->summary().has_argsort ||
       lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
+    // As of CUDA 13, the CUB header files are moved to the cccl
+    // subdirectory. This include path is not necessary pre 13 but is
+    // added anyway as it should be just a no-op.
+    compile_params_.include_paths.push_back("/usr/local/cuda/include/cccl");
   }
 }
 
