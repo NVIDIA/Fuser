@@ -17,6 +17,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 

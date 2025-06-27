@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <bindings.h>
+#include <multidevice/communicator.h>
 
 namespace nvfuser::python {
 
@@ -16,7 +17,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindFusionIr(nvfuser);
   bindRuntime(nvfuser);
   bindOperations(nvfuser);
+  bindMultiDevice(nvfuser);
   nvfuser.def("translate_fusion", &translateFusion);
+
+  auto cleanup = []() -> void { Communicator::getInstance().cleanup(); };
+  nvfuser.add_object("_cleanup", py::capsule(cleanup));
 }
 
 } // namespace nvfuser::python
