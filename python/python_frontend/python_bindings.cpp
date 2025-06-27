@@ -3726,7 +3726,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          PrimDataType dtype,
          int64_t out_scale_block_size,
          PrimDataType out_scale_block_dtype,
-         bool out_gamma) -> Tensor {
+         bool out_gamma) -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3771,13 +3771,14 @@ void initNvFuserPythonBindings(PyObject* module) {
             out_scale_block_size,
             out_scale_block_dtype,
             out_gamma));
+        
         if (out_gamma == true) {
             NVF_CHECK(out_scale_block_size > 0, "out_scale_block_size must be greater than 0 when out_gamma is true");
             return std::make_tuple(output, output_scale, output_gamma);
         } else if (out_scale_block_size > 0) {
-            return std::make_tuple(output, output_scale);
+            return std::make_tuple(output, output_scale, std::nullopt);
         }
-        return output;
+        return std::make_tuple(output, std::nullopt, std::nullopt);
       },
       R"(
       Scaled Grouped matrix multiplication.
