@@ -755,7 +755,7 @@ NVF_API TensorView* argsort(
 //! \param bias Bias tensor
 //! \param beta Scale tensor for bias
 //! \param dtype Output dtype
-//! \param out_scale_block_size Output scale block size
+//! \param out_block_scale_size Output block scaling factor size
 //! \param block_scaling_factor_dtype Block scaling factor dtype
 //! \param out_gamma Output gamma flag
 //! \return Result of grouped matrix multiplication
@@ -769,7 +769,7 @@ NVF_API ScaledTensorView grouped_mm(
     TensorView* bias = nullptr,
     TensorView* beta = nullptr,
     std::optional<DataType> dtype = std::nullopt,
-    int64_t out_scale_block_size = 0,
+    int64_t out_block_scale_size = 0,
     std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
     bool out_gamma = false);
 
