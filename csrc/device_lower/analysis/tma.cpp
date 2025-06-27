@@ -15,6 +15,7 @@
 #include <val_graph_visitor.h>
 
 #include <list>
+#include <ranges>
 #include <unordered_map>
 #include <vector>
 
@@ -803,22 +804,16 @@ class DomainMerger {
   std::unordered_set<ValGroup>& bulk_groups_;
   std::unordered_set<ValGroup>& nonbulk_groups_;
   std::list<TMADim>& dim_info_;
-  MmaInputSmemSwizzle swizzle_;
-  int64_t item_size_bytes_;
 
  public:
   DomainMerger(
       std::list<std::tuple<ValGroup, bool, Val*>> raw_tma_domain,
       std::unordered_set<ValGroup>& bulk_groups,
       std::unordered_set<ValGroup>& nonbulk_groups,
-      std::list<TMADim>& dim_info,
-      MmaInputSmemSwizzle swizzle,
-      int64_t item_size_bytes)
+      std::list<TMADim>& dim_info)
       : bulk_groups_(bulk_groups),
         nonbulk_groups_(nonbulk_groups),
-        dim_info_(dim_info),
-        swizzle_(swizzle),
-        item_size_bytes_(item_size_bytes) {
+        dim_info_(dim_info) {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
     contiguity_and_stride_.reserve(raw_tma_domain.size());
     for (auto& item : raw_tma_domain) {
@@ -875,49 +870,6 @@ class DomainMerger {
     }
     NVF_ERROR(nonbulk_groups_.count(g) > 0);
     return C;
-  }
-
-  bool shouldMerge(int64_t i) {
-    auto type0 = type(i);
-    auto type1 = type(i + 1);
-
-    bool may_increasing_box_size = (type0 == CB && type1 == CB);
-    if (!may_increasing_box_size) {
-      return true;
-    }
-
-    auto extent0 = (*this)[i]->front()->as<IterDomain>()->extent();
-    auto extent1 = (*this)[i + 1]->front()->as<IterDomain>()->extent();
-    Val* merged_extent = SimplifyingIrBuilder::mulExpr(extent0, extent1);
-
-    bool merging_innermost = ((int64_t)size() == i + 2);
-
-    // If merging makes the size of a dimension larger than 256, we should not
-    // merge.
-    constexpr int64_t largest_dim_size =
-        256; // Dimension size must be <= 256 as limited by hardware.
-    Val* too_large_after_merge = SimplifyingIrBuilder::gtExpr(
-        merged_extent, IrBuilder::create<Val>(largest_dim_size));
-    if (simplifyExpr(too_large_after_merge)->isTrue()) {
-      return false;
-    }
-
-    // If merging makes the inner size larger than the swizzle size,
-    // we should not merge
-    if (merging_innermost && swizzle_ != MmaInputSmemSwizzle::None) {
-      const int64_t swizzle_size =
-          getBytesFromSwizzle(swizzle_) / item_size_bytes_;
-      Val* merging_makes_gt_swizzle_size = SimplifyingIrBuilder::gtExpr(
-          merged_extent, IrBuilder::create<Val>(swizzle_size));
-      if (simplifyExpr(merging_makes_gt_swizzle_size)->isTrue()) {
-        return false;
-      }
-    }
-
-    // Because the shape is dynamic, we don't know if we should merge or
-    // not. For this case, we always assume merging is better than not
-    // merging.
-    return true;
   }
 
   void merge(int64_t i) {
@@ -981,6 +933,60 @@ class DomainMerger {
       dim_info_.erase(it1);
     }
   }
+
+  void split(int64_t i, int64_t factor) {
+    std::cout << "split " << i << " by " << factor << std::endl;
+    const auto& g_orig = (*this)[i];
+    // auto type_orig = type(i);
+
+    domain_.split(i, factor);
+    const auto& g_outer = (*this)[i];
+    const auto& g_inner = (*this)[i + 1];
+
+    // TODO: build stride scalar from original
+    Val* outer_stride = nullptr;
+    Val* inner_stride = nullptr;
+
+    contiguity_and_stride_.at(i).first = true;
+    contiguity_and_stride_.at(i).second = outer_stride;
+    contiguity_and_stride_.insert(
+        contiguity_and_stride_.begin() + i,
+        {/*contig=*/true, /*stride=*/inner_stride});
+
+    // Update bulk_groups_ and nonbulk_groups_ by propagating through the split.
+    if (bulk_groups_.count(g_orig)) {
+      bulk_groups_.insert(g_outer);
+      bulk_groups_.insert(g_inner);
+    }
+    if (nonbulk_groups_.count(g_orig)) {
+      nonbulk_groups_.insert(g_outer);
+      nonbulk_groups_.insert(g_inner);
+    }
+
+    auto it_orig = std::find_if(
+        dim_info_.begin(), dim_info_.end(), [&](const TMADim& dim) {
+          return dim.partitioned == g_orig;
+        });
+
+    // Set dim_info for outer
+    dim_info_.emplace_back();
+    dim_info_.back().partitioned = g_outer;
+    dim_info_.back().box = g_outer;
+    dim_info_.back().tile = g_outer;
+    dim_info_.back().stride = nullptr;
+
+    // Set dim_info for inner
+    dim_info_.emplace_back();
+    dim_info_.back().partitioned = g_inner;
+    dim_info_.back().box = g_inner;
+    dim_info_.back().tile = g_inner;
+    dim_info_.back().stride = it_orig->stride;
+
+    // Remove the original dimensions from dim_info_.
+    if (it_orig != dim_info_.end()) {
+      dim_info_.erase(it_orig);
+    }
+  }
 };
 
 // Do the collapse and returns the final TMA domnain. We first collapse
@@ -995,13 +1001,13 @@ std::vector<TMADim> run(
     std::list<TMADim>& dim_info,
     int64_t item_size_bytes,
     MmaInputSmemSwizzle swizzle) {
+  std::cout << "run\n  orig =";
+  for (auto di : raw_tma_domain) {
+    std::cout << "  " << std::get<0>(di)->front()->toString();
+  }
+  std::cout << std::endl;
   DomainMerger tma_domain(
-      std::move(raw_tma_domain),
-      bulk_groups,
-      nonbulk_groups,
-      dim_info,
-      swizzle,
-      item_size_bytes);
+      std::move(raw_tma_domain), bulk_groups, nonbulk_groups, dim_info);
   // merge contiguous C groups and CB groups
   for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!tma_domain.contiguity(i)) {
@@ -1009,10 +1015,8 @@ std::vector<TMADim> run(
     }
     if ((tma_domain.type(i) == C && tma_domain.type(i + 1) == C) ||
         (tma_domain.type(i) == CB && tma_domain.type(i + 1) == CB)) {
-      if (tma_domain.shouldMerge(i)) {
-        tma_domain.merge(i);
-        i--;
-      }
+      tma_domain.merge(i);
+      i--;
     }
   }
   // merge contiguous C with SB/CB
@@ -1022,9 +1026,61 @@ std::vector<TMADim> run(
     }
     if (tma_domain.type(i) == C &&
         (tma_domain.type(i + 1) == SB || tma_domain.type(i + 1) == CB)) {
-      if (tma_domain.shouldMerge(i)) {
-        tma_domain.merge(i);
-        i--;
+      tma_domain.merge(i);
+      i--;
+    }
+  }
+
+  // Split to satisfy requirements:
+  //  - Every box dim CB or SB must be smaller than 256
+  //  - Inner dim must not be larger than swizzle size
+  // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html#group__CUDA__TENSOR__MEMORY_1ga7c7d2aaac9e49294304e755e6f341d7
+  for (int64_t i :
+       std::ranges::views::reverse(arange((int64_t)tma_domain.size()))) {
+    if (tma_domain.type(i) == CB || tma_domain.type(i) == SB) {
+      const int64_t extent = tma_domain[i]
+                                 ->front()
+                                 ->as<IterDomain>()
+                                 ->extent()
+                                 ->evaluate()
+                                 .as<int64_t>();
+      const int64_t max_inner_extent = (i == tma_domain.size() - 1)
+          ?
+          // Innermost dim. Check swizzle size
+          getBytesFromSwizzle(swizzle) / item_size_bytes
+          : 256;
+      if (extent > max_inner_extent) {
+        // determine divisible split that keeps all resulting sizes at most
+        // 256, and inner size <= max_inner_extent
+        int64_t split_size = 0L;
+        if (extent % max_inner_extent == 0) {
+          split_size = max_inner_extent;
+          // TODO: do we need to check that the outer extent of this split is
+          // less than 256 now? I think we could conceivably have
+          // max_inner_extent==16 which means an original merged box dim over
+          // 4096 would give outer box dim above 256. If so then we should
+          // provide a list of splits instead of a single one.
+        } else {
+          // Extent is not divisible by limit. We always use a divisible split,
+          // but we use the one that will create the largest inner dim that
+          // satisfies our constraint.
+          // Example: extent=320 but limit is 256. In this case we should split
+          // by 160.
+          for (int64_t outer_extent : arange((int64_t)2L, extent / 2L)) {
+            if (extent % outer_extent != 0) {
+              continue;
+            }
+            int64_t inner_extent = extent / outer_extent;
+            if (inner_extent <= max_inner_extent) {
+              split_size = inner_extent;
+              break;
+            }
+          }
+        }
+        NVF_ERROR(
+            split_size != 0,
+            "Failed to determine TMA box dimension split size");
+        tma_domain.split(i, split_size);
       }
     }
   }
@@ -1064,6 +1120,11 @@ std::vector<TMADim> run(
     result.back().gmem_stride_bytes =
         SimplifyingIrBuilder::mulExpr(tma_domain.stride(i), item_size_bytes);
   }
+  std::cout << "  result =";
+  for (auto dim : result) {
+    std::cout << "  " << dim;
+  }
+  std::cout << std::endl;
   return result;
 }
 
