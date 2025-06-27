@@ -145,14 +145,14 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
       // Convert IntArrayRef to std::vector for flatbuffer compatibility
       std::vector<int64_t> sizes_fb;
       sizes_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
+      for (auto dim : arange(tensor.ndimension())) {
         sizes_fb.push_back(tensor.size(dim));
       }
 
       // Convert IntArrayRef to std::vector for flatbuffer compatibility
       std::vector<int64_t> strides_fb;
       strides_fb.reserve(tensor.ndimension());
-      for (auto dim : c10::irange(tensor.ndimension())) {
+      for (auto dim : arange(tensor.ndimension())) {
         strides_fb.push_back(tensor.stride(dim));
       }
 

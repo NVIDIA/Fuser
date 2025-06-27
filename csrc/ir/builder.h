@@ -60,6 +60,7 @@ class IrBuilder {
   NVF_API static Val* negExpr(Val* val);
   NVF_API static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
+  NVF_API static Val* bitCeilExpr(Val* val);
   NVF_API static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);
@@ -123,7 +124,8 @@ class IrBuilder {
     } else {
       static_assert(
           is_std_vector_v<T>,
-          "Argument for function array must be vector of value or nested vector");
+          "Argument for function array must be vector of value or nested "
+          "vector");
       std::vector<Val*> array_members;
       std::transform(
           members.begin(),

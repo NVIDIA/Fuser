@@ -382,6 +382,10 @@ class PredicateInfo {
     return stop_predicate_;
   }
 
+  auto& stopPredicate() {
+    return stop_predicate_;
+  }
+
   const auto& stopOffset() const {
     return stop_offset_;
   }

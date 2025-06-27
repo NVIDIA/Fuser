@@ -25,7 +25,7 @@ bool StructHandle::operator==(const StructHandle& other) const {
   if (this_type.fields.size() != other_type.fields.size()) {
     return false;
   }
-  for (size_t i : c10::irange(this_type.fields.size())) {
+  for (size_t i : arange(this_type.fields.size())) {
     // Check that fields are in same position, have same type, and have same
     // value (recursive)
     const StructType::FieldInfo& fa = this_type.fields.at(i);
@@ -53,7 +53,7 @@ std::string toString(const PolymorphicValue& v) {
     StructType type = (v->*&StructHandle::type)();
     ss << "StructHandle<" << type.name << ">{";
     bool first = true;
-    for (size_t i : c10::irange(type.fields.size())) {
+    for (size_t i : arange(type.fields.size())) {
       if (first) {
         first = false;
       } else {

@@ -4,7 +4,7 @@
 import pytest
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 
-from .rope_ops import rope_setup
+from .rope_ops import rope_setup, SEQ_LENGTHS
 
 
 @pytest.mark.parametrize(
@@ -15,15 +15,22 @@ from .rope_ops import rope_setup
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
+        "litgpt-gemma-2-9b",
+        "litgpt-mistral-7b",
+        "litgpt-meta-llama-3-8B",
+        "litgpt-phi3.5-mini",
     ],
 )
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.resize
 def test_rope_fwd_benchmark(
     benchmark,
     variation: str,
     executor: str,
+    seq_length: int | None,
 ):
     kwargs = {}
     if executor == "thunder":
@@ -31,7 +38,7 @@ def test_rope_fwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, gen_inputs, _, _ = rope_setup[variation]()
+    model, gen_inputs, _, _ = rope_setup[variation](seq_length)
     inputs = gen_inputs()
 
     def fwd_call(inp):
@@ -50,15 +57,22 @@ def test_rope_fwd_benchmark(
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
+        "litgpt-gemma-2-9b",
+        "litgpt-mistral-7b",
+        "litgpt-meta-llama-3-8B",
+        "litgpt-phi3.5-mini",
     ],
 )
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.resize
 def test_rope_bwd_benchmark(
     benchmark,
     variation: str,
     executor: str,
+    seq_length: int | None,
 ):
     kwargs = {}
     if executor == "thunder":
@@ -66,7 +80,7 @@ def test_rope_bwd_benchmark(
     elif executor == "torchcompile":
         clear_dynamo_cache()
 
-    model, gen_inputs, grad, iobytes = rope_setup[variation]()
+    model, gen_inputs, grad, iobytes = rope_setup[variation](seq_length)
     fwd_inputs = gen_inputs()
 
     def fwd_call(inp):

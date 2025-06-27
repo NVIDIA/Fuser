@@ -240,7 +240,7 @@ TEST_F(DynamicTransformTest, DynamicTransform4) {
     fusion.addInput(tv1);
 
     std::vector<Val*> shape_arg;
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : arange(after_shape.size())) {
       (void)i;
       shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
     }
@@ -255,11 +255,11 @@ TEST_F(DynamicTransformTest, DynamicTransform4) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(before_shape.size())) {
+    for (const auto i : arange(before_shape.size())) {
       expr_eval.bind(tv0->axis(i)->extent(), before_shape.at(i));
     }
 
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : arange(after_shape.size())) {
       expr_eval.bind(tv2->axis(i)->extent(), after_shape.at(i));
       // We must bind tv1's extents, since they cannot be inferred until after
       // concretization. Because tv2 is a dynamic reshape both its IterDomains
@@ -352,7 +352,7 @@ TEST_F(DynamicTransformTest, DynamicTransform6) {
     for (auto it = reshape_list.begin() + 1; it != reshape_list.end(); ++it) {
       auto shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : arange(shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -364,9 +364,9 @@ TEST_F(DynamicTransformTest, DynamicTransform6) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(reshape_list.size())) {
+    for (const auto i : arange(reshape_list.size())) {
       const auto& shape = reshape_list.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : arange(shape.size())) {
         expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
@@ -431,7 +431,7 @@ TEST_F(DynamicTransformTest, DynamicTransform7) {
          ++it) {
       const auto& shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : arange(shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -443,9 +443,9 @@ TEST_F(DynamicTransformTest, DynamicTransform7) {
 
     ExpressionEvaluator ref_expr_eval;
 
-    for (const auto i : c10::irange(ref_transform.shapes.size())) {
+    for (const auto i : arange(ref_transform.shapes.size())) {
       const auto& shape = ref_transform.shapes.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : arange(shape.size())) {
         ref_expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
@@ -457,9 +457,9 @@ TEST_F(DynamicTransformTest, DynamicTransform7) {
     for (const auto& transform : pattern.equal_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i : arange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : arange(shape.size())) {
           expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
@@ -478,9 +478,9 @@ TEST_F(DynamicTransformTest, DynamicTransform7) {
     for (const auto& transform : pattern.different_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i : arange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : arange(shape.size())) {
           expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
@@ -727,7 +727,8 @@ TEST_F(DynamicTransformTest, DynamicTransformFusionExecutorCache) {
         "Second non-trivial reshape should not create new runtime");
     NVF_CHECK(
         num_concs == 2,
-        "Second non-trivial reshape should not create new concretization cache level");
+        "Second non-trivial reshape should not create new concretization cache "
+        "level");
   }
 }
 
@@ -768,7 +769,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (size_t i : c10::irange(output_dims)) {
+  for (size_t i : arange(output_dims)) {
     output_shape[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(output_shape[i]);
   }
@@ -811,7 +812,7 @@ void reductionDynamicViewAddFusion(
       // concretize bias_shape so that we can properly initialize at_bias
       size_t other_numel = 1;
       ssize_t negone_dim = -1; // negative if no -1 shape is provided
-      for (auto i : c10::irange(bias_shape.size())) {
+      for (auto i : arange(bias_shape.size())) {
         if (bias_shape[i] == -1) {
           ASSERT_EQ(negone_dim, -1); // test cases should not have multiple -1s
           negone_dim = -1;
@@ -826,18 +827,21 @@ void reductionDynamicViewAddFusion(
     at::Tensor at_bias = at::randn(bias_shape, options);
     KernelArgumentHolder args = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(output_dims)) {
+    for (size_t i : arange(output_dims)) {
       args.push(output_shape[i]);
     }
 
     auto outputs = executor_cache.runFusionWithInputs(args);
     checkCache(expect_miss);
 
-    auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
-                                             : at::sum(at_x, kReductionAxis);
+    auto at_tv1 = reshape_before_reduction ? at_x + at_bias
+                                           : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
+    auto at_y = reshape_before_reduction ? at::sum(at_x_reshape, kReductionAxis)
+                                         : at_x_reshape + at_bias;
 
-    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
+    testValidate(
+        executor_cache.fusion(), outputs, args, {at_y}, __LINE__, __FILE__);
   }
 }
 
@@ -894,7 +898,7 @@ void reductionDynamicPadAddFusion(
   fusion.addInput(x);
 
   std::vector<Val*> pad_width_vals(num_pad_widths);
-  for (auto i : c10::irange(num_pad_widths)) {
+  for (auto i : arange(num_pad_widths)) {
     pad_width_vals[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(pad_width_vals[i]);
   }
@@ -939,7 +943,7 @@ void reductionDynamicPadAddFusion(
     at::Tensor at_x = at::randn(input_shape, options);
     KernelArgumentHolder args = {at_x};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(pad_widths.size())) {
+    for (size_t i : arange(pad_widths.size())) {
       args.push(pad_widths[i]);
     }
 

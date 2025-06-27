@@ -71,7 +71,7 @@ TEST_P(CommunicatorTest, DISABLED_Barrier) {
 
   std::vector<std::chrono::time_point<clock>> end_times;
   end_times.reserve(kNumIterations);
-  for ([[maybe_unused]] auto _ : c10::irange(kNumIterations)) {
+  for ([[maybe_unused]] auto _ : arange(kNumIterations)) {
     // The last rank enters the barrier the last. Therefore, the duration per
     // iteration is expected to be `kUnitDuration*(num_devices - 1)`.
     std::this_thread::sleep_for(kUnitDuration * rank);
@@ -98,7 +98,7 @@ TEST_P(CommunicatorTest, DISABLED_Barrier) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicatorTest,
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 } // namespace nvfuser

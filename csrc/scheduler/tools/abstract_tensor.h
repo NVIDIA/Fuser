@@ -65,7 +65,7 @@ struct DispatchSplit {
       std::vector<AbstractId> inner_result;
       outer_result.reserve(in.size());
       inner_result.reserve(in.size());
-      for (auto i : c10::irange(in.size())) {
+      for (auto i : arange(in.size())) {
         auto [outer, inner] =
             AbstractId::dispatch((*this), in[i], factor, inner_split);
         outer_result.emplace_back(outer);
@@ -118,14 +118,14 @@ struct DispatchMerge {
           "Can not merge vectors of AbstractId of different size.");
       std::vector<AbstractId> result;
       result.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         result.emplace_back(AbstractId::dispatch((*this), lhs[i], rhs[i]));
       }
       return result;
     } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
       std::vector<AbstractId> result;
       result.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         result.emplace_back(
             AbstractId::dispatch((*this), lhs[i], std::forward<RHS>(rhs)));
       }
@@ -133,7 +133,7 @@ struct DispatchMerge {
     } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
       std::vector<AbstractId> result;
       result.reserve(rhs.size());
-      for (auto i : c10::irange(rhs.size())) {
+      for (auto i : arange(rhs.size())) {
         result.emplace_back(
             AbstractId::dispatch((*this), std::forward<LHS>(lhs), rhs[i]));
       }
@@ -196,7 +196,7 @@ struct DispatchSwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] =
             AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
         result_x.emplace_back(out_x);
@@ -208,7 +208,7 @@ struct DispatchSwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] = AbstractId::dispatch(
             (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
         result_x.emplace_back(out_x);
@@ -220,7 +220,7 @@ struct DispatchSwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(rhs.size());
       result_y.reserve(rhs.size());
-      for (auto i : c10::irange(rhs.size())) {
+      for (auto i : arange(rhs.size())) {
         auto [out_x, out_y] = AbstractId::dispatch(
             (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
         result_x.emplace_back(out_x);
@@ -281,7 +281,7 @@ struct DispatchLegacySwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] =
             AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
         result_x.emplace_back(out_x);
@@ -293,7 +293,7 @@ struct DispatchLegacySwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
-      for (auto i : c10::irange(lhs.size())) {
+      for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] = AbstractId::dispatch(
             (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
         result_x.emplace_back(out_x);
@@ -305,7 +305,7 @@ struct DispatchLegacySwizzle {
       std::vector<AbstractId> result_y;
       result_x.reserve(rhs.size());
       result_y.reserve(rhs.size());
-      for (auto i : c10::irange(rhs.size())) {
+      for (auto i : arange(rhs.size())) {
         auto [out_x, out_y] = AbstractId::dispatch(
             (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
         result_x.emplace_back(out_x);
@@ -551,7 +551,7 @@ class AbstractTensorWithInfo {
     std::vector<std::pair<AbstractId, Info>> result;
     NVF_ERROR(domain_.size() == info_.size());
     result.reserve(domain_.size());
-    for (size_t i : c10::irange(domain_.size())) {
+    for (size_t i : arange(domain_.size())) {
       result.emplace_back(domain_[i], info_[i]);
     }
     return result;
@@ -776,7 +776,7 @@ class AbstractTensorWithInfo {
     to = wrapDim(to, (int64_t)domain_.size());
     NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
     int64_t num_merges = to - from;
-    for (auto _ : c10::irange(num_merges)) {
+    for (auto _ : arange(num_merges)) {
       (void)_;
       merge(from);
     }
@@ -849,14 +849,15 @@ class AbstractTensorWithInfo {
       } else {
         NVF_CHECK(
             size == new_size,
-            "Can not unzip an AbstractTensor with different sizes in its domains.");
+            "Can not unzip an AbstractTensor with different sizes in its "
+            "domains.");
       }
     }
 
     // unzip the AbstractTensor, broadcast the non-vector items. Re-use info for
     // all the unzipped AbstractTensors
     result.resize(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       for (const auto& aid : domain_) {
         if (aid.is<std::vector>()) {
           result[i].domain_.emplace_back(aid[i]);
@@ -893,7 +894,7 @@ class AbstractTensorWithInfo {
     AbstractTensorWithInfo result;
     result.info_ = std::move(tensors[0].info_);
     result.domain_.reserve(tensors[0].domain_.size());
-    for (auto i : c10::irange(tensors[0].domain_.size())) {
+    for (auto i : arange(tensors[0].domain_.size())) {
       std::vector<AbstractId> ids;
       ids.reserve(tensors.size());
       for (auto& tensor : tensors) {
@@ -933,7 +934,7 @@ class AbstractTensorWithInfo {
     NVF_CHECK(
         info_ == tensor.info_, "Cannot add a new row with mismatched info");
 
-    for (auto i : c10::irange(size())) {
+    for (auto i : arange(size())) {
       domain_[i].template as<std::vector>().emplace_back(
           std::move(tensor.domain_[i]));
     }
@@ -954,6 +955,11 @@ class AbstractTensorWithInfo {
 
   AbstractTensorWithInfo<EmptyInfo> dropInfo() const {
     return AbstractTensorWithInfo<EmptyInfo>(domain_);
+  }
+
+  void reverse() {
+    std::reverse(domain_.begin(), domain_.end());
+    std::reverse(info_.begin(), info_.end());
   }
 
  protected:

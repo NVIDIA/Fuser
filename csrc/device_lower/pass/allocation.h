@@ -16,6 +16,12 @@
 
 namespace nvfuser {
 
+struct AllocationDomainInfo {
+  std::vector<IterDomain*> ids;
+  std::vector<Val*> strides;
+  std::vector<bool> contiguity;
+};
+
 //! Buffer allocation information to store in GPU lower to avoid
 //!  logic duplication
 struct LocalAllocationInfo {

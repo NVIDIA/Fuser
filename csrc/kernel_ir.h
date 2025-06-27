@@ -42,6 +42,7 @@ class GridSync;
 class FenceAsyncProxy;
 class WgMmaFence;
 class SetMaxNReg;
+class Continue;
 class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
@@ -74,6 +75,12 @@ class Predicate final : public Val {
       const Expr* expr = nullptr,
       Val* thread_pred = nullptr);
 
+  explicit Predicate(
+      IrBuilderPasskey passkey,
+      PredicateType ptype,
+      const Expr* tma_1d_load_expr,
+      std::vector<ForLoop*> tma_1d_load_loops_);
+
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
   explicit Predicate(IrBuilderPasskey passkey, Val* value);
@@ -96,15 +103,22 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned ||
-        ptype_ == PredicateType::ReductionWrite ||
-        ptype_ == PredicateType::ElectSync);
+            ptype_ == PredicateType::Misaligned ||
+            ptype_ == PredicateType::ReductionWrite ||
+            ptype_ == PredicateType::ElectSync,
+        "Wrong predicate type. ",
+        toString());
     return thread_pred_;
   }
 
   ForLoop* unrolled_loop() const {
     NVF_ERROR(ptype_ == PredicateType::Unswitch);
     return unrolled_loop_;
+  }
+
+  const std::vector<ForLoop*>& tma1dLoadLoops() const {
+    NVF_ERROR(ptype_ == PredicateType::OneDimTmaLoadExpectArrive);
+    return tma_1d_load_loops_;
   }
 
   bool hasValue() const {
@@ -144,6 +158,9 @@ class Predicate final : public Val {
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
+
+  // For PredicateCompute::OneDimTmaLoadExpectArrive
+  std::vector<ForLoop*> tma_1d_load_loops_;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
@@ -215,7 +232,13 @@ class Asm final : public Expr {
   // The name of the utility function that we want to wrap the inline PTX code
   // in. If this is empty, then the inline PTX code will be emitted directly
   // into the kernel.
-  const std::string utility() const;
+  std::string utility() const;
+
+  // The signature of the utility function that we want to wrap the inline PTX
+  // code in. Something like "void my_utility(int*, int*, int*)". This is
+  // used to determine if the utility function has already been generated when
+  // we convert Kernel IR to CUDA C++ code.
+  std::string signature() const;
 
   const Options& options() const {
     return attribute<Options>(1);
@@ -384,7 +407,8 @@ class Allocate final : public Expr {
     NVF_CHECK(
         memoryType() == MemoryType::Shared ||
             memoryType() == MemoryType::Tensor,
-        "Allocation address may only be set for shared/tensor memory allocations. Memory type is ",
+        "Allocation address may only be set for shared/tensor memory "
+        "allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
@@ -398,7 +422,8 @@ class Allocate final : public Expr {
   void setLaneOffset(Val* lane_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     NVF_CHECK(
         laneOffset() == nullptr,
@@ -412,7 +437,8 @@ class Allocate final : public Expr {
   void setColOffset(Val* col_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     NVF_CHECK(
         colOffset() == nullptr,
@@ -428,7 +454,8 @@ class Allocate final : public Expr {
     NVF_CHECK(
         memoryType() == MemoryType::Shared ||
             memoryType() == MemoryType::Tensor,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        "Allocation address may only be set for shared memory allocations. "
+        "Memory type is ",
         memoryType());
     return attributeVal(5);
   }
@@ -436,7 +463,8 @@ class Allocate final : public Expr {
   Val* laneOffset() const {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     return attributeVal(6);
   }
@@ -444,7 +472,8 @@ class Allocate final : public Expr {
   Val* colOffset() const {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     return attributeVal(7);
   }
@@ -482,7 +511,10 @@ class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
+  explicit BlockSync(
+      IrBuilderPasskey passkey,
+      bool war_sync = false,
+      std::optional<bool> optional_compute_or_load_sync = std::nullopt);
 
   const char* getOpString() const override {
     return "BlockSync";
@@ -496,6 +528,20 @@ class BlockSync final : public Expr {
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
     return attribute<bool>(0);
+  }
+
+  std::optional<bool> warpSpecializedState() const {
+    return attribute<std::optional<bool>>(1);
+  }
+
+  bool isComputeWarpSync() const {
+    return attribute<std::optional<bool>>(1).value_or(false);
+  }
+
+  bool isAsyncWarpSync() const {
+    auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
+    return optional_compute_or_load_sync.has_value() &&
+        !optional_compute_or_load_sync.value();
   }
 };
 
@@ -588,6 +634,22 @@ class SetMaxNReg final : public Expr {
   Val* numberOfRegisters() const {
     return input(0);
   }
+};
+
+class Continue final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Continue(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Continue";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class Return final : public Expr {
@@ -1088,7 +1150,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
     auto size = outputs().size();
     std::vector<Allocate*> result;
     result.reserve(size);
-    for (auto i : c10::irange(offset, offset + size)) {
+    for (auto i : arange(offset, offset + size)) {
       result.emplace_back(attribute(i)->as<Allocate>());
     }
     return result;
@@ -1292,7 +1354,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
     result[0].reserve(size);
     result[1].reserve(size);
     result[2].reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result[0].emplace_back(attribute(offset + i * 3)->as<Allocate>());
       result[1].emplace_back(attribute(offset + i * 3 + 1)->as<Allocate>());
       result[2].emplace_back(attribute(offset + i * 3 + 2)->as<Allocate>());

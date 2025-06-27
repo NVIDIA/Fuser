@@ -258,13 +258,13 @@ auto norm_properties_from_num_dims(
   std::vector<int64_t> inner_reduction_axes(kNormShapeNumDims);
   std::vector<bool> inner_broadcast_mask(kNumberOfDims, false);
 
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
   }
 
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
-  for (const auto idx : c10::irange(kNormShapeNumDims)) {
+  for (const auto idx : arange(kNormShapeNumDims)) {
     const int64_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
@@ -470,6 +470,56 @@ BackwardRMSNormResult rms_norm_backward(
   return {dx, dw};
 }
 
+BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
+    TensorView* weight,
+    const std::vector<bool>& output_mask) {
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(rms != nullptr, "rms_eps std is invalid.");
+
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
+
+  TensorView* grad_weight = nullptr;
+  if (weight != nullptr) {
+    auto* bcast_weight = broadcast(weight, r.outer_broadcast_mask);
+    grad_weight = mul(dy, bcast_weight);
+  } else {
+    grad_weight = dy;
+  }
+  auto neg_grad_weight = neg(grad_weight);
+  auto neg_grad_weight_x = mul(neg_grad_weight, x);
+  auto rms_pow2 = mul(rms, rms);
+  auto inv_rms_pow2 = reciprocal(rms_pow2);
+  auto neg_grad_weight_x_inv_rms_pow2 = mul(neg_grad_weight_x, inv_rms_pow2);
+  auto inner_sum = sum(neg_grad_weight_x_inv_rms_pow2, r.inner_reduction_axes);
+  auto inner_bcast = broadcast(inner_sum, r.inner_broadcast_mask);
+  auto rms_mul2 =
+      mul(rms, IrBuilder::createInContainer<Val>(x->container(), 2.0));
+  auto inv_rms_mul2 = reciprocal(rms_mul2);
+  auto reciprocal_size = reciprocal(r.num_features);
+  auto inv_rms_mul2_reciprocal_size = mul(inv_rms_mul2, reciprocal_size);
+  auto x_inv_rms_mul2_reciprocal_size = mul(x, inv_rms_mul2_reciprocal_size);
+  auto inner_bcast_mul = mul(inner_bcast, x_inv_rms_mul2_reciprocal_size);
+  auto inv_rms = reciprocal(rms);
+  auto grad_weight_inv_rms = mul(grad_weight, inv_rms);
+
+  TensorView* dx = nullptr;
+  if (output_mask[0]) {
+    dx = add(inner_bcast_mul, grad_weight_inv_rms);
+  }
+
+  TensorView* dw = nullptr;
+  if (output_mask[1] && weight != nullptr) {
+    dw = sum(mul(dy, mul(x, inv_rms)), r.outer_reduction_axes);
+  }
+
+  return {dx, dw};
+}
+
 ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
@@ -511,7 +561,7 @@ ForwardNormResult batch_norm(
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
 
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
@@ -531,7 +581,8 @@ ForwardNormResult batch_norm(
       // Note: kTraining is true here!
       NVF_ERROR(
           kTraining,
-          "When running stats are provided, batch stats should only be computed during training");
+          "When running stats are provided, batch stats should only be "
+          "computed during training");
 
       auto rev_momentum =
           sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
@@ -558,7 +609,8 @@ ForwardNormResult batch_norm(
         auto input_to_cast = unary_op->input(0);
         NVF_ERROR(
             input_to_cast->isFusionInput(),
-            "IO_tensor batch_norm::running_stats can only updating input tensor to fusion");
+            "IO_tensor batch_norm::running_stats can only updating input "
+            "tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
         NVF_ERROR(
             rm_dtype.has_value(),
@@ -657,7 +709,7 @@ BackwardNormResult batch_norm_backward(
   std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
@@ -764,7 +816,7 @@ ForwardNormResult instance_norm(
   std::vector<int64_t> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
   Val* N = IrBuilder::createInContainer<Val>(x->container(), 1.0);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back(axis);
       x_broadcast_mask[axis] = true;
@@ -775,7 +827,7 @@ ForwardNormResult instance_norm(
   B = mul(B, x->getLoopDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kChannelsDim) {
       channels_only_broadcast_mask[axis] = true;
     }
@@ -924,7 +976,7 @@ BackwardNormResult instance_norm_backward(
   // mean/var
   std::vector<bool> weight_broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       weight_broadcast_mask[axis] = true;
       if (axis != b_axis) {

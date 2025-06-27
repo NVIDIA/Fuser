@@ -34,7 +34,7 @@ std::string getInputPosString(const Val* val) {
   // Get position
   const std::vector<Val*>& inputs = val->fusion()->inputs();
   int64_t pos = -1;
-  for (size_t i : c10::irange(inputs.size())) {
+  for (size_t i : arange(inputs.size())) {
     if (inputs[i] == val) {
       pos = (int64_t)i;
       break;
@@ -60,8 +60,8 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    int64_t expect_dim =
+        std::ssize(TensorDomain::noReductions(tv->getLogicalDomain()));
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -71,17 +71,18 @@ void validateValWithConcreteValue(
         expect_dim,
         ", but got a tensor of rank ",
         t.dim());
-    auto actual_dtype = aten_to_data_type(t.scalar_type());
     NVF_CHECK(
-        (value->dtype() == DataType::Index && isIntegralType(actual_dtype)) ||
-            (value->dtype() == actual_dtype),
+        (value->dtype() == DataType::Index &&
+         (t.scalar_type() == torch::kInt64 ||
+          t.scalar_type() == torch::kInt32)) ||
+            (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
         tv->toString(),
         ", to be bound to a tensor of dtype ",
         value->dtype(),
         ", but got a tensor of dtype ",
-        actual_dtype);
+        aten_to_data_type(concrete_value.as<at::Tensor>().scalar_type()));
     // Intermediate tensorviews marked as CPU scalars will be created as meta
     // tensors during compilation. For example, for fusions containing SDPA fwd
     // and bwd, some outputs of the fwd op (philox seed, philox offset) are CPU
@@ -146,7 +147,21 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  for (auto i : c10::irange(t.dim())) {
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!logical_sizes.empty()) {
+    auto& last_dim = logical_sizes.back();
+    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
+  }
+
+  for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
@@ -257,6 +272,7 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
 const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
   if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -267,9 +283,8 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
-      FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       auto outputs = def->evaluate(*this, known_values);
-      for (auto i : c10::irange(def->outputs().size())) {
+      for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value, known_values);
@@ -352,10 +367,10 @@ void handlePropagateError(
   }
 
   std::stringstream err_msg;
-  err_msg
-      << "When trying to propagate constant tensor sizes through the graph a conflict was found with "
-      << sizes.size()
-      << " different sizes across dimensions that are expected to match.\n";
+  err_msg << "When trying to propagate constant tensor sizes through the graph "
+             "a conflict was found with "
+          << sizes.size()
+          << " different sizes across dimensions that are expected to match.\n";
 
   // Track which size is associated with which TV and IterDomain
   std::unordered_map<
@@ -426,9 +441,9 @@ void handlePropagateError(
                   << (tv1_is_consumer ? tv2_error.str() : tv1_error.str());
           err_msg << "  For Consumer"
                   << (tv1_is_consumer ? tv1_error.str() : tv2_error.str());
-          err_msg
-              << "  With producer-consumer relationship through the expression: "
-              << relationship << "\n";
+          err_msg << "  With producer-consumer relationship through the "
+                     "expression: "
+                  << relationship << "\n";
         }
       }
     }
@@ -450,7 +465,8 @@ void handlePropagateError(
     err_msg
         << "Something went wrong trying to detect what went wrong!"
         << " There should have been ID's in TVs that should match, but don't."
-        << " Somehow IDs were registered with the exact graph that aren't used in the Fusion."
+        << " Somehow IDs were registered with the exact graph that aren't used "
+           "in the Fusion."
         << std::endl;
   }
 

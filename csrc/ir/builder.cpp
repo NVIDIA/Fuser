@@ -9,6 +9,7 @@
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <C++20/compare>
 
@@ -89,6 +90,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in bitwiseNotExpr.");
   auto result = create<Val>(val->dtype());
   IrBuilder::create<UnaryOp>(UnaryOpType::BitwiseNot, result, val);
+  return result;
+}
+
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
   return result;
 }
 

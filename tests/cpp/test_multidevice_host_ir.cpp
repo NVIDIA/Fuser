@@ -9,8 +9,10 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
@@ -90,6 +92,11 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   auto communication_input = tv1->as<TensorView>();
   auto communication_output = tv2->as<TensorView>();
+
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
 
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
@@ -181,6 +188,10 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   TensorView* communication_input = tv1->as<TensorView>();
   TensorView* communication_output = tv2->as<TensorView>();
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
@@ -350,123 +361,75 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
   EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
-using OverlapDistributedMatmulTest = MultiDeviceTest;
+TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
+  static constexpr int kTensorSize = 4;
+  static constexpr int kNumRepetitions = 10;
 
-TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
+  if (communicator_->size() < 2 || torch::cuda::device_count() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
 
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+  const DeviceIdxType my_rank = communicator_->deviceId();
+  const int64_t size = communicator_->size();
+  const DeviceIdxType send_peer = (my_rank + 1) % size;
+  const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
-  TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* tv1 = makeContigTensor(2); //[K, N]
-  TensorView* tv2 = matmul(tv0, tv1); //[S, D, M/(S*D), N]
+  auto container = std::make_unique<hir::HostIrContainer>();
+  FusionGuard fg(container.get());
 
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv2);
+  auto* send_tv = makeContigTensor(1, DataType::Int32);
+  auto* recv_tv = makeContigTensor(1, DataType::Int32);
 
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  tv0->setDeviceMesh(mesh);
-  tv1->setDeviceMesh(mesh);
-  tv2->setDeviceMesh(mesh);
+  auto send = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::SEND,
+      send_tv,
+      IrBuilder::create<Val>(send_peer),
+      CommunicatorBackend::kNccl);
+  auto recv = IrBuilder::create<P2PCommunication>(
+      P2PCommunicationType::RECV,
+      recv_tv,
+      IrBuilder::create<Val>(recv_peer),
+      CommunicatorBackend::kNccl);
+  std::vector<P2PCommunication*> grouped_communications = {send, recv};
 
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-  tv2->axis(0)->parallelize(ParallelType::Stream);
+  ExpressionEvaluator expr_evaluator;
+  IpcHandleCache ipc_handle_cache(expr_evaluator);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  auto options =
+      at::TensorOptions().dtype(at::kInt).device(communicator_->device());
+  auto generate_tensor = [options](int repetition, int rank) {
+    return at::arange(kTensorSize, options) + (repetition + 1) * 10 +
+        100 * rank;
+  };
+  at::Tensor recv_tensor = at::empty({kTensorSize}, options);
+  at::Tensor send_tensor = at::empty({kTensorSize}, options);
 
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  auto t0_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
-  auto t0 = t0_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  auto t1 = at::randn({K, N}, tensor_options);
-  auto t2_ref = at::matmul(t0_unsharded, t1);
+  expr_evaluator.bind(send_tv, send_tensor);
+  expr_evaluator.bind(recv_tv, recv_tensor);
 
-  at::Tensor t2;
+  for (auto repetition : c10::irange(kNumRepetitions)) {
+    // all ranks set `send_tensor`
+    send_tensor.copy_(generate_tensor(repetition, my_rank));
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
-  for (auto i : c10::irange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
-    }
-    t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
+    // Exchange IpcHandle on the first iteration
+    ipc_handle_cache.exchangeHandles(grouped_communications);
+
+    // RDMA put-zcopy
+    const P2pIpcHandle& send_ipc_handles = ipc_handle_cache.get(send);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        send_ipc_handles.peer().ptr(),
+        send_ipc_handles.local().ptr(),
+        send_tensor.numel() * send_tensor.element_size(),
+        cudaMemcpyDeviceToDevice));
+
+    torch::cuda::synchronize();
+    communicator_->barrier();
+    at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
+    EXPECT_TRUE(torch::allclose(recv_tensor, ref_recv_tensor))
+        << "Rank " << my_rank << " failed at repetition " << repetition
+        << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
+        << ref_recv_tensor;
   }
-  cudaProfilerStop();
-
-  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
-}
-
-TEST_F(OverlapDistributedMatmulTest, AG_linear) {
-  constexpr int64_t M = 32768;
-  constexpr int64_t K = 32768;
-  constexpr int64_t N = 1024;
-  constexpr int64_t S = 8;
-  const int64_t D = communicator_->size();
-  if (M % (D * S) != 0) {
-    GTEST_SKIP() << "M must be a multiple of D * S, but got M = " << M
-                 << ", D = " << D << ", S = " << S;
-  }
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* in = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* weight = makeContigTensor(2); //[N, K]
-  TensorView* bias = makeContigTensor(1); //[N]
-  TensorView* out = linear(in, weight, bias); //[S, D, M/(S*D), N]
-
-  fusion->addInput(in);
-  fusion->addInput(weight);
-  fusion->addInput(bias);
-  fusion->addOutput(out);
-
-  auto mesh = DeviceMesh::createForNumDevices(D);
-  in->setDeviceMesh(mesh);
-  weight->setDeviceMesh(mesh);
-  bias->setDeviceMesh(mesh);
-  out->setDeviceMesh(mesh);
-
-  in->axis(1)->parallelize(ParallelType::DIDx);
-  out->axis(0)->parallelize(ParallelType::Stream);
-
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
-
-  auto tensor_options =
-      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  at::Tensor in_at_unsharded =
-      at::randn({S, D, M / (S * D), K}, tensor_options);
-  at::Tensor in_at = in_at_unsharded.slice(
-      1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor weight_at = at::randn({N, K}, tensor_options);
-  at::Tensor bias_at = at::randn({N}, tensor_options);
-  at::Tensor out_ref = at::linear(in_at_unsharded, weight_at, bias_at);
-
-  at::Tensor out_at;
-
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
-  for (auto i : c10::irange(kNumberOfIterations)) {
-    if (i == kNumberOfWarmupIterations) {
-      cudaProfilerStart();
-    }
-    out_at =
-        executor.runWithInput({in_at, weight_at, bias_at})[0].as<at::Tensor>();
-  }
-  torch::cuda::synchronize();
-  cudaProfilerStop();
-
-  EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
 }
 
 } // namespace hir

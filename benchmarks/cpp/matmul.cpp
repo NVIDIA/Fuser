@@ -228,7 +228,7 @@ static void Baseline_Matmul(
 
 size_t getSmemSize(GemmTile cta_tile, int stage_number) {
   return ((cta_tile.m * cta_tile.k) + (cta_tile.n * cta_tile.k)) *
-      dataTypeSize(DataType::Half) * stage_number;
+      dataTypeSizeByte(DataType::Half) * stage_number;
 }
 
 // TODO: this part eventually will be automated by heuristics
@@ -403,7 +403,8 @@ static void NvFuserScheduler_Matmul(
 
   if (cudaArchGuardShouldSkip(8, 0, 9, 0)) {
     benchmark_state.SkipWithError(
-        "This Fusion includes broadcasts on the operands, which is not supported on Hopper+");
+        "This Fusion includes broadcasts on the operands, which is not "
+        "supported on Hopper+");
     return;
   }
 
@@ -544,7 +545,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 static std::vector<long int> splitKNs(long int tileN = 128) {
   const long int numSMs = getNumSMs();
   std::vector<long int> Ns;
-  for (long int N : c10::irange(numSMs + 1)) {
+  for (long int N : arange(numSMs + 1)) {
     if (N > 0 && numSMs % N == 0) {
       Ns.push_back(N * tileN);
     }

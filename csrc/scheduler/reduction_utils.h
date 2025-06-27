@@ -59,7 +59,7 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
-// Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
+// Unroll and Vectorize types are explicitly handled for
 // TensorViews in unroll_vectorizable_cached_tvs. Clears unroll parallelization
 // for reduction_tv and reference_tv if they shouldn't be unrolled.
 //
@@ -81,6 +81,7 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 //                                   or vectorizable.
 //
 //   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
+//   skip_input_output_unroll: If true, skip unrolling inputs and outputs.
 NVF_API void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -88,7 +89,8 @@ NVF_API void propagateParallelization(
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
-    const std::vector<TensorView*>& selected_tvs = {});
+    const std::vector<TensorView*>& selected_tvs = {},
+    const bool skip_input_output_unroll = false);
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
@@ -101,7 +103,9 @@ NVF_API void propagateParallelization(
 // Rfactored axes are reductions bound to grid or blocks. If no axes are bound
 // to a grid or block dimension it will rfactor the r-unswitch dimension.
 // Reduction inliner expects an rfactored domain.
-NVF_API TensorView* sortAndRFactor(TensorView* reference_tv);
+NVF_API TensorView* sortAndRFactor(
+    TensorView* reference_tv,
+    const bool is_non_persistent_outer_reduction = false);
 
 // If project_to_inputs is true, take all projectable persistent buffers,
 // and move them to the inputs. Otherwise, try to project to their immediate
@@ -142,5 +146,13 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     const int64_t io_vectorization_factor);
 
+// Get number of threads for computation in x dimension.
+// If warp specialized  on TIDx, returns bdimx minus number of padded threads.
+// Use this version, when warp_specialized_on is known, e.g. in codegen.
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx);
+// Use this version, need to check circular buffer options, e.g. in scheduler.
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

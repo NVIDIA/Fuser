@@ -241,6 +241,11 @@ class NVF_API Val : public Statement {
           " for value ",
           PolymorphicValue_functions::toString(value_));
     }
+    NVF_ERROR(
+        !isPackedType(dtype_),
+        "Packed type ",
+        dtype_,
+        " must be unpacked when defining fusion");
   }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
@@ -400,7 +405,8 @@ class NVF_API Val : public Statement {
   NVFUSER_DECLARE_CLONE
 
  protected:
-  friend Fusion;
+  friend class Fusion;
+  friend class IrContainer;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;
@@ -519,6 +525,10 @@ class NVF_API Expr : public Statement {
   virtual bool sameOp(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
+
+  virtual bool isDeterministic() const {
+    return true;
+  }
 
   virtual std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,

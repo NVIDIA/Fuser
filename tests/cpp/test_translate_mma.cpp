@@ -92,10 +92,7 @@ class CombineMulSumAsMmaTestWithLayout
   bool pre_hopper;
 };
 
-void performSubstitution(
-    Fusion* fusion,
-    bool avoid_intermediates,
-    bool should_not_find = false) {
+void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -108,7 +105,7 @@ void performSubstitution(
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp(avoid_intermediates);
+  patterns.front().translateToMmaOp();
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
@@ -131,7 +128,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
@@ -150,8 +147,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(
-      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
+  performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
@@ -186,8 +182,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(
-      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -227,7 +222,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -496,8 +491,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   EnableOptionsGuard eog;
   if (enable_fusion) {
     if (A_dim != 2 && !cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP()
-          << "Translating linear with batch dims is not yet supported on Hopper";
+      GTEST_SKIP() << "Translating linear with batch dims is not yet supported "
+                      "on Hopper";
     }
 
     EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
@@ -769,7 +764,27 @@ TEST_P(TranslationCastTest, CountCasts) {
     }
     return false;
   });
-  EXPECT_EQ(num_casts, 1);
+  if (sin_epilogue && output_pre_epilogue) {
+    // Fusion looks like
+    // Inputs:
+    //   A
+    //   B
+    // Outputs:
+    //   C
+    //   D
+    // C = linear(A, B)
+    // D = sin(C)
+    // We will need to cast both C and D.
+    EXPECT_EQ(num_casts, 2);
+  } else {
+    // Fusion is either
+    //   C = linear(A, B)
+    // or
+    //   C = linear(A, B)
+    //   D = sin(C)
+    // but we are not outputting both C and D so there is only one cast.
+    EXPECT_EQ(num_casts, 1);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

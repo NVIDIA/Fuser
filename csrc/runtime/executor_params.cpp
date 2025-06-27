@@ -7,6 +7,7 @@
 // clang-format on
 #include <debug.h>
 #include <runtime/executor_params.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -22,7 +23,8 @@ std::string CompileParams::toString() const {
   }
   ss << "maxrregcount = " << maxrregcount << ", "
      << "enable_magic_zero = " << enable_magic_zero << ", "
-     << "enable_ptxas_verbose = " << enable_ptxas_verbose << "\n";
+     << "enable_ptxas_verbose = " << enable_ptxas_verbose
+     << ", include_paths = " << toDelimitedString(include_paths, ":") << "\n";
   return ss.str();
 }
 

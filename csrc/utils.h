@@ -15,12 +15,14 @@
 
 #include <debug.h>
 #include <mma_type.h>
+#include <options.h>
 #include <tma.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
 
 #include <concepts>
+#include <coroutine>
 #include <deque>
 #include <iterator>
 #include <memory>
@@ -52,6 +54,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+//! Warp specialization padded threads count
+constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
 class KernelArgumentHolder;
 
@@ -550,7 +555,7 @@ NVF_API const char* getNvFuserEnv(
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
-const V& getOrDefault(
+V getOrDefault(
     const std::unordered_map<K, V>& map,
     const K& key,
     const V& default_value = V()) {
@@ -597,6 +602,23 @@ T pow(T a, T b) {
     }
     return result;
   }
+}
+
+// Returns a range of integers [start, end)
+auto arange(auto start, auto end) {
+  static_assert(std::is_integral<decltype(start)>());
+  static_assert(std::is_integral<decltype(end)>());
+  // If start and end are the same type, use the range directly
+  if constexpr (std::is_same_v<decltype(start), decltype(end)>) {
+    return std::ranges::iota_view(start, end);
+  }
+  return std::ranges::iota_view(decltype(end)(start), end);
+}
+
+// Returns a range of integers [0, end)
+auto arange(auto end) {
+  static_assert(std::is_integral<decltype(end)>());
+  return std::ranges::iota_view(decltype(end)(0), end);
 }
 
 // Returns true if given number is power of 2
@@ -740,7 +762,7 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    std::size_t index_;
+    int64_t index_;
 
     iterator_base() = default;
     iterator_base(base_iterator current, std::size_t index)
@@ -825,5 +847,137 @@ using views::enumerate;
 using views::zip;
 
 #endif // C++23
+
+// Helper: turn T into reference_wrapper<U> if T is reference
+template <typename T>
+using Yielded = std::conditional_t<
+    std::is_reference_v<T>,
+    std::reference_wrapper<std::remove_reference_t<T>>,
+    T>;
+
+// Writing yield in C++20 just like Python:
+// See NVFuserTest.Generator[1-5] for usage examples
+template <typename T>
+class Generator : public std::ranges::view_interface<Generator<T>> {
+ public:
+  struct promise_type;
+  using handle_type = std::coroutine_handle<promise_type>;
+  using stored_type = Yielded<T>;
+
+  Generator(handle_type h) : coroutine_(h) {}
+  Generator(Generator&& other) noexcept : coroutine_(other.coroutine_) {
+    other.coroutine_ = nullptr;
+  }
+  Generator& operator=(Generator&& other) noexcept {
+    if (this != &other) {
+      if (coroutine_) {
+        coroutine_.destroy();
+      }
+      coroutine_ = other.coroutine_;
+      other.coroutine_ = nullptr;
+    }
+    return *this;
+  }
+  ~Generator() {
+    if (coroutine_) {
+      coroutine_.destroy();
+    }
+  }
+  Generator(const Generator&) = delete;
+  Generator& operator=(const Generator&) = delete;
+
+  struct iterator {
+    using value_type = std::remove_reference_t<T>;
+    using reference = T;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::input_iterator_tag;
+
+    iterator() = default;
+    explicit iterator(handle_type h) : coroutine(h) {
+      ++(*this);
+    }
+
+    reference operator*() const {
+      if constexpr (std::is_reference_v<T>) {
+        return value->get(); // unwrap reference_wrapper<T>
+      } else {
+        return *value;
+      }
+    }
+
+    iterator& operator++() {
+      coroutine.resume();
+      if (coroutine.done()) {
+        if (coroutine.promise().exception) {
+          std::rethrow_exception(coroutine.promise().exception);
+        }
+        value.reset();
+      } else {
+        value = std::ref(coroutine.promise().current_value);
+      }
+      return *this;
+    }
+
+    iterator operator++(int) {
+      auto tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    bool operator==(std::default_sentinel_t) const {
+      return !value.has_value();
+    }
+    bool operator!=(std::default_sentinel_t) const {
+      return value.has_value();
+    }
+    friend bool operator==(std::default_sentinel_t s, const iterator& it) {
+      return it == s;
+    }
+    friend bool operator!=(std::default_sentinel_t s, const iterator& it) {
+      return it != s;
+    }
+
+    handle_type coroutine = nullptr;
+    std::optional<stored_type> value;
+  };
+
+  iterator begin() const {
+    return iterator{coroutine_};
+  }
+  std::default_sentinel_t end() const {
+    return {};
+  }
+
+ private:
+  handle_type coroutine_;
+
+ public:
+  struct promise_type {
+    std::optional<stored_type> current_value;
+    std::exception_ptr exception;
+
+    auto get_return_object() {
+      return Generator{handle_type::from_promise(*this)};
+    }
+    std::suspend_always initial_suspend() {
+      return {};
+    }
+    std::suspend_always final_suspend() noexcept {
+      return {};
+    }
+    std::suspend_always yield_value(T value) {
+      if constexpr (std::is_reference_v<T>) {
+        current_value = std::ref(value); // wraps T& as reference_wrapper
+      } else {
+        current_value = std::move(value);
+      }
+      return {};
+    }
+
+    void return_void() {}
+    void unhandled_exception() {
+      exception = std::current_exception();
+    }
+  };
+};
 
 } // namespace nvfuser

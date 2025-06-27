@@ -413,7 +413,7 @@ void checkStep5Results(
     ASSERT_EQ(ref_promotion_domains.size(), tv->nDims())
         << "Invalid number of domains: "
         << toDelimitedString(ref_promotion_domains);
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* loop_id = tv->axis(i);
       const ValGroup& loop_group = loop_graph.toGroup(loop_id);
 
@@ -519,7 +519,7 @@ void checkSortingResults(
 
   // Check the ordering
   ASSERT_EQ(sorted_expr_groups.size(), ref_order.size());
-  for (const auto i : c10::irange(ref_order.size())) {
+  for (const auto i : arange(ref_order.size())) {
     Expr* ref_expr = ref_order.at(i);
     const ExprGroup& eg = sorted_expr_groups.at(i);
     ASSERT_TRUE(eg->has(ref_expr))
@@ -2234,7 +2234,7 @@ TEST_F(IdModelTest, LoopGraphWithSibling) {
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
 
   for (auto welford_out : {welford_out_tvs.var_sum, welford_out_tvs.n}) {
-    for (const auto i : c10::irange(avg->nDims())) {
+    for (const auto i : arange(avg->nDims())) {
       ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(
           avg->axis(i), welford_out->axis(i)))
           << "Unmapped siblings: " << avg->axis(i)->toString() << ", "
@@ -2520,7 +2520,7 @@ TEST_F(IdModelTest, BroadcastGraph) {
     IdModel id_model(fusion.get(), /*build_graphs=*/false);
     id_model.buildBroadcastGraph();
     // tv2 and tv3 should be fully mapped in the Broadcast graph
-    for (const auto i : c10::irange(tv2->nDims())) {
+    for (const auto i : arange(tv2->nDims())) {
       EXPECT_TRUE(id_model.idGraph(IdMappingMode::BROADCAST)
                       .disjointValSets()
                       .strictAreMapped(tv2->axis(i), tv3->axis(i)));
@@ -2558,7 +2558,7 @@ TEST_F(IdModelTest, MappingClonedIDs) {
 
   IdModel id_model_after_clone(&fusion, /*build_graphs=*/false);
   id_model_after_clone.buildExactGraph();
-  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+  for (const auto i : arange(tv2->getLoopDomain().size())) {
     EXPECT_TRUE(id_model_after_clone.idGraph(IdMappingMode::EXACT)
                     .disjointValSets()
                     .strictAreMapped(
@@ -2840,7 +2840,7 @@ TEST_F(IdModelTest, LoopPromotionWithCyclicGraphInlinedBroadcast) {
     }
 
     EXPECT_EQ(tv->nDims(), 2);
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto promotion = getLoopPromotion(tv->getLoopDomain().at(i), id_model);
       EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
           promotion, tv7->getLoopDomain().at(i)));
@@ -2884,7 +2884,7 @@ TEST_F(IdModelTest, LoopGraphWithSetLoopDomain) {
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const auto& loop_graph = id_model.idGraph(IdMappingMode::LOOP);
   const auto& loop_promotion_map = id_model.loopPromotionMap();
-  for (const auto i : c10::irange(tv2->getLoopDomain().size())) {
+  for (const auto i : arange(tv2->getLoopDomain().size())) {
     const auto& loop_group = loop_graph.toGroup(tv2->getLoopDomain().at(i));
     for (auto tv : {tv3, tv4}) {
       EXPECT_TRUE(loop_group->has(tv->getLoopDomain().at(i)))
@@ -2925,7 +2925,7 @@ TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
   IdModel id_model(&fusion, /*build_graphs=*/true);
 
   for (auto tv : {tv1, tv2, tv3}) {
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
       auto promotion_id = getLoopPromotion(tv->getLoopDomain().at(i), id_model);
       EXPECT_TRUE(
           id_model.idGraph(IdMappingMode::EXACT)
@@ -3082,6 +3082,51 @@ TEST_F(IdModelTest, InvalidLoopPromotion) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
+// When a loop group only includes broadcast IDs, the group should not
+// need to be promoted
+TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(1, 1, false);
+    tv->reorder({{0, 1}, {1, 0}});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->inlineAt(2);
+  }
+
+  // T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // = Set( T0_g_float[bS8{1}, iS0{i0}, bS9{1}], cache_op=Streaming )
+  // T3_g_float[iS14{1}, iS6{i0}, iS15{i5}] ca_pos( 2 ) produce_pos( 2 )
+  // = T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // + T1_g_float[iS12{1}, iS2{i4}, iS13{i5}];
+
+  // In this fusion, the innermost loop ID of tv2 is broadcast and is
+  // not inlined. While its producer ID is promoted to the concrete
+  // logical ID of tv3, it should not need to promote the loop ID as
+  // it's just a broadcast.
+
+  IdModel id_model(&fusion, /*build_graphs=*/true);
+
+  auto promotion_id = id_model.loopPromotionMap().at(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv2->axis(-1)));
+  EXPECT_TRUE(promotion_id->isBroadcast())
+      << "Should not be promoted a non-broadcast ID: "
+      << promotion_id->toString();
 }
 
 } // namespace nvfuser

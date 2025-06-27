@@ -11,6 +11,8 @@
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
+#include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <fusion_profiler.h>
 #include <global_allocator.h>
@@ -37,7 +39,6 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 
 #include <cmath>
 #include <cstring>
@@ -81,7 +82,7 @@ bool ExprEvalExecutor::isCompiled() const {
 }
 
 KernelArgumentHolder ExprEvalExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
 
@@ -214,7 +215,8 @@ void KernelExecutor::compile(
     NVF_ERROR(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
-        "Compilation with int32 is requested but int64 is required for the arguments");
+        "Compilation with int32 is requested but int64 is required for the "
+        "arguments");
   } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -267,10 +269,11 @@ void KernelExecutor::compile(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
-  // Now that we have launch parameters we can compile the kernel. It's a bit
-  // odd we need launch parameters for compilation, need to go back and check
-  // why this is the case.
-  compiled_kernel_->compile(launch_params.nThreads());
+  // Launch parameters are required to compile the kernel to:
+  // (1) validate register sharing
+  // (2) runtime function may use static CTA shape, e.g.
+  //     iterGroupedStaticWarpAllReduce
+  compiled_kernel_->compile(launch_params);
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
@@ -388,7 +391,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
                 "Cannot validate parallelization scheme, "
-                "this may be due to mixed broadcast axes that are parallelized.");
+                "this may be due to mixed broadcast axes that are "
+                "parallelized.");
           }
         } else if (!expr_eval.precomputedValues()) {
           expr_eval.bind(extent, launch_constraints.getDim(p_type));
@@ -454,18 +458,41 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     NVF_CHECK(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
-        "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
+        "can't have welford and iter grouped reductions at the same time! "
+        "Should be handled by grouped welford!");
+
+    // For block reduction, each thread has a smem slot per reduction
+    // When warp specialization is used, remove padded threads
+    // For warp reduction, each warp has a smem slot per reduction
+    int64_t n_compute_threads_or_warps = launch_params.nThreads();
+    if (kernel_summary.circular_buffer_info.hasWarpSpecialized()) {
+      n_compute_threads_or_warps -= kWarpSpecializationPaddedThreads;
+    }
+    if (kernel_summary.all_block_reductions_are_warp_reduction) {
+      n_compute_threads_or_warps /= 32;
+    }
 
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(
-            kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * launch_params.bdimx() *
-        launch_params.bdimy() * launch_params.bdimz();
+        dataTypeSizeByte(kernel_summary.largest_smem_data_type, index_type) *
+        grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
           (int64_t)kernel_summary.outer_grouped_grid_welford_largest_smem_size);
+    }
+
+    // StackBasedSharedMemAllocator start from address 0 without considering the
+    // shared memory reserved for reduction and broadcast workspace which is
+    // only known at runtime. To avoid mis-alignment for TMA tensors, here we
+    // enforce the workspace aligned at 128 Bytes. Same roundup is also added to
+    // codegen.
+    reduction_broadcast_workspace =
+        roundUpToMultiple(reduction_broadcast_workspace, 128);
+
+    if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+      debug() << "reduction_broadcast_workspace shared memory bytes: "
+              << reduction_broadcast_workspace << std::endl;
     }
   }
 
@@ -568,7 +595,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",
@@ -594,7 +622,7 @@ void dumpFusionArgs(
     const KernelArgumentHolder& outputs) {
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(args.size())) {
+  for (auto i : arange(args.size())) {
     debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -622,7 +650,7 @@ void dumpKernelArgs(
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
           << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(num_inputs)) {
+  for (auto i : arange(num_inputs)) {
     debug() << "  " << toString(args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -632,7 +660,7 @@ void dumpKernelArgs(
             << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
-  for (const auto i : c10::irange(intermediates.size())) {
+  for (const auto i : arange(intermediates.size())) {
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
@@ -686,14 +714,8 @@ void KernelExecutor::initializeExecutorEntry(
       launch_params.bdimx());
 
   std::vector<GlobalBufferInfo> input_info;
-  NVF_ERROR(
-      compiled_kernel_->kernel()->inputs().size() == args.size(),
-      "Input size mismatch, expected: ",
-      compiled_kernel_->kernel()->inputs().size(),
-      " got: ",
-      args.size());
-  for (auto inp_idx :
-       c10::irange(compiled_kernel_->kernel()->inputs().size())) {
+  NVF_ERROR_EQ(std::ssize(compiled_kernel_->kernel()->inputs()), args.size());
+  for (auto inp_idx : arange(compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (auto input_tv = dynamic_cast<TensorView*>(input)) {
       auto at_tensor = args[inp_idx].as<at::Tensor>();
@@ -736,7 +758,7 @@ void KernelExecutor::initializeExecutorEntry(
     // Need to save the information necessary for allocations as
     // future uses of this KernelExecutorEntry may not be provided with
     // allocated outputs
-    for (auto output_idx : c10::irange(output_args.size())) {
+    for (auto output_idx : arange(output_args.size())) {
       NVF_ERROR(
           output_args[output_idx].hasValue() &&
               output_args[output_idx].is<at::Tensor>(),
@@ -747,11 +769,15 @@ void KernelExecutor::initializeExecutorEntry(
       auto out_val = compiled_kernel_->kernel()->outputs()[output_idx];
       NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
       info.tv = out_val->as<TensorView>();
-      NVF_ERROR(
-          !info.tv->hasAllocation(),
-          "Accepting allocated outputs is not currently supported with allocation domain. ",
-          "Allocation domain found for tv: ",
-          info.tv->toString());
+      if (info.tv->hasAllocation()) {
+        // Validate that the pre-allocated output tensor matches the allocation
+        // domain requirements
+        auto [alloc_sizes, alloc_strides] =
+            inferAndValidateAllocationSizesAndStrides(
+                output_tensor, info.tv, expr_eval);
+        info.shape_info.allocation_sizes = alloc_sizes;
+        info.shape_info.allocation_strides = alloc_strides;
+      }
       info.shape_info.logical_sizes = output_tensor.sizes().vec();
       info.shape_info.logical_strides = output_tensor.strides().vec();
       output_info.emplace_back(info);
@@ -802,17 +828,13 @@ void KernelExecutor::computeArgs(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
-  if (entry.args.size() != args.size()) {
+  if (std::ssize(entry.args) != args.size()) {
     entry.args.resize(args.size());
     entry.arg_ptrs.resize(args.size());
   }
 
-  NVF_ERROR(
-      args.size() == compiled_kernel_->kernel()->parameters().size(),
-      "Argument size mismatch, expected: ",
-      compiled_kernel_->kernel()->parameters().size(),
-      " got: ",
-      args.size());
+  NVF_ERROR_EQ(
+      args.size(), std::ssize(compiled_kernel_->kernel()->parameters()));
 
   for (auto inp : compiled_kernel_->kernel()->inputs()) {
     if (!inp->isA<TensorView>()) {
@@ -822,26 +844,26 @@ void KernelExecutor::computeArgs(
 
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   int64_t buffer_info_idx = 0;
-  for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
-    if (args[arg_idx].is<at::Tensor>() &&
-        args[arg_idx].as<at::Tensor>().is_cuda()) {
+  for (auto&& [arg_idx, arg] : enumerate(args)) {
+    if (arg.is<at::Tensor>() && arg.as<at::Tensor>().is_cuda()) {
       const auto& buffer_info =
           linear_buffer_info_getter(entry, buffer_info_idx++);
       entry.args[arg_idx] = tensorToBytes(
-          args[arg_idx],
+          arg,
           buffer_info.shape_info.logical_sizes,
           buffer_info.shape_info.allocation_strides.empty()
               ? buffer_info.shape_info.logical_strides
               : buffer_info.shape_info.allocation_strides,
           idx_type,
+          getLastDimAdjustment(buffer_info.tv->dtype()),
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
-      if (args[arg_idx].is<at::Tensor>()) {
+      if (arg.is<at::Tensor>()) {
         buffer_info_idx++;
       }
       auto bytes = polymorphicValueToBytes(
-          args[arg_idx],
+          arg,
           compiled_kernel_->kernel()->parameters()[arg_idx]->dtype(),
           idx_type);
       entry.args[arg_idx] = bytes;
@@ -890,7 +912,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         expected_dynamic_smem_size);
   }
   NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      getStaticSmemSize() + dynamic_smem_size <= device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
       dynamic_smem_size,
@@ -955,7 +977,7 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
   NVF_ERROR(
       entry.inputs.size() == compiled_kernel_->kernel()->inputs().size(),
       "Input size mismatch");
-  for (auto inp_idx : c10::irange(entry.inputs.size())) {
+  for (auto inp_idx : arange(entry.inputs.size())) {
     expr_eval.bind(
         compiled_kernel_->kernel()->inputs()[inp_idx], args[arg_idx++]);
   }
@@ -963,7 +985,7 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
   NVF_ERROR(
       entry.outputs.size() == compiled_kernel_->kernel()->outputs().size(),
       "Output size mismatch");
-  for (auto out_idx : c10::irange(entry.outputs.size())) {
+  for (auto out_idx : arange(entry.outputs.size())) {
     expr_eval.bind(
         compiled_kernel_->kernel()->outputs()[out_idx], args[arg_idx++]);
   }
@@ -986,7 +1008,7 @@ KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("KernelExecutor::runFusion");
+  FUSER_PERF_SCOPE("KernelExecutor::run");
 
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -1003,13 +1025,10 @@ KernelArgumentHolder KernelExecutor::run(
   NVF_ERROR(isCompiled());
   NVF_ERROR(
       output_args.empty() ||
-          (output_args.size() == compiledKernel()->kernel()->outputs().size()),
+          (output_args.size() ==
+           std::ssize(compiledKernel()->kernel()->outputs())),
       __func__,
       " provided number of outputs does not match fusion output");
-
-  NVF_ERROR(
-      !args.getCacheId().has_value() || output_args.empty(),
-      "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
 
@@ -1029,7 +1048,7 @@ KernelArgumentHolder KernelExecutor::run(
   KernelExecutorEntry temporary_executor_entry;
 
   KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
-          !compiled_kernel_->disablePaarameterCache()
+          !compiled_kernel_->launchParamCacheDisabled()
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
 
@@ -1075,7 +1094,7 @@ KernelArgumentHolder KernelExecutor::run(
       }
 
       for (const auto i :
-           c10::irange(compiled_kernel_->kernel()->outputs().size())) {
+           arange(compiled_kernel_->kernel()->outputs().size())) {
         auto param = compiled_kernel_->kernel()->outputs()[i];
         if (!param->isA<TensorView>()) {
           continue;
@@ -1109,7 +1128,7 @@ KernelArgumentHolder KernelExecutor::run(
     // This is simply because the convention used is that allocation
     // sizes/strides are optional, logical are not.
     for (const auto intermediate_i :
-         c10::irange(executor_entry->intermediates.size())) {
+         arange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
@@ -1117,8 +1136,7 @@ KernelArgumentHolder KernelExecutor::run(
       NVF_ERROR(
           buf_info.shape_info.logical_sizes.size() ==
           buf_info.shape_info.logical_strides.size())
-      for (const auto j :
-           c10::irange(buf_info.shape_info.logical_sizes.size())) {
+      for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
         if (buf_info.shape_info.logical_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
@@ -1165,10 +1183,11 @@ KernelArgumentHolder KernelExecutor::run(
     }
   }
 
-  if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
+  if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
     NVF_ERROR(
         has_tma_ || has_rng_,
-        "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+        "No TMA or RNG found in the kernel, but detected an argument size "
+        "mismatch.");
     // If args don't match one of two things is happening. We need to add TMA
     // related args or RNG related args. Resolve these scenarios.
     if (has_tma_) {
@@ -1542,7 +1561,7 @@ void KernelExecutor::deserialize(
   compiled_kernel_->deserialize(buffer);
 
   // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+  for (auto idx : arange(buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));

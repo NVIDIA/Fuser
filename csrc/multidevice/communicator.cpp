@@ -15,9 +15,6 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#ifdef USE_C10D_GLOO
-#include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
-#endif
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -36,8 +33,8 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
     case CommunicatorBackend::kUcc:
       out << "UCC";
       break;
-    case CommunicatorBackend::kGloo:
-      out << "GLOO";
+    case CommunicatorBackend::kCuda:
+      out << "CUDA";
       break;
   }
   return out;
@@ -118,9 +115,9 @@ bool parseEnv(
   if ((env = std::getenv("NVFUSER_MASTER_PORT")) != nullptr) {
     master_port = std::atoi(env);
   } else {
-    LOG(INFO)
-        << "The environment variable NVFUSER_MASTER_PORT has not been specified. "
-        << "Set the master port to default: " << master_port;
+    LOG(INFO) << "The environment variable NVFUSER_MASTER_PORT has not been "
+                 "specified. "
+              << "Set the master port to default: " << master_port;
   }
 
   return true;
@@ -149,14 +146,6 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::kNccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
     return c10::make_intrusive<::c10d::ProcessGroupNCCL>(
-        store, rank, size, pg_opts);
-  }
-#endif
-
-#ifdef USE_C10D_GLOO
-  if (backend == CommunicatorBackend::kGloo) {
-    auto pg_opts = c10d::ProcessGroupGloo::Options::create();
-    return c10::make_intrusive<::c10d::ProcessGroupGloo>(
         store, rank, size, pg_opts);
   }
 #endif
@@ -358,11 +347,13 @@ c10d::Backend* Communicator::getBackendForTeam(
     const Team& team,
     std::optional<CommunicatorBackend> backend,
     const std::string& prefix) {
-  NVF_ERROR(
+  NVF_CHECK(
       is_available(),
       "The singleton Communicator isn't available. "
-      "This is likely because Communicator::cleanup has been called "
-      "or the instance wasn't successfully initialized.");
+      "This is most likely because the instance wasn't successfully "
+      "initialized due to lack of a multi-process running (e.g. mpirun or "
+      "torchrun). Sometimes, this is because Communicator::cleanup has been "
+      "accidentally called before this function.");
 
   CommunicatorBackend b = getBackend(backend);
   // generate a string key which is unique to the team

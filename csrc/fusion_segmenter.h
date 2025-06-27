@@ -19,6 +19,7 @@
 #include <visibility.h>
 
 #include <deque>
+#include <functional>
 #include <list>
 #include <unordered_set>
 #include <vector>
@@ -73,13 +74,6 @@ class SegmentedGroup {
     exprs_.push_back(expr);
   }
 
-  //! Create a temporary group to signify a fusion input, which can be
-  //! an original fusion input or a forwarded input with unary-only
-  //! use chains
-  SegmentedGroup(SegmentedFusion* segmented_fusion, bool is_fusion_input)
-      : is_fusion_input_(is_fusion_input),
-        segmented_fusion_(segmented_fusion) {}
-
   //! Serialize SegmentedGroup using flatbuffers
   flatbuffers::Offset<serde::SegmentedGroup> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -96,17 +90,6 @@ class SegmentedGroup {
       const std::vector<SegmentedGroup*>& groups,
       const std::vector<SegmentedEdge*>& edges);
 
-  //! Checks if this group takes original fusion's input
-  bool isInputGroup() {
-    return !input_vals.empty();
-  };
-
-  //! Checks if this group is used any where in the segmented fusion
-  bool isConnected() const {
-    return !producer_edges.empty() || !consumer_edges.empty() ||
-        !output_vals.empty();
-  }
-
   //! returns the id assigned by segment pass
   int groupId() const {
     return group_id_;
@@ -114,12 +97,12 @@ class SegmentedGroup {
 
   //! Returns inputs that this group shares with the original fusion
   const auto& inputs() const {
-    return input_vals;
+    return input_vals_.vector();
   }
 
   //! Returns outputs that this group shares with the original fusion
   const auto& outputs() const {
-    return output_vals;
+    return output_vals_.vector();
   }
 
   //! Returns the schedule heuristic associated with this group
@@ -131,6 +114,10 @@ class SegmentedGroup {
   const std::vector<Expr*>& exprs() const {
     return exprs_;
   }
+
+  // Returns a toposorted list of Exprs in this group, with equal cases
+  // respecting the original order.
+  std::vector<Expr*> stablyOrderedExprs() const;
 
   //! Returns the complete fusion inputs mapped to this segmented group's fusion
   const auto& getCompleteFusionInputs() const {
@@ -164,8 +151,10 @@ class SegmentedGroup {
   std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
-  //! Query if this is a group for a fusion input
-  bool isFusionInputGroup() const;
+  //! Get the SegmentedFusion this group belongs to
+  const SegmentedFusion* segmentedFusion() const {
+    return segmented_fusion_;
+  }
 
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
@@ -174,15 +163,21 @@ class SegmentedGroup {
   //! "Descendent nodes", towards outputs of segmentedDAG
   std::vector<SegmentedEdge*> consumer_edges;
 
-  //! Composite Fusion inputs in this group
-  std::vector<Val*> input_vals;
+  //! Inputs of this group, they could be composite fusion inputs, or inputs
+  //! from other groups
+  VectorOfUniqueEntries<Val*> input_vals_;
 
-  //! Composite Fusion outputs in this group
-  std::vector<Val*> output_vals;
+  //! Outputs of this group, they could be composite fusion outputs, or outputs
+  //! to other groups
+  VectorOfUniqueEntries<Val*> output_vals_;
 
   bool isMerged() const {
     return merged_;
   }
+
+  //! Look at all neighbors of this and return who this could merge with based
+  //! on level values of this, neighbors, and merged neighbors of neighbors
+  std::vector<NeighborGroup> getMergeCandidates();
 
  private:
   friend class SegmentCandidateFinder;
@@ -203,9 +198,6 @@ class SegmentedGroup {
   //! Theorem 4.2
   int level_ = -1;
 
-  //! traversal marker, has this node already been processed
-  bool visited_ = false;
-
   //! Did we select another group to merge with
   SegmentedGroup* merge_with_ = nullptr;
 
@@ -215,17 +207,7 @@ class SegmentedGroup {
   //! Has this node been merged?
   bool merged_ = false;
 
-  //! Is a group for a fusion input?
-  bool is_fusion_input_ = false;
-
  private:
-  //! Utility to convert edge vector to value vector
-  std::vector<Val*> edgesToVals(const std::vector<SegmentedEdge*>& se_v);
-
-  //! Reset method to call at begining of each
-  //!  merge node iteration
-  void clearTraversalInfo();
-
   //! To be called at the very end of segment fusion
   //!  no more segment merging should be done beyond
   void finalize();
@@ -240,10 +222,6 @@ class SegmentedGroup {
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
   std::vector<NeighborGroup> getNeighborGroups();
-
-  //! Look at all neighbors of this and return who this could merge with based
-  //! on level values of this, neighbors, and merged neighbors of neighbors
-  std::vector<NeighborGroup> getMergeCandidates();
 
   //! Assign scheduler type to this group
   void setSchedulerType(SchedulerType scheduler_type) {
@@ -322,7 +300,8 @@ class SegmentedFusion {
 
   //! Get the fusion for the segmented group and return the IrCloner used to
   //! clone the complete fusion
-  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(
+      SegmentedGroup* sg) const;
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<HeuristicParams> makeInitialHeuristicParams(
@@ -346,6 +325,13 @@ class SegmentedFusion {
 
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+
+  //! Remove an edge from the segmented fusion graph and update all affected
+  //! groups The edge object will be deleted and should not be used after this
+  //! call
+  void removeEdge(SegmentedEdge* edge);
+
+  void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
@@ -376,6 +362,11 @@ class SegmentedFusion {
 
   //! Grab edges with val
   std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
+
+  //! Get edges between two groups
+  std::vector<SegmentedEdge*> getEdgesBetween(
+      const SegmentedGroup* from,
+      const SegmentedGroup* to) const;
 
   //! Serialize SegmentedFusion using flatbuffers
   flatbuffers::Offset<serde::SegmentedFusion> serialize(
@@ -414,7 +405,6 @@ class SegmentedFusion {
 
     SegmentedGroup* makeGroup();
     SegmentedGroup* makeGroup(Expr*);
-    SegmentedGroup* makeFusionInputGroup();
     SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
     void cleanUnused();
     std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
@@ -490,6 +480,7 @@ class GroupDependencyAnalysis;
 // Manual node merging passes
 class CombineReductions;
 class MergeUpAndDownCast;
+class MergeCatWithInputPads;
 
 //! Options to configure/debug candidate finder
 struct SegmentCandidateFinderOptions {
@@ -497,7 +488,12 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
-  bool only_segment_resharding_exprs = false;
+  // if provided, this custom function will be used to determine if two groups
+  // should be merged. If not provided, the tryMerge function will be used. This
+  // option is used in the context of MultiGpus where we proceed to a first
+  // segmentation to scoop out communications from compute.
+  std::function<bool(SegmentedGroup*, SegmentedGroup*)>
+      custom_should_merge_groups = nullptr;
 };
 
 //!  SegmentCandidateFinder
@@ -589,7 +585,7 @@ class SegmentCandidateFinder {
       SegmentedGroup* group,
       std::vector<SegmentedGroup::NeighborGroup> candidates = {});
 
-  std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
+  void disconnectGroup(SegmentedGroup* group);
 
   std::vector<SegmentedGroup*>& groups() {
     NVF_ERROR(
@@ -699,18 +695,21 @@ class SegmentCandidateFinder {
                val) != forwarded_fusion_inputs_.end();
   };
 
+  // Get all auxiliary groups created for fusion inputs
+  std::vector<SegmentedGroup*> getAuxiliaryInputGroups() const;
+
  protected:
   //! These are the merge node heuristic passes, should
   //!  eventually should have a dedicated interface
   //!  instead of keeping adding friends
   friend class CombineReductions;
   friend class MergeUpAndDownCast;
+  friend class MergeCatWithInputPads;
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
 
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
-  std::unordered_set<SegmentedEdge*> clean_up_edges_;
 
   std::vector<SegmentedGroup*> to_merge_;
 

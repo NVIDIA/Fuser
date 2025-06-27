@@ -67,7 +67,7 @@ bool isTrivialExpr(Expr* expr) {
   const ValGraph& exact_graph =
       GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
-  for (size_t pos : c10::irange(in_alloc.size())) {
+  for (size_t pos : arange(in_alloc.size())) {
     // At this point in_pos and out_pos are both in range and point to
     // non-broadcast IDs
     IterDomain* in_id = in_alloc.at(pos);

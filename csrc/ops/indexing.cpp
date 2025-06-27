@@ -16,7 +16,6 @@
 
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
 
 namespace nvfuser {
 
@@ -28,7 +27,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   new_root.reserve(dom.size() - 1);
   dim = wrapDim(dim, (int64_t)dom.size());
 
-  for (auto i : c10::irange((int64_t)dom.size())) {
+  for (auto i : arange((int64_t)dom.size())) {
     if (i != dim) {
       new_root.emplace_back(dom[i]->cloneWithoutRFactor());
     }
@@ -79,7 +78,7 @@ TensorView* indexSelect(
   // create logical domain for output tensorview.
   std::vector<IterDomain*> new_logical;
   new_logical.reserve(n_dims);
-  for (auto i : c10::irange(n_dims)) {
+  for (auto i : arange(n_dims)) {
     if (i != dim) {
       new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
     } else {
@@ -100,6 +99,35 @@ TensorView* indexSelect(
   return out;
 }
 
+// This is a restricted version of PyTorch's Tensor.index_put(indices,
+// values, accumulate=true). We only support a 1-D index tensor at
+// this moment. The 1-D index tensor is assumed to index dimension
+// 0. The shape of the value tensor must be
+// [index_tv->axis(0)->extent(), acc_tv->axis(1)->extent(),
+// acc_tv->axis(2)->extent(), ...].
+TensorView* indexPutAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv) {
+  DataType dtype = acc_tv->getDataType().value();
+  NVF_CHECK(
+      dtype != DataType::Null, "Invalid datatype provided for new value.");
+
+  std::vector<IterDomain*> acc_domain =
+      TensorDomain::noReductions(acc_tv->getLogicalDomain());
+  std::vector<IterDomain*> index_domain =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
+  std::vector<IterDomain*> value_domain =
+      TensorDomain::noReductions(value_tv->getLogicalDomain());
+
+  NVF_CHECK(acc_domain.size() == value_domain.size());
+  NVF_CHECK(index_domain.size() == 1);
+
+  auto* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
+  return out;
+}
+
 // torch.gather
 TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
@@ -108,7 +136,8 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
       !inp_domain.empty(), "torch.gather can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "the input and index tensor must have the same dimensions for torch.gather");
+      "the input and index tensor must have the same dimensions for "
+      "torch.gather");
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain;
@@ -146,12 +175,13 @@ TensorView* scatterOp(
   NVF_CHECK(!self_dom.empty(), "scatter can not be applied to 0d tensor.");
   NVF_CHECK(
       self_dom.size() == idx_dom.size() && self_dom.size() == src_dom.size(),
-      "self, index and src tensor should all have the same number of dimensions in scatter like ops.");
+      "self, index and src tensor should all have the same number of "
+      "dimensions in scatter like ops.");
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : c10::irange(self_dom.size())) {
+  for (const auto i : arange(self_dom.size())) {
     out_domain.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
@@ -186,13 +216,14 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
       !inp_domain.empty(), "take_along_axis can not be applied to 0d tensor.");
   NVF_CHECK(
       idx_domain.size() == inp_domain.size(),
-      "The input and index tensor must have the same dimensions for take_along_axis");
+      "The input and index tensor must have the same dimensions for "
+      "take_along_axis");
 
   dim = wrapDim(dim, (int64_t)idx_domain.size());
 
   std::vector<IterDomain*> out_domain(idx_domain.size());
 
-  for (const auto i : c10::irange(idx_domain.size())) {
+  for (const auto i : arange(idx_domain.size())) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 

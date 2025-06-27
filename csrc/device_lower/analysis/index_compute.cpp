@@ -116,7 +116,7 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
@@ -140,7 +140,7 @@ IndexingParameters getLinearIndexParameters(
         GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             loop_indexing.consumerTv(), loops, true);
 
-    for (auto loop_idx : c10::irange(loops.size())) {
+    for (auto loop_idx : arange(loops.size())) {
       auto loop = loops[loop_idx];
       if (loop == circular_buffer_loop) {
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
@@ -188,7 +188,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   }
 
   auto alloc_tv = index_producer ? producer_tv : consumer_tv;
-  auto alloc_info = lower_utils::getAllocInformation(
+  auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
   std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
@@ -216,7 +216,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto loop_domain = loop_domains[loop_idx];
 
@@ -318,7 +318,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 
   bool within_unswitch = false;
 
-  for (const auto loop_i : c10::irange(loops.size())) {
+  for (const auto loop_i : arange(loops.size())) {
     auto loop = loops[loop_i];
     auto loop_id = loop->iter_domain();
     auto loop_pt = loop_id->getParallelType();
@@ -438,7 +438,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(

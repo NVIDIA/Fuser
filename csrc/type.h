@@ -12,6 +12,7 @@
 #include <visibility.h>
 
 #include <c10/core/ScalarType.h>
+// #include <c10/util/Float4_e2m1fn_x2.h>
 
 #include <polymorphic_value.h>
 
@@ -20,6 +21,7 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -47,6 +49,8 @@ enum class ValType {
 // ReductionWrite - Same as Inline but without reduction axes
 // LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
+// OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
+// load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
 enum class PredicateType {
   Manual,
   Inline,
@@ -55,7 +59,9 @@ enum class PredicateType {
   Misaligned,
   ReductionWrite,
   LoopRotation,
-  ElectSync
+  ElectSync,
+  OneDimTmaLoadExpectArrive,
+  OneDimTmaWaitParity,
 };
 
 // Index type is a convenience type that may be a 64 or 32 signed integer.
@@ -71,6 +77,9 @@ enum class PrimDataType {
   BFloat16,
   Float8_e4m3fn,
   Float8_e5m2,
+  Float8_e8m0fnu,
+  Float4_e2m1fn,
+  Float4_e2m1fn_x2,
   // Integral types
   Char,
   Short,
@@ -181,8 +190,12 @@ struct DataType {
   static constexpr PrimDataType Double = PrimDataType::Double;
   static constexpr PrimDataType Float = PrimDataType::Float;
   static constexpr PrimDataType Half = PrimDataType::Half;
+  static constexpr PrimDataType Float4_e2m1fn = PrimDataType::Float4_e2m1fn;
+  static constexpr PrimDataType Float4_e2m1fn_x2 =
+      PrimDataType::Float4_e2m1fn_x2;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
+  static constexpr PrimDataType Float8_e8m0fnu = PrimDataType::Float8_e8m0fnu;
   static constexpr PrimDataType Index = PrimDataType::Index;
   static constexpr PrimDataType Char = PrimDataType::Char;
   static constexpr PrimDataType Short = PrimDataType::Short;
@@ -221,7 +234,7 @@ bool StructType::operator==(const StructType& other) const {
   if (fields.size() != other.fields.size()) {
     return false;
   }
-  for (auto i : c10::irange(fields.size())) {
+  for (auto i : std::ranges::iota_view(0u, fields.size())) {
     if (fields[i].name != other.fields[i].name ||
         *fields[i].type != *other.fields[i].type ||
         fields[i].used_in_kernel != other.fields[i].used_in_kernel) {
@@ -236,11 +249,11 @@ inline StructType StructHandle::type() const {
 }
 
 StructType globalTensorMetaData(
-    const PrimDataType& dtype,
+    const DataType& dtype,
     size_t dim,
     size_t alloc_dim);
 
-inline StructType globalTensorMetaData(const PrimDataType& dtype, size_t dim) {
+inline StructType globalTensorMetaData(const DataType& dtype, size_t dim) {
   return globalTensorMetaData(dtype, dim, dim);
 }
 
@@ -261,7 +274,12 @@ bool isInclusiveType(const DataType& base_type, const DataType& type);
 inline bool isFloatingPointType(DataType dtype) {
   return dtype == DataType::Double || dtype == DataType::Float ||
       dtype == DataType::Half || dtype == DataType::BFloat16 ||
-      dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2;
+      dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2 ||
+      dtype == DataType::Float8_e8m0fnu;
+}
+
+inline bool isPackedType(const DataType& dtype) {
+  return dtype == DataType::Float4_e2m1fn_x2;
 }
 
 // Returns if the datatype is an integer type
@@ -329,10 +347,12 @@ DataType getComplexTypeFromType(DataType dtype);
 // Return if the datatype is supported on the current device
 NVF_API bool isSupportedTypeByDevice(DataType dtype);
 
-NVF_API int64_t dataTypeSize(DataType type);
+NVF_API int64_t dataTypeSizeBit(DataType type);
+NVF_API int64_t dataTypeSizeByte(DataType type);
 
 // If the index type is known it will be automatically used here
-int64_t dataTypeSize(DataType type, DataType index_type);
+int64_t dataTypeSizeBit(DataType type, DataType index_type);
+int64_t dataTypeSizeByte(DataType type, DataType index_type);
 
 template <PrimDataType DT>
 struct DataTypeToNativeType;
@@ -342,12 +362,6 @@ struct DataTypeToAtenType;
 
 template <typename NativeType>
 struct NativeTypeToDataType;
-
-template <at::ScalarType aten_type>
-struct AtenTypeToDataType;
-
-template <at::ScalarType aten_type>
-struct AtenTypeToNativeType;
 
 template <typename NativeType>
 struct IsPrimitiveNativeType : std::false_type {};
@@ -364,89 +378,28 @@ struct IsPrimitiveNativeType : std::false_type {};
   template <>                                                  \
   struct IsPrimitiveNativeType<native_type> : std::true_type {}
 
-#define DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(          \
-    data_type, at_type, native_type)                      \
-  DEFINE_DATATYPE_TO_NATIVE_TYPE(data_type, native_type); \
-  template <>                                             \
-  struct AtenTypeToDataType<at_type> {                    \
-    static constexpr PrimDataType type = data_type;       \
-  };                                                      \
-  template <>                                             \
-  struct AtenTypeToNativeType<at_type> {                  \
-    using type = native_type;                             \
-  }
-
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Float,
-    at::ScalarType::Float,
-    float);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Double,
-    at::ScalarType::Double,
-    double);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Half,
-    at::ScalarType::Half,
-    at::Half);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::BFloat16,
-    at::ScalarType::BFloat16,
-    at::BFloat16);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Float8_e4m3fn,
-    at::ScalarType::Float8_e4m3fn,
-    at::Float8_e4m3fn);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Float8_e5m2,
-    at::ScalarType::Float8_e5m2,
-    at::Float8_e5m2);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Char,
-    at::ScalarType::Char,
-    int8_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Short,
-    at::ScalarType::Short,
-    int16_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Int32,
-    at::ScalarType::Int,
-    int);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Int,
-    at::ScalarType::Long,
-    int64_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Byte,
-    at::ScalarType::Byte,
-    uint8_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::UInt16,
-    at::ScalarType::UInt16,
-    uint16_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::UInt32,
-    at::ScalarType::UInt32,
-    uint32_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::UInt64,
-    at::ScalarType::UInt64,
-    uint64_t);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Bool,
-    at::ScalarType::Bool,
-    bool);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::ComplexFloat,
-    at::ScalarType::ComplexFloat,
-    std::complex<float>);
-DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::ComplexDouble,
-    at::ScalarType::ComplexDouble,
-    std::complex<double>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float, float);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Double, double);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Half, at::Half);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::BFloat16, at::BFloat16);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e4m3fn, at::Float8_e4m3fn);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e5m2, at::Float8_e5m2);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e8m0fnu, at::Float8_e8m0fnu);
+// DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float4_e2m1fn_x2,
+// at::Float4_e2m1fn_x2);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Char, int8_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Short, int16_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int, int64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Byte, uint8_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt16, uint16_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt64, uint64_t);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Bool, bool);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexFloat, std::complex<float>);
+DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::ComplexDouble, std::complex<double>);
 
 #undef DEFINE_DATATYPE_TO_NATIVE_TYPE
-#undef DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE
 
 inline DataType getDataType(const PolymorphicValue& value) {
   std::optional<DataType> dtype = std::nullopt;
@@ -511,7 +464,7 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
     if (struct_type.fields.size() != struct_type2.fields.size()) {
       return false;
     }
-    for (auto i : c10::irange(struct_type.fields.size())) {
+    for (auto i : std::ranges::iota_view(0u, struct_type.fields.size())) {
       if (struct_type.fields[i].name != struct_type2.fields[i].name ||
           !isCompatibleDataType(
               *struct_type.fields[i].type, *struct_type2.fields[i].type)) {
@@ -539,7 +492,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     auto ptr = std::get<PointerType>(dtype.type);
-    return dataTypeSize(*ptr.type) == value.as<Pointer>().size();
+    return dataTypeSizeByte(*ptr.type) == value.as<Pointer>().size();
   } else if (std::holds_alternative<ArrayType>(dtype.type)) {
     if (!value.is<std::vector>()) {
       return false;
@@ -611,6 +564,7 @@ enum class UnaryOpType {
   Tan,
   Tanh,
   Trunc,
+  BitCeil,
 
   // Tools to help debugging
   Print,
@@ -702,7 +656,9 @@ bool isLogicalOp(const BinaryOpType bopt);
 enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
-  DIDx,
+  DIDx = 0,
+  DIDy,
+  DIDz,
   BIDz,
   BIDy,
   BIDx,
@@ -711,14 +667,16 @@ enum class ParallelType {
   TIDx,
   Stream,
   Vectorize,
-  MisalignedVectorize,
   Unroll,
   Unswitch,
   Mma,
   Group,
   Bulk,
-  Serial
+  Serial,
+  Count, // sentinel, not an actual ParallelType
 };
+
+std::unordered_set<ParallelType> allParallelTypes();
 
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
@@ -741,8 +699,10 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
-static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
-    ParallelType::DIDx};
+static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
+    ParallelType::DIDx,
+    ParallelType::DIDy,
+    ParallelType::DIDz};
 
 enum class MemoryType { Local, Shared, Global, Tensor };
 
@@ -814,7 +774,7 @@ enum class CircularBufferLoopStage {
   Prolog = 0,
   Main,
   Epilog,
-  LoadWarp,
+  AsyncWarp,
   ComputeWarp,
   EndOfStages, // A special placeholder used to iterate over all stages
   NotApplicable
@@ -826,7 +786,7 @@ enum class CircularBufferLoopStage {
 inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Prolog ||
       stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp;
+      stage == CircularBufferLoopStage::AsyncWarp;
 }
 
 // The consuming expressions of circular buffer are cloned for these circular
@@ -846,7 +806,7 @@ inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
 //   somewhere (*may or may not be in this loop*)
 inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::AsyncWarp ||
       stage == CircularBufferLoopStage::ComputeWarp;
 }
 
@@ -976,6 +936,56 @@ inline DataType promoteType(const std::vector<DataType>& types) {
 // DataType::Null
 NVF_API DataType aten_to_data_type(const at::ScalarType& scalar_type);
 NVF_API at::ScalarType data_type_to_aten(const DataType& data_type);
+NVF_API at::ScalarType data_type_to_aten(
+    const DataType& data_type,
+    const DataType& index_type);
+
+// NVFuser's DataType is much wider than PyTorch's ScalarType, and we do support
+// input/output TensorViews with these data types not supported by PyTorch.
+// For these cases, we use a PyTorch ScalarType as a proxy. If there exists
+// a scalar type with the same size, we use that. Otherwise, we use Byte and
+// and adjust the size of the last dimension. For example, if we have a
+// TensorView with shape [10, 4], and dtype is 3 bytes, then the corresponding
+// ScalarType is Byte, and the shape of the corresponding at::Tensor is [10,
+// 12].
+struct AdjustLastDim {
+  int64_t numerator;
+  int64_t denominator;
+  inline int64_t fromATenToNVF(int64_t aten_size) const {
+    int64_t dividend = aten_size * numerator;
+    int64_t remainder = dividend % denominator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          aten_size,
+          " Adjustment factor: ",
+          denominator);
+    }
+    return dividend / denominator;
+  }
+  inline int64_t fromNVFToATen(int64_t nvf_size) const {
+    int64_t dividend = nvf_size * denominator;
+    int64_t remainder = dividend % numerator;
+    if (remainder != 0) {
+      NVF_ERROR(
+          "Last dimension of the logical domain is not divisible by the "
+          "adjustment factor. ",
+          "Last dimension: ",
+          nvf_size,
+          " Adjustment factor: ",
+          numerator);
+    }
+    return dividend / numerator;
+  }
+  bool isTrivial() const {
+    return numerator == 1 && denominator == 1;
+  }
+};
+// at_size * numerator / denominator is the size of the last dimension of the
+// corresponding TensorView.
+AdjustLastDim getLastDimAdjustment(const DataType& dtype);
 
 NVF_API std::ostream& operator<<(std::ostream&, const ValType);
 std::ostream& operator<<(std::ostream&, const PredicateType);
@@ -1024,49 +1034,61 @@ const char* load_store_type2string(LoadStoreOpType t);
 
 std::optional<std::string> cast_func_str(const std::pair<DataType, DataType>&);
 
-constexpr inline size_t primDataTypeSize(PrimDataType type) {
+constexpr inline size_t primDataTypeSizeBit(PrimDataType type) {
   switch (type) {
     case DataType::Bool:
-      return sizeof(bool);
+      return sizeof(bool) * 8;
     case DataType::ComplexDouble:
-      return sizeof(std::complex<double>);
+      return sizeof(std::complex<double>) * 8;
     case DataType::ComplexFloat:
-      return sizeof(std::complex<float>);
+      return sizeof(std::complex<float>) * 8;
     case DataType::Double:
-      return sizeof(double);
+      return sizeof(double) * 8;
     case DataType::Float:
-      return sizeof(float);
+      return sizeof(float) * 8;
     case DataType::Half:
-      return sizeof(at::Half);
+      return sizeof(at::Half) * 8;
     case DataType::BFloat16:
-      return sizeof(at::BFloat16);
+      return sizeof(at::BFloat16) * 8;
     case DataType::Float8_e4m3fn:
-      return sizeof(at::Float8_e4m3fn);
+      return sizeof(at::Float8_e4m3fn) * 8;
     case DataType::Float8_e5m2:
-      return sizeof(at::Float8_e5m2);
+      return sizeof(at::Float8_e5m2) * 8;
+    case DataType::Float8_e8m0fnu:
+      return sizeof(at::Float8_e8m0fnu) * 8;
+    case DataType::Float4_e2m1fn_x2:
+      return 8;
+    case DataType::Float4_e2m1fn:
+      return 4;
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
     case DataType::Char:
-      return sizeof(int8_t);
+      return sizeof(int8_t) * 8;
     case DataType::Short:
-      return sizeof(int16_t);
+      return sizeof(int16_t) * 8;
     case DataType::Int32:
-      return sizeof(int32_t);
+      return sizeof(int32_t) * 8;
     case DataType::Int:
-      return sizeof(int64_t);
+      return sizeof(int64_t) * 8;
     case DataType::Byte:
-      return sizeof(uint8_t);
+      return sizeof(uint8_t) * 8;
     case DataType::UInt16:
-      return sizeof(uint16_t);
+      return sizeof(uint16_t) * 8;
     case DataType::UInt32:
     case DataType::SMemAddress:
     case DataType::TMemAddress:
-      return sizeof(uint32_t);
+      return sizeof(uint32_t) * 8;
     case DataType::UInt64:
-      return sizeof(uint64_t);
+      return sizeof(uint64_t) * 8;
     default:
       NVF_THROW("Size undefined for data type.");
   }
+}
+
+constexpr inline size_t primDataTypeSizeByte(PrimDataType type) {
+  int64_t bits = primDataTypeSizeBit(type);
+  NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
+  return bits / 8;
 }
 
 enum class LaunchConfigType {
@@ -1087,7 +1109,7 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSizeByte(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,

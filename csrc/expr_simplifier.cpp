@@ -1459,12 +1459,12 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
@@ -1823,7 +1823,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     }
     if (op == BinaryOpType::Add) { // a + (-a) -> 0
       std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
-      for (size_t idx : c10::irange(fop->inputs().size())) {
+      for (size_t idx : arange(fop->inputs().size())) {
         auto inp = fop->input(idx);
         auto def = inp->definition();
         if (auto inv = dynamic_cast<UnaryOp*>(def)) {
@@ -1834,7 +1834,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       std::unordered_set<size_t> remove;
       for (auto [orig, inv, idx] : inv_inputs) {
-        for (size_t idx2 : c10::irange(fop->inputs().size())) {
+        for (size_t idx2 : arange(fop->inputs().size())) {
           auto inp = fop->input(idx2);
           if (remove.count(idx) || remove.count(idx2)) {
             continue;
@@ -1847,7 +1847,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       if (!remove.empty()) {
         std::vector<Val*> new_inputs;
-        for (size_t idx : c10::irange(fop->inputs().size())) {
+        for (size_t idx : arange(fop->inputs().size())) {
           if (!remove.count(idx)) {
             new_inputs.emplace_back(fop->input(idx));
           }
@@ -2166,6 +2166,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   if (op != BinaryOpType::Div && op != BinaryOpType::Mod) {
     return value;
   }
+
   auto lhs = sym_algebra::factorize(divmod->lhs());
   auto rhs = sym_algebra::factorize(divmod->rhs());
 
@@ -2213,14 +2214,14 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   if (!fop) {
     return value;
   }
-  for (auto i : c10::irange(fop->inputs().size())) {
+  for (auto i : arange(fop->inputs().size())) {
     Val* divisible_term = fop->input(i);
     if (!prove::isMultipleOf(divisible_term, rhs)) {
       continue;
     }
     std::vector<Val*> other_terms;
     other_terms.reserve(fop->inputs().size() - 1);
-    for (auto j : c10::irange(fop->inputs().size())) {
+    for (auto j : arange(fop->inputs().size())) {
       if (j == i) {
         continue;
       }
@@ -2580,7 +2581,7 @@ Val* fundamentalDivisionWithRemainderProperty(
     if (fmul == nullptr) {
       return result;
     }
-    for (auto j : c10::irange(fmul->inputs().size())) {
+    for (auto j : arange(fmul->inputs().size())) {
       auto vmul = fmul->input(j);
       if (!isIntegralType(*vmul->getDataType())) {
         continue;
@@ -2593,7 +2594,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         auto a = bop->lhs();
         auto b = bop->rhs();
         std::vector<Val*> other_terms;
-        for (auto k : c10::irange(fmul->inputs().size())) {
+        for (auto k : arange(fmul->inputs().size())) {
           if (j == k) {
             continue;
           }
@@ -2617,7 +2618,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   };
   // Find a / b * b or a / b * (b*c)
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> divmuls;
-  for (auto i : c10::irange(fadd->inputs().size())) {
+  for (auto i : arange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2628,7 +2629,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   }
   // Find a % b or a % b * c
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> modmuls;
-  for (auto i : c10::irange(fadd->inputs().size())) {
+  for (auto i : arange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2672,7 +2673,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         // As: [1] + [2] + a * c ... + ...  + ...
         Val* ac = maybeFlattenedOpOf(BinaryOpType::Mul, {a1, c});
         std::vector<Val*> terms{ac};
-        for (auto k : c10::irange(fadd->inputs().size())) {
+        for (auto k : arange(fadd->inputs().size())) {
           if (k == i || k == j) {
             continue;
           }
@@ -2718,8 +2719,8 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
 
   std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
   std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
-  for (const auto lhs_i : c10::irange(lhs_terms.size())) {
-    for (const auto rhs_i : c10::irange(rhs_terms.size())) {
+  for (const auto lhs_i : arange(lhs_terms.size())) {
+    for (const auto rhs_i : arange(rhs_terms.size())) {
       // Make sure no multiple LHS terms are removed for the same RHS term
       if (common_rhs_terms.at(rhs_i)) {
         continue;
@@ -2740,14 +2741,14 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
   }
 
   std::vector<Val*> new_lhs_terms;
-  for (const auto i : c10::irange(lhs_terms.size())) {
+  for (const auto i : arange(lhs_terms.size())) {
     if (!common_lhs_terms.at(i)) {
       new_lhs_terms.push_back(lhs_terms[i]);
     }
   }
 
   std::vector<Val*> new_rhs_terms;
-  for (const auto i : c10::irange(rhs_terms.size())) {
+  for (const auto i : arange(rhs_terms.size())) {
     if (!common_rhs_terms.at(i)) {
       new_rhs_terms.push_back(rhs_terms[i]);
     }

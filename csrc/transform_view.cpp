@@ -133,7 +133,8 @@ class ViewTransform : public Transform {
         root_domain_it != root_domain.end(),
         "Wanted to replace ",
         id->toString(),
-        " in root with an rfactor dimension, but IterDomain was not found in root.");
+        " in root with an rfactor dimension, but IterDomain was not found in "
+        "root.");
 
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
@@ -365,7 +366,7 @@ class AnalyzeViewTransformation {
     AnalyzeViewConstraint constraint;
     constraint.original_constraint =
         std::vector<int64_t>(original_view_.begin(), original_view_.end());
-    for (auto i : c10::irange(constraint.original_constraint.size())) {
+    for (auto i : arange(constraint.original_constraint.size())) {
       if (constraint.original_constraint[i] != 1) {
         constraint.original_constraint[i] = 0;
       }
@@ -373,7 +374,7 @@ class AnalyzeViewTransformation {
 
     constraint.new_constraint =
         std::vector<int64_t>(new_view_.begin(), new_view_.end());
-    for (auto i : c10::irange(constraint.new_constraint.size())) {
+    for (auto i : arange(constraint.new_constraint.size())) {
       if (constraint.new_constraint[i] != 1) {
         constraint.new_constraint[i] = 0;
       }
@@ -514,7 +515,8 @@ class AnalyzeViewTransformation {
 
     NVF_ERROR(
         view_transforms_.empty(),
-        "Already ran find transformation pass for View op, cannot run a second time.");
+        "Already ran find transformation pass for View op, cannot run a second "
+        "time.");
 
     // Iterate until original view is completely consumed and new view is
     // completely generated.
@@ -523,7 +525,8 @@ class AnalyzeViewTransformation {
       NVF_ERROR(
           !(prev_new_view_index == new_view_index &&
             prev_original_view_index == original_view_index),
-          "Infinite loop detected in AnalyzeViewTransformation::findTransformation(). Bailing.");
+          "Infinite loop detected in "
+          "AnalyzeViewTransformation::findTransformation(). Bailing.");
 
       prev_new_view_index = new_view_index;
       prev_original_view_index = original_view_index;
@@ -621,7 +624,8 @@ class AnalyzeViewTransformation {
       // dimension, there must be an activew new_view.
       NVF_ERROR(
           new_view_index < (int64_t)new_view_.size(),
-          "Expecting to still have new dimensions to work on in view, but none left.");
+          "Expecting to still have new dimensions to work on in view, but none "
+          "left.");
 
       if (new_view_index < (int64_t)new_view_.size() &&
           current_size % new_view_.at(new_view_index) == 0) {
@@ -641,7 +645,8 @@ class AnalyzeViewTransformation {
       // dimension, merge the next dimension in.
       NVF_ERROR(
           original_view_index + 1 < (int64_t)original_view_.size(),
-          "Expecting to still have original dimensions to work on in view, but none left.",
+          "Expecting to still have original dimensions to work on in view, but "
+          "none left.",
           " Original view index: ",
           original_view_index,
           ". Original view size: ",
@@ -684,7 +689,7 @@ TensorDomain* createViewDomain(
       TensorDomain::noReductions(original_domain->logical());
 
   // Apply squeeze.
-  for (auto id_i : c10::irange(orig_logical_domain.size())) {
+  for (auto id_i : arange(orig_logical_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
       auto id = orig_logical_domain.at(id_i);
       new_root_domain.push_back(id->cloneWithoutRFactor());
@@ -741,7 +746,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
   if (dynamic_index != -1) {
     NVF_ERROR(
         kNumElements == 0 || kNumElements % new_size_num_elements == 0,
-        "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
+        "Cannot infer the actual size of -1 output domain as the number of "
+        "input elements is not divisible by the number of the output elements "
+        "computed from the other output domains. ",
         "Number of input elements: ",
         kNumElements,
         ". Number of output elements: ",
@@ -765,7 +772,8 @@ AnalyzeViewResult analyzeView(
             new_sizes.begin(),
             new_sizes.end(),
             [](int64_t s) { return s == 1; }),
-        "Zero-dim tensors may only be reshaped to tensors with a single element (no expansion).");
+        "Zero-dim tensors may only be reshaped to tensors with a single "
+        "element (no expansion).");
     return {std::vector<bool>(new_sizes.size(), true), {}, {}};
   }
 
@@ -836,7 +844,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
     return false;
   }
 
-  for (const auto i : c10::irange(transforms.size())) {
+  for (const auto i : arange(transforms.size())) {
     auto transform = transforms.at(i);
     auto other_transform = other.transforms.at(i);
     if (transform->isA<SplitTransform>()) {
@@ -863,7 +871,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
 size_t AnalyzeViewResult::hash() const {
   auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
     size_t hash = 0;
-    for (const auto i : c10::irange(vec.size())) {
+    for (const auto i : arange(vec.size())) {
       hash = (hash << 1) + static_cast<size_t>(vec.at(i));
     }
     return hash;
@@ -940,6 +948,7 @@ TensorView* applyViewTransforms(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
       orig_tv->getDataType().value());
+  consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
   IrBuilder::createInContainer<ViewOp>(
       orig_tv->container(), consumer, post_reduce_tv);

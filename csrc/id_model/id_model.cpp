@@ -12,6 +12,7 @@
 #include <id_model/utils.h>
 #include <id_model/validation_utils.h>
 
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -297,6 +298,12 @@ void checkStaticExtentGroups(const ValGraph& graph) {
         continue;
       }
 
+      if (id->extent()->evaluate().as<int64_t>() == 1) {
+        // if we have a split broadcast that is mapped to the split input in
+        // the AlmostExact map, do not raise an error
+        continue;
+      }
+
       auto extent_int = id->extent()->evaluate().as<int64_t>();
       if (known_static_extent.has_value()) {
         if (known_static_extent.value() != extent_int) {
@@ -363,7 +370,7 @@ ValGraph& IdModel::buildExactGraph() {
                 c_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched TV domains is not supported.");
 
-        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        for (auto domain_i : arange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
           graph.mapVals(o_id, c_id);
@@ -454,8 +461,15 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->inner()});
       }
     } else {
-      // Rare, but don't want to deal with zero-dim IDs
-      if (!split->in()->extent()->isZeroInt()) {
+      // Rare, but don't want to deal with zero-dim IDs.
+      // If the input ID is a size-one ID (not necessarily broadcast,
+      // e.g., may be reduction) and the factor is not one, mapping
+      // the input and the size-one output can be inconvenient for
+      // predicate indexing. See
+      // PredicateIndexingTest.NonTrivialSizeOneDomain for a concrete
+      // example.
+      if (!split->in()->extent()->isZeroInt() &&
+          !split->in()->extent()->isOneInt()) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.
@@ -617,7 +631,7 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
-      // If the loop domain is not generated from the logial domain
+      // If the loop domain is not generated from the logical domain
       // with not extra IDs, broadcast forwarding is not
       // supported. As such, permissive mappings are not generated.
       if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
@@ -701,6 +715,130 @@ std::vector<std::pair<IterDomain*, IterDomain*>> resolvedRootBroadcasts(
   return resolved_bcast_domains;
 }
 
+// The compute_at_position is defined from producer to consumer. Thus, sibling
+// TMA load operations cannot be inlined unless they are inlined with their
+// consumer.
+//
+// For ping-pong warp specialized kernels, the compute_at_position must be to
+// the left of the warp-specialized thread axis because of parallel type
+// propagation rules. If not, the warp-specialized thread axis will incorrectly
+// appear in the AsyncWarp. For example, see
+// PingPongCircularBuffering.ProducerWarpSpecializedError.
+//
+// buildAsyncWarpInliningInfo inlines sibling asynchronous operations such as
+// TMA Loads based on stage_slice_position.
+//
+// For example, say you have a fusion definition: tv2 = add(tv0, tv1)
+// The fusion's schedule loads tv0 and tv1 to shared memory with TMA and creates
+// a warp specialized pipeline using the TIDy thread axis.
+//
+// Let the iterDomain schedule for the TensorViews be:
+// * tv0_smem[outer_persistent, serial(2), bulk(128)] = tma_load(tv0)
+// * tv1_smem[outer_persistent, serial(2), bulk(128)] = tma_load(tv1)
+// * tv2[outer_persistent, TIDy(2), TIDx(128)] = add(tv0_smem, tv1_smem)
+//
+// Let the compute_at_position be 1 because the tma loads and add operation
+// share the outer-most for-loop. Let the stage_slice_position be 2, so the
+// kernel loads 128 elements of tv0 and tv1 asynchronously and compute two warp
+// groups in parallel.
+//
+// The CTA shape is (TIDx = 128, TIDy = 3, TIDz = 1) for this example.
+//
+// Here is kernel structure before circular-buffer pass:
+// FOR outer_persistent:
+//   << compute_at_position(1)
+//   FOR SERIAL(2):
+//     << stage_slice_position(2)
+//     tv0_smem = tma_load(tv0)
+//     tv1_smem = tma_load(tv1)
+//   END FOR
+//   FOR TIDy(2):
+//     << stage_slice_position(2)
+//     tv2 = add(tv0_smem, tv1_smem)
+//   END FOR
+// END FOR
+//
+// Here is the Warp-Specialized kernel structure after circular-buffer pass:
+// IF AsyncWarp:
+//   FOR outer_persistent:
+//     << compute_at_position(1)
+//     FOR SERIAL(2):
+//       << stage_slice_position(2)
+//       mbarrier::wait(empty)
+//       mbarrier::arriveExpectTx(full)
+//       tv0_smem = tma_load(tv0)
+//       tv1_smem = tma_load(tv1)
+//     END FOR
+//   END FOR
+// ELSE:
+//   FOR outer_persistent:
+//     << compute_at_position(1)
+//     FOR TIDy(2):
+//       << stage_slice_position(2)
+//       mbarrier::wait(full)
+//       tv2 = add(tv0_smem, tv1_smem)
+//       mbarrier::arrive(empty)
+//     END FOR
+//   END FOR
+// END IF
+//
+// The two TMA loads for tv0 and tv1 are assigned the same mbarrier, so they
+// must be issued in the same for-loop. This helper function updates
+// ordered_sibling_ids and sibling_maps in StatefulInliningInfo to create this
+// sibling relationship in the LOOP graph.
+void buildAsyncWarpInliningInfo(
+    StatefulInliningInfo& info,
+    const std::vector<Expr*>& exprs,
+    const ValGraph& permissive_graph) {
+  std::vector<AsyncWarp> async_warps = createAsyncWarps(exprs);
+
+  // short-circuit: no async operations detected.
+  if (async_warps.size() == 0) {
+    return;
+  }
+  NVF_ERROR(
+      async_warps.size() == 1, "Multi-role specialization is not supported");
+
+  const AsyncWarp& async_warp = async_warps.front();
+
+  // short-circuit: no sibling relationships to map.
+  if (async_warp.tvs.size() == 1) {
+    return;
+  }
+
+  // short-circuit: stage_slice_position is not used.
+  if (async_warp.stage_slice_position == -1) {
+    return;
+  }
+
+  NVF_ERROR(!async_warp.tvs.empty());
+  TensorView* async_warp_tv = async_warp.tvs.front();
+  NVF_ERROR(async_warp_tv != nullptr);
+
+  // Gather all loop iterDomains to the left of the stage_slice_position.
+  VectorOfUniqueEntries<IterDomain*> stage_slice_position_ids(
+      async_warp_tv->getLoopDomain().begin(),
+      async_warp_tv->getLoopDomain().begin() + async_warp.stage_slice_position);
+  info.ordered_sibling_ids.pushBack(stage_slice_position_ids);
+
+  // For all TensorViews in the AsyncWarp, build an iterDomain mapping between
+  // the first TensorView and all other TensorViews.
+  std::vector<IterDomain*> all_tv_ids = async_warp_tv->domain()->allIDs();
+  for (size_t i : arange(1, async_warp.tvs.size())) {
+    TensorView* tv_i = async_warp.tvs.at(i);
+    std::vector<IterDomain*> all_tv_i_ids = tv_i->domain()->allIDs();
+
+    std::unordered_map<Val*, VectorOfUniqueEntries<Val*>> sibling_map =
+        permissive_graph.buildMapBetween(all_tv_ids, all_tv_i_ids);
+    for (const auto& [tv_id_1, tv_ids] : sibling_map) {
+      if (!tv_ids.empty() &&
+          stage_slice_position_ids.has(tv_id_1->as<IterDomain>())) {
+        info.sibling_maps[tv_id_1->as<IterDomain>()].pushBack(tv_ids);
+      }
+    }
+  }
+}
+
 } // namespace
 
 // Grab inlining relationships
@@ -714,10 +852,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-
       // Broadcast forwarding is not applied when the loop domain is
       // not fully derived from the logical domain. In that case, the
       // loop promotion analysis effectively does nothing, however, we
@@ -725,28 +859,33 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // well as p2c_ca_permissive_maps are required. Since no
       // promotion analysis is done, only loop IDs need to be
       // considered.
-
-      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
-        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_logical.begin(), producer_logical.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer_tv->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            ca_deps_filter.begin(), ca_deps_filter.end());
-      } else {
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            producer_tv->getLoopDomain().begin(),
-            producer_tv->getLoopDomain().begin() +
-                producer_tv->getComputeAtPosition());
-      }
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+      auto fully_derived =
+          ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv);
 
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+        if (fully_derived) {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() +
+                   producer_tv->getComputePosition(consumer_tv)});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+        } else {
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              producer_tv->getLoopDomain().begin(),
+              producer_tv->getLoopDomain().begin() +
+                  producer_tv->getComputePosition(consumer_tv));
+        }
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
@@ -776,7 +915,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
-        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        for (const auto i : arange(1, consumer_tvs.size())) {
           auto consumer_tv_i = consumer_tvs.vector().at(i);
           auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
@@ -793,6 +932,8 @@ StatefulInliningInfo buildStatefulInliningInfo(
       }
     }
   }
+
+  buildAsyncWarpInliningInfo(info, exprs, permissive_graph);
   return info;
 }
 
@@ -916,6 +1057,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
+}
+
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
@@ -923,7 +1068,7 @@ ValGraph IdModel::buildIntersection(
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
-    for (auto id0_i : c10::irange(set_size)) {
+    for (auto id0_i : arange(set_size)) {
       Val* id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
@@ -968,7 +1113,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
-    for (const auto i : c10::irange(new_inputs.size())) {
+    for (const auto i : arange(new_inputs.size())) {
       new_inputs.at(i) = IterDomainBuilder(tmp_inputs.at(i))
                              .iter_type(IterType::Iteration)
                              .build();
@@ -1079,8 +1224,10 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const ValGroups& new_groups = new_graph.toGroups(*stale_group);
     NVF_ERROR(
         new_groups.size() == 1,
-        "\nUpdate map assumes that new graph is equivalent to old graph plus extra mappings.\n",
-        "i.e. all mappings in new_graph should exist in the graph stale_map was produced on.\n",
+        "\nUpdate map assumes that new graph is equivalent to old graph plus "
+        "extra mappings.\n",
+        "i.e. all mappings in new_graph should exist in the graph stale_map "
+        "was produced on.\n",
         "old:",
         nvfuser::toString(stale_group),
         "new: ",
@@ -1181,15 +1328,17 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular buffered loop.
+      // Allocate index variable for each stage of the circular
+      // buffered loop.
+      auto indices = std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        indices->emplace(
+            static_cast<CircularBufferLoopStage>(i),
+            IrBuilder::create<Val>(DataType::Index));
+      }
       circular_buffered_loop_index_variable_map_[loop_group] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::move(indices);
       continue;
     }
 
@@ -1226,7 +1375,8 @@ Val* IdModel::getLoopIndexVariable(
     CircularBufferLoopStage circular_buffer_loop_stage) const {
   NVF_ERROR(
       !loop_index_variable_map_.empty(),
-      "Loop index variables not generated. IdModel::allocateIndexVariables may have not been callled.");
+      "Loop index variables not generated. IdModel::allocateIndexVariables may "
+      "have not been callled.");
 
   // Check if this loop was modified by circular buffer pass.
   bool is_circular_buffer_iterdomain =

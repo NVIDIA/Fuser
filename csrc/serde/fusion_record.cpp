@@ -43,7 +43,8 @@ python_frontend::RecordFunctor* deserializeOpRecord(
     const RecordFunctor* buffer) {
   NVF_ERROR(
       str_to_func_map.find(buffer->name()->str()) != str_to_func_map.end(),
-      "Missing mapping from operation string to nvfuser function in serde deserialization: ",
+      "Missing mapping from operation string to nvfuser function in serde "
+      "deserialization: ",
       buffer->name()->str());
   return new python_frontend::OpRecord<Signature...>(
       parseStateArgs(buffer->args()),
@@ -472,6 +473,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeIndexPutAccumulateRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::IndexPutAccumulateOpRecord(
+        parseStateArgs(buffer->args()), parseStateArgs(buffer->outputs()));
+  };
+  registerParser(
+      RecordType::IndexPutAccumulateOp, deserializeIndexPutAccumulateRecord);
+
   auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SelectOpRecord(
         parseStateArgs(buffer->args()),
@@ -652,6 +660,28 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(buffer->data_as_Welford()->axes()));
   };
   registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
+
+  auto deserializeArgsortRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Sort();
+    return new python_frontend::ArgsortOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->descending(),
+        data->stable());
+  };
+  registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
+
+  auto deserializeTopKRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TopK();
+    return new python_frontend::TopKOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->largest(),
+        data->sorted());
+  };
+  registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -823,6 +853,11 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
+  NVFUSER_TERNARY_TV_ONLY_OP(
+      "grouped_mm",
+      [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+        return grouped_mm(mat1, mat2, offsets);
+      })
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 

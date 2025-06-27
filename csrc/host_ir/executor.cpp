@@ -6,21 +6,31 @@
  */
 // clang-format on
 
+#include <algorithm>
+#include <iterator>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
 #include <ATen/cuda/CUDAContext.h>
 
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
-#include <host_ir/lower.h>
+#include <host_ir/lower_to_communication.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -35,17 +45,11 @@ HostIrExecutor::HostIrExecutor(
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && HostIrLower::canLower(e);
-      })) {
+  if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
     NVF_ERROR(
-        std::all_of(
-            exprs.begin(),
-            exprs.end(),
-            [](Expr* e) {
-              return isResharding(e) && HostIrLower::canLower(e);
-            }),
-        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
+        std::all_of(exprs.begin(), exprs.end(), isResharding),
+        "Could not execute fusion as all expressions in a host IR container "
+        "must be communication based at this point.");
     return true;
   }
   return false;
@@ -68,9 +72,10 @@ void HostIrExecutor::compile(Fusion* fusion) {
     }
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
+    DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      HostIrLower lower;
-      std::vector<Expr*> communications = lower.lower(cloner.clone(e));
+      std::vector<Expr*> communications =
+          convertSingleOpToCommunication(cloner.clone(e), my_device_idx);
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -83,11 +88,27 @@ void HostIrExecutor::compile(Fusion* fusion) {
 }
 
 bool HostIrExecutor::isCompiled() const {
-  return (bool)host_ir_container_;
+  return host_ir_container_ != nullptr;
 }
 
+namespace {
+// Validates the sizes and strides of the input and output tensors
+// against the tensorviews
+void validateTensors(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& expr_eval) {
+  NVF_ERROR(tensors.size() == tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    }
+  }
+}
+} // namespace
+
 KernelArgumentHolder HostIrExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
   FUSER_PERF_SCOPE("HostIrExecutor::run");
   if (isProfilerEnabled()) {
@@ -133,10 +154,12 @@ KernelArgumentHolder HostIrExecutor::run(
             communication->out()));
 
     NVF_ERROR(
-        out_idx < (int64_t)host_ir_container_->outputs().size(),
+        out_idx < std::ssize(host_ir_container_->outputs()),
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
+    // Inputs are already validated in bindInputs.
+    validateTensors({out_tensor}, {communication->out()}, expr_eval);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -149,7 +172,7 @@ KernelArgumentHolder HostIrExecutor::run(
   }
 
   // Evaluate outputs that are marked as Evaluate
-  for (auto out_idx : c10::irange(host_ir_container_->outputs().size())) {
+  for (auto out_idx : arange(host_ir_container_->outputs().size())) {
     auto out = host_ir_container_->outputs()[out_idx];
     auto alias_info = host_ir_container_->getOutputAlias(out);
     if (alias_info.type == AllocationType::Evaluate) {
@@ -169,32 +192,6 @@ KernelArgumentHolder HostIrExecutor::run(
 
 namespace hir {
 
-namespace {
-
-at::Tensor getKnownTensorOrUndefined(
-    Val* val,
-    const ExpressionEvaluator& expr_evaluator) {
-  return expr_evaluator.isKnown(val)
-      ? expr_evaluator.evaluate(val).as<at::Tensor>()
-      : at::Tensor();
-}
-
-KernelArgumentHolder getKnownTensorOrUndefined(
-    const std::vector<Val*>& vals,
-    const ExpressionEvaluator& expr_evaluator) {
-  std::vector<at::Tensor> tensors(vals.size());
-  std::transform(
-      vals.begin(),
-      vals.end(),
-      tensors.begin(),
-      [&expr_evaluator](Val* val) -> at::Tensor {
-        return getKnownTensorOrUndefined(val, expr_evaluator);
-      });
-  return KernelArgumentHolder(tensors);
-}
-
-} // namespace
-
 HostIrEvaluator::HostIrEvaluator(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
@@ -202,7 +199,9 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
+      expr_evaluator_(),
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -214,10 +213,46 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
-  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-KernelArgumentHolder HostIrEvaluator::dispatchAndCollectOutputs() {
+KernelArgumentHolder HostIrEvaluator::runWithInputs(
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::runWithInputs");
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  NVF_ERROR(args.getCacheId().has_value());
+  expr_evaluator_.bind("cacheId", static_cast<int64_t>(*args.getCacheId()));
+
+  NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
+  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
+    expr_evaluator_.bind(in_val, arg);
+  }
+
+  for (Expr* e : container_->topLevelExprs()) {
+    const std::string event_name =
+        std::string("HostIrEvaluator::dispatch ") + e->getOpString();
+    FUSER_PERF_SCOPE(event_name.c_str());
+    dispatch(e);
+  }
+
+  KernelArgumentHolder outs;
+  outs.reserve(container_->outputs().size());
+  for (Val* out_val : container_->outputs()) {
+    outs.push(getKnownTensorOrUndefined(out_val));
+  }
+  return outs;
+}
+
+KernelArgumentHolder HostIrEvaluator::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  expr_evaluator_.bind("rank", communicator_->deviceId());
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, pvalue);
+  }
+
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -225,17 +260,15 @@ KernelArgumentHolder HostIrEvaluator::dispatchAndCollectOutputs() {
   }
 
   // Collect global outputs
-  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
-}
-
-KernelArgumentHolder HostIrEvaluator::runWithInput(
-    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
-  // process input values, converting IValue to PolymorphicValue
-  for (const auto& [val, pvalue] : val_to_PValue) {
-    expr_evaluator_.bind(val, pvalue);
-  }
-
-  return dispatchAndCollectOutputs();
+  std::vector<at::Tensor> outputs(container_->outputs().size());
+  std::transform(
+      container_->outputs().begin(),
+      container_->outputs().end(),
+      outputs.begin(),
+      [this](Val* val) -> at::Tensor {
+        return this->getKnownTensorOrUndefined(val);
+      });
+  return KernelArgumentHolder(outputs);
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -317,47 +350,66 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
-  for (auto& input : launch_kernel->inputs()) {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(input),
-        "No buffer associated with Val ",
-        input,
-        " for handling ",
-        launch_kernel->toString());
-    args.push(expr_evaluator_.evaluate(input));
+  PolymorphicValue cache_id =
+      expr_evaluator_.evaluate(launch_kernel->cacheId());
+  if (!cache_id.is<std::monostate>()) {
+    args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
+  for (auto& input : launch_kernel->inputs()) {
+    args.push(getKnownConcreteValue(input));
+  }
+
+  // All output buffers are known already, pass them to the executor
+  KernelArgumentHolder outputs;
+  for (Val* output : launch_kernel->outputs()) {
+    if (expr_evaluator_.isKnown(output)) {
+      outputs.push(getKnownConcreteValue(output));
+    }
+  }
+
+  NVF_ERROR_EQ(
+      outputs.size(),
+      std::ssize(launch_kernel->outputs()),
+      "Not all outputs to the kernel were preallocated");
+
   args.setDeviceIndex();
 
   // run the compiled kernel
-  KernelArgumentHolder outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())
-          ->run(
-              args,
-              {},
-              launch_kernel->launch_params(),
-              launch_kernel->compile_params());
-
-  // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
-    expr_evaluator_.bind(
-        launch_kernel->outputs().at(output_idx), outputs[output_idx]);
-  }
+  container_->getKernelExecutor(launch_kernel->groupId())
+      ->run(
+          args,
+          outputs,
+          launch_kernel->launchParams(),
+          launch_kernel->compileParams());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(input),
-        "No buffer associated with Val ",
-        input,
-        " for handling ",
-        post_ir->toString());
-    input_args.push(expr_evaluator_.evaluate(input));
+    input_args.push(getKnownConcreteValue(input));
   }
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
   KernelArgumentHolder outputs;
+  bool use_preallocated_outputs = std::all_of(
+      post_ir->outputs().begin(),
+      post_ir->outputs().end(),
+      [this](Val* output) { return this->expr_evaluator_.isKnown(output); });
+  NVF_ERROR(
+      use_preallocated_outputs ||
+          std::all_of(
+              post_ir->outputs().begin(),
+              post_ir->outputs().end(),
+              [this](Val* output) {
+                return !this->expr_evaluator_.isKnown(output);
+              }),
+      "outputs must be all or none preallocated in expr ",
+      post_ir);
+  if (use_preallocated_outputs) {
+    for (auto output : post_ir->outputs()) {
+      outputs.push(getKnownConcreteValue(output));
+    }
+  }
 
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
@@ -374,21 +426,29 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(input_args);
+    if (use_preallocated_outputs) {
+      TORCH_WARN(
+          "FusionExecutorCache does not support with preallocated outputs, so "
+          "we are copying the outputs in expr ",
+          post_ir);
+      auto tmp_outputs = fec_.at(hu).runFusionWithInputs(input_args);
+      for (auto output_idx : c10::irange(tmp_outputs.size())) {
+        outputs[output_idx].as<at::Tensor>().copy_(
+            tmp_outputs[output_idx].as<at::Tensor>());
+      }
+    } else {
+      outputs = fec_.at(hu).runFusionWithInputs(input_args);
+    }
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
-    if (auto it = executors_.find(hu); it != executors_.end()) {
-      ExecutorAbstract* ea = it->second.get();
-      outputs = ExecutorDispatch::run(ea, input_args);
-
-    } else {
+    if (auto it = executors_.find(hu); it == executors_.end()) {
       DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
-               hu->fusion_to_execute(), 1, 1, 1, 1)});
+               hu->fusion_to_execute(), 1, 1, 1, 1, SchedulerType::None)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
         ExecutorDispatch::compile(
@@ -400,15 +460,26 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
+    }
+    ExecutorAbstract* ea = executors_[hu].get();
+    if (use_preallocated_outputs) {
+      ExecutorDispatch::run(ea, input_args, outputs);
+    } else {
       outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
-  // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
-    expr_evaluator_.bind(
-        post_ir->outputs().at(output_idx), outputs[output_idx]);
+  if (!use_preallocated_outputs) {
+    // Store the outputs in the context
+    for (auto output_idx : arange(outputs.size())) {
+      expr_evaluator_.bind(
+          post_ir->outputs().at(output_idx), outputs[output_idx]);
+    }
   }
+}
+
+void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
+  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
 }
 
 void HostIrEvaluator::handle(Communication* communication) {
@@ -416,14 +487,19 @@ void HostIrEvaluator::handle(Communication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  at::Tensor input_tensor =
-      getKnownTensorOrUndefined(communication->input(0), expr_evaluator_);
+  at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
   at::Tensor output_tensor =
-      getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->output(0));
 
   CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
+
+  validateTensors(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
@@ -437,25 +513,53 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  at::Tensor buffer =
-      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+  at::Tensor buffer = getKnownTensorOrUndefined(communication->buffer());
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(communication->backend()),
-      buffer);
+  CommunicatorBackend backend_type = communication->backend();
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    if (communication->type() == P2PCommunicationType::RECV) {
+      get_zcopy::recvPost(
+          p2p_ipc_handle,
+          buffer.numel() * buffer.element_size(),
+          current_stream);
+    } else {
+      get_zcopy::sendPost(p2p_ipc_handle, current_stream);
+    }
+  } else {
+    validateTensors({buffer}, {communication->buffer()}, expr_evaluator_);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(communication->backend()),
+        buffer);
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
-  if (work != nullptr) {
-    work->wait();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    if (p2p_comm->type() == P2PCommunicationType::SEND) {
+      const auto current_stream = static_cast<CUstream>(
+          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
+      get_zcopy::sendWait(ipc_handles, current_stream);
+    }
+  } else {
+    auto i = works_.find(communication);
+    NVF_ERROR(i != works_.end(), "no wait req");
+
+    auto work = i->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+
+    works_.erase(communication);
   }
-  works_.erase(communication);
 }
 
 namespace {
@@ -534,15 +638,11 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* a = matmul->inA();
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
-  NVF_ERROR(
-      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
-      "Inputs of the matmul ",
-      matmul->toString(),
-      "must be precomputed before being retrieved");
+
   if (expr_evaluator_.isKnown(out)) {
-    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
-    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
-    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
@@ -550,31 +650,75 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
-  TensorView* in = linear->inA()->as<TensorView>();
-  TensorView* weight = linear->inB()->as<TensorView>();
-  TensorView* bias = linear->bias()->as<TensorView>();
-  TensorView* out = linear->out()->as<TensorView>();
-  NVF_ERROR(
-      expr_evaluator_.isKnown(in) && expr_evaluator_.isKnown(weight) &&
-          (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
-      "Inputs of the Linear Op ",
-      linear->toString(),
-      "must be precomputed before being retrieved");
+  auto* in = linear->inA()->as<TensorView>();
+  auto* weight = linear->inB()->as<TensorView>();
+  auto* bias = linear->bias()->as<TensorView>();
+  auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
     return;
   }
 
-  auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
-  auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
-  auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
+  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
-  if (linear->has_bias()) {
-    auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
+  if (linear->hasBias()) {
+    auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
+  }
+}
+
+void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
+  NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set ||
+      load_store_op->opType() == LoadStoreOpType::SegmenterSet);
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
+
+  at::Tensor t;
+  if (out_tv->hasRoot()) {
+    std::optional<std::vector<int64_t>> permutation =
+        ir_utils::computePermutation(
+            out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The logical domain of a Set.Permute is supposed to be a permutation"
+        " of the root domain: ",
+        out_tv);
+    t = in_tensor.permute(*permutation);
+  } else {
+    t = in_tensor;
+  }
+
+  if (expr_evaluator_.isKnown(out_tv)) {
+    auto out_tensor =
+        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(t, /*non_blocking=*/true);
+  } else {
+    // For completeness, we may check if out_tv's allocation matches `t` and
+    // copy data if yes. For example,
+    //
+    // clang-format off
+    // ```
+    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
+    // if (strides == t.strides()) {
+    //   expr_evaluator_.bind(out_tv, t);
+    // } else {
+    //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
+    //   out_tensor.copy_(t);
+    //   bind_(out_tv, out_tensor);
+    // }
+    // ```
+    // clang-format on
+    //
+    // For now, I choose to keep code simple for the limited use cases.
+    expr_evaluator_.bind(out_tv, t);
   }
 }
 
@@ -598,25 +742,138 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
-
   expr_evaluator_.bind(tv, tensor);
+}
+
+void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
+  auto indexed_id =
+      hir_alias_select->in()->getLogicalDomain().at(hir_alias_select->axis());
+  auto index = indexed_id->isBroadcast()
+      ? 0
+      : expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
+                   .as<at::Tensor>();
+
+  // Count reduction axes up to the target axis
+  int64_t reduction_count = std::count_if(
+      hir_alias_select->in()->getLogicalDomain().begin(),
+      hir_alias_select->in()->getLogicalDomain().begin() +
+          hir_alias_select->axis(),
+      [](const IterDomain* id) { return id->isReduction(); });
+  // Adjust the ATen axis by subtracting the number of reduction axes
+  int64_t axis = hir_alias_select->axis() - reduction_count;
+  expr_evaluator_.bind(hir_alias_select->out(), input.select(axis, index));
+}
+
+void HostIrEvaluator::handle(BinaryOp* binary_op) {
+  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
+    return unhandled(binary_op);
+  }
+
+  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto output =
+      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      at::add_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Sub:
+      at::sub_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Mul:
+      at::mul_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Div:
+      at::div_out(output, lhs, rhs);
+      break;
+    default:
+      NVF_THROW(
+          "Unexpected operator type: ",
+          binary_op->getBinaryOpType(),
+          " in ",
+          binary_op);
+  }
+}
+
+void HostIrEvaluator::handle(ReductionOp* reduction_op) {
+  auto input_tv = reduction_op->in()->as<TensorView>();
+  auto output_tv = reduction_op->out()->as<TensorView>();
+  if (!expr_evaluator_.isKnown(output_tv)) {
+    return unhandled(reduction_op);
+  }
+
+  NVF_ERROR(
+      !output_tv->hasRoot(),
+      "Evaluation for rFactored reductions is not supported.");
+  auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i :
+       c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
+    auto ax = output_tv->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (reduction_op->getReductionOpType()) {
+    case BinaryOpType::Add:
+      at::sum_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Max:
+      at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Min:
+      at::amin_out(output, input, reduction_axes);
+      return;
+    default:
+      NVF_THROW(
+          "Unexpected operator type: ",
+          reduction_op->getReductionOpType(),
+          " in ",
+          reduction_op);
+  }
+}
+
+void HostIrEvaluator::handle(Deallocate* deallocate) {
+  auto* tv = deallocate->buffer();
+  NVF_ERROR(
+      expr_evaluator_.isKnown(tv),
+      "Tried to free buffer associated with unknown TensorView",
+      tv);
+  expr_evaluator_.invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(input),
-        "input ",
-        input->toString(),
-        " of the expression ",
-        expr->toString(),
-        "must be precomputed before being retrieved");
+  std::vector<PolymorphicValue> inputs;
+  for (auto input : expr->inputs()) {
+    if (input->isA<TensorView>()) {
+      // Tensor inputs must be already computed at this point
+      inputs.push_back(getKnownConcreteValue(input));
+    } else {
+      inputs.push_back(expr_evaluator_.evaluate(input));
+    }
   }
-  for (auto output : expr->outputs()) {
-    expr_evaluator_.bind(
-        output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
+
+  // Check that there is no pre-allocated output
+  NVF_ERROR(
+      std::all_of(
+          expr->outputs().begin(),
+          expr->outputs().end(),
+          [this](Val* output) {
+            return !this->expr_evaluator_.isKnown(output);
+          }),
+      "Do not support pre-allocated outputs for the op ",
+      expr);
+  // using ExpressionEvaluator::evaluate to evaluate the output is not valid
+  // here if the output or one of its producer is an alias
+  auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
+  for (int64_t i : c10::irange(expr->outputs().size())) {
+    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
   }
 }
 

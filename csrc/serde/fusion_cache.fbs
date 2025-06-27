@@ -48,7 +48,9 @@ enum RecordType: int {
     FullOp,
     IotaOp,
     IndexSelectOp,
+    IndexPutAccumulateOp,
     SelectOp,
+    ScatterOp,
     GatherOp,
     TakeAlongAxisOp,
     Unary_TV,
@@ -85,6 +87,7 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -99,6 +102,8 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -125,6 +130,9 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
+  TopK,
+  ScaledGroupedMma,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -344,6 +352,25 @@ table Welford {
   axes: [long];
 }
 
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
+}
+
+// Data for ScaledGroupedMmaOpRecord
+table ScaledGroupedMma {
+  dtype: long;
+}
+
 // =====================================================================================
 //
 
@@ -403,7 +430,6 @@ table SegmentedGroup {
   merge_with_segmented_group: long;
   merge_through_segmented_edge: long;
   merged: bool;
-  is_fusion_input: bool;
 }
 
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.

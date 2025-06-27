@@ -45,10 +45,10 @@ KernelArgumentHolder MultiDeviceExecutor::runWithInput(
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
-      inputs.size() == host_ir_executor_->inputs().size(),
+      inputs.size() == std::ssize(host_ir_executor_->inputs()),
       "Wrong number of inputs");
   // process input values:
-  for (auto input_idx : c10::irange(inputs.size())) {
+  for (auto input_idx : arange(inputs.size())) {
     val_to_PValue[host_ir_executor_->inputs().at(input_idx)] =
         inputs[input_idx];
   }

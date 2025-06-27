@@ -50,9 +50,16 @@ class KernelIrScanner : private IrVisitor {
     NVF_ERROR(
         num_grouped_iterations == 2 || num_grouped_iterations == 4 ||
             num_grouped_iterations == 8 || num_grouped_iterations == 16,
-        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 iterations, but found ",
+        "Iteration grouped reduction only support grouping 2, 4, 8, or 16 "
+        "iterations, but found ",
         num_grouped_iterations);
     return num_grouped_iterations;
+  }
+
+  void checkWarpReduction(const Val* out, const Val* in) {
+    summary_.all_block_reductions_are_warp_reduction =
+        summary_.all_block_reductions_are_warp_reduction &&
+        ir_utils::getMaybeWarpReductionDim(out, in).has_value();
   }
 
   using IrVisitor::dispatch;
@@ -112,8 +119,7 @@ class KernelIrScanner : private IrVisitor {
         break;
       case MemoryType::Local:
         if (!allocate->size()->isConstInt()) {
-          summary_.has_dynamic_local_memory_allocations = true;
-          summary_.dynamic_lmem_allocations.emplace_back(allocate);
+          summary_.dynamic_lmem_allocations.push_back(allocate);
         }
         break;
       case MemoryType::Tensor:
@@ -134,7 +140,7 @@ class KernelIrScanner : private IrVisitor {
     if (domain->hasBlockReduction() || domain->hasGridReduction() ||
         tv->getMemoryType() == MemoryType::Shared) {
       const auto data_type = tv->dtype();
-      const size_t type_size = dataTypeSize(data_type, index_type_);
+      const size_t type_size = dataTypeSizeByte(data_type, index_type_);
       if (type_size > max_smem_type_size_) {
         max_smem_type_size_ = type_size;
         summary_.largest_smem_data_type = data_type;
@@ -148,12 +154,16 @@ class KernelIrScanner : private IrVisitor {
     auto out_dom = welford_op->outAvg()->as<TensorIndex>()->view()->domain();
     summary_.has_block_welford =
         summary_.has_block_welford || out_dom->hasBlockReduction();
+    summary_.all_block_reductions_are_warp_reduction = false;
   }
 
   // TODO: need to split into IterGroupedReductionOp and ExprGroupedReductionOp?
   // May extend to support both iteration and expr grouped block reductions.
   // Grouped grid reductions are handled by GroupedGridReduction.
   void handle(GroupedReductionOp* grouped_rop) final {
+    // check if we have a warp reduction
+    checkWarpReduction(grouped_rop->output(0), grouped_rop->input(0));
+
     // skip expr grouped reduction
     if (grouped_rop->numHorizontallyGroupedExprs() > 1) {
       return;
@@ -169,9 +179,14 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->welford_op()->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
+  }
+
+  void handle(ReductionOp* rop) final {
+    checkWarpReduction(rop->out(), rop->in());
   }
 
   void handle(GridReduction* grid_reduction) final {
@@ -180,6 +195,7 @@ class KernelIrScanner : private IrVisitor {
     // workspace.
     summary_.has_grid_reductions =
         grid_reduction->serialReductionTensor() == nullptr;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -187,6 +203,7 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(GroupedGridReduction* grid_reduction) final {
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_reduction->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     } else if (grid_reduction->numHorizontallyGroupedExprs() == 1) {
@@ -202,6 +219,7 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_welford = true;
     summary_.has_grid_welford = true;
     summary_.has_grid_reductions = true;
+    summary_.all_block_reductions_are_warp_reduction = false;
     if (grid_welford->isAllreduce()) {
       summary_.has_cooperative_grid_reduction = true;
     }
@@ -244,6 +262,14 @@ class KernelIrScanner : private IrVisitor {
         summary_.has_grid_broadcasts || parallel_types.hasBID();
   }
 
+  void handle(ArgsortOp* aop) final {
+    summary_.has_argsort = true;
+  }
+
+  void handle(TopKOp* top) final {
+    summary_.has_topk = true;
+  }
+
   void handle(IfThenElse* ite) final {
     // Search for ElectSync UnaryOp in IfThenElse predicate
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
@@ -253,6 +279,10 @@ class KernelIrScanner : private IrVisitor {
     }
     // Run default handle
     IrVisitor::handle(ite);
+  }
+
+  void handle(MmaOp* mma_op) final {
+    summary_.has_mma_op = true;
   }
 
  private:
@@ -368,8 +398,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
     : Fusion(*fusion), index_type_(index_type) {
   // Index type must be resolved to either int32 or int64
   NVF_ERROR(
-      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
-          "Invalid index type: ",
+      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32,
+      "Invalid index type: ",
       index_type_);
 }
 
@@ -515,7 +545,9 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     return ss.str();
   }
 
-  double kilo_freq = at::cuda::getCurrentDeviceProperties()->clockRate;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
 
   ss << std::setprecision(3) << std::fixed;
 
@@ -526,7 +558,7 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     double cycles = static_cast<double>(buffer[index][0].item<int64_t>());
     auto count = buffer[index][1].item<int64_t>();
     auto cycles_per_call = count == 0 ? 0.0 : cycles / (double)count;
-    auto us_per_call = cycles_per_call / kilo_freq * 1000.0;
+    auto us_per_call = cycles_per_call / (double)gpu_clock_khz * 1000.0;
     ss << expr->getOpString() << ", T" << out_tv->name() << ", " << us_per_call
        << " us, " << count << "\n";
   }

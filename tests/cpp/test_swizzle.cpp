@@ -440,7 +440,8 @@ TEST_F(LegacySwizzleTest, TransposeBankConflictSwizzle1) {
         "Expecting no bank conflict after swizzle, but got ",
         bank_conflict_info.size(),
         "bank conflicting expressions.",
-        ". Something in our lowering or bank conflict checker must have changed, ",
+        ". Something in our lowering or bank conflict checker must have "
+        "changed, ",
         "please update them or this test consistently.");
   }
 }
@@ -684,10 +685,10 @@ TEST_F(LegacySwizzleTest, SwizzleInProducerProjection) {
   auto outputs = ke.run({t});
 
   auto expect = at::empty_like(t);
-  for (auto i : c10::irange(t.size(0) / 8)) {
-    for (auto j : c10::irange(t.size(1) / 8)) {
-      for (auto ii : c10::irange(8)) {
-        for (auto jj : c10::irange(8)) {
+  for (auto i : arange(t.size(0) / 8)) {
+    for (auto j : arange(t.size(1) / 8)) {
+      for (auto ii : arange(8)) {
+        for (auto jj : arange(8)) {
           expect[i * 8 + ii][j * 8 + jj] = t[i * 8 + ii][j * 8 + (ii ^ jj)];
         }
       }

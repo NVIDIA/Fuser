@@ -15,7 +15,6 @@
 #include <ir/utils.h>
 #include <ops/arith.h>
 
-#include <c10/util/irange.h>
 #include <algorithm>
 #include <numeric>
 namespace nvfuser {
@@ -280,7 +279,7 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
     }
 
     // Validate the combination of ptypes, reductions, bcasts
-    for (const auto i : c10::irange(ParallelTypeBitmap::kNumParallelTypes)) {
+    for (const auto i : arange(ParallelTypeBitmap::kNumParallelTypes)) {
       if (input_reductions[i]) {
         if (id_ptypes[i]) {
           NVF_ERROR(
@@ -289,7 +288,8 @@ void ThreadPredicateMap::updateBitSet(const Expr* expr) {
               expr);
           NVF_CHECK(
               !id_bcasts[i],
-              "Invalid broadcast and reduction combination, tried to parallelize both with the same thread dim: ",
+              "Invalid broadcast and reduction combination, tried to "
+              "parallelize both with the same thread dim: ",
               inp);
         }
       }

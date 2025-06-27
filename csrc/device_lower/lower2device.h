@@ -12,6 +12,7 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
+#include <device_lower/analysis/non_divisible_split.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/tensor_memory.h>
@@ -32,7 +33,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
-#include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
 #include <runtime/executor_params.h>
@@ -160,16 +160,32 @@ class GpuLower : public NonCopyable {
     return local_allocation_info_map_;
   }
 
+  const std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo()
+      const {
+    return allocation_info_;
+  }
+
+  std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo() {
+    return allocation_info_;
+  }
+
+  const AllocationDomainInfo& getAllocationInfo(TensorView* tv) const;
+
   const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
     return warp_pad_info_;
   }
 
-  auto& nonDivisibleSplitInfo() {
-    return non_divisible_split_info_;
+  const NonDivisibleSplitInfo& nonDivisibleSplitInfo() const {
+    NVF_ERROR(
+        non_divisible_split_info_, "NonDivisibleSplitInfo is not created");
+    return *non_divisible_split_info_;
   }
 
-  const auto& nonDivisibleSplitInfo() const {
-    return non_divisible_split_info_;
+  const NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() const {
+    NVF_ERROR(
+        non_divisible_predicate_info_,
+        "NonDivisiblePredicateInfo is not created");
+    return *non_divisible_predicate_info_;
   }
 
   const auto& divisibleSplitSet() const {
@@ -216,12 +232,12 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
-    return ldst_mbarrier_map_;
+  std::unordered_map<const Expr*, TensorView*>& mbarrierMap() {
+    return mbarrier_map_;
   }
 
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
-    return ldst_mbarrier_map_;
+  const std::unordered_map<const Expr*, TensorView*>& mbarrierMap() const {
+    return mbarrier_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -393,9 +409,11 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<PredicateElimination> pred_elimination_;
   std::shared_ptr<ComputeAtMap> compute_at_map_;
   LocalAllocationInfoMap local_allocation_info_map_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> allocation_info_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
-  NonDivisibleSplitInfo non_divisible_split_info_;
+  std::unique_ptr<NonDivisibleSplitInfo> non_divisible_split_info_;
+  std::unique_ptr<NonDivisiblePredicateInfo> non_divisible_predicate_info_;
   CircularBufferInfo circular_buffer_info_;
   TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
@@ -420,8 +438,8 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // Keep track of the mbarrier used for each load/store operation
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+  // Keep track of the mbarrier used for each load/store and blackwell utcmma
+  std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
@@ -442,5 +460,10 @@ class GpuLower : public NonCopyable {
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
 };
+
+#define NVFUSER_LOWER_VALIDATE(cond, ...) \
+  GpuLower::current()->validate(          \
+      cond,                               \
+      "Validation at " STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) " ", __VA_ARGS__);
 
 } // namespace nvfuser

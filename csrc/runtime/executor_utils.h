@@ -16,7 +16,6 @@
 #include <torch/csrc/jit/ir/ir.h>
 
 #include <cuda_utils.h>
-#include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
@@ -27,6 +26,9 @@
 #include <vector>
 
 namespace nvfuser {
+
+class GpuLower;
+
 namespace executor_utils {
 
 // I'm not happy with CudaExecutable being a struct exposing all the fields.
@@ -43,6 +45,8 @@ struct CudaExecutable : public NonCopyable {
   std::string cubin_filename;
   std::string kernel_name;
   std::string compile_args;
+  std::vector<char> sass;
+  std::string sass_filename;
   long block_size = -1;
   int register_spills = -1;
 };
@@ -107,14 +111,6 @@ struct VectorizedTensorInfo {
   std::vector<int64_t> aligned_vectorized_inp_tensor_pos;
   //! Aligned vectorized fusion outputs
   std::vector<int64_t> aligned_vectorized_out_tensor_pos;
-  //! Misaligned vectorized input tensors
-  std::unordered_set<TensorView*> global_inp_misaligned_tv;
-  //! Misaligned vectorized output tensors
-  std::unordered_set<TensorView*> global_out_misaligned_tv;
-  //! Positions of misaligned input tensors
-  std::vector<int64_t> inp_misaligned_tensors_pos;
-  //! Positions of misaligned output tensors
-  std::vector<int64_t> out_misaligned_tensors_pos;
 };
 
 //! Compile-time info to be cached in each KernelExecutor:

@@ -49,7 +49,8 @@ Val* getLoopIndexOffsetForProducerOfCircularBuffer(
 
   NVF_ERROR(
       GpuLower::hasCurrent(),
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   CircularBufferInfo& info = GpuLower::current()->circularBufferInfo();
 
@@ -95,7 +96,8 @@ Val* getOffsetForCircularBufferTensor(
   const auto gpu_lower = GpuLower::current();
   NVF_ERROR(
       gpu_lower != nullptr,
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   auto circular_buffer_loop =
       gpu_lower->circularBufferInfo().getCircularBufferLoop(
@@ -108,7 +110,8 @@ Val* getOffsetForCircularBufferTensor(
   const CircularBufferLoopStage stage =
       circular_buffer_loop->circularBufferLoopStage();
 
-  auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
+  Val* loop_index = gpu_lower->circularBufferInfo().getLinearIndex(
+      circular_buffer_tv, for_loops);
 
   const auto& opt =
       GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
@@ -154,7 +157,8 @@ CircularBufferLoopStage getCircularBufferLoopStage(
     const ValGraph& loop_graph) {
   NVF_ERROR(
       GpuLower::hasCurrent(),
-      "Circular buffering info of GpuLower is required but GpuLower is missing");
+      "Circular buffering info of GpuLower is required but GpuLower is "
+      "missing");
 
   auto circular_buffer_axis =
       GpuLower::current()->circularBufferInfo().getCircularBufferAxis(

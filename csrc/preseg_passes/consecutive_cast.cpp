@@ -37,8 +37,8 @@ bool shouldSwapMetaCast(Expr* cast) {
   // cast on index types.
   if (cast->input(0)->getDataType().value() == DataType::Index ||
       cast->output(0)->getDataType().value() == DataType::Index ||
-      (dataTypeSize(cast->input(0)->getDataType().value()) <
-       dataTypeSize(cast->output(0)->getDataType().value()))) {
+      (dataTypeSizeByte(cast->input(0)->getDataType().value()) <
+       dataTypeSizeByte(cast->output(0)->getDataType().value()))) {
     return false;
   }
 
@@ -97,7 +97,7 @@ Val* replayMetaOnNewInput(
 
     // creating map from original to replayed ID
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(meta_tv_out_root_domain.size())) {
+    for (const auto i : arange(meta_tv_out_root_domain.size())) {
       id_map[meta_tv_out_root_domain[i]] = replayed_root_domain[i];
     }
 

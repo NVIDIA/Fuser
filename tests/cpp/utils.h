@@ -534,73 +534,16 @@ inline bool cudaArchGuardShouldSkip(
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // Enable logging so debug messages in PyTorch can be printed out
-    // via `TORCH_CPP_LOG_LEVEL`.
-    c10::initLogging();
-
-    // requires PASCAL or newer
-    if (!deviceMajorMinorCheck(6)) {
-      GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-    }
-    setFillAllocationWithNan(true);
-
-    maybeClearAllocator();
-
-    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
-    // Otherwise, use system time. If a test fails, this seed will be printed.
-    at::manual_seed(getATenRandomSeed());
-
-    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
-    // random seed. Otherwise, use zero. If a test fails, this seed will be
-    // printed.
-    std::srand(getCRandomSeed());
-
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModelExtraValidation);
-  }
-
-  void TearDown() override {
-    if (::testing::Test::HasFailure()) {
-      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
-                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " test_nvfuser --gtest_filter='"
-                << test_info->test_suite_name() << "." << test_info->name()
-                << "'" << std::endl;
-    }
-
-    // Make sure capturing of stdout is stopped
-    ensureStopCaptureStdout();
-
-    // Make sure profiler is unset in case it was set during test
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
-  }
+  NVFuserTest();
+  ~NVFuserTest() override;
+  void SetUp() override;
 
   // Start capturing of stdout if not already started
-  void captureStdout() {
-    if (!capturing_) {
-      testing::internal::CaptureStdout();
-      capturing_ = true;
-    }
-  }
-
+  void captureStdout();
   // Stop capturing of stdout if being captured
-  void ensureStopCaptureStdout() {
-    if (capturing_) {
-      testing::internal::GetCapturedStdout();
-      capturing_ = false;
-    }
-  }
-
+  void ensureStopCaptureStdout();
   // Get capturing stdout
-  std::string getCapturedStdout() {
-    NVF_ERROR(capturing_, "Not captured");
-    auto str = testing::internal::GetCapturedStdout();
-    capturing_ = false;
-    return str;
-  }
+  std::string getCapturedStdout();
 
  protected:
   EnableOptionsGuard enable_options_guard_;
@@ -627,6 +570,7 @@ class BlackwellBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -638,6 +582,7 @@ class TmaBase : public NVFuserTest {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -718,6 +663,62 @@ static auto kAllHopperMacros = std::vector<MmaMacro>{
     MmaMacro::Hopper_64_232_16, MmaMacro::Hopper_64_240_16,
     MmaMacro::Hopper_64_248_16, MmaMacro::Hopper_64_256_16};
 
+static auto kAllBlackwell1CTAM64Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell1CTA_64_8_16,   MmaMacro::Blackwell1CTA_64_16_16,
+    MmaMacro::Blackwell1CTA_64_24_16,  MmaMacro::Blackwell1CTA_64_32_16,
+    MmaMacro::Blackwell1CTA_64_40_16,  MmaMacro::Blackwell1CTA_64_48_16,
+    MmaMacro::Blackwell1CTA_64_56_16,  MmaMacro::Blackwell1CTA_64_64_16,
+    MmaMacro::Blackwell1CTA_64_72_16,  MmaMacro::Blackwell1CTA_64_80_16,
+    MmaMacro::Blackwell1CTA_64_88_16,  MmaMacro::Blackwell1CTA_64_96_16,
+    MmaMacro::Blackwell1CTA_64_104_16, MmaMacro::Blackwell1CTA_64_112_16,
+    MmaMacro::Blackwell1CTA_64_120_16, MmaMacro::Blackwell1CTA_64_128_16,
+    MmaMacro::Blackwell1CTA_64_136_16, MmaMacro::Blackwell1CTA_64_144_16,
+    MmaMacro::Blackwell1CTA_64_152_16, MmaMacro::Blackwell1CTA_64_160_16,
+    MmaMacro::Blackwell1CTA_64_168_16, MmaMacro::Blackwell1CTA_64_176_16,
+    MmaMacro::Blackwell1CTA_64_184_16, MmaMacro::Blackwell1CTA_64_192_16,
+    MmaMacro::Blackwell1CTA_64_200_16, MmaMacro::Blackwell1CTA_64_208_16,
+    MmaMacro::Blackwell1CTA_64_216_16, MmaMacro::Blackwell1CTA_64_224_16,
+    MmaMacro::Blackwell1CTA_64_232_16, MmaMacro::Blackwell1CTA_64_240_16,
+    MmaMacro::Blackwell1CTA_64_248_16, MmaMacro::Blackwell1CTA_64_256_16};
+
+static auto kAllBlackwell1CTAM128Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell1CTA_128_16_16,
+    MmaMacro::Blackwell1CTA_128_32_16,
+    MmaMacro::Blackwell1CTA_128_48_16,
+    MmaMacro::Blackwell1CTA_128_64_16,
+    MmaMacro::Blackwell1CTA_128_80_16,
+    MmaMacro::Blackwell1CTA_128_96_16,
+    MmaMacro::Blackwell1CTA_128_112_16,
+    MmaMacro::Blackwell1CTA_128_128_16,
+    MmaMacro::Blackwell1CTA_128_144_16,
+    MmaMacro::Blackwell1CTA_128_160_16,
+    MmaMacro::Blackwell1CTA_128_176_16,
+    MmaMacro::Blackwell1CTA_128_192_16,
+    MmaMacro::Blackwell1CTA_128_208_16,
+    MmaMacro::Blackwell1CTA_128_224_16,
+    MmaMacro::Blackwell1CTA_128_240_16,
+    MmaMacro::Blackwell1CTA_128_256_16};
+
+static auto kAllBlackwell2CTAM128Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell2CTA_128_32_16,
+    MmaMacro::Blackwell2CTA_128_64_16,
+    MmaMacro::Blackwell2CTA_128_96_16,
+    MmaMacro::Blackwell2CTA_128_128_16,
+    MmaMacro::Blackwell2CTA_128_160_16,
+    MmaMacro::Blackwell2CTA_128_192_16,
+    MmaMacro::Blackwell2CTA_128_224_16,
+    MmaMacro::Blackwell2CTA_128_256_16};
+
+static auto kAllBlackwell2CTAM256Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell2CTA_256_32_16,
+    MmaMacro::Blackwell2CTA_256_64_16,
+    MmaMacro::Blackwell2CTA_256_96_16,
+    MmaMacro::Blackwell2CTA_256_128_16,
+    MmaMacro::Blackwell2CTA_256_160_16,
+    MmaMacro::Blackwell2CTA_256_192_16,
+    MmaMacro::Blackwell2CTA_256_224_16,
+    MmaMacro::Blackwell2CTA_256_256_16};
+
 std::string macroToString(const MmaMacro macro);
 
 // Utility to generate matmul input tensors based on given layout
@@ -793,7 +794,7 @@ inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
 }
 
 inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
+matmulAtInputShape3DSS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
       return {{M, K, 1}, {1, K, N}};
@@ -808,14 +809,14 @@ matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
   }
 }
 
-inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DSS(
     int M,
     int N,
     int K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  auto shapes = matmulAtInputShape3DSS(M, N, K, layout);
   return std::make_pair(
       at::randn(shapes.first, options), at::randn(shapes.second, options));
 }
@@ -879,5 +880,15 @@ bool isVectorized(TensorView* tv);
 // torch version.
 std::pair<TensorView*, TensorView*> createSdpaRngTvs();
 std::pair<at::Tensor, at::Tensor> createSdpaRngTensors();
+
+// C++ implementation of torch.cuda.reset_peak_memory_stats. Note that this
+// resets peak to current, not zero.
+void resetPeakMemoryStats(c10::DeviceIndex device);
+
+// C++ implementation of torch.cuda.max_memory_allocated
+int64_t maxMemoryAllocated(const c10::DeviceIndex device);
+
+// C++ implementation of torch.cuda.memory_allocated
+int64_t memoryAllocated(const c10::DeviceIndex device);
 
 } // namespace nvfuser

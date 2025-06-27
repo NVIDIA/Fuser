@@ -238,7 +238,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(3));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
@@ -445,17 +445,23 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
 // weight is of shape [column, row]. This LinearOp is decomposed into a local
 // LinearOp followed by an Allreduce.
 TEST_F(DistributedMatmulTest, RowParallelLinear) {
+  const auto d = communicator_->size();
+  constexpr int64_t e = 12;
+  if (e % d != 0) {
+    GTEST_SKIP() << "The test requires e (" << e << ") to be divisible by d ("
+                 << d << ").";
+  }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* x = makeContigTensor(3);
-  TensorView* w = makeContigTensor(2);
+  TensorView* x = makeContigConcreteTensor({-1, -1, e});
+  TensorView* w = makeContigConcreteTensor({e, e});
   TensorView* y = linear(x, w);
   fusion->addInput(x);
   fusion->addInput(w);
   fusion->addOutput(y);
 
-  const auto d = communicator_->size();
   x->split(-1, d, /*inner_split=*/false);
   x->axis(-2)->parallelize(ParallelType::DIDx);
 
@@ -473,15 +479,9 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
-  constexpr int64_t b = 1, e = 12;
-  if (e % d != 0) {
-    GTEST_SKIP() << "The test requires e (" << e << ") to be divisible by d ("
-                 << d << ").";
-  }
-
   FusionExecutorCache executor_cache(std::move(fusion));
-
   FusionKernelRuntime* previous_runtime = nullptr;
+  constexpr int64_t b = 1;
   for (int64_t s : {4, 8, 16}) {
     // Use randint instead of randn to avoid floating point accumulation errors.
     auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options);

@@ -16,30 +16,67 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName) \
-  extern decltype(::funcName)* funcName;
+#define DECLARE_DRIVER_API_WRAPPER(funcName, version) \
+  extern decltype(::funcName)* funcName
 
 // List of driver APIs that you want the magic to happen.
-#define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
-  fn(cuDeviceGetAttribute);               \
-  fn(cuDeviceGetName);                    \
-  fn(cuFuncGetAttribute);                 \
-  fn(cuFuncSetAttribute);                 \
-  fn(cuGetErrorName);                     \
-  fn(cuGetErrorString);                   \
-  fn(cuLaunchCooperativeKernel);          \
-  fn(cuLaunchKernel);                     \
-  fn(cuModuleGetFunction);                \
-  fn(cuModuleLoadDataEx);                 \
-  fn(cuModuleUnload);                     \
-  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor)
+//
+// The second argument is the **requested** driver API version.
+// It must be lower than or equal to the **actual** driver API version. For max
+// compatibility, this requested version should be as low as possible
+// while still supporting the capabilities required by nvFuser.
+//
+// Using the actual driver API version can break forward compatibility.
+// Consider the following situation: cuFoo, an imaginary CUDA driver API
+// function, is versioned in its symbol name. nvFuser relies on the behavior of
+// cuFoo_v2, which is used by CUDA 12. The user upgrades their driver to CUDA
+// 13 that introduces cuFoo_v3, which has a different behavior from _v2. In
+// this case, `cudaGetDriverEntryPointByVersion(...,13000)` returns cuFoo_v3,
+// which breaks nvFuser as is because it still relies on the _v2 behavior.
+// Instead, `cudaGetDriverEntryPointByVersion(...,12000)` still returns
+// cuFoo_v2 despite of the CUDA 13 upgrade so nvFuser still functions.
+//
+// nvFuser is expected to support only CUDA_VERSION >= 11000, so I didn't try
+// to go lower than that. When we increase the minimum supported version, we
+// can accordingly increase the requested versions. However, we don't have to
+// unless new driver capabilities are needed.
+#define ALL_DRIVER_API_WRAPPER_CUDA(fn) \
+  fn(cuDeviceGetAttribute, 11000);      \
+  fn(cuDeviceGetName, 11000);           \
+  fn(cuFuncGetAttribute, 11000);        \
+  fn(cuFuncSetAttribute, 11000);        \
+  fn(cuGetErrorName, 11000);            \
+  fn(cuGetErrorString, 11000);          \
+  fn(cuLaunchCooperativeKernel, 11000); \
+  fn(cuLaunchKernel, 11000);            \
+  fn(cuModuleGetFunction, 11000);       \
+  fn(cuModuleLoadDataEx, 11000);        \
+  fn(cuModuleUnload, 11000);            \
+  fn(cuMemGetAddressRange, 11000);      \
+  fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 11000)
 
+// Stream memory operations (e.g. cuStreamWriteValue32) are specified for both
+// 11 and 12+. In CUDA 11, these operations require NVreg_EnableStreamMemOPs=1
+// to be explicitly enabled. CUDA 12+ removed this requirement. Therefore, we
+// try to request version 12000 whenever it's available.
+//
+// Details: CUDA 11.7 introduced _v2 of these APIs, which removed the above
+// NVreg_EnableStreamMemOPs=1 requirement. In CUDA 12, these _v2 APIs are
+// integrated into the vanilla APIs and are therefore removed. Refer to
+// https://docs.nvidia.com/cuda/archive/11.7.1/cuda-driver-api/group__CUDA__MEMOP.html
 #if (CUDA_VERSION >= 12000)
-#define ALL_DRIVER_API_WRAPPER(fn)   \
-  ALL_DRIVER_API_WRAPPER_CUDA11(fn); \
-  fn(cuTensorMapEncodeTiled)
+#define ALL_DRIVER_API_WRAPPER(fn) \
+  ALL_DRIVER_API_WRAPPER_CUDA(fn); \
+  fn(cuStreamWaitValue32, 12000);  \
+  fn(cuStreamWriteValue32, 12000); \
+  fn(cuTensorMapEncodeTiled, 12000)
+#elif (CUDA_VERSION >= 11000)
+#define ALL_DRIVER_API_WRAPPER(fn) \
+  ALL_DRIVER_API_WRAPPER_CUDA(fn); \
+  fn(cuStreamWaitValue32, 11000);  \
+  fn(cuStreamWriteValue32, 11000)
 #else
-#define ALL_DRIVER_API_WRAPPER ALL_DRIVER_API_WRAPPER_CUDA11
+#error "CUDA_VERSION < 11000 isn't supported."
 #endif
 
 ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);

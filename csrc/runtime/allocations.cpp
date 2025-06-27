@@ -98,11 +98,20 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
+      // First byte may not equal to last byte of the previous buffer since
+      // shared memory is forced to align at 128 Bytes. See PR-3023.
+      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+      if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+        debug() << "buffer: " << smem_alloc->buffer()->toString()
+                << ", first_byte: " << first_byte
+                << ", last_byte: " << last_byte << ", size: " << size_bytes
+                << std::endl;
+      }
     }
   }
   return total;
@@ -151,20 +160,33 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
-  for (const auto i : c10::irange(symbolic_sizes.size())) {
+  for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
     NVF_ERROR(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());
 
     auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
+  }
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
@@ -218,6 +240,8 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::BFloat16:
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
+    case at::ScalarType::Float8_e8m0fnu:
+      // case at::ScalarType::Float4_e2m1fn_x2:
       t.fill_(std::nan(""));
       break;
     case at::ScalarType::ComplexHalf:
@@ -241,7 +265,7 @@ KernelArgumentHolder allocateOutputs(
 
   KernelArgumentHolder out_tensors;
   out_tensors.resize(output_infos.size());
-  for (auto out_idx : c10::irange(output_infos.size())) {
+  for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
       auto alloc_tensor = at::native::empty_strided_cuda(
@@ -275,7 +299,8 @@ KernelArgumentHolder allocateOutputs(
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(
-          "Unexpected allocation path, internal logic around allocations must be incorrect.");
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
   }
   return out_tensors;
@@ -341,7 +366,7 @@ class ForwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), in_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -395,7 +420,7 @@ class ForwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -488,7 +513,7 @@ class BackwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -522,7 +547,7 @@ class BackwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), out_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);

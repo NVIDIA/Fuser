@@ -353,7 +353,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
-  for (const auto i : c10::irange(first_vals.size())) {
+  for (const auto i : arange(first_vals.size())) {
     if (!disjointValSets().permissiveAreMapped(
             first_vals.at(i), second_vals.at(i))) {
       return false;
@@ -551,18 +551,20 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
 
   NVF_ERROR(
       propagate_through_exprs_,
-      "Asked to propagate expression mappings on a graph that has propagate_exprs_ disabled.");
+      "Asked to propagate expression mappings on a graph that has "
+      "propagate_exprs_ disabled.");
 
   const auto& first_ids = forward ? first->outputs() : first->inputs();
   const auto& second_ids = forward ? second->outputs() : second->inputs();
 
   NVF_ERROR(
       first_ids.size() == second_ids.size(),
-      "This should be unreachable, if transformation expressions match, their number of inputs and outputs should as well.\n However found:\n",
+      "This should be unreachable, if transformation expressions match, their "
+      "number of inputs and outputs should as well.\n However found:\n",
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     mapVals(first_ids[out_i], second_ids[out_i]);
   }
 
@@ -578,8 +580,8 @@ void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
   if (vals.size() < 2) {
     return;
   }
-  for (const auto i : c10::irange(vals.size() - 1)) {
-    for (const auto j : c10::irange(i + 1, vals.size())) {
+  for (const auto i : arange(vals.size() - 1)) {
+    for (const auto j : arange(i + 1, vals.size())) {
       setUnmappable(vals.at(i), vals.at(j));
     }
   }

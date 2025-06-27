@@ -120,6 +120,12 @@ std::string toString(MmaMacro macro) {
     case MmaMacroEncode::Arch::Hopper:
       ss << "Hopper";
       break;
+    case MmaMacroEncode::Arch::Blackwell1CTA:
+      ss << "Blackwell1CTA";
+      break;
+    case MmaMacroEncode::Arch::Blackwell2CTA:
+      ss << "Blackwell2CTA";
+      break;
   }
   ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
   return ss.str();

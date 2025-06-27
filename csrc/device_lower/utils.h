@@ -15,7 +15,7 @@
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
-#include <val_graph.h>
+#include <val_graph_nodes.h>
 
 #include <bitset>
 #include <map>
@@ -25,6 +25,7 @@
 namespace nvfuser {
 
 class ThreadPredicateMap;
+class ValGraph;
 
 namespace scope_utils {
 
@@ -37,31 +38,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
 } // namespace scope_utils
 
 namespace ir_utils {
-
-// Somtimes we want to temporarily view a tensorview with another tensordomain.
-// This isn't a permanent transformation, but in indexing we want to index
-// producers with a consumer set of indices, so we need to view the producer
-// transformed like consumer while we index. This will set the tv with td for
-// the life of this context guard.
-class TVDomainGuard {
- private:
-  TensorView* tv_;
-  TensorDomain* prev_domain_;
-
- public:
-  explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
-  TVDomainGuard(const TVDomainGuard&) = delete;
-  NVF_API TVDomainGuard(TVDomainGuard&&);
-
-  //! An utility to access the tensordomain before the temporary
-  //!  view. This is used to retrieve information, like swizzle
-  //!  information that can only be reliably kept at the original domain.
-  const TensorDomain* prevDomain() const {
-    return prev_domain_;
-  }
-
-  NVF_API ~TVDomainGuard();
-};
 
 // Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
@@ -128,13 +104,29 @@ bool isStMatrixOp(const Expr* expr);
 bool isCpAsyncOp(const Expr* expr);
 
 //! Returns true if the expression will be lowered to
-//!  a cp.async.bulk (a.k.a. TMA) intrinsic.
+//!  a cp.async.bulk or cp.async.bulk.tensor
 bool isCpAsyncBulkLoad(const Expr* expr);
 bool isCpAsyncBulkStore(const Expr* expr);
 bool isCpAsyncBulk(const Expr* expr);
 
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk.tensor intrinsic.
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr);
+bool isCpAsyncBulkTensorTileStore(const Expr* expr);
+bool isCpAsyncBulkTensorTile(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a cp.async.bulk intrinsic.
+bool isCpAsyncBulk1DLoad(const Expr* expr);
+bool isCpAsyncBulk1DStore(const Expr* expr);
+bool isCpAsyncBulk1D(const Expr* expr);
+
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
+
+//! Returns true if the expression will be lowered to
+//!  a ld/st tmem intrinsic.
+bool isLdStTMem(const Expr* expr);
 
 //! Short-cut for matching a singleton expr in a if statement,
 //!  which likely becomes a predicated instruction in ptx, eg.:
@@ -176,6 +168,23 @@ std::vector<Expr*> replaceInputsInExpr(
     const std::vector<Expr*>& exprs,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
+//! Returns true if the given TensorView is a smem tv of TMA load/store, or
+//! an input of an MmaOp.
+bool isTMAOrMMASmemTv(TensorView* tv);
+
+//! Returns the swizzle mode of the given TensorView. The TensorView must be
+//! an input of an MmaOp, or the smem tv of TMA load/store.
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
+
+//! Get the stage_slice_position if it is defined in the WarpSpecialized
+//! circular buffer options struct.
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -190,7 +199,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool zero_init,
     bool resets_to_zero = false);
 
-struct BasicAllocInfo {
+struct AllocPosInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
   ForLoop* init_for_loop = nullptr;
@@ -212,7 +221,7 @@ struct BasicAllocInfo {
 
 // Fill the above allocation struct based on provided information. id_map is
 // used if we're looking at a producer tensor but loops on a consumer tensor.
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},
@@ -366,16 +375,22 @@ struct IterDomainDependencySorter {
 // Check if all the inputs of the given MmaOp is guarded by mbarrier
 bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 
-// Create a list of expressions that will be used to wait for async operations.
-// For example, if op_type is AsyncOpType::WgMma, then the returned expressions
-// will be:
-//   wgmma.commit_group.sync.aligned
-//   wgmma.wait_group.sync.aligned
-std::vector<Expr*> getSyncExprs(
-    AsyncOpType async_type,
-    int64_t keep_stages = 0,
-    bool requires_commit = true);
+// Check if the given ForLoop is a warp specialized loop by checking
+// the circular buffer type of the loop domain.
+bool isWarpSpecializedLoop(ForLoop* loop);
+
+// Check if the given Expr is only a data copy, and no math is done on it.
+// For example, set, broadcast, squeeze, slice, pad, reshape, etc.
+// When an Expr is copy only, regardless of the architecture, it is always
+// supported. For example, it is totally OK to broadcast a fp8 tensor of shape
+// [1024] to a fp8 tensor of shape [1024, 1] on NVIDIA GeForce 8800 GTX, the
+// first device that supports CUDA, because it just involves byte copying, which
+// is supported on all architectures.
+bool isCopyOnly(Expr* expr);
+
+// Check if the given Val is only copied from/to other Val, and no math is done
+// on it.
+bool isCopyOnly(Val* val);
 
 } // namespace lower_utils
-
 } // namespace nvfuser

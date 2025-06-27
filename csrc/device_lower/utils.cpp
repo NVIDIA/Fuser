@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -45,53 +44,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
 } // namespace scope_utils
 
 namespace ir_utils {
-
-TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
-    : tv_(tv), prev_domain_(tv_->domain()) {
-  tv_->setDomain(td);
-}
-
-TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
-    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
-  std::swap(tv_, guard.tv_);
-}
-
-TVDomainGuard::~TVDomainGuard() {
-  if (tv_ != nullptr) {
-    tv_->setDomain(prev_domain_);
-  }
-}
-
-ir_utils::TVDomainGuard overrideContiguityGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getAllocationDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getMaybeAllocationDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
-ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getLogicalDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
 
 std::vector<IterDomain*> iterDomainInputsOf(
     const std::vector<IterDomain*>& input_ids,
@@ -132,17 +84,18 @@ bool isTV(const Val* val) {
 
 // Check if we're a TensorView op that we can generate code for.
 bool isTvOp(const Expr* expr) {
-  if (std::any_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [](Val* v) { return isTV(v); }) &&
+  if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
+          ArgsortOp,
+          GroupedMmaOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
+          IndexPutAccumulateOp,
           GatherOp,
           ScatterOp,
           RNGOp,
@@ -242,6 +195,46 @@ bool isCpAsyncBulkLoad(const Expr* expr) {
 
 bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+
+bool isLdStTMem(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::LdTMem ||
+        ldst->opType() == LoadStoreOpType::StTMem;
+  }
+  return false;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -649,7 +642,6 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -693,6 +685,81 @@ std::vector<Expr*> getAllSwizzlesBetween(
   return all_swizzles;
 }
 
+bool isTMAOrMMASmemTv(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared &&
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
+}
+
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  // Output of TMA load
+  if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+    return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+  }
+  for (auto use : tv->uses()) {
+    // Input of TMA store
+    if (ir_utils::isCpAsyncBulkStore(use)) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      return GpuLower::current()->consumerToTMAInfo().at(consumer_tv).swizzle();
+    }
+
+    // Input of MmaOp
+    if (use->isA<MmaOp>()) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+      const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+      const auto& from_domain = id_graph.toGroups(consumer_tv->getLoopDomain());
+      auto exprs = ValGraphBFS::getExprGroupsBetween(
+                       id_graph,
+                       {from_domain.begin(), from_domain.end()},
+                       {to_domain.begin(), to_domain.end()},
+                       false)
+                       .first;
+      for (const auto& [eg, dir] : exprs) {
+        auto expr = eg->front();
+        if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(
+              swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+          return getSwizzleFromBytes(
+              swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+        }
+      }
+    }
+  }
+  return MmaInputSmemSwizzle::None;
+}
+
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -715,21 +782,27 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
     return false;
   }
 
-  if (!(ir_utils::isReductionOp(expr) || expr->isA<BroadcastOp>() ||
-        expr->isA<kir::GridBroadcast>())) {
-    return false;
-  }
-
   // GroupedReductionOp can have multiple output TVs, but they must be
   // parallelized in the same way, so just checking one of them is enough.
   auto tv = ir_utils::getTvOutput(expr);
 
-  if (tv->hasBlockReduction() || tv->hasGridReduction()) {
+  if (ir_utils::isReductionOp(expr) &&
+      (tv->hasBlockReduction() || tv->hasGridReduction())) {
     return true;
-  } else if (expr->isA<BroadcastOp>()) {
-    const ParallelTypeBitmap pt_map =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(tv);
-    return pt_map.any();
+  }
+
+  if ((expr->isA<BroadcastOp>() &&
+       GpuLower::current()
+           ->threadPredMap()
+           .getParallelBroadcastDomains(tv)
+           .any()) ||
+      expr->isA<kir::GridBroadcast>()) {
+    return true;
+  }
+
+  // These ops currently use CUB, which uses syncthreads internally
+  if (expr->isOneOf<ArgsortOp, TopKOp>()) {
+    return true;
   }
 
   return false;
@@ -755,19 +828,24 @@ kir::Allocate* allocGlobalBufferForGridComm(
       resets_to_zero);
 }
 
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
-  BasicAllocInfo info;
+  AllocPosInfo info;
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
 
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -778,7 +856,8 @@ BasicAllocInfo getAllocInformation(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -948,7 +1027,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
     return {UnitDim::K, UnitDim::K};
   }
-  NVF_ERROR(isHopper(expr->macro()));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;
@@ -969,7 +1047,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
-  for (auto i : c10::irange(2)) {
+  for (auto i : arange(2)) {
     auto in_tv = inputs.at(i);
     if (in_tv->getMemoryType() == MemoryType::Local) {
       layout[i] = UnitDim::K;
@@ -1029,13 +1107,14 @@ bool predicateAtEnd(ForLoop* loop) {
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
   const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
+                                       ->idModel()
+                                       .idGraph(IdMappingMode::EXACT)
+                                       .toGroup(other_out_id);
 
   if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
+          other_id_exact_set->begin(), other_id_exact_set->end(), [](Val* val) {
+            return val->as<IterDomain>()->getParallelType() ==
+                ParallelType::Vectorize;
           })) {
     return false;
   }
@@ -1298,7 +1377,7 @@ Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
       comp.begin(),
       comp.end(),
-      static_cast<Val*>(nullptr),
+      FusionGuard::getCurFusion()->oneVal(),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
@@ -1483,8 +1562,6 @@ Projection propagate(
     const ExprGroup& eg,
     Direction direction) {
   // Just recursively propagate subtree.
-  auto from = fromGroups(id_graph, eg, direction);
-  auto to = toGroups(id_graph, eg, direction);
   auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     return {};
@@ -1618,6 +1695,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
+  if (comp.empty()) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  }
   auto it = search(domain, comp);
   if (it == domain.end()) {
     return nullptr;
@@ -1717,7 +1797,6 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -1806,7 +1885,6 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -2052,19 +2130,29 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(
-    AsyncOpType async_type,
-    int64_t keep_stages,
-    bool requires_commit) {
-  std::vector<Expr*> sync_exprs;
-  sync_exprs.reserve(2);
-  if (requires_commit) {
-    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-    sync_exprs.push_back(commit);
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
+
+bool isCopyOnly(Expr* expr) {
+  return expr
+      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
   }
-  auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
-  sync_exprs.push_back(wait);
-  return sync_exprs;
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace lower_utils

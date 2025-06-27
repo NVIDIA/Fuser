@@ -38,7 +38,7 @@ ContigIDGroups::ContigIDGroups(
       " != ",
       alloc_contiguity_.size());
 
-  for (const auto index_domain_i : c10::irange(alloc_domains_.size())) {
+  for (const auto index_domain_i : arange(alloc_domains_.size())) {
     IterDomain* index_domain = alloc_domains_.at(index_domain_i);
     NVF_ERROR(
         !index_domain->isBroadcast(),
@@ -86,6 +86,16 @@ ContigIDGroups::ContigIDGroups(
 void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Only forward direction is supported for now
   if (direction != Direction::Forward) {
+    // Backward propagation for Merge is not implemented.
+    // Considering the backward case of a Merge (i.e., if merge->out() is given
+    // as contiguous, what does it imply for merge->outer() and
+    // merge->inner()?): While merge->outer() and merge->inner() would also be
+    // contiguous in such a scenario, this information does not typically lead
+    // to further simplification of indices beyond what using merge->out()
+    // already provides if it was part of a contiguous chain. The primary goal
+    // of contiguity analysis is to find larger, merged domains to simplify
+    // indexing. Decomposing a known contiguous merged domain doesn't usually
+    // serve this purpose.
     return;
   }
 
@@ -110,7 +120,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Contiguity doesn't matter for predicates
   if (is_indexing_pass) {
     VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
-    for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
+    for (auto alloc_id_i : arange(alloc_domains_.size())) {
       auto alloc_id = alloc_domains_[alloc_id_i];
       if (alloc_ids.erase(alloc_id) == 0) {
         continue;
@@ -167,6 +177,118 @@ void ContigIDGroups::handle(Split* split, Direction direction) {
     if (!divisible) {
       non_divisible_deps_.emplace(graph_.toGroup(split->outer()));
       non_divisible_deps_.emplace(graph_.toGroup(split->inner()));
+    }
+  } else { // Direction == Direction::Backward
+
+    // --- Backward Propagation Logic for Split ---
+    // A. Overall Purpose:
+    // This section determines if the input to the split (`split->in()`) can be
+    // considered a contiguous domain. This is not based on the contiguity of
+    // `split->outer()` or `split->inner()` (which might not consume allocaiton
+    // domains exclusively) Instead, it re-evaluates `split->in()` based on its
+    // relationship to the original root allocation domains (`alloc_domains_`)
+    // that `ContigIDGroups` was initialized with, and their properties. The
+    // goal is to identify if `split->in()` itself represents a valid, larger
+    // contiguous segment derived from those original allocation domains.
+
+    const ValGroup& split_in_group = graph_.toGroup(split->in());
+
+    // B. Pre-conditions: Consistent Ordering and Exclusive Allocation
+    // Consumption `split->in()` must be consistently ordered with respect to
+    // the original `alloc_domains_` and must exclusively consume all its
+    // underlying allocation domains. If not, it cannot form a new contiguous
+    // segment. These checks are skipped for predicate passes where physical
+    // contiguity for indexing is not the concern.
+    if (!(is_predicate_pass_ ||
+          consistent_transform_info_->isConsistentlyOrdered(split->in()))) {
+      return;
+    }
+
+    if (!consistent_transform_info_->exclusivelyConsumesAllocs(split->in())) {
+      return;
+    }
+
+    // C. Core Contiguity Rule: Checking Original Allocation Domain Contiguity
+    // This check applies if not a predicate pass. It verifies the contiguity
+    // of the original allocation domains (from `alloc_domains_`) that
+    // `split->in()` is composed of.
+    // Rule: `split->in()` can be contiguous if, for all its constituent
+    // original allocation domains, any non-contiguous original domain was the
+    // "innermost" among them (i.e., all other original domains that are
+    // "outer" to it must have been contiguous).
+    // It also ensures all original domains forming `split->in()` are known
+    // (i.e., part of the initial `alloc_domains_` list).
+    if (!is_predicate_pass_) {
+      auto original_allocs_it =
+          consistent_transform_info_->findAllocIDs(split->in());
+      if (original_allocs_it ==
+          consistent_transform_info_->idToAllocIds().end()) {
+        // Cannot find/verify the original allocation domains for split->in().
+        return;
+      } else {
+        VectorOfUniqueEntries<IterDomain*> active_original_allocs =
+            original_allocs_it->second;
+        bool contiguity_ok = true;
+        // Iterate through the master list of allocation domains provided at
+        // init.
+        for (const auto i : arange(alloc_domains_.size())) {
+          IterDomain* current_master_alloc_domain = alloc_domains_.at(i);
+          // Check if this master alloc domain is one of those that constitute
+          // split->in().
+          if (active_original_allocs.erase(current_master_alloc_domain) > 0) {
+            bool original_domain_is_contig = alloc_contiguity_.at(i);
+            if (!original_domain_is_contig && !active_original_allocs.empty()) {
+              // This `current_master_alloc_domain` was not contiguous, AND
+              // there are still other `active_original_allocs` of `split->in()`
+              // that were "inner" to it (as erase proceeds from outer to inner
+              // based on typical domain order in `findAllocIDs` results).
+              // This violates the "non-contiguous only if innermost" rule.
+              contiguity_ok = false;
+              break;
+            }
+          }
+        }
+        if (!contiguity_ok || !active_original_allocs.empty()) {
+          // Contiguity rule violated, or some original allocs that form
+          // `split->in()` were not found in the master `alloc_domains_` list.
+          return;
+        }
+      }
+    }
+
+    // D. Dependency Restrictions
+    // `split->in()` cannot be marked as a new contiguous segment if it already
+    // has resize dependencies. For predicate passes, it also cannot have
+    // non-divisible split dependencies. These dependencies would have been
+    // propagated to `split_in_group` by the main loop in the `ContigIDGroups`
+    // constructor if they were applicable to its inputs (which are outputs
+    // of the split expr in the backward view).
+    if (is_predicate_pass_ && non_divisible_deps_.contains(split_in_group)) {
+      return;
+    }
+    if (resize_deps_.contains(split_in_group)) {
+      return;
+    }
+
+    // E. Outcome of Success: `split->in()` becomes a new contiguous domain.
+    // All checks have passed. `split->in()` is now considered a contiguous
+    // domain. It will represent the collective contiguity of the original
+    // allocation domains it was derived from.
+    contig_ids_.emplace(split_in_group);
+
+    // Update `alloc_to_contig_ids_`: The original allocation domains that
+    // `split->in()` is composed of are now mapped to `split_in_group`.
+    // This means `split_in_group` is the new, larger contiguous ID that
+    // represents them.
+    auto final_original_allocs_it =
+        consistent_transform_info_->findAllocIDs(split->in());
+    NVF_ERROR(
+        final_original_allocs_it !=
+            consistent_transform_info_->idToAllocIds().end(),
+        "Could not find original alloc IDs for split->in() after successful "
+        "checks. This should not happen.");
+    for (auto original_alloc_id : final_original_allocs_it->second) {
+      alloc_to_contig_ids_[original_alloc_id] = split_in_group;
     }
   }
 }

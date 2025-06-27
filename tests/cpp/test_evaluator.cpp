@@ -532,7 +532,7 @@ TEST_F(ExprEvalTest, TernaryOps) {
   auto* f = IrBuilder::create<Val>(false);
 
   // Run once without PrecomputedValues, then once with
-  for ([[maybe_unused]] auto i : c10::irange(2)) {
+  for ([[maybe_unused]] auto i : arange(2)) {
     EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());
@@ -811,6 +811,18 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
 
   checkIntValue(evaluator, logical_size_0, 3);
   checkIntValue(evaluator, logical_size_1, 4);
+}
+
+TEST_F(ExprEvalTest, NamedScalar) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+
+  ExpressionEvaluator evaluator;
+  constexpr int64_t kCacheIdValue = 1;
+  evaluator.bind("cacheId", kCacheIdValue);
+  PolymorphicValue cache_id_pvalue = evaluator.evaluate(cache_id);
+  EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
 }
 
 } // namespace nvfuser

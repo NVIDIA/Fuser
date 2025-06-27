@@ -9,10 +9,9 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/native/cuda/jit_utils.h>
 
-#include <c10/util/irange.h>
-
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>
@@ -42,7 +41,7 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
-  for (const auto idx : c10::irange(tensors.size() - 1)) {
+  for (const auto idx : arange(tensors.size() - 1)) {
     const auto& current_tensor = tensors[idx];
     const auto& next_tensor = tensors[idx + 1];
 
@@ -50,7 +49,7 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
       return false;
     }
 
-    for (const auto i : c10::irange(current_tensor.ndimension())) {
+    for (const auto i : arange(current_tensor.ndimension())) {
       if (current_tensor.stride(i) != next_tensor.stride(i)) {
         return false;
       }
@@ -68,7 +67,7 @@ bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
   // Determine if the reference tensor is contiguous
   const auto& reference_tensor = tensors.front();
   int64_t expected_stride = 1;
-  for (const auto i : c10::irange(1, reference_tensor.ndimension() + 1)) {
+  for (const auto i : arange(1, reference_tensor.ndimension() + 1)) {
     int64_t ind = reference_tensor.ndimension() - i;
     if (reference_tensor.size(ind) == 1) {
       continue;
@@ -81,27 +80,6 @@ bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
 
   // Check if all the tensors have the same contiguity
   return checkSameStride(tensors);
-}
-
-bool checkValidMisalignedTensors(
-    const std::unordered_set<TensorView*>& inp_tv,
-    const std::unordered_set<TensorView*>& out_tv,
-    const std::vector<at::Tensor>& inp_tensors,
-    const std::vector<at::Tensor>& out_tensors) {
-  if (out_tv.empty()) {
-    // Only check input tensors
-    return checkSameStride(inp_tensors);
-  } else if (!out_tv.empty() && out_tensors.empty()) {
-    // out_tensors is empty unless outputs are given to runFusion.
-    // Assume out tensors are contiguous
-    return checkSameContiguity(inp_tensors);
-  } else {
-    // Only check input and output tensors
-    std::vector<at::Tensor> tensors;
-    tensors.insert(tensors.end(), inp_tensors.begin(), inp_tensors.end());
-    tensors.insert(tensors.end(), out_tensors.begin(), out_tensors.end());
-    return checkSameStride(tensors);
-  }
 }
 
 // Finds a fusion input or output tensor, this function is used to grab tensors
@@ -130,8 +108,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         producer_tv,
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
+    input_output.emplace_back(true, static_cast<int64_t>(pos));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -143,8 +120,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         consumer_tv,
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
+    input_output.emplace_back(false, static_cast<int64_t>(pos));
   }
 
   return input_output;
@@ -165,26 +141,10 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     const auto is_aligned =
         vector_dim->getParallelType() == ParallelType::Vectorize;
 
-    // Find fusion inputs and outputs that are used with misaligned
-    // vectorization.
-    if (!is_aligned) {
-      NVF_ERROR(
-          producer_tv->isFusionInput() || consumer_tv->isFusionOutput(),
-          "MisalignedVectorize is assumed to be used with either input or output tensor");
-      if (consumer_tv->getMemoryType() == MemoryType::Global &&
-          producer_tv->getMemoryType() == MemoryType::Local) {
-        vectorized_tensor_info_ptr->global_out_misaligned_tv.insert(
-            consumer_tv);
-      } else if (
-          producer_tv->getMemoryType() == MemoryType::Global &&
-          consumer_tv->getMemoryType() == MemoryType::Local) {
-        vectorized_tensor_info_ptr->global_inp_misaligned_tv.insert(
-            producer_tv);
-      } else {
-        NVF_THROW(
-            "Unsupported memory configuration for misaligned vectorization.");
-      }
-    }
+    NVF_ERROR(
+        is_aligned,
+        "Unexpected parallel type of vectorized ID: ",
+        vector_dim->toString());
 
     // Collect information on corresponding fusion input and output
     // tensors to verify strides.
@@ -197,27 +157,14 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
       continue;
     }
 
-    // Misaligned vectorize only allows from input to local or local
-    // to output
-    if (!is_aligned) {
-      NVF_ERROR(inp_or_out_info.size() == 1);
-    }
-
     for (const auto& inp_or_out : inp_or_out_info) {
       const bool is_input = inp_or_out.first;
       const int64_t pos = inp_or_out.second;
 
-      if (is_aligned) {
-        auto& pos_list = is_input
-            ? vectorized_tensor_info_ptr->aligned_vectorized_inp_tensor_pos
-            : vectorized_tensor_info_ptr->aligned_vectorized_out_tensor_pos;
-        pos_list.push_back(pos);
-      } else {
-        auto& map = is_input
-            ? vectorized_tensor_info_ptr->inp_misaligned_tensors_pos
-            : vectorized_tensor_info_ptr->out_misaligned_tensors_pos;
-        map.emplace_back(pos);
-      }
+      auto& pos_list = is_input
+          ? vectorized_tensor_info_ptr->aligned_vectorized_inp_tensor_pos
+          : vectorized_tensor_info_ptr->aligned_vectorized_out_tensor_pos;
+      pos_list.push_back(pos);
     }
   }
 
@@ -298,7 +245,7 @@ getTensorOffsets(
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
-    for (const auto i : c10::irange(logical_ids.size())) {
+    for (const auto i : arange(logical_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
@@ -340,7 +287,7 @@ void validateAlignedVectorizedFusionInputOutput(
       is_sliced ? tv->getLogicalDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {
+  for (int64_t i : arange((int64_t)domain_to_validate.size())) {
     auto alloc_id = domain_to_validate.at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);
@@ -354,11 +301,25 @@ void validateAlignedVectorizedFusionInputOutput(
   NVF_ERROR(sizes.size() == no_reduction_to_full.size());
   NVF_ERROR(strides.size() == no_reduction_to_full.size());
 
+  // aten_element_size_bit is the minimum unit (one element) of tv's
+  // corresponding at::Tensor it may or may not be the same as
+  // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+  // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+  // For example, for fp4 tensor, we use Byte as the corresponding ATen
+  // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bit.
+  const int64_t aten_element_size_byte =
+      c10::elementSize(data_type_to_aten(tv->dtype()));
+
+  int64_t vector_word_size_bit = word_size * dataTypeSizeBit(tv->dtype());
+  NVF_ERROR(
+      vector_word_size_bit % 8 == 0, "Vector word size is not divisible by 8");
+  int64_t vector_word_size_byte = vector_word_size_bit / 8;
+
   for (auto offset : offsets) {
     NVF_ERROR(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
-         offset * aten_tensor.dtype().itemsize()) %
-                (word_size * aten_tensor.dtype().itemsize()) ==
+         offset * aten_element_size_byte) %
+                vector_word_size_byte ==
             0,
         "Vectorization of ",
         tv->toString(),
@@ -390,7 +351,8 @@ void validateAlignedVectorizedFusionInputOutput(
           stride == 0,
           "Dimension ",
           i,
-          " should be an expanded broadcasting, but it does not have stride zero.");
+          " should be an expanded broadcasting, but it does not have stride "
+          "zero.");
     }
 
     // If this domain is contiguous or size == 1, then not necessary to check
@@ -403,7 +365,7 @@ void validateAlignedVectorizedFusionInputOutput(
     NVF_ERROR(
         is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
-            (!still_rightmost && stride % word_size == 0),
+            ((stride * aten_element_size_byte) % vector_word_size_byte == 0),
         "Vectorization of ",
         tv->toString(),
         " with word size ",
@@ -475,57 +437,6 @@ void validateAlignedVectorizedTensors(
   }
 }
 
-// Misaligned vectorization check. Currently misaligned vectorization is limited
-// to global-register and register-global load/store patterns. However, this
-// could be improved to include shared memory.
-void validateMisalignedVectorizedTensors(
-    kir::Kernel* kernel,
-    const KernelArgumentHolder& args,
-    const KernelArgumentHolder& output_args,
-    caching::ExecutorCompileTimeInfoCache* data_cache,
-    ExpressionEvaluator& expr_eval) {
-  auto tensor_vectorization_validation_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::VectorizedTensorValidation>(
-          data_cache, [kernel]() {
-            return executor_utils::getVectorizedTensorValidationInfo(kernel);
-          });
-
-  std::vector<at::Tensor> inp_misaligned_tensors;
-  std::vector<at::Tensor> out_misaligned_tensors;
-
-  const auto& inp_misaligned_tensors_pos =
-      tensor_vectorization_validation_entry.get().inp_misaligned_tensors_pos;
-  inp_misaligned_tensors.reserve(inp_misaligned_tensors_pos.size());
-  std::transform(
-      inp_misaligned_tensors_pos.begin(),
-      inp_misaligned_tensors_pos.end(),
-      std::back_inserter(inp_misaligned_tensors),
-      [&args](int idx) {
-        NVF_ERROR(args[idx].is<at::Tensor>(), "alias io only supports tensor");
-        return args[idx].as<at::Tensor>();
-      });
-
-  const auto& out_misaligned_tensors_pos =
-      tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (!output_args.empty()) {
-    out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
-    std::transform(
-        out_misaligned_tensors_pos.begin(),
-        out_misaligned_tensors_pos.end(),
-        std::back_inserter(out_misaligned_tensors),
-        [&output_args](int idx) { return output_args[idx].as<at::Tensor>(); });
-  }
-  // If input stride is non-contiguous + no outputs, return false
-  NVF_ERROR(
-      checkValidMisalignedTensors(
-          tensor_vectorization_validation_entry.get().global_inp_misaligned_tv,
-          tensor_vectorization_validation_entry.get().global_out_misaligned_tv,
-          inp_misaligned_tensors,
-          out_misaligned_tensors),
-      "All global tensors must have the same stride for misaligned vectorization.");
-}
-
 } // namespace
 
 void validateCircularBuffering(
@@ -533,6 +444,14 @@ void validateCircularBuffering(
     ExpressionEvaluator& expr_eval) {
   const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
   for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    // There is always a valid load and compute for loop with warp
+    // specialization.
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        cb_tv->circularBufferOptions().type);
+    if (use_warp_specialization) {
+      continue;
+    }
+
     IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
@@ -557,9 +476,6 @@ void validateVectorizedTensors(
 
   validateAlignedVectorizedTensors(
       kernel, args, output_args, data_cache, expr_eval);
-
-  validateMisalignedVectorizedTensors(
-      kernel, args, output_args, data_cache, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(
@@ -570,12 +486,12 @@ ExpressionEvaluator bindInputs(
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
   NVF_ERROR(
-      kernel->inputs().size() <= args.size(),
+      std::ssize(kernel->inputs()) <= args.size(),
       "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
@@ -601,7 +517,7 @@ ExpressionEvaluator bindInputs(
 
 std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
   std::vector<int> output_to_input_map(fusion->outputs().size(), -1);
-  for (auto output_idx : c10::irange(fusion->outputs().size())) {
+  for (auto output_idx : arange(fusion->outputs().size())) {
     auto alias_info = fusion->getOutputAlias(fusion->outputs()[output_idx]);
     if (alias_info.type == AllocationType::New) {
       continue;
@@ -627,7 +543,8 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
           "\nAliased to: ",
           aliased_to->toString());
       NVF_THROW(
-          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
+          "Kernel found with output to output aliasing, this is unsupported at "
+          "this moment.\n",
           "Output: ",
           fusion->outputs()[output_idx]->toString(),
           "\nAliased to: ",
@@ -762,7 +679,8 @@ void validateIndexCasts(
   NVF_ERROR(
       calc.castsFromIndexAreSafe(),
       "Found unsafe casts from DataType::Index. ",
-      "This is likely because one coordinate of a TMA instruction overflowed Int32");
+      "This is likely because one coordinate of a TMA instruction overflowed "
+      "Int32");
 }
 
 } // namespace executor_utils

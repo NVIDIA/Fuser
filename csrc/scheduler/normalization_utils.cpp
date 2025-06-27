@@ -16,6 +16,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <utils.h>
@@ -616,7 +617,7 @@ bool isReductionIterationAxisMatched(
   // vector of bool.
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
-  for (const auto i : c10::irange(reference_tv->nDims())) {
+  for (const auto i : arange(reference_tv->nDims())) {
     auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
@@ -629,9 +630,9 @@ bool isReductionIterationAxisMatched(
   }
   // check other inner reduction tvs, the corresponding axis should be
   // reduction.
-  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+  for (auto i : arange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -646,7 +647,7 @@ bool isReductionIterationAxisMatched(
   }
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -683,11 +684,45 @@ int64_t partialReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+            dataTypeSizeByte(buffer->getDataType().value(),
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : arange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
 }
 
 // Get the appropriate scheduler based on reduction type
@@ -716,7 +751,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
           fusion->inputs().begin(),
           fusion->inputs().end(),
           [](Val* inp) { return inp->isA<TensorView>(); }),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 }
 
 namespace {
@@ -767,7 +803,7 @@ int64_t sharedMemoryRoundUpOverhead(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+        logical_buffer_size, dataTypeSizeByte(buffer->getDataType().value()));
     // The difference is counted as roundup overhead
     total_smem_overhead += (buffer_size_smem - logical_buffer_size);
   }
@@ -791,13 +827,13 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   }
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t smem_overhead =
-      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+      scheduler_utils::getReductionSmemWorkspace(fusion, reduction_tvs);
 
   smem_overhead += sharedMemoryRoundUpOverhead(
       runtime_info, persistent_buffer_info, project_to_inputs);
 
   int64_t available_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+      (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
 
   available_persistent_buffer_size =
       std::max(available_persistent_buffer_size, available_shared_memory_size);
@@ -1005,7 +1041,8 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
     max_dtype_size = std::max(
         max_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+        dataTypeSizeByte(
+            tv->getDataType().value(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
@@ -1113,7 +1150,7 @@ bool checkReductionPattern(
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
-    for (const auto it : c10::irange(1, rtvs.size())) {
+    for (const auto it : arange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1163,6 +1200,19 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "no reduction tv");
     return false;
   }
+
+  // Reject when output IDs are not covered by reference tv. Assuming reduction
+  // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
+  // this needs to be changed. see issue
+  // https://github.com/NVIDIA/Fuser/issues/3811
+  scheduler_tools::DomainMap domain_map(fusion);
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Output contains ID that's not scheduled by reference tv.");
+    return false;
+  }
+
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
   const SchedulerType persistent_heuristic =
@@ -1290,7 +1340,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
-        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+        dataTypeSizeByte(smem_tv->getDataType().value()) * vect_factor;
     bool is_supported_bytes =
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
@@ -1317,13 +1367,33 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
+    // For warp specialized, may direct load non-circular buffered tv to regs
+    // Non-circular buffered tvs are those have broadcast dimensions that mapped
+    // with reduction dimensions.
+    if (rparams->tma_warp_specialized &&
+        rparams->is_non_circular_buffer_gmem_to_regs) {
+      const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
+          fusion, scheduler_utils::getReductionTvs(fusion));
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&tv](TensorView* bcast_tv) {
+                return DependencyCheck::isDependencyOf(tv, bcast_tv);
+              })) {
+        use_smem = false;
+      }
+    }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
@@ -1336,21 +1406,29 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of smem tv, due to the way the persistent
+      // buffer selector works. To make smem tv remain as the persistent buffer,
+      // all of the uses must be privatized. However, for tma warp specialized
+      // case, we don't need to privatize the cached_tv, so the smem tv is only
+      // consumed by its register cache. It can be used to issue the next TMA
+      // load right after the copy from shared memory to register cache.
+      // Otherwise, it needs to wait all the computations to finish before
+      // issuing the next TMA.
+      if (!rparams->tma_warp_specialized ||
+          !rparams->is_circular_buffer_regs_cached) {
+        const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }
@@ -1467,7 +1545,8 @@ TensorView* scheduleReductionGeneral(
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   return reduction_scheduler_utils::scheduleReductionTV(

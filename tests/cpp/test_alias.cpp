@@ -17,7 +17,6 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <preseg_passes/segment_inplace_update.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -405,15 +404,15 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
       const auto* ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : c10::irange(group->outputs().size())) {
+      for (auto i : arange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }
       }
-      EXPECT_EQ(num_stores, 1)
-          << "The generated CUDA kernel is expected to store data to one output:"
-          << std::endl
-          << ke->compiledKernel()->kernelString();
+      EXPECT_EQ(num_stores, 1) << "The generated CUDA kernel is expected to "
+                                  "store data to one output:"
+                               << std::endl
+                               << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -483,15 +482,15 @@ TEST_F(AliasTest, Issue1452) {
       const auto& ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : c10::irange(group->outputs().size())) {
+      for (auto i : arange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }
       }
-      EXPECT_EQ(num_stores, 1)
-          << "The generated CUDA kernel is expected to store data to one output:"
-          << std::endl
-          << ke->compiledKernel()->kernelString();
+      EXPECT_EQ(num_stores, 1) << "The generated CUDA kernel is expected to "
+                                  "store data to one output:"
+                               << std::endl
+                               << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -948,8 +947,13 @@ TEST_F(AliasTest, SourceIsBothInputAndOutput) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[0].as<at::Tensor>().data_ptr());
-  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[1].as<at::Tensor>().data_ptr());
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(in_tensor));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::ExprEval)));
 }
 
 TEST_F(AliasTest, ReuseBuffer) {
@@ -1052,13 +1056,12 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   if (detectComputeSanitizer()) {
-    GTEST_SKIP()
-        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+    GTEST_SKIP() << "Skipped because compute-sanitizer is detected, which "
+                    "conflicts with FusionProfiler";
   }
 
   ProfilerOptionsGuard options_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-  FusionProfiler::start();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1077,9 +1080,7 @@ TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({2, 3}, options);
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
-  }
+  EXPECT_EQ(FusionProfiler::state(), ProfilerState::Processed);
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
 
   testValidate(
@@ -1130,13 +1131,12 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
   if (detectComputeSanitizer()) {
-    GTEST_SKIP()
-        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+    GTEST_SKIP() << "Skipped because compute-sanitizer is detected, which "
+                    "conflicts with FusionProfiler";
   }
 
   ProfilerOptionsGuard option_guard;
   ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
-  FusionProfiler::start();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1152,9 +1152,7 @@ TEST_F(AliasTest, NoKernelsAreLaunched) {
   at::Tensor in_tensor = at::randn({2, 3}, options);
   executor_cache.runFusionWithInputs({in_tensor});
 
-  if (ProfilerState::Running == FusionProfiler::state()) {
-    FusionProfiler::stop();
-  }
+  EXPECT_EQ(FusionProfiler::state(), ProfilerState::Processed);
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
 
   const FusionProfile& profile = FusionProfiler::profile();
@@ -1540,7 +1538,6 @@ TEST_F(AliasTest, TrivialInplaceUpdateNoSegmentation) {
 }
 
 TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
-  // testing a complete fusion
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1581,6 +1578,62 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
       {original_tensor},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(AliasTest, FusionEmpty) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({10, 10, 10});
+  auto tv1 = makeConcreteTensor({10, 10, 10});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 10, 10}, options);
+  at::Tensor t1 = at::randn({10, 10, 10}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::ExprEval)));
+}
+
+TEST_F(AliasTest, IntermediateTensorWithAllocation) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({15, 2});
+  TensorView* x = transpose(in);
+  x = segment_set(x);
+  TensorView* out = reshape(x, {2, 15}, {2, 3, 5});
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  x->setAllocationDomain(x->getLogicalDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({15, 2}, at::dtype(at::kFloat).device(at::kCUDA));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::PointWise),
+          HeuristicIs(SchedulerType::ExprEval)));
 }
 
 } // namespace nvfuser

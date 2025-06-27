@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
+
 #include <ir/builder.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
@@ -146,7 +148,7 @@ TensorView* newForLinear(
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
@@ -161,7 +163,9 @@ TensorView* newForLinear(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, input->dtype());
+  auto* output = IrBuilder::create<TensorView>(td, input->dtype());
+  output->setDeviceMesh(input->getDeviceMesh());
+  return output;
 }
 
 } // namespace
@@ -435,7 +439,7 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
@@ -517,7 +521,7 @@ SdpfaFwdResult sdpfa_fwd(
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
+  for (auto idx : arange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
@@ -532,7 +536,7 @@ SdpfaFwdResult sdpfa_fwd(
 
   // TensorView for log_sumexp [DIDx(D)?,N, H, L]
   std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
+  for (auto idx : arange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
@@ -715,7 +719,7 @@ TensorView* embedding_fwd(
   auto ndims_out = input_domain.size() + 1;
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : arange(ndims_out - 1)) {
     out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
   }
   out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});

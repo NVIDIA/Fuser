@@ -179,8 +179,8 @@ class NVF_API KernelArgumentHolder {
     return std::back_inserter(arguments_);
   }
 
-  size_t size() const {
-    return arguments_.size();
+  int64_t size() const {
+    return std::ssize(arguments_);
   }
 
   bool empty() const {
@@ -233,6 +233,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& allocation_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim = {1, 1},
     const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);

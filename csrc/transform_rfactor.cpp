@@ -106,7 +106,8 @@ class ReplayRFactor : public ReplayTransformations {
     // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
-        "Transform traversal failed, modified a node but it was not a loop node.");
+        "Transform traversal failed, modified a node but it was not a loop "
+        "node.");
 
     // Check if we need to mark the outputs as an logical domain meaning this
     // transformation must be present in replays otherwise it breaks the compute
@@ -208,7 +209,8 @@ class ReplayRFactor : public ReplayTransformations {
       NVF_ERROR(
           static_logical_ids_.count(m->inner()) ==
               static_logical_ids_.count(m->outer()),
-          "If one input to a merge is a static logical id, the other must be as well.");
+          "If one input to a merge is a static logical id, the other must be "
+          "as well.");
       updateRFactorDomain(m->outer(), m->inner(), m->out(), nullptr);
     }
   }
@@ -284,7 +286,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::transform(axes.begin(), axes.end(), axes.begin(), [ndims](int64_t i) {
     NVF_CHECK(
         i >= -ndims && i < ndims,
-        "Rfactor replay received an axis outside the number of dims in the tensor, acceptable inclusive range is ",
+        "Rfactor replay received an axis outside the number of dims in the "
+        "tensor, acceptable inclusive range is ",
         -ndims,
         " to ",
         ndims - 1);
@@ -353,7 +356,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_root_map;
 
   {
-    for (auto i : c10::irange(original_td_root.size())) {
+    for (auto i : arange(original_td_root.size())) {
       auto id = original_td_root[i];
       // If this is an rfactor root, it will be a reduction in this stage
       if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
@@ -400,7 +403,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
-    for (auto i : c10::irange(original_td->nDims())) {
+    for (auto i : arange(original_td->nDims())) {
       auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
@@ -456,7 +459,8 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
     auto p2o_it = producer_to_original_map.find(p_root_id);
     NVF_ERROR(
         p2o_it != producer_to_original_map.end(),
-        "Missing mapping from original tensor domain to producer tensor domain.");
+        "Missing mapping from original tensor domain to producer tensor "
+        "domain.");
     auto original_id = p2o_it->second;
     auto new_consumer_root =
         IterDomainBuilder(original_id->start(), original_id->extent())
@@ -477,7 +481,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   {
     // Construct the new consumer domain
-    for (auto i : c10::irange(original_td->nDims())) {
+    for (auto i : arange(original_td->nDims())) {
       auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {

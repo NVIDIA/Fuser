@@ -30,7 +30,7 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getLogicalDomain().size())) {
+  for (const auto i : arange(ref->getLogicalDomain().size())) {
     ref_2_other.emplace(
         ref->getLogicalDomain().at(i), other->getLogicalDomain().at(i));
   }
@@ -39,7 +39,7 @@ bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
                     other->getLoopDomain(), ref->getLoopDomain(), ref_2_other)
                     .getIterDomainEquivalence();
 
-  for (const auto i : c10::irange(ref->nDims())) {
+  for (const auto i : arange(ref->nDims())) {
     if (!replay.permissiveAreMapped(ref->axis(i), other->axis(i))) {
       return false;
     }
@@ -76,7 +76,7 @@ bool validateReductionGrouping(
   // condition and could be made more flexible
   const auto uses_of_ref =
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
     const auto& output_domain = output_tv->getLogicalDomain();
     if (ref_tv == output_tv) {
@@ -85,7 +85,8 @@ bool validateReductionGrouping(
     GROUP_REDUCTION_CHECK(
         error_on_failure,
         output_domain.size() == num_logical_dims,
-        "Invalid grouped reduction due to mismatched number of root dimensions. "
+        "Invalid grouped reduction due to mismatched number of root "
+        "dimensions. "
         "Expected: ",
         num_logical_dims,
         ". Detected: ",
@@ -102,7 +103,7 @@ bool validateReductionGrouping(
         output_tv->nDims(),
         ". Invalid output tensor: ",
         output_tv->toString());
-    for (const auto i : c10::irange(num_logical_dims)) {
+    for (const auto i : arange(num_logical_dims)) {
       auto ref_id = ref_domain.at(i);
       auto output_id = output_domain.at(i);
       // If an IterDomain is broadcast, require the other
@@ -111,7 +112,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isBroadcast() == output_id->isBroadcast(),
-          "Invalid grouped reduction due to mismatched broadcast root domains. ",
+          "Invalid grouped reduction due to mismatched broadcast root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -124,7 +126,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isReduction() == output_id->isReduction(),
-          "Invalid grouped reduction due to mismatched reduction root domains. ",
+          "Invalid grouped reduction due to mismatched reduction root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -216,7 +219,7 @@ bool groupReductions(
   std::vector<Val*> outputs(num_reductions);
   std::vector<Val*> inputs(num_reductions);
 
-  for (const auto i : c10::irange(num_reductions)) {
+  for (const auto i : arange(num_reductions)) {
     auto reduction_out = reduction_outputs.at(i);
     GROUP_REDUCTION_CHECK(
         error_on_failure,

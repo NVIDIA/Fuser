@@ -290,18 +290,14 @@ class BufferReuseDebugPrinter {
   }
 
   void handle(const kir::IfThenElse* node) {
-    // This pass doesn't yet need to handle
-    //  ite but could fill in the blank here
-    //  if this printer can be used for
-    //  other passes or we have more
-    //  complex ite pattern.
-    NVF_THROW("unsupported");
+    indent();
+    os_ << "IF " << node->predicate()->toString() << ":\n";
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
 
   std::stringstream& indent() {
-    for (const auto i : c10::irange(indent_level_)) {
+    for (const auto i : arange(indent_level_)) {
       (void)i; // Suppress unused variable warning
       os_ << "  ";
     }
@@ -767,25 +763,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
-  std::optional<MmaInputSmemSwizzle> getTmaSwizzle(TensorView* tv) {
-    bool is_tma_load = tv->definition() != nullptr &&
-        ir_utils::isCpAsyncBulk(tv->definition());
-    if (is_tma_load) {
-      return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
-    }
-
-    for (Expr* e : tv->uses()) {
-      if (ir_utils::isCpAsyncBulk(e)) {
-        TensorView* consumer_tv = ir_utils::getTvOutput(e);
-        return GpuLower::current()
-            ->consumerToTMAInfo()
-            .at(consumer_tv)
-            .swizzle();
-      }
-    }
-    return std::nullopt;
-  }
-
   void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
@@ -811,7 +788,13 @@ class AllocationInfoMap : private kir::IrVisitor {
     // TODO: Currently we just naively dispatch into the IfThenElse node
     // assuming that this does not affect the analysis. For now, this assumption
     // is true, but in the future, we might need to revisit this.
+    if (debug_printer_) {
+      debug_printer_->pushScope();
+    }
     kir::IrVisitor::handle(ite);
+    if (debug_printer_) {
+      debug_printer_->popScope();
+    }
   }
 
   // Generate allocation info for allocation after some pre-filtering
@@ -867,9 +850,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
 
-    std::optional<MmaInputSmemSwizzle> tma_swizzle = getTmaSwizzle(tv);
-    alloc_info->alignment = (tma_swizzle.has_value())
-        ? getSharedMemoryByteAlignment(tma_swizzle.value())
+    alloc_info->alignment = (ir_utils::isTMAOrMMASmemTv(tv))
+        ? getSharedMemoryByteAlignment(ir_utils::getSwizzleMode(tv))
         : 16;
 
     // record short cuts
@@ -935,8 +917,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (expr->isOneOf<kir::MBarrierInit, kir::MBarrierInvalidate>()) {
       collectLivenessInfoOfExprMBarrier(expr);
       return;
-    } else if (!ir_utils::isTvOp(expr)) {
-      return;
     }
 
     const auto expr_pos = scope_map_.getExprPos(expr);
@@ -944,7 +924,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     // Collect all tv's that resolves broadcast in this
     //  expr. The current analysis isn't enough to capture
     //  their liveness range.
-    for (auto input_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (Val* input : expr->inputs()) {
+      TensorView* input_tv = ir_utils::getTv(input);
+      if (!input_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(input_tv);
       if (alloc_info) {
         if (!isSerialBroadcastResolution(input_tv, for_loops_)) {
@@ -967,7 +951,11 @@ class AllocationInfoMap : private kir::IrVisitor {
         }
       }
     }
-    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (Val* output : expr->outputs()) {
+      TensorView* output_tv = ir_utils::getTv(output);
+      if (!output_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(output_tv);
       if (alloc_info) {
         // Reductions use outputs as read-write parameters, so their
@@ -1011,7 +999,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       return nullptr;
     }
 
-    for (const auto idx : c10::irange(current_stack_.size() - 1)) {
+    for (const auto idx : arange(current_stack_.size() - 1)) {
       if (current_stack_[idx] == allocate_loop_info) {
         return current_stack_[idx + 1];
       }
@@ -1208,9 +1196,9 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSize(
+            dataTypeSizeByte(
                 alloc_info->data_type, GpuLower::current()->indexType()) !=
-            dataTypeSize(
+            dataTypeSizeByte(
                 alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
@@ -1404,7 +1392,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     }
 
     // Check index map for the corresponding axes.
-    for (const auto id_it : c10::irange(alloc_domains.size())) {
+    for (const auto id_it : arange(alloc_domains.size())) {
       if (!GpuLower::current()->caMap()->areMapped(
               alloc_domains[id_it],
               reuse_domains[id_it],
@@ -1538,7 +1526,7 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
 
 Val* allocSizeBytes(kir::Allocate* alloc) {
   const auto buffer_dtype = alloc->buffer()->dtype();
-  const auto dtype_size = dataTypeSize(buffer_dtype);
+  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
   auto size = dtype_size == 1
       ? alloc->size()
       : SimplifyingIrBuilder::mulExpr(
@@ -1793,7 +1781,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       debug() << "Assigned address " << alloc->address()->toInlineString()
               << " for T" << alloc->buffer()->name() << " with size "
               << alloc->size()->toInlineString() << " * "
-              << dataTypeSize(alloc->buffer()->dtype()) << " bytes"
+              << dataTypeSizeByte(alloc->buffer()->dtype()) << " bytes"
               << std::endl;
     }
   }

@@ -269,6 +269,15 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
     NVF_THROW(__VA_ARGS__)   \
   }
 
+#define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
+  "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
+
+#define NVF_ERROR_EQ(lhs, rhs, ...)               \
+  NVF_ERROR(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
+      ##__VA_ARGS__)
+
 #define NVF_CHECK_MSG(cond, type, ...) \
   (nvfuser::nvfCheckMsgImpl(           \
       "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))
@@ -281,3 +290,9 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         static_cast<uint32_t>(__LINE__),         \
         NVF_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
   }
+
+#define NVF_CHECK_EQ(lhs, rhs, ...)               \
+  NVF_CHECK(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
+      ##__VA_ARGS__)

@@ -400,7 +400,8 @@ MaxLogicalDomainInfoSpanningTree::getReferenceIDInfo(
   }
   NVF_CHECK(
       loop_pos >= 0 && loop_pos <= int64_t(tv->nDims()),
-      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid range.");
+      "MaxLogicalDomainInfoSpanningTree called on an loop_pos outside valid "
+      "range.");
   DomainInfo result;
   const auto& logical_domain = tv->getLogicalDomain();
   const auto& loop_domain = tv->getLoopDomain();
@@ -452,11 +453,11 @@ MaxLogicalDomainInfoSpanningTree::computeInfoSibling(
   NVF_ERROR(from_logical_dom.size() == to_logical_dom.size());
 
   std::unordered_map<IterDomain*, IterDomain*> id_map;
-  for (auto i : c10::irange(from_logical_dom.size())) {
+  for (auto i : arange(from_logical_dom.size())) {
     id_map[from_logical_dom.at(i)] = to_logical_dom.at(i);
   }
   if (from->hasRoot()) {
-    for (auto i : c10::irange(from_root_dom.size())) {
+    for (auto i : arange(from_root_dom.size())) {
       id_map[from_root_dom.at(i)] = to_root_dom.at(i);
     }
   }

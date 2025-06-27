@@ -23,7 +23,7 @@ namespace {
 template <typename T>
 void encodeBuffer(T value, std::string& buffer) {
   const char* v = reinterpret_cast<char*>(&value);
-  for (const auto i : c10::irange(sizeof(T))) {
+  for (const auto i : arange(sizeof(T))) {
     (void)i; // Suppress unused variable warning
     buffer.push_back(*(v++));
   }
@@ -71,10 +71,11 @@ void ArgumentManager::updateWithSegmentOutputs(
     const KernelArgumentHolder& group_runtime_outputs,
     const int64_t group_id) {
   // Insert graph segment output to tensor map
-  NVF_ERROR(
-      group_outputs.size() == group_runtime_outputs.size(),
+  NVF_ERROR_EQ(
+      std::ssize(group_outputs),
+      group_runtime_outputs.size(),
       "Output size does not match.");
-  for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+  for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
   }
@@ -94,13 +95,13 @@ void ArgumentManager::mapFusionInputsToArgs(
   int extent_index = 0;
   auto original_args_size = args.size();
   // Bind args in the tensor_map
-  for (const auto i : c10::irange(original_args_size)) {
+  for (const auto i : arange(original_args_size)) {
     tensor_map_.emplace(fusion_inputs[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     if (args[i].is<at::Tensor>()) {
       auto rank = args[i].as<at::Tensor>().dim();
-      for (const auto dim : c10::irange(rank)) {
+      for (const auto dim : arange(rank)) {
         tensor_map_.emplace(
             group_extent_binding_order[extent_index++],
             args[i].as<at::Tensor>().size(dim));
@@ -119,7 +120,7 @@ void ArgumentManager::setLastUsedSegmentID(
     // start from the 2nd group, since the input of the first group is always
     // the global input and its outputs are always used by at least one of the
     // following groups
-    for (auto run_order_id : c10::irange(1l, num_groups)) {
+    for (auto run_order_id : arange(1l, num_groups)) {
       auto group_to_run = group_run_order.at(run_order_id);
       // set/update life of vals in inputs of this group
       for (auto val : group_to_run->inputs()) {
@@ -156,14 +157,14 @@ void prepareRuntimeOrder(
   std::unordered_set<Val*> available_input;
 
   // setup the order tensor dimensions are bound
-  for (const size_t i : c10::irange(segmented_fusion->inputs().size())) {
+  for (const size_t i : arange(segmented_fusion->inputs().size())) {
     auto input_val = segmented_fusion->inputs()[i];
     available_input.insert(input_val);
 
     if (auto input_tv = dynamic_cast<TensorView*>(input_val)) {
       auto logical_dom =
           TensorDomain::noReductions(input_tv->getLogicalDomain());
-      for (const size_t dim : c10::irange(logical_dom.size())) {
+      for (const size_t dim : arange(logical_dom.size())) {
         const auto extent = logical_dom[dim]->getMaybeExpandedExtent();
         available_input.insert(extent);
         runtime_workspace.group_extent_binding_order.push_back(extent);
@@ -179,8 +180,7 @@ void prepareRuntimeOrder(
     bool one_ran = false;
 
     // Find the first segment with all inputs available to run
-    for (const size_t group_i :
-         c10::irange(segmented_fusion->groups().size())) {
+    for (const size_t group_i : arange(segmented_fusion->groups().size())) {
       auto& group = segmented_fusion->groups()[group_i];
       if (group_ran[group_i]) {
         continue;
@@ -196,7 +196,7 @@ void prepareRuntimeOrder(
         const auto& group_outputs = group->outputs();
 
         // Insert graph segment output to tensor map
-        for (const size_t group_out_i : c10::irange(group_outputs.size())) {
+        for (const size_t group_out_i : arange(group_outputs.size())) {
           available_input.insert(group_outputs[group_out_i]);
         }
         group_ran[group_i] = true;
@@ -205,7 +205,8 @@ void prepareRuntimeOrder(
     }
     NVF_ERROR(
         one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
+        "Couldn't run all groups, something must have gone wrong in "
+        "segmentation.");
   }
 }
 
@@ -258,7 +259,7 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
     used_entry_iterators.emplace_back(std::prev(used_entry_.end()));
   }
 
-  for (auto idx : c10::irange(buffer->encoding_lookup_keys()->size())) {
+  for (auto idx : arange(buffer->encoding_lookup_keys()->size())) {
     auto fb_encoding_lookup_str = buffer->encoding_lookup_keys()->Get(idx);
     auto fb_encoding_entry = buffer->encoding_lookup_values()->Get(idx);
 
@@ -279,7 +280,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
   encoding_.clear();
   encodeBuffer(args.getDeviceIndex(), encoding_);
 
-  for (const auto i : c10::irange(args.size())) {
+  for (const auto i : arange(args.size())) {
     const auto& arg = args[i];
     if (arg.is<at::Tensor>()) {
       const auto& input_tensor = arg.as<at::Tensor>();

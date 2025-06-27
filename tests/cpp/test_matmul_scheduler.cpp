@@ -216,9 +216,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -304,9 +304,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   NVF_CHECK(
       at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
@@ -408,9 +408,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -499,9 +499,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // D tensor results
   NVF_CHECK(
@@ -612,9 +612,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -702,9 +702,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   NVF_CHECK(
       at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
@@ -791,9 +791,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // D tensor results
   NVF_CHECK(
@@ -897,9 +897,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
@@ -1007,9 +1007,9 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   checkUnsegmentedVectorization(
       executor_cache,
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(in_type),
-      16l / dataTypeSize(out_type));
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(in_type),
+      16l / dataTypeSizeByte(out_type));
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
@@ -2268,7 +2268,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
               // increasing the other stride to the next highest multiple of 8
               std::vector<int64_t> new_strides(t.ndimension(), 0);
               int64_t linear_size = 1;
-              for (size_t i : c10::irange(t.ndimension())) {
+              for (size_t i : arange(t.ndimension())) {
                 new_strides[i] = t.stride((int64_t)i);
                 if (new_strides[i] != 1) {
                   // Pad contiguous dimension by modifying other stride. This
@@ -2528,7 +2528,8 @@ TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
 
   NVF_CHECK(
       !runtime->isSegmented(),
-      "fusion got segmented, expected to match whole fusion with single segment");
+      "fusion got segmented, expected to match whole fusion with single "
+      "segment");
 
   NVF_CHECK(
       isSchedulerInUse(runtime, SchedulerType::Matmul),
@@ -2896,10 +2897,18 @@ class AllocationDomainTest
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   AllocationDomainTest() : optimization_guard_(false) {
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
 
-    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    if (cudaArchGuardShouldSkip(7, 5, 9, 0)) {
+      // Hopper or above
+      gemm_tile.cta_tile = GemmTile(128, 256, 64);
+      gemm_tile.warp_tile = GemmTile(64, 128, 64);
+      mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    } else {
+      // Ampere
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    }
     mparams.supported_vec_size = {8, 8, 4};
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
@@ -2953,7 +2962,7 @@ class AllocationDomainTest
 // [M, K] and [K, N], and all possible combinations of allocation domains.
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   bool a_m_inner = std::get<0>(GetParam());
   bool b_k_inner = std::get<1>(GetParam());
 
@@ -3240,7 +3249,9 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
-using HopperMatmulSchedulerTestParams = std::tuple<
+// Matmul test for Hopper+ (Hopper, Blackwell)
+
+using HopperPlusMatmulSchedulerTestParams = std::tuple<
     bool, // use_smem_epilogue
     bool, // a_k_inner
     bool, // b_k_inner
@@ -3251,8 +3262,8 @@ using HopperMatmulSchedulerTestParams = std::tuple<
     int64_t // SplitK Factor
     >;
 
-std::string hopperTestName(
-    const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
+std::string hopperPlusTestName(
+    const testing::TestParamInfo<HopperPlusMatmulSchedulerTestParams>& info) {
   std::ostringstream os;
   bool use_smem_epilogue;
   bool a_k_inner, b_k_inner;
@@ -3281,27 +3292,30 @@ std::string hopperTestName(
   return os.str();
 }
 
-std::string hopperTestNameSwizzle(
-    const testing::TestParamInfo<HopperMatmulSchedulerTestParams>& info) {
+std::string hopperPlusTestNameSwizzle(
+    const testing::TestParamInfo<HopperPlusMatmulSchedulerTestParams>& info) {
   std::unordered_map<MmaMacro, std::string> mma_macro_to_swizzle_str_map = {
       {MmaMacro::Hopper_64_256_16, "128BSwizzle"},
       {MmaMacro::Hopper_64_128_16, "128BSwizzle"},
       {MmaMacro::Hopper_64_64_16, "128BSwizzle"},
       {MmaMacro::Hopper_64_32_16, "64BSwizzle"},
-      {MmaMacro::Hopper_64_16_16, "32BSwizzle"}};
+      {MmaMacro::Hopper_64_16_16, "32BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_256_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_128_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_64_16, "128BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_32_16, "64BSwizzle"},
+      {MmaMacro::Blackwell1CTA_128_16_16, "32BSwizzle"}};
   MmaMacro mma_macro = std::get<6>(info.param);
   std::ostringstream os;
-  os << hopperTestName(info);
+  os << hopperPlusTestName(info);
   os << "_" << mma_macro_to_swizzle_str_map.at(mma_macro);
   return os.str();
 }
 
-class HopperMatmulSchedulerTest
-    : public NVFuserFixtureParamTest<HopperMatmulSchedulerTestParams> {
+class HopperPlusMatmulSchedulerTest
+    : public NVFuserFixtureParamTest<HopperPlusMatmulSchedulerTestParams> {
  protected:
   void SetUp() {
-    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-
     std::tie(
         use_smem_epilogue,
         a_k_inner,
@@ -3311,6 +3325,12 @@ class HopperMatmulSchedulerTest
         K,
         mma_macro,
         splitk_factor) = GetParam();
+
+    if (isHopper(mma_macro)) {
+      NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+    } else {
+      NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(10, 0, 11, 0);
+    }
 
     if (a_k_inner) {
       layout = b_k_inner ? MmaLayout::TN : MmaLayout::TT;
@@ -3387,9 +3407,9 @@ class HopperMatmulSchedulerTest
   at::Tensor tref;
 };
 
-TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
+TEST_P(HopperPlusMatmulSchedulerTest, FusedMultiplySum) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   inputs = {A, B};
 
   TensorView* tv0 = nullptr;
@@ -3445,9 +3465,9 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 
 // TODO: Remove this test once the architecture agnostic can be
 // run on hopper.
-TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
+TEST_P(HopperPlusMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   const auto& C = matmulAtInput2D(
       layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);
   inputs = {A, B, C};
@@ -3514,7 +3534,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
 
 INSTANTIATE_TEST_SUITE_P(
     General,
-    HopperMatmulSchedulerTest,
+    HopperPlusMatmulSchedulerTest,
     testing::Combine(
         testing::Bool(), // use_smem_epilogue
         testing::Bool(), // a_k_inner
@@ -3522,14 +3542,16 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(512), // M
         testing::Values(256), // N
         testing::Values(128), // K
-        testing::Values(MmaMacro::Hopper_64_128_16), // mma_macros
+        testing::Values(
+            MmaMacro::Hopper_64_128_16,
+            MmaMacro::Blackwell1CTA_128_128_16), // mma_macros
         testing::Values(1, 2) // SplitK Factor
         ),
-    hopperTestName);
+    hopperPlusTestName);
 
 INSTANTIATE_TEST_SUITE_P(
     Swizzle,
-    HopperMatmulSchedulerTest,
+    HopperPlusMatmulSchedulerTest,
     testing::Combine(
         testing::Values(true), // use_smem_epilogue
         testing::Bool(), // a_k_inner
@@ -3542,9 +3564,14 @@ INSTANTIATE_TEST_SUITE_P(
             MmaMacro::Hopper_64_128_16,
             MmaMacro::Hopper_64_64_16,
             MmaMacro::Hopper_64_32_16,
-            MmaMacro::Hopper_64_16_16), // mma_macros
+            MmaMacro::Hopper_64_16_16,
+            MmaMacro::Blackwell1CTA_128_256_16,
+            MmaMacro::Blackwell1CTA_128_128_16,
+            MmaMacro::Blackwell1CTA_128_64_16,
+            MmaMacro::Blackwell1CTA_128_32_16,
+            MmaMacro::Blackwell1CTA_128_16_16), // mma_macros
         testing::Values(1) // SplitK Factor
         ),
-    hopperTestNameSwizzle);
+    hopperPlusTestNameSwizzle);
 
 } // namespace nvfuser

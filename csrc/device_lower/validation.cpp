@@ -70,11 +70,11 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
-      for (const auto i : c10::irange(ref_root.size())) {
+      for (const auto i : arange(ref_root.size())) {
         id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
@@ -83,7 +83,7 @@ class ValidateSiblings : public IterVisitor {
               sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
@@ -230,84 +230,6 @@ void validateIr(Fusion* fusion) {
 
 namespace {
 
-// Check contiguity for all allocation domains associated with Misaligned
-// Vectorize ParallelType
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& dep_alloc_ids,
-    TensorView* tv) {
-  NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
-
-  for (const auto idx : c10::irange(tv->getMaybeAllocationDomain().size())) {
-    auto alloc = tv->getMaybeAllocationDomain()[idx];
-    if (dep_alloc_ids.find(alloc) != dep_alloc_ids.end()) {
-      NVF_ERROR(
-          !alloc->isBroadcast(),
-          "Misaligned vectorization prohibits merging broadcast domains.",
-          "Issue found in, ",
-          tv);
-      NVF_ERROR(
-          tv->domain()->contiguity().at(idx).value_or(false),
-          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-          "Issue found in, ",
-          tv);
-    }
-  }
-}
-
-// Check all allocation iter domains that are the dependencies of the
-// vectorization iter domain,
-// making sure they're contiguous. Map these domains to producer and make sure
-// they are also contiguous in producer. Producer-consumer relationship is
-// assumed to be through a set operation.
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& consumer_alloc_ids,
-    TensorView* consumer,
-    TensorView* producer) {
-  // This seems not quite right, shouldn't we be able to reverse this?
-  NVF_ERROR(consumer->getMemoryType() == MemoryType::Local);
-  NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
-
-  // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from logical domain.
-  // This logic is outdated, but it's only for MisalignedVectorize,
-  // which is not actively used.
-  NVF_ERROR(
-      !consumer->hasAllocation() && !producer->hasAllocation(),
-      "Misaligned vectorization for allocation domain is not supported.");
-  auto alloc_c2p =
-      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-
-  std::unordered_map<IterDomain*, std::optional<bool>>
-      producer_domain_contiguity;
-  for (const auto idx :
-       c10::irange(producer->getMaybeAllocationDomain().size())) {
-    auto alloc = producer->getMaybeAllocationDomain().at(idx);
-    auto contiguity = producer->domain()->contiguity().at(idx);
-    producer_domain_contiguity.insert({alloc, contiguity});
-  }
-
-  for (auto consumer_alloc : consumer_alloc_ids) {
-    auto producer_alloc = alloc_c2p.at(consumer_alloc);
-    NVF_ERROR(
-        producer_domain_contiguity.find(producer_alloc) !=
-        producer_domain_contiguity.end());
-
-    NVF_ERROR(
-        !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
-        "Misaligned vectorization prohibits merging broadcast domains.",
-        "Issue found in, ",
-        consumer);
-
-    NVF_ERROR(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
-
-    NVF_ERROR(
-        producer_domain_contiguity.at(producer_alloc).value_or(false),
-        "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-        "Issue found in, ",
-        consumer);
-  }
-}
-
 class VectorizeValidator : public OptInDispatch {
  private:
   // Initially, vectorized_id is the IterDomain with Vectorize ParallelType
@@ -382,7 +304,8 @@ class VectorizeValidator : public OptInDispatch {
 
     NVF_CHECK(
         validator.is_valid,
-        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+        "Invalid vectorized pattern found, vectorization iter domains must be "
+        "descendants of inner-most dimension.",
         "Issue found in, ",
         tv,
         "\n");
@@ -549,18 +472,18 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* vec_alloc_id,
       const std::unordered_set<IterDomain*>& dep_alloc_ids,
       TensorView* tv,
-      std::string name) {
-    if (vec_alloc_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(dep_alloc_ids, tv);
-      } else if (tv->definition()->isA<LoadStoreOp>()) {
-        auto input = tv->definition()->input(0);
-        NVF_ERROR(input->isA<TensorView>());
-        auto input_tv = input->as<TensorView>();
-        checkContiguity(dep_alloc_ids, tv, input_tv);
-      }
-    }
-
+      std::string name,
+      int64_t vector_word_size_bit) {
+    // aten_element_size_bit is the minimum unit (one element) of tv's
+    // corresponding at::Tensor. It may or may not be the same as
+    // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+    // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+    // For example, for fp4 tensor, we use Byte as the corresponding ATen
+    // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
+    int64_t aten_element_size_bit =
+        c10::elementSize(
+            data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) *
+        8;
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
@@ -613,9 +536,14 @@ class VectorizeValidator : public OptInDispatch {
           ", innermost id: ",
           last_alloc_dim);
 
+      // Because aten_element_size_bit is the minimum unit (one element) in
+      // ATen, if one vector is smaller than one element, regardless of the
+      // contiguity of the ATen tensor, we can always vectorize because an
+      // element in ATen tensor is always contiguous by design.
       auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
-          contiguity.value_or(false),
+          aten_element_size_bit % vector_word_size_bit == 0 ||
+              contiguity.value_or(false),
           "The innermost position has to be contiguous. tv: ",
           tv,
           ", allocation domain: ",
@@ -631,13 +559,15 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name,
-      Expr* load_store) {
+      Expr* load_store,
+      int64_t vector_word_size_bit) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
         GpuLower::current()->hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
-    validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
+    validateAllocationVectorizedId(
+        vec_alloc_id, dep_alloc_ids, tv, name, vector_word_size_bit);
 
     return vec_alloc_id;
   }
@@ -680,35 +610,39 @@ class VectorizeValidator : public OptInDispatch {
         tv);
 
     auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
-    auto vector_size =
-        dataTypeSize(
+    auto vector_size_bit =
+        dataTypeSizeBit(
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
     // Except for TMem, allow half2, float2, float4 and same sized vtypes.
-    std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
-    // TMem can vectorize up to 512 bytes.
+    std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+    // TMem can vectorize up to 4096 bits.
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
         (ldst->opType() == LoadStoreOpType::LdTMem ||
          ldst->opType() == LoadStoreOpType::StTMem)) {
-      allowed_vector_sizes.push_back(32);
-      allowed_vector_sizes.push_back(64);
-      allowed_vector_sizes.push_back(128);
-      allowed_vector_sizes.push_back(256);
-      allowed_vector_sizes.push_back(512);
+      allowed_vector_sizes_bit.push_back(256);
+      allowed_vector_sizes_bit.push_back(512);
+      allowed_vector_sizes_bit.push_back(1024);
+      allowed_vector_sizes_bit.push_back(2048);
+      allowed_vector_sizes_bit.push_back(4096);
     }
 
     NVF_CHECK(
         std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
+            allowed_vector_sizes_bit.begin(),
+            allowed_vector_sizes_bit.end(),
+            vector_size_bit) != allowed_vector_sizes_bit.end(),
         "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+        vector_size_bit,
+        " bits, however, vector sizes starting from and including ",
+        allowed_vector_sizes_bit.front(),
+        " bits upto and including ",
+        allowed_vector_sizes_bit.back(),
+        " bits are supported.");
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
-        v_id, tv, "consumer", tv_def);
+        v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -743,7 +677,8 @@ class VectorizeValidator : public OptInDispatch {
       }
       NVF_ERROR(
           producer_tv == nullptr,
-          "Vectorization validation only support op with a single TensorView input");
+          "Vectorization validation only support op with a single TensorView "
+          "input");
       producer_tv = input->as<TensorView>();
       auto producer_word_size_it =
           GpuLower::current()->vectorizedAccesses().find(producer_tv);
@@ -775,7 +710,7 @@ class VectorizeValidator : public OptInDispatch {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              v_id, producer_tv, "producer", tv_def);
+              v_id, producer_tv, "producer", tv_def, vector_size_bit);
     } else {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
       auto producer_replayed_as_consumer =
@@ -793,7 +728,11 @@ class VectorizeValidator : public OptInDispatch {
               .getReplay();
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              c2p_map.at(v_id), producer_tv, "producer", tv_def);
+              c2p_map.at(v_id),
+              producer_tv,
+              "producer",
+              tv_def,
+              vector_size_bit);
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
@@ -819,9 +758,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
-    bool has_misaligned_vectorize_dim = false;
 
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
@@ -836,22 +774,11 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         // the vectorize dim.
         NVF_ERROR(
             i >= tv->getMaxComputePosition(),
-            "IterDomains to the left of the compute at point cannot be vectorized: ",
+            "IterDomains to the left of the compute at point cannot be "
+            "vectorized: ",
             tv,
             "\n");
         has_vectorize_dim = true;
-      }
-
-      if (ptype == ParallelType::MisalignedVectorize) {
-        NVF_ERROR(
-            tv->getMaxComputePosition() == 0 ||
-                tv->getMaxComputePosition() == tv->nDims() - 1,
-            "Only allow misaligned vectorization in the -2 computeAt position.");
-        NVF_ERROR(
-            tv->getMemoryType() == MemoryType::Local ||
-                tv->getMemoryType() == MemoryType::Global,
-            "Only allow misaligned vectorization between global and local memory.");
-        has_misaligned_vectorize_dim = true;
       }
 
       // ParallelType::Group is used for both reduction and normalization.
@@ -889,9 +816,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     // Validate the vectorized domain maps to the innermost domain of
     // tv. Note that we don't need to validate its producer tv as
-    // both Vectorize and MisalignedVectorize can only be used with
+    // Vectorize can only be used with
     // UnaryOp::Set.
-    if (has_vectorize_dim || has_misaligned_vectorize_dim) {
+    if (has_vectorize_dim) {
       VectorizeValidator::validate(tv);
     }
   }
@@ -1041,16 +968,25 @@ void validateMmaTensors(MmaOp* mma) {
 
   // Note: this check will be relaxed in a follow up.
   auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
-    if (mma->isHopper()) {
+    if (mma->isHopper() || mma->isBlackwell()) {
       if (operand == MmaOperand::B) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting smem input for Hopper mma input B");
-      } else {
+            "Only supporting smem input for Hopper/Blackwell mma input B");
+      } else if (mma->isHopper()) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Local ||
                 tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting register or shared memory input for Hopper mma input A");
+            "Only supporting register or shared memory input for Hopper mma "
+            "input A");
+      } else if (mma->isBlackwell()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Tensor ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting tensor or shared memory input for Blackwell mma "
+            "input A");
+      } else {
+        NVF_THROW("Should not reach here");
       }
     } else {
       NVF_ERROR(
@@ -1080,8 +1016,8 @@ void validateSizeMemoryOp(LoadStoreOp* ldst) {
       break;
     }
   }
-  byte_size *=
-      dataTypeSize(*output->getDataType(), GpuLower::current()->indexType());
+  byte_size *= dataTypeSizeByte(
+      *output->getDataType(), GpuLower::current()->indexType());
 
   switch (ldst->cacheOp()) {
     case CacheOp::Global:
@@ -1191,7 +1127,7 @@ void validateSwizzle(Fusion* fusion) {
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
-    for (const auto id_idx : c10::irange(tv->nDims())) {
+    for (const auto id_idx : arange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
       auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
@@ -1252,7 +1188,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
             tv->definition()->isA<GroupedReductionOp>() ||
             tv->definition()->isA<WelfordOp>() ||
             tv->definition()->isA<GroupedWelfordOp>(),
-        "Invalid use of ParallelType::Group. Only ReductionOp, GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
+        "Invalid use of ParallelType::Group. Only ReductionOp, "
+        "GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
         tv->definition()->toString());
 
     // Convert ReductionOp to GroupedReductionOp
@@ -1351,6 +1288,32 @@ void validateReductions(Fusion* fusion) {
             !in_id->isBroadcast() || in_id->hasExpandedExtent(),
             "Reductions of unexpanded broadcast domains should be ",
             "converted to squeeze before lowering.");
+      }
+    }
+  }
+}
+
+//! Validate f split output domain is loaded with 1D TMA, the split must be
+//! divisible
+void validate1dTmaLoad(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
+      continue;
+    }
+    NVF_ERROR(
+        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        "Expect TMA load of inner-most dimension, but got: ",
+        tv->toString());
+    const auto all_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+        {tv->axis(-1)});
+    for (auto expr : all_exprs) {
+      if (auto split = dynamic_cast<Split*>(expr)) {
+        NVFUSER_LOWER_VALIDATE(
+            split->isDivisible(),
+            "If split output domain is loaded with 1D TMA, the split must be "
+            "divisible, got: ",
+            split->toString());
       }
     }
   }

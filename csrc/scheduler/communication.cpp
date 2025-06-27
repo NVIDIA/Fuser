@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <alias_analysis.h>
-#include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/communication.h>
@@ -21,9 +20,24 @@ namespace nvfuser {
 //! Check if the given fusion is a single communication expression
 bool CommunicationScheduler::canScheduleCompileTime(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
-  return (
-      exprs.size() == 1 && isResharding(exprs[0]) &&
-      HostIrLower::canLower(exprs[0]));
+  if (exprs.size() != 1) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Expected only one expression but found: ",
+        exprs.size());
+    return false;
+  }
+  Expr* e = exprs[0];
+
+  if (!isResharding(e)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Expected the expression to be resharding: ",
+        e->toString());
+    return false;
+  }
+
+  return true;
 }
 
 bool CommunicationScheduler::canScheduleRunTime(

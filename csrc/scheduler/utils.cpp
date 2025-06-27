@@ -31,6 +31,8 @@
 
 #include <algorithm>
 #include <queue>
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -295,7 +297,7 @@ void parallelizeAllLike(
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding,
-    bool parallelize_inputs) {
+    bool parallelize_inputs_on_did) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -321,24 +323,30 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput() && !parallelize_inputs) {
+    if (tv->isFusionInput() && !parallelize_inputs_on_did) {
       continue;
     }
-    for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
+    bool is_fusion_input = tv->isFusionInput();
+    for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto reference_id = concrete_to_reference_map.at(ca_id);
-        auto reference_parallel_type = reference_id->getParallelType();
-        if (selected_parallel_types.empty() ||
-            selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
-        }
-        if (propagate_padding) {
-          if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
-                reference_id->getMaybeSizeAfterPadding());
-          }
+      if (concrete_to_reference_map.count(ca_id) == 0) {
+        continue;
+      }
+      auto reference_id = concrete_to_reference_map.at(ca_id);
+      auto reference_parallel_type = reference_id->getParallelType();
+      if (is_fusion_input &&
+          !isParallelTypeDeviceDim(reference_parallel_type)) {
+        continue;
+      }
+      if (selected_parallel_types.empty() ||
+          selected_parallel_types.count(reference_parallel_type)) {
+        tv->axis(i)->parallelize(reference_parallel_type);
+      }
+      if (propagate_padding) {
+        if (reference_id->hasPaddingToMultipleOfWarp()) {
+          tv->axis(i)->padToMultipleOfWarp(
+              reference_id->getMaybeSizeAfterPadding());
         }
       }
     }
@@ -514,7 +522,7 @@ TensorView* getBufferProjectableBroadcastsTv(
       // dimension in the consumer, otherwise it is not a valid broadcast after
       // reduction.
       bool is_broadcast_after_reduction = true;
-      for (auto i : c10::irange(reduction_tv->nDims())) {
+      for (auto i : arange(reduction_tv->nDims())) {
         if (reduction_tv->axis(i)->isReduction() &&
             !tv->axis(i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
@@ -855,7 +863,7 @@ getScopePersistenceFactors(
       projectable_buffer_inputs.begin(),
       projectable_buffer_inputs.end());
 
-  for (auto persistent_buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto persistent_buffer_i : arange(persistent_buffers.size())) {
     auto persistent_buffer = persistent_buffers[persistent_buffer_i];
     // All expressions between tv and its resolution points must have tv's
     // persistent buffer allocated. This is an optimistic view on how many
@@ -900,7 +908,7 @@ getScopePersistenceFactors(
   // Offset into the bool vector
   size_t bool_vector_offset = persistent_buffers.size();
   for (auto projectable_persistent_buffer_i :
-       c10::irange(projectable_persistent_buffers.size())) {
+       arange(projectable_persistent_buffers.size())) {
     auto projectable_persistent_buffer =
         projectable_persistent_buffers[projectable_persistent_buffer_i];
     auto inputs = ir_utils::inputTvsOf(projectable_persistent_buffer);
@@ -1009,10 +1017,10 @@ int64_t getPersistentBufferSizeOfTensor(
   // type before upcast.
   int64_t dtype_size = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
@@ -1047,7 +1055,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
-  for (auto buffer_i : c10::irange(all_buffers.size())) {
+  for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
     persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
@@ -1057,7 +1065,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<bool> persistent_mask(all_buffers.size(), false);
   std::unordered_set<TensorView*> persistent_buffer_set(
       persistent_buffers.begin(), persistent_buffers.end());
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     const auto& producers = ir_utils::producerTvsOf(buffer);
     if (!canProjectToPersistentProducer(
@@ -1068,7 +1076,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Buffers involved in projected to inputs
   std::vector<bool> projected_mask(all_buffers.size(), true);
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
     if (std::find(
@@ -1093,7 +1101,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     // that are both a persistent buffer and an input to a projectable
     // buffer
     std::unordered_set<TensorView*> active_buffers;
-    for (auto buffer_i : c10::irange(sizes.size())) {
+    for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
         buffer_size += sizes[buffer_i];
@@ -1152,7 +1160,8 @@ std::pair<bool, bool> canonicalDimReduction(
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
-          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+          "3D reduction with first two merged axes broadcast should be 2D "
+          "reduction.");
       tv->reorder({{0, 1}});
     }
     return {true, true};
@@ -1182,7 +1191,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
           [&seen_reduction_exprs](TensorView* tv) {
             NVF_ERROR(
                 tv->definition() != nullptr,
-                "Somehow a tensor view without a definition but a reduction snuck into the scheduler reduction list.");
+                "Somehow a tensor view without a definition but a reduction "
+                "snuck into the scheduler reduction list.");
             if (!seen_reduction_exprs.emplace(tv->definition()).second) {
               return true;
             }
@@ -1329,10 +1339,6 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
@@ -1378,9 +1384,9 @@ IterDomain* projectIdToRoot(
 }
 
 // Take the inner most root id from innerMostAllocDim and project it to the
-// logical domain if the provided domain is on the logical domain. If vectorize,
-// will not project if not following the inner most path.
-IterDomain* projectIdToRFactor(
+// allocation domain if the provided reference_id is on the allocation domain.
+// If vectorize, will not project if not following the inner most path.
+IterDomain* projectIdToAllocation(
     TensorView* tv,
     IterDomain* reference_id,
     bool inner_only,
@@ -1389,12 +1395,10 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo(
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()}, false);
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()},
+      false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1467,7 +1471,7 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToRFactor(
+  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
@@ -1479,7 +1483,11 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    mapped_logical_ids_[to] = p_it->second;
+    // Note, we want to project to allocation, since we could have
+    // transformation from logical to allocation. e.g. for multi-device, we
+    // could have DID related split between logical to allocation.
+    mapped_logical_ids_[to] =
+        projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1494,7 +1502,7 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
     mapped_logical_ids_[to] =
-        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
+        projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1506,7 +1514,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getMaybeRootDomain().size())) {
+    for (auto i : arange(from->getMaybeRootDomain().size())) {
       if (from_id == from->getMaybeRootDomain()[i]) {
         mapped_root_ids_[to] = to->getMaybeRootDomain()[i];
         break;
@@ -1517,7 +1525,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getLogicalDomain().size())) {
+    for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
         mapped_logical_ids_[to] = to->getLogicalDomain()[i];
         return;
@@ -1758,7 +1766,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
-    for (const auto ref_i : c10::irange(ref_root_domain.size())) {
+    for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
 
       if (ref_id->isBroadcast()) {
@@ -1816,8 +1824,8 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool rhs = false;
       bool lhs = false;
       auto dtype_size =
-          dataTypeSize(in_out_tv->getDataType().value(), index_type);
-      for (auto mapped_axes_i : c10::irange(mapped_axes.size())) {
+          dataTypeSizeByte(in_out_tv->getDataType().value(), index_type);
+      for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
@@ -1848,11 +1856,6 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
 
 namespace {
 
-//! Utility enum to signify which direction
-//! BoundedDirectionalTransformPropagator
-//!  passes will propagate the transforms.
-enum class PropagateDirection { Backward = 0, Forward };
-
 //! Returns true if the given tensorview is a fake boundary
 //!  TensorView, see Note [Fake Boundary Tensorview].
 //! This function assumes and would not check that tv is a boundary
@@ -1861,7 +1864,7 @@ bool isFakeBoundaryTensorview(
     TensorView* tv,
     const std::unordered_set<TensorView*>& selected_tv_set,
     PropagateDirection direction) {
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation,
     //  a boundary tv is a fake boundary if
     //  it has any consumer tv that's in the selected
@@ -1905,7 +1908,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
   std::unordered_set<TensorView*> boundary_tv_set(
       boundary_tvs.begin(), boundary_tvs.end());
 
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation, collect all tvs
     //  that are consumers of `from_tv` and producers of
     //  boundary tvs.
@@ -2013,7 +2016,7 @@ void BoundedDirectionalTransformPropagator::backward(
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Backward);
+      from, to, *options, PropagateDirection::kBackward);
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
 }
@@ -2033,7 +2036,7 @@ void BoundedDirectionalTransformPropagator::forward(
   // Collect all tvs to included on the forward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Forward);
+      from, to, *options, PropagateDirection::kForward);
 
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
@@ -2055,9 +2058,9 @@ void BoundedDirectionalTransformPropagator::bothWays(
   // Collect all tvs to included on the backward and forward path as specified
   //  by boundary and options.
   auto backward_included_tvs = getDirectionalPropagatePathSet(
-      from, backward_to, *options, PropagateDirection::Backward);
+      from, backward_to, *options, PropagateDirection::kBackward);
   auto forward_included_tvs = getDirectionalPropagatePathSet(
-      from, forward_to, *options, PropagateDirection::Forward);
+      from, forward_to, *options, PropagateDirection::kForward);
 
   // Combined the included tvs on both paths.
   auto included_tvs = backward_included_tvs;
@@ -2122,82 +2125,99 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
   return true;
 }
 
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprsTo(
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  // simply update this vector of id's as progressing through the transformation
-  // expressions. We'll always insert the result of split in the location of the
-  // input, and insert the merge result in the position of the inner dimension.
+namespace {
 
-  auto reordered_ids = tv->getLogicalDomain();
-  for (const auto* expr : transform_exprs) {
-    if (const Split* split = dynamic_cast<const Split*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), split->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      auto pos = std::distance(reordered_ids.begin(), find_it);
-      reordered_ids[pos] = split->inner();
-      reordered_ids.insert(reordered_ids.begin() + pos, split->outer());
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_it_0 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->outer());
-      auto find_it_1 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->inner());
-      if (find_it_0 == reordered_ids.end() &&
-          find_it_1 == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      NVF_ERROR(
-          find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
-          "Error in transformations of ",
-          tv->toString(),
-          "\nTransformations before rfactor should not mix with transformations after rfactor.");
-      auto pos0 = std::distance(reordered_ids.begin(), find_it_0);
-      auto pos1 = std::distance(reordered_ids.begin(), find_it_1);
-      if (pos0 > pos1) {
-        std::swap(pos0, pos1);
-      }
-      // Should be impossible.
-      NVF_ERROR(
-          pos0 != pos1,
-          "Didn't expect merge inputs to be the same iteration domain:\n",
-          merge->toString());
+void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), split->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Split input ",
+      split->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos = std::distance(ids.begin(), find_it);
+  ids[pos] = split->inner();
+  ids.insert(ids.begin() + pos, split->outer());
+}
 
-      reordered_ids.erase(reordered_ids.begin() + pos0);
-      reordered_ids[--pos1] = merge->out();
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      *find_it = resize->out();
+void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+  auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
+  auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
+  NVF_ERROR(
+      find_it_0 != ids.end(),
+      "Merge outer ",
+      merge->outer()->toString(),
+      " not found in given ids: ",
+      ids);
+  NVF_ERROR(
+      find_it_1 != ids.end(),
+      "Merge inner ",
+      merge->inner()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos0 = std::distance(ids.begin(), find_it_0);
+  auto pos1 = std::distance(ids.begin(), find_it_1);
+  if (pos0 > pos1) {
+    std::swap(pos0, pos1);
+  }
+  // Should be impossible.
+  NVF_ERROR(
+      pos0 != pos1,
+      "Didn't expect merge inputs to be the same iteration domain:\n",
+      merge->toString());
+
+  ids.erase(ids.begin() + pos0);
+  ids[--pos1] = merge->out();
+}
+
+void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), resize->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Resize input ",
+      resize->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  *find_it = resize->out();
+}
+
+} // namespace
+
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs) {
+  for (auto* expr : transform_exprs) {
+    if (Split* split = dynamic_cast<Split*>(expr)) {
+      applySplitTransform(split, ids_to_transform);
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      applyMergeTransform(merge, ids_to_transform);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+      applyResizeTransform(resize, ids_to_transform);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
+}
 
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : c10::irange((int64_t)tv->getLoopDomain().size())) {
-    auto loop_id = tv->axis(id_i);
-    auto find_it =
-        std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
-    NVF_ERROR(
-        find_it != reordered_ids.end(),
-        "Reordering map creation failed, uninitialized iterdomain,",
-        " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
-    int64_t old_pos = id_i;
-    old2new[old_pos] = new_pos;
-  }
-  return old2new;
+// Returns a permutation reordering the loop domain of the tensor view as the
+// logical domain
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+  FusionGuard fg(tv->fusion());
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
+  applyTransforms(ids_to_transform, transform_exprs);
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(ids_to_transform, tv->getLoopDomain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      tv->getLoopDomain(),
+      " as ",
+      ids_to_transform);
+  return *permutation;
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
@@ -2217,7 +2237,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : c10::irange((int64_t)alloc_dom.size())) {
+  for (auto i : arange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
     rfactor_index[loop_dom[i]] = i;
   }
@@ -2308,7 +2328,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
         bool has_reachable_loop_id = false;
         for (auto loop_idx :
-             c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+             arange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
           if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
             continue;
           }
@@ -2344,7 +2364,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         /*selected_tvs=*/{},
         /*selected_parallel_types=*/{ParallelType::DIDx},
         /*propagate_padding=*/false,
-        /*parallelize_inputs=*/true);
+        /*parallelize_inputs_on_did=*/true);
   }
 }
 
@@ -2544,7 +2564,7 @@ void promoteProducerMemoryTypes(
                              .getReplay();
 
     for (const auto i :
-         c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+         arange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
           producer->axis((i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
@@ -2631,7 +2651,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspace(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2642,7 +2662,8 @@ int64_t getSharedMemoryOverheadPerBlock(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+    dtype_size =
+        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
@@ -2654,10 +2675,7 @@ int64_t getSharedMemoryOverheadPerBlock(
   int64_t reduction_broadcast_workspace =
       threads_per_block * dtype_size * welford_factor;
 
-  // (2) part-2, space reserved by the CUDA driver
-  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
-
-  return reduction_broadcast_workspace + smem_overhead_driver;
+  return reduction_broadcast_workspace;
 }
 
 bool isResharding(Fusion* fusion) {
@@ -2698,7 +2716,7 @@ void moveNonConcretizedBroadcastInnermost(
 
   for (auto tv : fusion->allTvs()) {
     std::vector<int64_t> broadcast_to_move;
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
       auto loop_id = tv->getLoopDomain().at(i);
       if (!loop_id->isBroadcast()) {
         continue;
@@ -2745,7 +2763,7 @@ void moveNonConcretizedBroadcastInnermost(
 int64_t reorderDevicesToOuter(TensorView* tv) {
   int64_t reorder_pos = 0;
   std::unordered_map<int64_t, int64_t> old2new;
-  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+  for (const auto i : arange(tv->getLoopDomain().size())) {
     if (tv->axis((int64_t)i)->isDeviceDim()) {
       old2new.emplace((int64_t)i, reorder_pos);
       ++reorder_pos;
@@ -2755,15 +2773,18 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-void reorderTensorLike(
-    TensorView* target_tv,
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain_to_reorder,
     const std::vector<IterDomain*>& ref) {
-  const auto& tv_loop_domain = target_tv->getLoopDomain();
+  if (domain_to_reorder.empty()) {
+    return {};
+  }
 
-  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  Fusion* fusion = domain_to_reorder.at(0)->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
-  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+  ValGroups target_groups = graph.toGroups(domain_to_reorder);
 
   ValGroups ref_groups = graph.toGroups(ref);
 
@@ -2801,31 +2822,52 @@ void reorderTensorLike(
     }
   }
 
-  std::unordered_map<int64_t, int64_t> old2new;
+  std::vector<int64_t> permutation(domain_to_reorder.size(), -1);
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      old2new.emplace((int64_t)i, new_id_pos);
+      permutation.at(i) = new_id_pos;
       ++new_id_pos;
     }
   }
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      old2new.emplace((int64_t)i, new_pos);
+      permutation.at(i) = new_pos;
     }
   }
 
-  target_tv->reorder(old2new);
+  // domain_to_reorder can be partial with respect to ref, that is,
+  // ordered_domain may contain IDs that do not appear in
+  // domain_to_reorder. In that case, at this point, the permutation
+  // vector may be sparse, e.g., {2, 0, 3}, which needs to be packed
+  // to {1, 0, 2}.
+  if (std::ranges::max(permutation) >= (int64_t)permutation.size()) {
+    auto permutation_copy = permutation;
+    std::ranges::sort(permutation_copy);
+    for (auto& pos : permutation) {
+      auto it = std::ranges::find(permutation_copy, pos);
+      NVF_ERROR(it != permutation_copy.end());
+      pos = static_cast<int64_t>(std::distance(permutation_copy.begin(), it));
+    }
+  }
+
+  NVF_ERROR(
+      std::ranges::is_permutation(
+          permutation, std::ranges::iota_view(0, (int64_t)permutation.size())),
+      "Invalid permutation: ",
+      toDelimitedString(permutation));
+
+  return permutation;
 }
 
 namespace {
@@ -2898,9 +2940,13 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 int64_t getRequiredBytesInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+      (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -2934,14 +2980,20 @@ bool isHighBandwidthFlopsRatio() {
   // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
   // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
   constexpr float reference_ratio = 0.07f;
+  const auto dev_idx = at::cuda::current_device();
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // bandwidth
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+      (float)gpu_mem_clock_khz * 1000.f;
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
-  float flops = (float)dev_prop->clockRate * 1000.f *
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
+  float flops = (float)gpu_clock_khz * 1000.f *
       (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
       (float)flops_per_cycle;
 
@@ -2972,5 +3024,73 @@ bool hasExpensiveMUFUops(Fusion* fusion) {
   }
   return false;
 }
+
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
+  // First check that tv is fully contiguous. If not, then we can't currently
+  // skip it.
+  for (std::optional<bool> c : tv->getContiguity()) {
+    if (c.has_value() && c.value() == false) {
+      return tv;
+    }
+  }
+
+  while (tv != nullptr) {
+    if (tv->uses().size() != 1) {
+      break;
+    }
+    Expr* use = tv->uses().front();
+
+    // TODO: support ViewOp here too
+    if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
+      break;
+    }
+    TensorView* consumer = ir_utils::getTvOutput(use);
+    if (consumer == nullptr) {
+      break;
+    }
+
+    // Setting memory type to Global and allocation to be exact mapped with
+    // that of tv is enough to guarantee that it will be skipped during
+    // lowering as a tensor producer alias.
+    consumer->setMemoryType(MemoryType::Global);
+
+    // reorder consumer's allocation domain to match the original input
+    const std::vector<IterDomain*> old_loop = tv->getLoopDomain();
+
+    // TODO: Ideally we would use a tool like the following, but this does not
+    // preserve broadcasts that are missing in the target allocation domain.
+    //
+    //   scheduler_tools::scheduleLoopDomainsLike({consumer}, target_alloc);
+    //   consumer->setAllocationDomain(consumer->getLoopDomain(), true);
+    //   consumer->setLoopDomain(old_loop);
+    //
+    // Instead, we currently restrict to permutations and place new broadcasts
+    // on the outside
+
+    // Since we traverse in a p2c direction, we can use a pairwise map to
+    // propagate allocation domain from the producer tv to the consumer.
+    std::unordered_map<IterDomain*, IterDomain*> p2c =
+        PairwiseLogicalDomainMap(tv, consumer).mapProducerToConsumer();
+    std::vector<IterDomain*> new_consumer_alloc;
+    new_consumer_alloc.reserve(tv->getMaybeAllocationDomain().size());
+    for (IterDomain* p_id : tv->getMaybeAllocationDomain()) {
+      // NOTE: This simple approach assumes that the allocation domains of the
+      // producer are also logical domains. We can then map those to producer to
+      // get IDs to use in the consumer's allocation domain to get IDs to use in
+      // the consumer's allocation domain. This fails for ViewOp, which is why
+      // it is currently disabled. In the future, we should propagate through
+      // transforms as well using something similar to
+      // scheduler_tools::scheduleLoopDomainsLike();
+      auto it = p2c.find(p_id);
+      NVF_ERROR(it != p2c.end());
+      new_consumer_alloc.push_back(it->second);
+    }
+    consumer->setAllocationDomain(new_consumer_alloc, /*contiguity=*/true);
+
+    tv = consumer;
+  }
+  return tv;
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser
