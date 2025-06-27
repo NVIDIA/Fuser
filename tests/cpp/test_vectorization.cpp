@@ -693,7 +693,7 @@ class VectorizationCastTest
     std::tie(dtype_from, dtype_to, vectorization_factor) = GetParam();
   }
 
- private:
+ protected:
   DataType dtype_from;
   DataType dtype_to;
   int64_t vectorization_factor;
