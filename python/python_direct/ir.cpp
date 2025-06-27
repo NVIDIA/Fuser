@@ -92,73 +92,7 @@ across CUDA threads and blocks.
       .def(
           "__str__",
           [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
-          "Convert the TensorDomain to a string representation.")
-      .def(
-          "get_root_domain",
-          &TensorDomain::root,
-          R"(
-Get the root domain of this tensor.
-
-Returns
--------
-list of IterDomain
-    The root iteration domains.
-)")
-      .def(
-          "get_allocation_domain",
-          &TensorDomain::allocation,
-          R"(
-Get the allocation domain of this tensor.
-
-Returns
--------
-list of IterDomain
-    The allocation iteration domains.
-)")
-      .def(
-          "get_loop_domain",
-          &TensorDomain::loop,
-          R"(
-Get the loop domain of this tensor.
-
-Returns
--------
-list of IterDomain
-    The loop iteration domains.
-)")
-      .def(
-          "get_logical_domain",
-          &TensorDomain::logical,
-          R"(
-Get the logical domain of this tensor.
-
-Returns
--------
-list of IterDomain
-    The logical iteration domains.
-)")
-      .def(
-          "get_maybe_root_domain",
-          &TensorDomain::maybeRoot,
-          R"(
-Get the root domain if it exists.
-
-Returns
--------
-list of IterDomain
-    The root iteration domains, or empty list if not available.
-)")
-      .def(
-          "get_maybe_allocation_domain",
-          &TensorDomain::maybeAllocation,
-          R"(
-Get the allocation domain if it exists.
-
-Returns
--------
-list of IterDomain
-    The allocation iteration domains, or empty list if not available.
-)");
+          "Convert the TensorDomain to a string representation.");
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
@@ -194,6 +128,44 @@ TensorDomain
     - Logical domain (The original dimensions. It may contain rFactor iterDomains.)
     - Allocation domain (How the memory is allocated for the tensor?)
     - Loop domain (The for-loop structure for the tensor.)
+)")
+      .def(
+          "get_loop_domain",
+          &TensorView::getLoopDomain,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
+      .def(
+          "split",
+          static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
+              &TensorView::split),
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true,
+          py::return_value_policy::reference,
+          R"(
+Split an axis into two axes.
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by.
+inner_split : bool, optional
+    If True, the factor determines the size of the inner domain.
+    If False, the factor determines the size of the outer domain.
+    Default is True.
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
 )")
       .def(
           "axis",
