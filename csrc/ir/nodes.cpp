@@ -5783,11 +5783,11 @@ GroupedMmaOp::GroupedMmaOp(
     Val* bias,
     Val* beta)
     : Expr(passkey) {
-  NVF_ERROR(out->isA<TensorView>(), "Output must be a TensorView");
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
   NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
   NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
   NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
-  addOutput(out);
+  addOutput(out_mat);
   if (out_scale != nullptr) {
     NVF_ERROR(out_scale->isA<TensorView>(), "Output scale must be a TensorView");
     addOutput(out_scale);
