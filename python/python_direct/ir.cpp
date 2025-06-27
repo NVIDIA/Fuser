@@ -75,7 +75,73 @@ Val
       .def(
           "__str__",
           [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
-          "Convert the TensorDomain to a string representation.");
+          "Convert the TensorDomain to a string representation.")
+      .def(
+          "get_root_domain",
+          &TensorDomain::root,
+          R"(
+Get the root domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains.
+)")
+      .def(
+          "get_allocation_domain",
+          &TensorDomain::allocation,
+          R"(
+Get the allocation domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The allocation iteration domains.
+)")
+      .def(
+          "get_loop_domain",
+          &TensorDomain::loop,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
+      .def(
+          "get_logical_domain",
+          &TensorDomain::logical,
+          R"(
+Get the logical domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The logical iteration domains.
+)")
+      .def(
+          "get_maybe_root_domain",
+          &TensorDomain::maybeRoot,
+          R"(
+Get the root domain if it exists.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains, or empty list if not available.
+)")
+      .def(
+          "get_maybe_allocation_domain",
+          &TensorDomain::maybeAllocation,
+          R"(
+Get the allocation domain if it exists.
+
+Returns
+-------
+list of IterDomain
+    The allocation iteration domains, or empty list if not available.
+)");
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
