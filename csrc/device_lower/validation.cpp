@@ -810,7 +810,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
                def->as<TernaryOp>()->getTernaryOpType() ==
                    TernaryOpType::Where) ||
               (def->isA<ReductionOp>() &&
-               def->as<ReductionOp>()->serialGridReductionRequested()),
+               def->as<ReductionOp>()->serialGridReductionRequested()) ||
+              (def->isA<UnaryOp>() &&
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
     }
