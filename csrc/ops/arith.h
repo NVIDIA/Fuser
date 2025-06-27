@@ -122,8 +122,8 @@ NVF_API TensorView* reductionOpRaw(
 
 struct ScaledTensorView {
   TensorView* mat;
-  TensorView* block_scaling_factor;
-  TensorView* global_scaling_factor;
+  TensorView* block_scaling_factor = nullptr;
+  TensorView* global_scaling_factor = nullptr;
 };
 
 //! Auxiliary Struct holding result of
