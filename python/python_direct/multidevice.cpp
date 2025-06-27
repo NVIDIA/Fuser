@@ -48,18 +48,21 @@ Returns the number of devices in the mesh.
 
 void bindSharding(py::module& nvfuser) {
   py::class_<Sharding>(nvfuser, "Sharding", py::module_local())
-      .def(
+      .def_property_readonly(
           "mesh",
           &Sharding::mesh,
           R"(
 Returns the device mesh of the sharding.
-)")
+)",
+          py::return_value_policy::reference)
       .def(
           "axis_sharded_on",
           &Sharding::axisShardedOn,
           py::arg("parallel_type"),
           R"(
 Returns the axis sharded on the given parallel type.
+
+If the distributed tensor is replicated on that parallel type, returns -1.
 )");
 }
 
