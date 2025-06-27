@@ -47,7 +47,6 @@ namespace nvfuser {
 using allocate_fn = std::function<
     void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
-
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
@@ -71,16 +70,14 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
-
 // Dim check helper function
 void dimCheck(
     llvm::Value* ndim_arg,
     llvm::Value* ndim_val,
-    llvm::IRBuilder<> &builder,
+    llvm::IRBuilder<>& builder,
     llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
-  llvm::Value* cmp =
-      builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
+  llvm::Value* cmp = builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
   llvm::Function* trap_func =
       llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
   llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
@@ -96,9 +93,7 @@ void dimCheck(
 }
 
 // Generate kir::Allocate runtime function
-void generateAllocateFunc(
-    const kir::Allocate* allocate,
-    llvm::Module* mod) {
+void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
 
   // Define function signature: void(i64*, i64, i64*, i64, void*)
@@ -141,8 +136,7 @@ void generateAllocateFunc(
   auto logical_domain = TensorDomain::noReductions(
       allocate->buffer()->as<TensorView>()->getLogicalDomain());
   int64_t ndim = std::ssize(logical_domain);
-  llvm::Value* ndim_val =
-      llvm::ConstantInt::get(int64_type, ndim);
+  llvm::Value* ndim_val = llvm::ConstantInt::get(int64_type, ndim);
   // Check shape ndim
   dimCheck(shape_ndim_arg, ndim_val, builder, mod);
   // Check strides ndim
@@ -211,8 +205,7 @@ void generateAllocateFunc(
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
-    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_
-    ) {
+    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   // If the JIT is already compiled, return
   if (allocate_funcs_.size() > 0) {
@@ -252,7 +245,8 @@ void compile(
   }
 }
 
-// NOTE: We have to keep the destructor here, otherwise the unique_ptr can't find complete type of LlvmJitImpl
+// NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
+// find complete type of LlvmJitImpl
 HostIrJit::~HostIrJit() = default;
 
 HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
@@ -304,11 +298,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
-  compile(
-      container,
-      pimpl_->jit.get(),
-      pimpl_->allocate_funcs_
-      );
+  compile(container, pimpl_->jit.get(), pimpl_->allocate_funcs_);
 }
 
 at::Tensor HostIrJit::allocate(

@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <expr_evaluator.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -15,7 +16,6 @@
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
-#include <instrumentation.h>
 
 namespace nvfuser {
 
