@@ -3311,8 +3311,8 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
     os << ", out_scale_block_size=" << out_scale_block_size_;
-    os << ", out_scale_block_dtype=" << out_scale_block_dtype_;
-    os << ", out_gamma=" << out_gamma_;
+    os << ", out_scale_block_dtype=" << dtypeToPyString(out_scale_block_dtype_);
+    os << ", out_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
