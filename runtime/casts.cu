@@ -427,7 +427,6 @@ __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
   return __float2bfloat(__e4m32float(b));
 }
 
-
 // see NOTE [ fp8 cast optimization ]
 __device__ __inline__ __e5m2 __float2e5m2(const float f) {
   constexpr float f_const_zero = 0.f;
