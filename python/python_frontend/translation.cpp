@@ -1163,7 +1163,7 @@ class FusionTranslator : public OptInConstDispatch {
           TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain()).size());
       map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
       auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
-      NVF_CHECK(block_size_extent.isConstInt(), "Block size extent needs to be a constant integer");
+      NVF_CHECK(block_size_extent->isConstInt(), "Block size extent needs to be a constant integer");
       out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
       out_block_scale_dtype = std::get<PrimDataType>(out_block_scale_tv->dtype().type);
     }
@@ -1219,9 +1219,9 @@ class FusionTranslator : public OptInConstDispatch {
                ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
                : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
           std::get<PrimDataType>(out_tv->dtype().type),
-          gmm_op->outScaleBlockSize(),
-          std::get<PrimDataType>(out_block_scale_tv->dtype().type),
-          gmm_op->outGamma() != nullptr));
+          out_block_scale_size,
+          out_block_scale_dtype,
+          out_gamma));
     }
   }
 

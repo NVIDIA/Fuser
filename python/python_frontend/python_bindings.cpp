@@ -3771,7 +3771,12 @@ void initNvFuserPythonBindings(PyObject* module) {
             out_scale_block_size,
             out_scale_block_dtype,
             out_gamma));
-        return std::make_tuple(avg, var_sum, n);
+        if (out_gamma == true) {
+            NVF_CHECK(out_scale_block_size > 0, "out_scale_block_size must be greater than 0 when out_gamma is true");
+            return std::make_tuple(output, output_scale, output_gamma);
+        } else if (out_scale_block_size > 0) {
+            return std::make_tuple(output, output_scale);
+        }
         return output;
       },
       R"(
