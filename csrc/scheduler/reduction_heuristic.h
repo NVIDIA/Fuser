@@ -140,6 +140,9 @@ class ReductionParams : public HeuristicParams {
   // TMA warp specialized, only used in inner-outer persistent scheduler
   bool tma_warp_specialized = false;
 
+  // Whether the heuristic is good enough to use warp specialized
+  bool is_good_ws_heuristic = false;
+
   // Directly load from gmem to regs
   bool is_non_circular_buffer_gmem_to_regs = true;
 
