@@ -912,7 +912,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         expected_dynamic_smem_size);
   }
   NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      getStaticSmemSize() + dynamic_smem_size <= device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
       dynamic_smem_size,
