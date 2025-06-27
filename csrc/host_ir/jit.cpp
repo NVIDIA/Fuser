@@ -286,8 +286,8 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
   if (val->definition() != nullptr) {
     auto* def = val->definition();
     if(auto* binary_op = def->as<BinaryOp>()) {
-      auto* left = binary_op->left()->as<Val>();
-      auto* right = binary_op->right()->as<Val>();
+      auto* left = binary_op->lhs()->as<Val>();
+      auto* right = binary_op->rhs()->as<Val>();
       if(left->isConst() && val2llvmMap.find(left) == val2llvmMap.end()) {
         val2llvmMap[left] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), left->value().as<int64_t>());
       }
@@ -443,63 +443,39 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferAllocationS
   return inferShape(tv, symbolic_sizes, expand_flags, val2llvmMap, context, builder);
 }
 
-TensorShapeInfo inferTensorShapes(
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesNonAlias(
     TensorView* tv,
-    const ExpressionEvaluator& expr_eval) {
-  // Alias handling:
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  // Alias handling, just return empty vector for now:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
-    // For reuse buffer alias, we need to get the aliased_io's size/stride
-    if (alias_info.type == AllocationType::ReuseBuffer) {
-      tv = alias_info.aliased_io->as<TensorView>();
-    }
-
-    auto val = expr_eval.evaluate(tv);
-    NVF_ERROR(val.is<at::Tensor>(), "Output is not a Tensor");
-    auto tensor = val.as<at::Tensor>();
-
-    if (!tv->hasAllocation()) {
-      return TensorShapeInfo{
-          tensor.sizes().vec(),
-          tensor.strides().vec(),
-          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                        : std::vector<int64_t>(),
-      };
-    }
-    auto allocation_size_stride =
-        inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
-    return TensorShapeInfo{
-        tensor.sizes().vec(),
-        tensor.strides().vec(),
-        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                      : std::vector<int64_t>(),
-        allocation_size_stride.first,
-        allocation_size_stride.second};
+    return {std::vector<llvm::Value*>(), std::vector<llvm::Value*>()};
   }
-
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, val2llvmMap, context, builder);
   if (!tv->hasAllocation()) {
     return {allocation_size_stride.first, allocation_size_stride.second};
   }
-
-  auto options =
-      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
-  auto logical_meta_tensor = at::empty_strided(
-      allocation_size_stride.first, allocation_size_stride.second, options);
-  // TODO(jiej): we should refactor it here, there's no need to use
-  // logical_meta_tensor at all, size + stride should be used directly in the
-  // `transformFromAllocationToLogical`
-  logical_meta_tensor =
-      transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
-  return TensorShapeInfo{
-      logical_meta_tensor.sizes().vec(),
-      logical_meta_tensor.strides().vec(),
-      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
-                    : std::vector<int64_t>(),
-      allocation_size_stride.first,
-      allocation_size_stride.second};
+  // otherwise we want return the reordered size and stride
+  return {std::vector<llvm::Value*>(), std::vector<llvm::Value*>()};
 }
+
+
+// void generateInferTensorShapesFunc(
+//     hir::HostIrContainer* container,
+//     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+//     llvm::LLVMContext& context,
+//     llvm::IRBuilder<>& builder) {
+//   for(auto* input : container->inputs()) {
+//     val2llvmMap[input] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), input->size());
+//   }
+//   for(auto* output : container->outputs()) {
+//     val2llvmMap[output] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), output->size());
+//   }
+//   for(auto* expr : container->topLevelExprs()) {
+// }
 
 // Generate kir::Allocate runtime function
 void generateAllocateFunc(
