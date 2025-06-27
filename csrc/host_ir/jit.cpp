@@ -316,30 +316,90 @@ void traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llv
   }
 }
 
+std::vector<llvm::Value*> getContiguousStrides(
+    const std::vector<llvm::Value*>& sizes,
+    const std::vector<bool>& expand_flags) {
+  NVF_ERROR(sizes.size() == expand_flags.size());
+
+  std::vector<llvm::Value*> strides(sizes.size());
+  llvm::Value* cur_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+  for (auto i = sizes.size(); i > 0; --i) {
+    auto* size = sizes.at(i - 1);
+    NVF_ERROR(
+        size >= 0,
+        "Positive size is assumed non-negative but received: ",
+        size);
+
+    llvm::Value* stride = cur_stride;
+
+    // If expanded, stride is 0
+    if (expand_flags.at(i - 1)) {
+      stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0);
+    } else {
+      // Create comparison: size == 0
+      llvm::Value* is_zero = builder.CreateICmpEQ(size, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0));
+      
+      // Get current function for creating basic blocks
+      llvm::Function* current_function = builder.GetInsertBlock()->getParent();
+      
+      // Create basic blocks
+      llvm::BasicBlock* zero_block = llvm::BasicBlock::Create(context, "size_zero", current_function);
+      llvm::BasicBlock* nonzero_block = llvm::BasicBlock::Create(context, "size_nonzero", current_function);
+      llvm::BasicBlock* merge_block = llvm::BasicBlock::Create(context, "stride_merge", current_function);
+      
+      // Conditional branch
+      builder.CreateCondBr(is_zero, zero_block, nonzero_block);
+      
+      // Handle size == 0 case
+      builder.SetInsertPoint(zero_block);
+      llvm::Value* stride_if_zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+      builder.CreateBr(merge_block);
+      
+      // Handle size != 0 case
+      builder.SetInsertPoint(nonzero_block);
+      llvm::Value* new_cur_stride = builder.CreateMul(cur_stride, size);
+      builder.CreateBr(merge_block);
+      
+      // Merge the results
+      builder.SetInsertPoint(merge_block);
+      llvm::PHINode* stride_phi = builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      stride_phi->addIncoming(stride_if_zero, zero_block);
+      stride_phi->addIncoming(cur_stride, nonzero_block);
+      stride = stride_phi;
+      
+      // Update cur_stride for next iteration
+      llvm::PHINode* cur_stride_phi = builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      cur_stride_phi->addIncoming(cur_stride, zero_block);  // Don't update if size is 0
+      cur_stride_phi->addIncoming(new_cur_stride, nonzero_block);  // Update if size != 0
+      cur_stride = cur_stride_phi;
+    }
+
+    strides.at(i - 1) = stride;
+  }
+
+  return strides;
+}
+
 // Infer the size and stride of each dimension
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
-    const ExpressionEvaluator& expr_eval) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
-  std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
+  std::vector<llvm::Value*> concrete_sizes(symbolic_sizes.size(), nullptr);
 
   for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
-    const auto inferred_val = expr_eval.evaluate(symbolic_size);
-    NVF_ERROR(
-        inferred_val.hasValue(),
-        "Could not launch kernel as program could not infer ",
-        symbolic_size->toInlineString(),
-        " (",
-        symbolic_size->toString(),
-        ") for the buffer ",
-        tv->toString());
-
-    auto concrete_size = inferred_val.as<int64_t>();
-    concrete_sizes.at(i) = concrete_size;
+    traverseExtentDFS(symbolic_size, val2llvmMap, context, builder);
+    auto* inferred_val = val2llvmMap[symbolic_size];
+    if(inferred_val == nullptr) {
+      std::cout << "inferred_val is nullptr for " << symbolic_size->toString() << std::endl;
+    }
+    concrete_sizes.at(i) = inferred_val;
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
@@ -349,7 +409,9 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
     TensorView* tv,
-    const ExpressionEvaluator& expr_eval) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
@@ -374,7 +436,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       expand_flags.push_back(false);
     }
   }
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  return inferShape(tv, symbolic_sizes, expand_flags, val2llvmMap, context, builder);
 }
 
 TensorShapeInfo inferTensorShapes(
@@ -412,7 +474,7 @@ TensorShapeInfo inferTensorShapes(
   }
 
   // Non-alias handling:
-  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  auto allocation_size_stride = inferAllocationShape(tv, val2llvmMap, context, builder);
   if (!tv->hasAllocation()) {
     return TensorShapeInfo{
         allocation_size_stride.first,
