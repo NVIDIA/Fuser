@@ -3,10 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
+import warnings
 
-assert (
-    "nvfuser" not in sys.modules
-), "Cannot import nvfuser_direct if nvfuser module is already imported."
+if "nvfuser" in sys.modules:
+    warnings.warn(
+        "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported.",
+        UserWarning,
+    )
 
 import os
 import torch
@@ -182,6 +185,32 @@ class FusionDefinition:
             return self.fec.execute(inputs)
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
+
+    def multigpu_execute(self, in_dtensors):
+        import torch.distributed as dist
+        from torch.distributed.tensor import DTensor
+        from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
+
+        if not hasattr(self, "fec"):
+            self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+
+        inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
+        out_tensors = self.fec.execute(inputs)
+        out_shardings = self.fec.get_output_shardings()
+        assert len(out_tensors) == len(out_shardings)
+
+        out_dtensors: list[DTensor] = []
+        for out_tensor, out_sharding in zip(out_tensors, out_shardings):
+            mesh = dist.device_mesh.init_device_mesh("cuda", (out_sharding.mesh.size,))
+            placements: list[Placement] = []
+            for parallel_type in [_C_DIRECT.ParallelType.mesh_x]:
+                axis: int = out_sharding.axis_sharded_on(parallel_type)
+                placements.append(Replicate() if axis == -1 else Shard(axis))
+            out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
+        return out_dtensors
 
     def from_pytorch(self, tensor, static_sizes=False):
         """
