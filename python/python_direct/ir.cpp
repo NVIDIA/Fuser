@@ -168,6 +168,34 @@ TensorView
     A TensorView with the split axes in its loop domain.
 )")
       .def(
+          "set_allocation_domain",
+          static_cast<void (TensorView::*)(std::vector<IterDomain*>, bool)>(
+              &TensorView::setAllocationDomain),
+          py::arg("new_allocation_domain"),
+          py::arg("new_contiguity"),
+          R"(
+Set the allocation domain of this tensor.
+
+Parameters
+----------
+new_allocation_domain : list of IterDomain
+    The new allocation iteration domains.
+new_contiguity : bool
+    The new contiguity flag.
+)")
+      .def(
+          "set_device_mesh",
+          &TensorView::setDeviceMesh,
+          py::arg("mesh"),
+          R"(
+Set the device mesh of this tensor.
+
+Parameters
+----------
+mesh : DeviceMesh
+    The device mesh to set.
+)")
+      .def(
           "axis",
           &TensorView::axis,
           py::arg("index"),
