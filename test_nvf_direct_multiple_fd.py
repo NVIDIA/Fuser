@@ -6,19 +6,11 @@
 
 import os
 from collections.abc import Iterable
-from typing import Callable, cast, TypeAlias
+from typing import cast
 
 import torch
-import torch.nn as nn
 from torch.distributed.tensor import DTensor
 from torch.distributed._tensor import DeviceMesh, Shard, distribute_tensor
-from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
-import torch.distributed as dist
-
-from dataclasses import dataclass
-from functools import partial
-from functools import lru_cache
-from enum import auto, Enum
 
 import nvfuser_direct as nvfd
 from nvfuser_direct import FusionDefinition
