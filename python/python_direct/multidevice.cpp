@@ -61,6 +61,38 @@ fusion : Fusion
 backend_type : CommunicatorBackend, optional
     The backend type to use for the communicator.
     Default is CommunicatorBackend.kNccl.
+)")
+      .def(
+          "execute",
+          [](MultiDeviceExecutor& self,
+             const py::iterable& iter,
+             std::optional<int64_t> device) {
+            KernelArgumentHolder args = from_pyiterable(iter, device);
+            KernelArgumentHolder outputs = self.runWithInput(args);
+            return to_tensor_vector(outputs);
+          },
+          py::arg("inputs"),
+          py::kw_only(),
+          py::arg("device") = py::none(),
+          R"(
+Execute the fusion with the given inputs.
+
+Parameters
+----------
+inputs : iterable
+    An iterable of input tensors or values.
+    All tensor inputs must be on the same device.
+    Cpu scalar tensor can interoperate with gpu tensors.
+device : int, optional
+    The device index to execute the fusion on.
+    It must be a non-negative integer less than 256.
+    If None, uses the device of the input tensors.
+    Default is None.
+None
+Returns
+-------
+list of torch.Tensor
+    The output tensors produced by the fusion.
 )");
 }
 
