@@ -31,6 +31,7 @@
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <typeinfo>
 #include <unordered_map>
@@ -979,5 +980,9 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
     }
   };
 };
+
+constexpr int64_t kHostIrJitCompileThreads = 4;
+
+constexpr std::string_view kHostIrJitEmptyStridedCudaFuncName = "empty_strided_cuda";
 
 } // namespace nvfuser

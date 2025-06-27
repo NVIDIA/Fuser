@@ -15,6 +15,7 @@
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
+#include <instrumentation.h>
 
 namespace nvfuser {
 
@@ -111,6 +112,7 @@ class ForwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("ForwardTraverseFromLogicalToAlloc::run");
     auto forward_exprs = StmtSort::getExprsBetween(
         {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
@@ -205,6 +207,7 @@ class BackwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());
