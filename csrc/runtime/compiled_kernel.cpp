@@ -63,6 +63,7 @@
 #include <nvfuser_resources/block_sync_default.h>
 #include <nvfuser_resources/block_welford_outer.h>
 #include <nvfuser_resources/broadcast.h>
+#include <nvfuser_resources/casts.h>
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
@@ -113,6 +114,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
   ss << nvfuser_resources::tuple_cu;
+  ss << nvfuser_resources::casts_cu;
 
   // Synchronization classes
   if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
