@@ -2865,12 +2865,27 @@ class ArgsortOp : public Expr {
 //! This operation performs a grouped matrix multiplication.
 //!
 //! Parameters:
-//! - out: output tensor
+//! - out_mat: output tensor
+//! - out_scale: output block scaling factor tensor
+//! - out_gamma: output global scaling factor tensor
 //! - matrix1: first input tensor matrix
 //! - matrix2: second input tensor matrix
 //! - offsets: 1D offsets tensor, specifying the ending index of each group
 //! - scale1: scale tensor for matrix1 (optional)
 //! - scale2: scale tensor for matrix2 (optional)
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is roughly two steps:
+//! out =
+//!   alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets)
+//!   + beta * bias
+//! out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! Post quantization only applies when out_scale / out_gamma is not nullptr;
+//!
+//! Regarding the grouped mm semantics:
 //!
 //! The offsets tensor is a vector tensor of length `num_groups` that specifies
 //! the ending index of each group in the matrix1 and matrix2 tensors.

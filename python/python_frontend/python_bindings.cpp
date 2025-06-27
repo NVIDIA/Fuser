@@ -3778,7 +3778,8 @@ void initNvFuserPythonBindings(PyObject* module) {
         if (output_gamma == true) {
           NVF_CHECK(
               output_block_scale_size > 0,
-              "output_block_scale_size must be greater than 0 when output_gamma is "
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is "
               "true");
           return std::make_tuple(output, out_scale, out_gamma);
         } else if (output_block_scale_size > 0) {
@@ -3798,10 +3799,33 @@ void initNvFuserPythonBindings(PyObject* module) {
           offsets (Tensor): Offsets tensor defining group boundaries
           scale1 (Tensor): Scale tensor for mat1
           scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor [optional]
+          bias (Tensor): Bias tensor [optional]
+          beta (Tensor): Beta tensor [optional]
           dtype (ScalarType): Output tensor type [optional]
+          output_block_scale_size (int): Output block scale size [optional]
+          output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
+          output_gamma (bool): Output gamma [optional, default: False]
+
+      The math operation is roughly two steps:
+          out = alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets) + beta * bias
+
+          (out_mat, out_scale, out_gamma) = Quantization(
+              out,
+              dtype,
+              output_block_scale_size,
+              output_block_scale_dtype,
+              output_gamma)
+
+      Note 1: The post quantization only applies when output_block_scale_size > 0,
+              which would produce out_scale tensor. Otherwise, None will be returned;
+      Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+              Otherwise, None will be returned.
 
       Returns:
           Tensor: Result of grouped matrix multiplication
+          Tensor: Output block scale tensor [optional]
+          Tensor: Output gamma tensor [optional]
       )",
       py::arg("mat1"),
       py::arg("mat2"),
