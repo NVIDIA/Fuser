@@ -24,9 +24,7 @@ namespace hir {
 
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
-// Run with: NVFUSER_ENABLE=host_ir_lowering ./bin/test_host_ir_jit
-// --gtest_filter=HostIrJitTest.TestJITAtenCall
-TEST_F(HostIrJitTest, TestJITAtenCall) {
+TEST_F(HostIrJitTest, TestJITInferTensorShapes) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(2);
