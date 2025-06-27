@@ -67,6 +67,23 @@ Returns
 -------
 Val
     The extent of this domain.
+)")
+      .def(
+          "parallelize",
+          &IterDomain::parallelize,
+          py::arg("parallel_type"),
+          R"(
+Set the parallel type of this domain.
+
+Parameters
+----------
+parallel_type : ParallelType
+    The type of parallelization to apply (e.g., BIDx, TIDx, etc.).
+
+Notes
+-----
+This is a key function used in scheduling to specify how the domain should be parallelized
+across CUDA threads and blocks.
 )");
 
   // TensorDomain
