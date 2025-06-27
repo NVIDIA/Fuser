@@ -3864,6 +3864,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3920,6 +3922,8 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3981,6 +3985,8 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4042,6 +4048,8 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4109,6 +4117,8 @@ class MLPBenchmarkTest
     mparams.grid_traversal_factor = {8, 1};
     mparams.use_smem_epilogue = true;
     mparams.cluster_dims = {2, 1, 1};
+    mparams.num_clusters =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
     mparams.promote_prologue_smem_reuse = true;
   }
 };
@@ -4719,6 +4729,8 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5173,6 +5185,8 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   // Cluster launch is better when using 128 SM grid that matches 2d grid
   // traveral.
   mparams.cluster_dims = {1, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5254,6 +5268,8 @@ TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5335,6 +5351,8 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
   mparams.cluster_dims = {2, 1, 1};
+  mparams.num_clusters =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
