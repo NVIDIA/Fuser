@@ -3337,12 +3337,12 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
     fd.setFusionState(outputs().at(0).index, output_mat);
     if (out_scale_block_size_ > 0) {
       NVF_CHECK(output_scale != nullptr, "Output scale is null");
-      NVF_CHECK(outputs().at(1) != nullptr, "Output scale is expected but is null");
+      NVF_CHECK(outputs().at(1).stype != serde::StateType::None, "Output scale is expected but is null");
       fd.setFusionState(outputs().at(1).index, output_scale);
     }
     if (out_gamma_) {
       NVF_CHECK(output_gamma != nullptr, "Output gamma is null");
-      NVF_CHECK(outputs().at(2) != nullptr, "Output gammais expected but is null");
+      NVF_CHECK(outputs().at(2).stype != serde::StateType::None, "Output gamma is expected but is null");
       fd.setFusionState(outputs().at(2).index, output_gamma);
     }
   }
@@ -3351,7 +3351,7 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
         serde::RecordData::ScaledOp,
-        serde::CreateScaledOp(builder, nvfuser::toUnderlying(dtype_), out_scale_block_size_, nvfuser::toUnderlyinglying(out_scale_block_dtype_), out_gamma_).Union()};
+        serde::CreateScaledOp(builder, nvfuser::toUnderlying(dtype_), out_scale_block_size_, nvfuser::toUnderlying(out_scale_block_dtype_), out_gamma_).Union()};
   };
 
   PrimDataType dtype_;
