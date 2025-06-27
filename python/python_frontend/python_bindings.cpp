@@ -3726,9 +3726,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Tensor> bias,
          std::optional<Tensor> beta,
          PrimDataType dtype,
-         int64_t out_scale_block_size,
-         PrimDataType out_scale_block_dtype,
-         bool out_gamma)
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
           -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
@@ -3738,14 +3738,14 @@ void initNvFuserPythonBindings(PyObject* module) {
         // Calculate output dimensions based on mat1 & mat2 rank
         size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
         Tensor output = fd->defineTensor(output_dims);
-        std::optional<Tensor> output_scale = std::nullopt;
-        std::optional<Tensor> output_gamma = std::nullopt;
-        if (out_scale_block_size > 0) {
-          output_scale = fd->defineTensor(output_dims);
+        std::optional<Tensor> out_scale = std::nullopt;
+        std::optional<Tensor> out_gamma = std::nullopt;
+        if (output_block_scale_size > 0) {
+          out_scale = fd->defineTensor(output_dims);
         }
-        if (out_gamma) {
-          // output_gamma is a scalar tensor
-          output_gamma = fd->defineTensor(0);
+        if (output_gamma) {
+          // out_gamma is a scalar tensor
+          out_gamma = fd->defineTensor(0);
         }
 
         fd->defineRecord(new ScaledGroupedMmaOpRecord(
@@ -3764,25 +3764,25 @@ void initNvFuserPythonBindings(PyObject* module) {
                  ? fd->recordingState(beta.value()())
                  : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
             {fd->recordingState(output()),
-             output_scale.has_value()
-                 ? fd->recordingState(output_scale.value()())
+             out_scale.has_value()
+                 ? fd->recordingState(out_scale.value()())
                  : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
-             output_gamma.has_value()
-                 ? fd->recordingState(output_gamma.value()())
+             out_gamma.has_value()
+                 ? fd->recordingState(out_gamma.value()())
                  : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
             dtype,
-            out_scale_block_size,
-            out_scale_block_dtype,
-            out_gamma));
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma));
 
-        if (out_gamma == true) {
+        if (output_gamma == true) {
           NVF_CHECK(
-              out_scale_block_size > 0,
-              "out_scale_block_size must be greater than 0 when out_gamma is "
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when output_gamma is "
               "true");
-          return std::make_tuple(output, output_scale, output_gamma);
-        } else if (out_scale_block_size > 0) {
-          return std::make_tuple(output, output_scale, std::nullopt);
+          return std::make_tuple(output, out_scale, out_gamma);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, out_scale, std::nullopt);
         }
         return std::make_tuple(output, std::nullopt, std::nullopt);
       },
@@ -3812,9 +3812,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("bias") = std::nullopt,
       py::arg("beta") = std::nullopt,
       py::arg("dtype") = DataType::BFloat16,
-      py::arg("out_scale_block_size") = 0,
-      py::arg("out_scale_block_dtype") = DataType::BFloat16,
-      py::arg("out_gamma") = false,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
       py::return_value_policy::reference);
 
   nvf_ops.def(

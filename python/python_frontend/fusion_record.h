@@ -3270,8 +3270,8 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
       std::vector<State> _args,
       std::vector<State> _outputs,
       PrimDataType dtype,
-      int64_t out_scale_block_size,
-      PrimDataType out_scale_block_dtype,
+      int64_t out_block_scale_size,
+      PrimDataType out_block_scale_dtype,
       bool out_gamma)
       : RecordFunctor(
             std::move(_args),
@@ -3279,8 +3279,8 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
             "ops.grouped_mm",
             serde::RecordType::ScaledGroupedMmaOp),
         dtype_(dtype),
-        out_scale_block_size_(out_scale_block_size),
-        out_scale_block_dtype_(out_scale_block_dtype),
+        out_block_scale_size_(out_block_scale_size),
+        out_block_scale_dtype_(out_block_scale_dtype),
         out_gamma_(out_gamma) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
@@ -3308,8 +3308,8 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
-    os << ", out_scale_block_size=" << out_scale_block_size_;
-    os << ", out_scale_block_dtype=" << dtypeToPyString(out_scale_block_dtype_);
+    os << ", out_block_scale_size=" << out_block_scale_size_;
+    os << ", out_block_scale_dtype=" << dtypeToPyString(out_block_scale_dtype_);
     os << ", out_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";
@@ -3344,11 +3344,11 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
         bias,
         beta,
         dtype_,
-        out_scale_block_size_,
-        out_scale_block_dtype_,
+        out_block_scale_size_,
+        out_block_scale_dtype_,
         out_gamma_);
     fd.setFusionState(outputs().at(0).index, output_mat);
-    if (out_scale_block_size_ > 0) {
+    if (out_block_scale_size_ > 0) {
       NVF_CHECK(output_scale != nullptr, "Output scale is null");
       NVF_CHECK(
           outputs().at(1).stype != serde::StateType::None,
@@ -3371,15 +3371,15 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
         serde::CreateScaledOp(
             builder,
             nvfuser::toUnderlying(dtype_),
-            out_scale_block_size_,
-            nvfuser::toUnderlying(out_scale_block_dtype_),
+            out_block_scale_size_,
+            nvfuser::toUnderlying(out_block_scale_dtype_),
             out_gamma_)
             .Union()};
   };
 
   PrimDataType dtype_;
-  int64_t out_scale_block_size_;
-  PrimDataType out_scale_block_dtype_;
+  int64_t out_block_scale_size_;
+  PrimDataType out_block_scale_dtype_;
   bool out_gamma_;
 };
 
