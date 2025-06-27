@@ -12,8 +12,8 @@ struct PointerHelper {
 };
 
 template <>
-struct PointerHelper<e2m1> {
-  using type = e2m1_ptr;
+struct PointerHelper<__e2m1> {
+  using type = __e2m1_ptr;
 };
 
 template <typename T>

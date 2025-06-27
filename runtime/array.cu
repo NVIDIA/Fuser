@@ -49,7 +49,7 @@ constexpr int64_t vecSizeBit(int64_t vec_size) {
 }
 
 template <>
-constexpr int64_t vecSizeBit<e2m1>(int64_t vec_size) {
+constexpr int64_t vecSizeBit<__e2m1>(int64_t vec_size) {
   return vec_size * 4;
 }
 

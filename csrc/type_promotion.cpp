@@ -61,7 +61,7 @@ ResultTypeState updateResultTypeState(
   DataType current = scalar;
   if (scalar == DataType::Half || scalar == DataType::BFloat16 ||
       scalar == DataType::Float8_e4m3fn || scalar == DataType::Float8_e5m2 ||
-      scalar == DataType::Float8_e8m0fnu) {
+      scalar == DataType::Float8_e8m0fnu || scalar == DataType::Float4_e2m1fn) {
     current = DataType::Float;
   }
   new_state.wrappedResult =
@@ -203,7 +203,8 @@ DataType computeTypes(
       (common_type == DataType::Half || common_type == DataType::BFloat16 ||
        common_type == DataType::Float8_e4m3fn ||
        common_type == DataType::Float8_e5m2 ||
-       common_type == DataType::Float8_e8m0fnu)) {
+       common_type == DataType::Float8_e8m0fnu ||
+       common_type == DataType::Float4_e2m1fn)) {
     common_type = DataType::Float;
   }
 
