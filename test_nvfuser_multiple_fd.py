@@ -177,6 +177,7 @@ def get_fusion_definition_wrapper(compute_type: ComputeType) -> FusionDefinition
     return FusionDefinitionWrapper(fn)
 
 
+"""
 fd = get_fusion_definition_wrapper(ComputeType.MUL)
 print(fd.uuid)
 result = fd([in_dtensor, weight])
@@ -184,6 +185,7 @@ result = fd([in_dtensor, weight])
 fd = get_fusion_definition_wrapper(ComputeType.MUL)
 print(fd.uuid)
 result = fd([in_dtensor, weight])
+"""
 
 # Use input we same global shape but different placements.
 weight = distribute_tensor(

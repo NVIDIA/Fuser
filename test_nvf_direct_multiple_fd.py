@@ -1,9 +1,10 @@
-import os
+# torchrun --local-ranks-filter=0 --nnodes 1 --nproc-per-node 2 test_nvf_direct_multiple_fd.py
 
 # TODO: Disabled for AssertionError: Cannot import nvfuser_direct if nvfuser module is already imported.
 # import thunder
 # from thunder.dynamo import thunderfx
 
+import os
 from collections.abc import Iterable
 from typing import Callable, cast, TypeAlias
 
@@ -85,9 +86,37 @@ in_dtensor = distribute_tensor(
 )
 in_dtensors = [weight, in_dtensor]
 
-with FusionDefinition() as fd:
-    define_mul_forward(fd)
-    multidevice_schedule(fd, in_dtensors)
+with FusionDefinition() as fd1:
+    define_mul_forward(fd1)
+    multidevice_schedule(fd1, in_dtensors)
 
-outputs = fd.multigpu_execute(in_dtensors)
+outputs = fd1.multigpu_execute(in_dtensors)
 print(outputs)
+
+# Use input we same global shape but different placements.
+weight = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(1),
+    ],
+)
+in_dtensor = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(0),
+    ],
+)
+in_dtensors = [weight, in_dtensor]
+
+with FusionDefinition() as fd2:
+    define_mul_forward(fd2)
+    multidevice_schedule(fd2, in_dtensors)
+
+outputs = fd2.multigpu_execute(in_dtensors)
+print(outputs)
+
+# [rank0]: RuntimeError:  INTERNAL ASSERT FAILED at "/opt/pytorch/nvfuser/csrc/host_ir/lower_to_communication.cpp":311, please report a bug with repro script to NVFuser at https://github.com/NVIDIA/Fuser/issues. getCommunicationInfo should only be called when `e` is known to be a communication. So `e` should be either a LoadStoreOp or a ReductionOp. Given: T4_g_float[ideviceIdx.x18{2}, iS19{8}, iS9{16}] (DeviceMesh{0 1})
+# [rank0]:    = T2_l_float[ideviceIdx.x14{2}, iS15{8}, iS5{16}] (DeviceMesh{0 1})
+# [rank0]:    * T5_l_float[iS20{16}, iS21{16}] (DeviceMesh{0 1});
