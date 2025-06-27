@@ -3723,7 +3723,9 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Tensor> alpha,
          std::optional<Tensor> bias,
          std::optional<Tensor> beta,
-         std::optional<PrimDataType> dtype) -> Tensor {
+         PrimDataType dtype,
+         int64_t out_scale_block_size,
+         bool out_gamma) -> Tensor {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
@@ -3732,6 +3734,15 @@ void initNvFuserPythonBindings(PyObject* module) {
         // Calculate output dimensions based on mat1 & mat2 rank
         size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
         Tensor output = fd->defineTensor(output_dims);
+        std::optional<Tensor> output_scale = std::nullopt;
+        std::optional<Tensor> output_gamma = std::nullopt;
+        if (out_scale_block_size > 0) {
+          output_scale = fd->defineTensor(output_dims);
+        }
+        if (out_gamma) {
+          // output_gamma is a scalar tensor
+          output_gamma = fd->defineTensor(0);
+        }
 
         fd->defineRecord(new ScaledGroupedMmaOpRecord(
             {fd->recordingState(mat1()),
@@ -3748,7 +3759,13 @@ void initNvFuserPythonBindings(PyObject* module) {
              beta.has_value()
                  ? fd->recordingState(beta.value()())
                  : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
-            {fd->recordingState(output())},
+            {fd->recordingState(output()),
+             output_scale.has_value()
+                 ? fd->recordingState(output_scale.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             output_gamma.has_value()
+                 ? fd->recordingState(output_gamma.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
             dtype));
         return output;
       },
@@ -3777,7 +3794,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("alpha") = std::nullopt,
       py::arg("bias") = std::nullopt,
       py::arg("beta") = std::nullopt,
-      py::arg("dtype") = std::nullopt,
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("out_scale_block_size") = 0,
+      py::arg("out_gamma") = false,
       py::return_value_policy::reference);
 
   nvf_ops.def(

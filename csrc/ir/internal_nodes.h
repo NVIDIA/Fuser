@@ -2932,7 +2932,9 @@ class GroupedMmaOp : public Expr {
 
   GroupedMmaOp(
       IrBuilderPasskey,
-      Val* out,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
       Val* mat1,
       Val* mat2,
       Val* offsets,
@@ -2957,6 +2959,22 @@ class GroupedMmaOp : public Expr {
   // Get output matrix
   TensorView* out() const {
     return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
   }
 
   // Get first input matrix

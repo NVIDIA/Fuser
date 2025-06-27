@@ -3265,13 +3265,13 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   ScaledGroupedMmaOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::optional<PrimDataType> dtype)
+      PrimDataType dtype)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.grouped_mm",
             serde::RecordType::ScaledGroupedMmaOp),
-        dtype_(dtype.has_value() ? dtype.value() : PrimDataType::Half) {}
+        dtype_(dtype) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ScaledGroupedMmaOpRecord(*this);

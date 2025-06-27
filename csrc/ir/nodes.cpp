@@ -5771,7 +5771,9 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
 
 GroupedMmaOp::GroupedMmaOp(
     IrBuilderPasskey passkey,
-    Val* out,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
     Val* mat1,
     Val* mat2,
     Val* offsets,
@@ -5786,6 +5788,15 @@ GroupedMmaOp::GroupedMmaOp(
   NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
   NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
   addOutput(out);
+  if (out_scale != nullptr) {
+    NVF_ERROR(out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
   addInput(mat1);
   addInput(mat2);
   addInput(offsets);
@@ -5850,10 +5861,17 @@ GroupedMmaOp::GroupedMmaOp(
 
 std::string GroupedMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out() << " = GroupedMmaOp("
-                          << "mat1=" << matrix1() << ", "
-                          << "mat2=" << matrix2() << ", "
-                          << "offsets=" << offsets();
+  indent(ss, indent_size) << out();
+  if (outScale() != nullptr) {
+    ss << ", " << outScale();
+  }
+  if (outGamma() != nullptr) {
+    ss << ", " << outGamma();
+  }
+  ss << " = GroupedMmaOp("
+     << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", "
+     << "offsets=" << offsets();
   if (hasScale()) {
     ss << ", "
        << "scale1=" << scale1() << ", "
