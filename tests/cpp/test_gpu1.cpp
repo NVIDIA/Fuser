@@ -2886,8 +2886,8 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024}, options)
-                         .view(torch::kFloat4_e2m1fnx2);
+  at::Tensor input =
+      at::randint(0, 256, {1024}, options).view(torch::kFloat4_e2m1fn_x2);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2900,7 +2900,11 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+    EXPECT_TRUE(
+        outputs[0]
+            .as<at::Tensor>()
+            .view(torch::kUInt8)
+            .equal(input.view(torch::kUInt8)));
   }
 }
 
@@ -2936,7 +2940,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
   at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
                          .narrow(1, 0, 1024)
-                         .view(torch::kFloat4_e2m1fnx2);
+                         .view(torch::kFloat4_e2m1fn_x2);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2949,7 +2953,11 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+    EXPECT_TRUE(
+        outputs[0]
+            .as<at::Tensor>()
+            .view(torch::kUInt8)
+            .equal(input.view(torch::kUInt8)));
   }
 }
 
@@ -2967,20 +2975,6 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(1, 2, 4, 8, 16, 32),
         testing::Values(false, true)),
     fp4E2m1ManualScheduleName);
-
-TEST_F(NVFuserTest, BitCeilEval) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
-    uint64_t value = std::rand() % 1000000;
-    Val* v0 =
-        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
-    Val* v1 = bitceil(v0);
-    uint64_t result = (uint64_t)v1->evaluate();
-    EXPECT_EQ(std::bit_ceil(value), result);
-  }
-}
 
 using Float4E2m1Test = NVFuserTest;
 
@@ -3003,13 +2997,31 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   at::Tensor input = at::randint(0, 256, {1024, 2}, options)
                          .narrow(1, 0, 1)
                          .squeeze()
-                         .view(torch::kFloat4_e2m1fnx2);
+                         .view(torch::kFloat4_e2m1fn_x2);
 
   KernelExecutor ke;
 
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+  EXPECT_TRUE(
+      outputs[0]
+          .as<at::Tensor>()
+          .view(torch::kUInt8)
+          .equal(input.view(torch::kUInt8)));
+}
+
+TEST_F(NVFuserTest, BitCeilEval) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
+    uint64_t value = std::rand() % 1000000;
+    Val* v0 =
+        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
+    Val* v1 = bitceil(v0);
+    uint64_t result = (uint64_t)v1->evaluate();
+    EXPECT_EQ(std::bit_ceil(value), result);
+  }
 }
 
 // Start off simple, block on the outer dim
