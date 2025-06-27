@@ -302,7 +302,6 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/distributed_tensor.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
@@ -312,6 +311,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
     ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
+    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
   )
 endif()
 

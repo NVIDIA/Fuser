@@ -6,12 +6,12 @@
  */
 // clang-format on
 
+#include <distributed_tensor.h>
 #include <exceptions.h>
-#include <python_frontend/distributed_tensor.h>
 #include <type.h>
 #include <utils.h>
 
-namespace nvfuser::python_frontend {
+namespace nvfuser {
 
 void Sharding::setAxisIsShardedOn(
     const int64_t axis,
@@ -32,4 +32,4 @@ int64_t Sharding::axisShardedOn(const ParallelType parallel_type) const {
   return getOrDefault(axis_sharded_on_, parallel_type, -1L);
 }
 
-} // namespace nvfuser::python_frontend
+} // namespace nvfuser

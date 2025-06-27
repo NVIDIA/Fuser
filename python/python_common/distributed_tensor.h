@@ -13,7 +13,7 @@
 #include <multidevice/device_mesh.h>
 #include <type.h>
 
-namespace nvfuser::python_frontend {
+namespace nvfuser {
 
 class Sharding {
  public:
@@ -36,4 +36,4 @@ class Sharding {
   std::unordered_map<ParallelType, int64_t> axis_sharded_on_;
 };
 
-} // namespace nvfuser::python_frontend
+} // namespace nvfuser

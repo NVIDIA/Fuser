@@ -6,13 +6,13 @@
  */
 // clang-format on
 #include <debug.h>
+#include <distributed_tensor.h>
 #include <fusion_profiler.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
