@@ -77,7 +77,7 @@ struct HostIrJit::LlvmJitImpl {
   std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
   std::unordered_map<const hir::LaunchKernel*, launch_kernel_fn> launch_kernel_funcs_;
   std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
-
+  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -276,6 +276,168 @@ void generateLaunchKernelFunc(
     llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
   }
+}
+
+
+void traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder) {
+  if (val->definition() != nullptr) {
+    auto* def = val->definition();
+    if(auto* binary_op = def->as<BinaryOp>()) {
+      auto* left = binary_op->left()->as<Val>();
+      auto* right = binary_op->right()->as<Val>();
+      if(left->isConst() && val2llvmMap.find(left) == val2llvmMap.end()) {
+        val2llvmMap[left] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), left->value().as<int64_t>());
+      }
+      else if(!left->isConst() && val2llvmMap.find(left) == val2llvmMap.end()) {
+        traverseExtentDFS(left, val2llvmMap, context, builder);
+      }
+      if(right->isConst() && val2llvmMap.find(right) == val2llvmMap.end()) {
+        val2llvmMap[right] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), right->value().as<int64_t>());
+      }
+      else if(!right->isConst() && val2llvmMap.find(right) == val2llvmMap.end()) {
+        traverseExtentDFS(right, val2llvmMap, context, builder);
+      }
+      if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
+        val2llvmMap[val] = builder.CreateAdd(val2llvmMap[left], val2llvmMap[right]);
+      }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::Sub) {
+        val2llvmMap[val] = builder.CreateSub(val2llvmMap[left], val2llvmMap[right]);
+      }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
+        val2llvmMap[val] = builder.CreateMul(val2llvmMap[left], val2llvmMap[right]);
+      }
+    }
+  }
+  else if(val->isConst()) {
+    val2llvmMap[val] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), val->value().as<int64_t>());
+  }
+  else{
+    std::cout << "val: " << val->toString() << " is not a binary op or constant" << std::endl;
+  }
+}
+
+// Infer the size and stride of each dimension
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+    const TensorView* tv,
+    std::vector<Val*> symbolic_sizes,
+    std::vector<bool> expand_flags,
+    const ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
+
+  std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
+
+  for (const auto i : arange(symbolic_sizes.size())) {
+    auto symbolic_size = symbolic_sizes.at(i);
+    const auto inferred_val = expr_eval.evaluate(symbolic_size);
+    NVF_ERROR(
+        inferred_val.hasValue(),
+        "Could not launch kernel as program could not infer ",
+        symbolic_size->toInlineString(),
+        " (",
+        symbolic_size->toString(),
+        ") for the buffer ",
+        tv->toString());
+
+    auto concrete_size = inferred_val.as<int64_t>();
+    concrete_sizes.at(i) = concrete_size;
+  }
+
+  auto strides = getContiguousStrides(concrete_sizes, expand_flags);
+
+  return {concrete_sizes, strides};
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+
+    if (id->isDeviceDim()) {
+      symbolic_sizes.push_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    }
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
+
+TensorShapeInfo inferTensorShapes(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  // Alias handling:
+  auto alias_info = tv->fusion()->getOutputAlias(tv);
+  if (alias_info.type != AllocationType::New) {
+    // For reuse buffer alias, we need to get the aliased_io's size/stride
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tv = alias_info.aliased_io->as<TensorView>();
+    }
+
+    auto val = expr_eval.evaluate(tv);
+    NVF_ERROR(val.is<at::Tensor>(), "Output is not a Tensor");
+    auto tensor = val.as<at::Tensor>();
+
+    if (!tv->hasAllocation()) {
+      return TensorShapeInfo{
+          tensor.sizes().vec(),
+          tensor.strides().vec(),
+          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                        : std::vector<int64_t>(),
+      };
+    }
+    auto allocation_size_stride =
+        inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    return TensorShapeInfo{
+        tensor.sizes().vec(),
+        tensor.strides().vec(),
+        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                      : std::vector<int64_t>(),
+        allocation_size_stride.first,
+        allocation_size_stride.second};
+  }
+
+  // Non-alias handling:
+  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  if (!tv->hasAllocation()) {
+    return TensorShapeInfo{
+        allocation_size_stride.first,
+        allocation_size_stride.second,
+        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
+                      : std::vector<int64_t>(),
+    };
+  }
+
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto logical_meta_tensor = at::empty_strided(
+      allocation_size_stride.first, allocation_size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // logical_meta_tensor at all, size + stride should be used directly in the
+  // `transformFromAllocationToLogical`
+  logical_meta_tensor =
+      transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
+  return TensorShapeInfo{
+      logical_meta_tensor.sizes().vec(),
+      logical_meta_tensor.strides().vec(),
+      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
+                    : std::vector<int64_t>(),
+      allocation_size_stride.first,
+      allocation_size_stride.second};
 }
 
 // Generate kir::Allocate runtime function
@@ -588,6 +750,7 @@ HostIrJit::LaunchKernelResult HostIrJit::launchKernel(
     int64_t cache_id,
     const std::vector<at::Tensor>& inputs,
     const std::vector<at::Tensor>& outputs) {
+  FUSER_PERF_SCOPE("HostIrJit::launchKernel");
   if (pimpl_->launch_kernel_funcs_.find(launch_kernel) == pimpl_->launch_kernel_funcs_.end()) {
     NVF_ERROR(false, "launch kernel function not found for ", launch_kernel);
   }
