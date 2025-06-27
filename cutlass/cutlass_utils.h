@@ -41,4 +41,6 @@ struct cuda_error : public std::runtime_error {
 
 int getSMVersion();
 
+int getMultiProcessorCount();
+
 } // namespace nvfuser::cutlass_kernels

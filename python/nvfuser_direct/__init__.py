@@ -3,10 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
+import warnings
 
-assert (
-    "nvfuser" not in sys.modules
-), "Cannot import nvfuser_direct if nvfuser module is already imported."
+if "nvfuser" in sys.modules:
+    warnings.warn(
+        "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported.",
+        UserWarning,
+    )
 
 import os
 import torch
@@ -19,6 +22,11 @@ if pytorch_lib_dir not in sys.path:
 
 from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
+
+import torch
+
+if torch.cuda.get_device_capability() >= (10, 0):
+    from .cutlass import cutlass_nvfp4_scaled_mm, cutlass_nvfp4_quantize  # noqa: F401
 
 
 class FusionDefinition:

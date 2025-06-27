@@ -1,4 +1,12 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 #include <cutlass_utils.h>
+#include <exceptions.h>
 #include <nvf_cutlass.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -27,8 +35,6 @@
 #include "cutlass/util/reference/device/gemm.h"
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "cutlass/util/tensor_view_io.h"
-
-#include <exceptions.h>
 
 namespace nvfuser::cutlass_kernels {
 

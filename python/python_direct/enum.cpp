@@ -16,7 +16,7 @@ void bindEnums(py::module& nvfuser) {
   //! DataTypes supported by nvFuser in the FusionDefinition. The python
   //! DataType maps to the CPP PrimDataType. On the CPP side, there is also a
   //! DateType enum that includes struct, array, pointer, or opaque datatypes.
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)

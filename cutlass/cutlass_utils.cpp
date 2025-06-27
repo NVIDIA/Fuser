@@ -21,4 +21,22 @@ int getSMVersion() {
   return sm_major * 10 + sm_minor;
 }
 
+int getMultiProcessorCount() {
+  static int multi_processor_count = []() {
+    int device_id = 0;
+    int count = 0;
+
+    // Get the current CUDA device ID
+    CHECK_CUDA_SUCCESS(cudaGetDevice(&device_id));
+
+    // Get the number of multiprocessors for the current device
+    CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+        &count, cudaDevAttrMultiProcessorCount, device_id));
+
+    return count; // Initialize the static variable
+  }();
+
+  return multi_processor_count; // Return the cached value on subsequent calls
+}
+
 } // namespace nvfuser::cutlass_kernels
