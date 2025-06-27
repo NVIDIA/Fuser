@@ -279,7 +279,10 @@ void generateLaunchKernelFunc(
 }
 
 
-void traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder) {
+llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder) {
+  if (val2llvmMap.find(val) != val2llvmMap.end()) {
+    return val2llvmMap[val];
+  }
   if (val->definition() != nullptr) {
     auto* def = val->definition();
     if(auto* binary_op = def->as<BinaryOp>()) {
@@ -314,6 +317,7 @@ void traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llv
   else{
     std::cout << "val: " << val->toString() << " is not a binary op or constant" << std::endl;
   }
+  return val2llvmMap[val];
 }
 
 std::vector<llvm::Value*> getContiguousStrides(
@@ -407,7 +411,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
   return {concrete_sizes, strides};
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferAllocationShape(
     TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::LLVMContext& context,
@@ -476,12 +480,7 @@ TensorShapeInfo inferTensorShapes(
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, val2llvmMap, context, builder);
   if (!tv->hasAllocation()) {
-    return TensorShapeInfo{
-        allocation_size_stride.first,
-        allocation_size_stride.second,
-        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
-                      : std::vector<int64_t>(),
-    };
+    return {allocation_size_stride.first, allocation_size_stride.second};
   }
 
   auto options =
