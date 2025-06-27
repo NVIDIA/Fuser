@@ -663,7 +663,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)

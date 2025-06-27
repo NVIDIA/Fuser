@@ -4976,13 +4976,17 @@ fd.execute(inputs)
         self.assertEqual(nvf_out[0], ref_inp.relu())
 
     def test_import_conflict_nvfuser_then_direct(self):
-        try:
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+
             import nvfuser  # noqa: F401
             import nvfuser_direct  # noqa: F401
-        except AssertionError as e:
-            expected_msg = (
-                "Cannot import nvfuser_direct if nvfuser module is already imported."
+
+            assert len(w) == 1
+            assert issubclass(w[-1].category, UserWarning)
+            assert (
+                "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported."
+                in str(w[-1].message)
             )
-            assert expected_msg in str(e)
-            return
-        raise AssertionError("Expected AssertionError from imports.")
