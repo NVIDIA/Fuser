@@ -10,7 +10,9 @@
 
 #include <ATen/core/TensorBody.h>
 
+#include <fusion.h>
 #include <multidevice/device_mesh.h>
+#include <multidevice/utils.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -35,5 +37,10 @@ class Sharding {
   DeviceMesh mesh_;
   std::unordered_map<ParallelType, int64_t> axis_sharded_on_;
 };
+
+// Returns the output shardings of the given fusion. As a short cut, if none of
+// the outputs have a device mesh, returns an empty vector indicating single-GPU
+// execution.
+std::vector<Sharding> getOutputShardings(Fusion* fusion);
 
 } // namespace nvfuser
