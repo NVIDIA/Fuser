@@ -16,20 +16,28 @@ namespace {
 
 void bindDeviceMesh(py::module& nvfuser) {
   py::class_<DeviceMesh>(nvfuser, "DeviceMesh")
-      .def(py::init([](const std::vector<int64_t>& devices) {
-        return new DeviceMesh(devices);
-      }),
+      .def(
+          py::init([](const std::vector<int64_t>& devices) {
+            return new DeviceMesh(devices);
+          }),
           py::arg("devices"),
           R"(
 Create a new DeviceMesh.
+)")
+      .def(
+          "size",
+          static_cast<int64_t (DeviceMesh::*)() const>(&DeviceMesh::size),
+          R"(
+Returns the number of devices in the mesh.
 )");
 }
 
 } // namespace
 
 void bindMultiDevice(py::module& nvfuser) {
-  py::module_ nvf_multidevice =
-      nvfuser.def_submodule("multidevice", "This submodule contains all multi-device features for NvFuser.");
+  py::module_ nvf_multidevice = nvfuser.def_submodule(
+      "multidevice",
+      "This submodule contains all multi-device features for NvFuser.");
   bindDeviceMesh(nvf_multidevice);
 }
 
