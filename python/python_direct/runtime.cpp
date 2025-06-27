@@ -60,6 +60,30 @@ Examples
 >>> # Register outputs
 >>> fusion.add_output(t1)
 )")
+      .def(
+          "inputs",
+          &Fusion::inputs,
+          py::return_value_policy::reference,
+          R"(
+Get the inputs of the fusion.
+
+Returns
+-------
+list of Val
+    The inputs of the fusion.
+)")
+      .def(
+          "outputs",
+          &Fusion::outputs,
+          py::return_value_policy::reference,
+          R"(
+Get the outputs of the fusion.
+
+Returns
+-------
+list of Val
+    The outputs of the fusion.
+)")
       .def("add_input", &Fusion::addInput, py::arg("input"), R"(
 Register a value as an input to the fusion.
 
