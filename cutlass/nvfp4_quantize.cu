@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <cutlass_utils.h>
+#include <exceptions.h>
 #include <nvf_cutlass.h>
 
 #include <ATen/cuda/CUDAContext.h>

@@ -118,7 +118,7 @@ def get_ref_results(
 @torch.inference_mode()
 def test_nvfp4_gemm(
     dtype: torch.dtype,
-    shape: tuple[int, int],
+    shape: tuple[int, int, int],
 ) -> None:
     m, n, packed_k = shape
     k = packed_k * 2
