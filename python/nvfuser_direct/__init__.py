@@ -205,7 +205,7 @@ class FusionDefinition:
         out_dtensors: list[DTensor] = []
         for out_tensor, out_sharding in zip(out_tensors, out_shardings):
             mesh = dist.device_mesh.init_device_mesh(
-                "cuda", (out_sharding.mesh().size(),)
+                "cuda", (out_sharding.mesh().size,)
             )
             placements: list[Placement] = []
             for parallel_type in [_C_DIRECT.ParallelType.mesh_x]:

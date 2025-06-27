@@ -22,7 +22,7 @@ namespace nvfuser::python {
 namespace {
 
 void bindDeviceMesh(py::module& nvfuser) {
-  py::class_<DeviceMesh>(nvfuser, "DeviceMesh")
+  py::class_<DeviceMesh>(nvfuser, "DeviceMesh", py::module_local())
       .def(
           py::init([](const std::vector<int64_t>& devices) {
             return new DeviceMesh(devices);
@@ -32,15 +32,22 @@ void bindDeviceMesh(py::module& nvfuser) {
 Create a new DeviceMesh.
 )")
       .def(
+          "__repr__",
+          [](const DeviceMesh& self) {
+            std::stringstream ss;
+            ss << self;
+            return ss.str();
+          })
+      .def_property_readonly(
           "size",
-          static_cast<int64_t (DeviceMesh::*)() const>(&DeviceMesh::size),
+          [](const DeviceMesh& self) -> int64_t { return self.size(); },
           R"(
 Returns the number of devices in the mesh.
 )");
 }
 
 void bindSharding(py::module& nvfuser) {
-  py::class_<Sharding>(nvfuser, "Sharding")
+  py::class_<Sharding>(nvfuser, "Sharding", py::module_local())
       .def(
           "mesh",
           &Sharding::mesh,

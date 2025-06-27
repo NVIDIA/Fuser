@@ -1,8 +1,7 @@
 # torchrun --local-ranks-filter=0 --nnodes 1 --nproc-per-node 2 test_nvf_direct_multiple_fd.py
 
-# TODO: Disabled for AssertionError: Cannot import nvfuser_direct if nvfuser module is already imported.
-# import thunder
-# from thunder.dynamo import thunderfx
+import thunder
+from thunder.dynamo import thunderfx
 
 import os
 from collections.abc import Iterable
@@ -50,7 +49,7 @@ def multidevice_schedule(fd: FusionDefinition, in_dtensors: Iterable[DTensor]) -
         placement: Placement = in_dtensor.placements[0]
         if placement.is_shard():
             dim = cast(Shard, placement).dim
-            in_tv.split(dim, mesh.size(), inner_split=False)
+            in_tv.split(dim, mesh.size, inner_split=False)
             in_tv.axis(dim).parallelize(nvfd.ParallelType.mesh_x)
             in_tv.set_allocation_domain(in_tv.get_loop_domain(), new_contiguity=True)
 

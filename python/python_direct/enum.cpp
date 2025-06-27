@@ -34,8 +34,7 @@ void bindEnums(py::module& nvfuser) {
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
 
-  //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType")
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -51,10 +50,10 @@ void bindEnums(py::module& nvfuser) {
       .value("vectorize", ParallelType::Vectorize)
       .value("stream", ParallelType::Stream);
 
-  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
-      .value("ucc", CommunicatorBackend::kUcc)
-      .value("cuda", CommunicatorBackend::kCuda);
+      .value("ucc", CommunicatorBackend::kUcc);
 }
 
 } // namespace nvfuser::python
