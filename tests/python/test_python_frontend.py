@@ -32,6 +32,7 @@ from nvfuser.testing.utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
+    is_pre_blackwell,
     debug_serde,
     NVFuserTest,
     verify_stride_order,
@@ -136,7 +137,18 @@ class TestNvFuserFrontend(NVFuserTest):
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
             eager_out = inputs[0].to(out_type)
-            self.assertEqual(eager_out, nvf_out[0])
+            if in_type == torch.float8_e8m0fnu or out_type == torch.float8_e8m0fnu:
+                if not is_pre_blackwell():
+                    pytest.skip("e8m0fnu is not supported on pre-Blackwell devices")
+                # Eager mode uses manual bit manipulation, and nvFuser uses
+                # hardware instructions. Unfortunately, these implementations
+                # do not match exactly. e8m0 can only represent 2^x, so we are
+                # asserting that the x of the two results are off by at most 1.
+                nvf_out_fp32 = nvf_out[0].to(torch.float32)
+                rel_err = eager_out.div(nvf_out_fp32).max().item()
+                self.assertTrue(rel_err <= 2 and rel_err >= 0.5)
+            else:
+                self.assertEqual(eager_out, nvf_out[0])
 
         for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
             for type1 in [
