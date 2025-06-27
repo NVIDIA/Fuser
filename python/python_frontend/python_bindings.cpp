@@ -3725,6 +3725,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<Tensor> beta,
          PrimDataType dtype,
          int64_t out_scale_block_size,
+         PrimDataType out_scale_block_dtype,
          bool out_gamma) -> Tensor {
         FUSER_PERF_SCOPE("Operators.grouped_mm");
         NVF_CHECK(
@@ -3766,7 +3767,11 @@ void initNvFuserPythonBindings(PyObject* module) {
              output_gamma.has_value()
                  ? fd->recordingState(output_gamma.value()())
                  : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
-            dtype));
+            dtype,
+            out_scale_block_size,
+            out_scale_block_dtype,
+            out_gamma));
+        return std::make_tuple(avg, var_sum, n);
         return output;
       },
       R"(
@@ -3796,6 +3801,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("beta") = std::nullopt,
       py::arg("dtype") = DataType::BFloat16,
       py::arg("out_scale_block_size") = 0,
+      py::arg("out_scale_block_dtype") = DataType::BFloat16,
       py::arg("out_gamma") = false,
       py::return_value_policy::reference);
 

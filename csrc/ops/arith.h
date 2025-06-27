@@ -120,6 +120,12 @@ NVF_API TensorView* reductionOpRaw(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
+struct ScaledTensorView {
+  TensorView* mat;
+  TensorView* block_scaling_factor;
+  TensorView* global_scaling_factor;
+};
+
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
 struct WelfordResult {
@@ -748,8 +754,12 @@ NVF_API TensorView* argsort(
 //! \param alpha Global Scaling factor for mat1@mat2
 //! \param bias Bias tensor
 //! \param beta Scale tensor for bias
+//! \param dtype Output dtype
+//! \param out_scale_block_size Output scale block size
+//! \param block_scaling_factor_dtype Block scaling factor dtype
+//! \param out_gamma Output gamma flag
 //! \return Result of grouped matrix multiplication
-NVF_API TensorView* grouped_mm(
+NVF_API ScaledTensorView grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
@@ -758,7 +768,10 @@ NVF_API TensorView* grouped_mm(
     TensorView* alpha = nullptr,
     TensorView* bias = nullptr,
     TensorView* beta = nullptr,
-    std::optional<DataType> dtype = std::nullopt);
+    std::optional<DataType> dtype = std::nullopt,
+    int64_t out_scale_block_size = 0,
+    std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
+    bool out_gamma = false);
 
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!
