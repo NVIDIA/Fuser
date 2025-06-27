@@ -676,6 +676,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
       .value("Float8_e5m2", DataType::Float8_e5m2)
       .value("Float8_e8m0fnu", DataType::Float8_e8m0fnu)
+      .value("Float4_e2m1fn", DataType::Float4_e2m1fn)
+      .value("Float4_e2m1fn_x2", DataType::Float4_e2m1fn_x2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);

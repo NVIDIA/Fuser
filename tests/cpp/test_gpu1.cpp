@@ -2873,8 +2873,8 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   FusionGuard fg(&fusion);
 
   TensorView* tv0 = dynamic_shape
-      ? makeContigTensor(1, DataType::Float4_e2m1)
-      : makeContigConcreteTensor({2048}, DataType::Float4_e2m1);
+      ? makeContigTensor(1, DataType::Float4_e2m1fn)
+      : makeContigConcreteTensor({2048}, DataType::Float4_e2m1fn);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2886,7 +2886,8 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024}, options);
+  at::Tensor input = at::randint(0, 256, {1024}, options)
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2909,13 +2910,13 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
 
   TensorView* tv0 = dynamic_shape ? TensorViewBuilder()
                                         .ndims(2)
-                                        .dtype(DataType::Float4_e2m1)
+                                        .dtype(DataType::Float4_e2m1fn)
                                         .shape({-1, -1})
                                         .contiguity({false, true})
                                         .build()
                                   : TensorViewBuilder()
                                         .ndims(2)
-                                        .dtype(DataType::Float4_e2m1)
+                                        .dtype(DataType::Float4_e2m1fn)
                                         .shape({2048, 2048})
                                         .contiguity({false, true})
                                         .build();
@@ -2933,8 +2934,9 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input =
-      at::randint(0, 256, {2048, 2048}, options).narrow(1, 0, 1024);
+  at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
+                         .narrow(1, 0, 1024)
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2986,7 +2988,7 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1);
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
   fusion.addInput(tv0);
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
@@ -2998,8 +3000,10 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input =
-      at::randint(0, 256, {1024, 2}, options).narrow(1, 0, 1).squeeze();
+  at::Tensor input = at::randint(0, 256, {1024, 2}, options)
+                         .narrow(1, 0, 1)
+                         .squeeze()
+                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
 
   KernelExecutor ke;
 
