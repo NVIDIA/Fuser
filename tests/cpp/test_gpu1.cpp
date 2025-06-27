@@ -2887,7 +2887,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
   at::Tensor input = at::randint(0, 256, {1024}, options)
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+                         .view(torch::kFloat4_e2m1fnx2);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2936,7 +2936,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
   at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
                          .narrow(1, 0, 1024)
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+                         .view(torch::kFloat4_e2m1fnx2);
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -3003,7 +3003,7 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   at::Tensor input = at::randint(0, 256, {1024, 2}, options)
                          .narrow(1, 0, 1)
                          .squeeze()
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+                         .view(torch::kFloat4_e2m1fnx2);
 
   KernelExecutor ke;
 
