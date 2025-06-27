@@ -1189,7 +1189,8 @@ class FusionTranslator : public OptInConstDispatch {
                   [](TensorView* matrix1,
                      TensorView* matrix2,
                      TensorView* offsets) {
-                    return grouped_mm(matrix1, matrix2, offsets);
+                    ScaledTensorView scaled_out = grouped_mm(matrix1, matrix2, offsets);
+                    return scaled_out.mat;
                   })));
     } else {
       fd_->defineRecord(new ScaledGroupedMmaOpRecord(
