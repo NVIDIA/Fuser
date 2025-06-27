@@ -5,15 +5,14 @@
 # Run command:
 # mpirun -np 2 pytest tests/python_direct/multidevice/test_dtensor.py --only-mpi -s
 
-import os
 import pytest
 from collections.abc import Iterable
 from typing import cast
 
 import torch
 import torch.distributed as dist
-from torch.distributed.tensor import DTensor
-from torch.distributed._tensor import DeviceMesh, Shard, distribute_tensor
+from torch.distributed.tensor import DTensor, DeviceMesh, distribute_tensor
+from torch.distributed.tensor.placement_types import Shard
 
 import nvfuser_direct as nvfd
 from nvfuser_direct import FusionDefinition
@@ -58,14 +57,14 @@ def test_plus_one(setup_default_process_group, multidevice_test):
     num_devices = dist.get_world_size()
     mesh = DeviceMesh("cuda", list(range(num_devices)))
 
-    weight = dist.tensor.distribute_tensor(
+    weight = distribute_tensor(
         torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.float),
         mesh,
         [
             Shard(0),
         ],
     )
-    in_dtensor = dist.tensor.distribute_tensor(
+    in_dtensor = distribute_tensor(
         torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.float),
         mesh,
         [
