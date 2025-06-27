@@ -1263,8 +1263,9 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
       // index_select ops can't be cached as they must be in global memory.
       continue;
     }
-    // Treat indexSelect output tv as a cached input since it directly consumes an input tv.
-    // Reduction, normalization schedulers will vectorize these cached inputs if possible.
+    // Treat indexSelect output tv as a cached input since it directly consumes
+    // an input tv. Reduction, normalization schedulers will vectorize these
+    // cached inputs if possible.
     if (ir_utils::isIndexSelectLookupTv(tv)) {
       cached_inputs.emplace_back(ir_utils::getIndexSelectOutputTv(tv));
       continue;

@@ -435,7 +435,9 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_inputs_outputs =
       scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
-  auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>() || e->isA<IndexSelectOp>(); };
+  auto vectorizable_expr = [](Expr* e) {
+    return e->isA<LoadStoreOp>() || e->isA<IndexSelectOp>();
+  };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
