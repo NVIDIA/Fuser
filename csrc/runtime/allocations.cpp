@@ -708,7 +708,6 @@ TensorShapeInfo inferTensorShapes(
         allocation_size_stride.first,
         allocation_size_stride.second};
   }
-
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {

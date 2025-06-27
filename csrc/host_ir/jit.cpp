@@ -322,18 +322,15 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
 
 std::vector<llvm::Value*> getContiguousStrides(
     const std::vector<llvm::Value*>& sizes,
-    const std::vector<bool>& expand_flags) {
+    const std::vector<bool>& expand_flags,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
   NVF_ERROR(sizes.size() == expand_flags.size());
 
   std::vector<llvm::Value*> strides(sizes.size());
   llvm::Value* cur_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
   for (auto i = sizes.size(); i > 0; --i) {
-    auto* size = sizes.at(i - 1);
-    NVF_ERROR(
-        size >= 0,
-        "Positive size is assumed non-negative but received: ",
-        size);
-
+    llvm::Value* size = sizes.at(i - 1);
     llvm::Value* stride = cur_stride;
 
     // If expanded, stride is 0
@@ -406,7 +403,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
     concrete_sizes.at(i) = inferred_val;
   }
 
-  auto strides = getContiguousStrides(concrete_sizes, expand_flags);
+  auto strides = getContiguousStrides(concrete_sizes, expand_flags, context, builder);
 
   return {concrete_sizes, strides};
 }
@@ -463,19 +460,158 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
 }
 
 
-// void generateInferTensorShapesFunc(
-//     hir::HostIrContainer* container,
-//     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-//     llvm::LLVMContext& context,
-//     llvm::IRBuilder<>& builder) {
-//   for(auto* input : container->inputs()) {
-//     val2llvmMap[input] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), input->size());
-//   }
-//   for(auto* output : container->outputs()) {
-//     val2llvmMap[output] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), output->size());
-//   }
-//   for(auto* expr : container->topLevelExprs()) {
-// }
+void compileNamedScalar(
+    const NamedScalar* named_scalar,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  auto* named_scalar_val = named_scalar->as<Val>();
+}
+
+void compileInputTensorView(
+    const TensorView* tv,
+    const std::vector<llvm::Value*>& logical_sizes,
+    const std::vector<llvm::Value*>& logical_strides,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  
+  NVF_ERROR(
+      logical_sizes.size() == logical_domain.size(),
+      "Size mismatch: logical_sizes has ",
+      logical_sizes.size(),
+      " elements but logical_domain has ",
+      logical_domain.size(),
+      " elements");
+  
+  NVF_ERROR(
+      logical_strides.size() == logical_domain.size(),
+      "Size mismatch: logical_strides has ",
+      logical_strides.size(),
+      " elements but logical_domain has ",
+      logical_domain.size(),
+      " elements");
+  
+  for (auto i : arange(logical_domain.size())) {
+    auto id = logical_domain[i];
+    
+    // Map dimension extents to runtime LLVM values
+    if (id->isBroadcast()) {
+      val2llvmMap[id->extent()] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+      if (id->hasExpandedExtent()) {
+        val2llvmMap[id->expandedExtent()] = logical_sizes[i];
+      }
+    } else {
+      val2llvmMap[id->extent()] = logical_sizes[i];
+    }
+  }
+}
+
+// Helper function to generate LLVM IR that extracts tensor size for a given dimension
+llvm::Value* generateTensorSizeExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::Module* mod,
+    llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& context = mod->getContext();
+  
+  // Look up the tensor_size wrapper function
+  llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
+  if (!tensor_size_func) {
+    // Create function declaration
+    llvm::FunctionType* func_type = llvm::FunctionType::get(
+      llvm::Type::getInt64Ty(context),
+      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), llvm::Type::getInt64Ty(context)},
+      false
+    );
+    tensor_size_func = llvm::Function::Create(
+      func_type, llvm::Function::ExternalLinkage, "tensor_size", mod
+    );
+  }
+  
+  llvm::Value* dim_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), dim);
+  return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
+}
+
+// Helper function to generate LLVM IR that extracts tensor stride for a given dimension
+llvm::Value* generateTensorStrideExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::Module* mod,
+    llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& context = mod->getContext();
+  
+  // Look up the tensor_stride wrapper function
+  llvm::Function* tensor_stride_func = mod->getFunction("tensor_stride");
+  if (!tensor_stride_func) {
+    // Create function declaration
+    llvm::FunctionType* func_type = llvm::FunctionType::get(
+      llvm::Type::getInt64Ty(context),
+      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), llvm::Type::getInt64Ty(context)},
+      false
+    );
+    tensor_stride_func = llvm::Function::Create(
+      func_type, llvm::Function::ExternalLinkage, "tensor_stride", mod
+    );
+  }
+  
+  llvm::Value* dim_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), dim);
+  return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
+}
+
+void generateInferTensorShapesFunc(
+    const hir::HostIrContainer* container,
+    llvm::Module* mod) {
+  llvm::LLVMContext& context = mod->getContext();
+  
+  // Create the main function that takes tensor pointers as parameters
+  std::vector<llvm::Type*> param_types;
+  llvm::Type* tensor_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+  
+  // Count tensor inputs to determine parameter list
+  size_t tensor_count = 0;
+  for(auto* input : container->inputs()) {
+    if(auto* tv = dynamic_cast<const TensorView*>(input)) {
+      param_types.push_back(tensor_ptr_type);
+      tensor_count++;
+    }
+  }
+  
+  llvm::FunctionType* func_type = llvm::FunctionType::get(
+    llvm::Type::getVoidTy(context), param_types, false);
+  
+  llvm::Function* func = llvm::Function::Create(
+    func_type, llvm::Function::ExternalLinkage, "infer_tensor_shapes", mod);
+  
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
+  llvm::IRBuilder<> builder(entry);
+  
+  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
+  
+  size_t tensor_idx = 0;
+  for(auto* input : container->inputs()) {
+    if(auto* tv = dynamic_cast<const TensorView*>(input)) {
+      llvm::Value* tensor_ptr = func->getArg(tensor_idx);
+      
+      auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+      
+      // Extract sizes and strides as LLVM values
+      std::vector<llvm::Value*> logical_sizes;
+      std::vector<llvm::Value*> logical_strides;
+      
+      for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
+        logical_sizes.push_back(generateTensorSizeExtraction(tensor_ptr, dim, mod, builder));
+        logical_strides.push_back(generateTensorStrideExtraction(tensor_ptr, dim, mod, builder));
+      }
+      
+      compileInputTensorView(tv, logical_sizes, logical_strides, val2llvmMap, context, builder);
+      tensor_idx++;
+    }
+  }
+  
+  builder.CreateRetVoid();
+}
 
 // Generate kir::Allocate runtime function
 void generateAllocateFunc(
@@ -617,6 +753,11 @@ void compile(
       "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
+
+  // Generate the infer tensor shapes function
+  generateInferTensorShapesFunc(container, mod.get());
+
+  // Generate the allocate functions
   std::vector<kir::Allocate*> allocate_exprs;
   std::vector<hir::LaunchKernel*> launch_kernel_exprs;
   for (auto* expr : container->topLevelExprs()) {
@@ -725,12 +866,31 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
         // std::cout << "Successfully called push" << std::endl;
       });
 
+  // Register tensor size and stride extraction functions
+  void* tensor_size_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
+        if (tensor_ptr == nullptr) {
+          return 0;
+        }
+        return tensor_ptr->size(dim);
+      });
+
+  void* tensor_stride_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
+        if (tensor_ptr == nullptr) {
+          return 0;
+        }
+        return tensor_ptr->stride(dim);
+      });
+
   // Register wrapper functions in JIT
   auto empty_strided_cuda_addr = llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
   auto kernel_argument_holder_constructor_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_constructor_func_ptr);
   auto kernel_argument_holder_set_cache_id_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_cache_id_func_ptr);
   auto kernel_argument_holder_set_device_index_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_device_index_func_ptr);
   auto kernel_argument_holder_push_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_push_func_ptr); 
+  auto tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(tensor_size_func_ptr);
+  auto tensor_stride_addr = llvm::orc::ExecutorAddr::fromPtr(tensor_stride_func_ptr);
 
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
@@ -745,6 +905,10 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
       llvm::orc::ExecutorSymbolDef(kernel_argument_holder_set_device_index_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("KernelArgumentHolder::push")] = 
       llvm::orc::ExecutorSymbolDef(kernel_argument_holder_push_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("tensor_size")] = 
+      llvm::orc::ExecutorSymbolDef(tensor_size_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("tensor_stride")] = 
+      llvm::orc::ExecutorSymbolDef(tensor_stride_addr, llvm::JITSymbolFlags::Exported);
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
