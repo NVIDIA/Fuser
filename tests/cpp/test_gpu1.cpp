@@ -2900,11 +2900,9 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(
-        outputs[0]
-            .as<at::Tensor>()
-            .view(torch::kUInt8)
-            .equal(input.view(torch::kUInt8)));
+    auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+    auto input_int8 = input.view(torch::kUInt8);
+    EXPECT_TRUE(output_int8.equal(input_int8));
   }
 }
 
@@ -2953,11 +2951,9 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(
-        outputs[0]
-            .as<at::Tensor>()
-            .view(torch::kUInt8)
-            .equal(input.view(torch::kUInt8)));
+    auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+    auto input_int8 = input.view(torch::kUInt8);
+    EXPECT_TRUE(output_int8.equal(input_int8));
   }
 }
 
@@ -3003,11 +2999,9 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
 
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-  EXPECT_TRUE(
-      outputs[0]
-          .as<at::Tensor>()
-          .view(torch::kUInt8)
-          .equal(input.view(torch::kUInt8)));
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
 }
 
 TEST_F(NVFuserTest, BitCeilEval) {
