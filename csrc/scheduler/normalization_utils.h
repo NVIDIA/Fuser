@@ -236,8 +236,8 @@ struct PersistentKernelProperties {
        << "disable_project_to_avoid_recompute: "
        << disable_project_to_avoid_recompute << "\n"
        << "project_persistent_buffers: " << project_persistent_buffers << "\n"
-       << "persistent_buffers: " << toDelimitedString(persistent_buffers)
-       << "\n";
+       << "originally detected persistent_buffers: "
+       << toDelimitedString(persistent_buffers) << "\n";
     return ss.str();
   }
 };
