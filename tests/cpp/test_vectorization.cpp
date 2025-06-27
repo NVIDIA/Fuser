@@ -699,7 +699,7 @@ class VectorizationCastTest
   int64_t vectorization_factor;
 };
 
-TEST_F(VectorizationCastTest, CastKernel) {
+TEST_P(VectorizationCastTest, CastKernel) {
   if (dtype_from == DataType::Float8_e8m0fnu ||
       dtype_to == DataType::Float8_e8m0fnu ||
       dtype_from == DataType::Float4_e2m1fn ||
@@ -719,9 +719,9 @@ TEST_F(VectorizationCastTest, CastKernel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeConcreteContigTensor({vectorization_factor}, dtype_from);
+  auto tv0 = makeContigConcreteTensor({vectorization_factor}, dtype_from);
   fusion.addInput(tv0);
-  auto tv1 = cast(tv0, dtype_to);
+  auto tv1 = castOp(dtype_to, tv0);
   fusion.addOutput(tv1);
 
   auto tv0_cache = tv0->cacheAfter();
@@ -731,7 +731,9 @@ TEST_F(VectorizationCastTest, CastKernel) {
     tv->axis(0)->parallelize(ParallelType::Vectorize);
   }
 
-  auto options = at::TensorOptions().dtype(dtype_from).device(at::kCUDA, 0);
+  auto options = at::TensorOptions()
+                     .dtype(data_type_to_aten(dtype_from))
+                     .device(at::kCUDA, 0);
   auto t0 = at::randn({vectorization_factor}, options);
 
   KernelExecutor ke;
@@ -801,9 +803,18 @@ auto all_vectorization_cast_params = ::testing::Values(
     // Two cvt.rn.bf16x2.ue8m0x2
     VectorizationCastParams(DataType::Float8_e8m0fnu, DataType::BFloat16, 4));
 
+std::string vectorizeCastTestName(
+    testing::TestParamInfo<VectorizationCastParams> info) {
+  std::stringstream ss;
+  ss << "from_" << std::get<0>(info.param) << "_to_" << std::get<1>(info.param)
+     << "_Vectorize_" << std::get<2>(info.param);
+  return ss.str();
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     VectorizationCastTest,
-    all_vectorization_cast_params);
+    all_vectorization_cast_params,
+    vectorizeCastTestName);
 
 } // namespace nvfuser
