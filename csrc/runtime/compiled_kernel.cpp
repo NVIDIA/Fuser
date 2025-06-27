@@ -108,13 +108,13 @@ std::string kernelPreamble() {
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::casts_cu;
   ss << nvfuser_resources::tensor_memory_cu;
   ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
   ss << nvfuser_resources::index_utils_cu;
   ss << nvfuser_resources::tuple_cu;
-  ss << nvfuser_resources::casts_cu;
 
   // Synchronization classes
   if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
