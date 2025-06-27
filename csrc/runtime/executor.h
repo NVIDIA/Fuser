@@ -203,6 +203,9 @@ class KernelExecutor : public ExecutorAbstract {
     return compiled_kernel_;
   }
 
+  //! Get the static shared memory size of the current compiled kernel
+  int64_t getStaticSmemSize();
+
  private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
@@ -272,9 +275,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
-
-  //! Get the static shared memory size of the current compiled kernel
-  int64_t getStaticSmemSize();
 
   //! Check if the shared memory size can be expandable to accommodate
   //! the given dynamic size. The total shared memory size consumed

@@ -53,6 +53,16 @@ class FusionDefinition:
         else:
             return self.fec.fusion()
 
+    def __repr__(self):
+        """
+        Return a string representation of the FusionDefinition.
+        Returns
+        -------
+        str
+            A string representation of the FusionDefinition
+        """
+        return _C_DIRECT.translate_fusion(self.fusion)
+
     def __enter__(self):
         """
         Enter the context manager.
@@ -112,6 +122,26 @@ class FusionDefinition:
         self._fusion.add_input(tv)
         return tv
 
+    def define_scalar(self, *args, **kwargs):
+        """
+        Define a new scalar input for the fusion.
+        It is added as a fusion input if it is a symbolic value.
+        Parameters
+        ----------
+        *args
+            Positional arguments passed to _C_DIRECT.define_scalar
+        **kwargs
+            Keyword arguments passed to _C_DIRECT.define_scalar
+        Returns
+        -------
+        Scalar
+            The defined scalar
+        """
+        scalar = _C_DIRECT.define_scalar(*args, **kwargs)
+        if scalar.is_symbolic():
+            self._fusion.add_input(scalar)
+        return scalar
+
     def add_output(self, *args, **kwargs):
         """
         Add an output to the fusion.
@@ -152,3 +182,44 @@ class FusionDefinition:
             return self.fec.execute(inputs)
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
+
+    def from_pytorch(self, tensor, static_sizes=False):
+        """
+        Define an nvFuser input tensor from a PyTorch tensor.
+        This method creates a symbolic tensor for dynamic shape usage by default.
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            Input PyTorch tensor to convert
+        static_sizes : bool, default=False
+            Whether to interpret sizes as static rather than symbolic
+            for dynamic shape usage
+        Returns
+        -------
+        Tensor
+            The defined nvFuser tensor
+        Raises
+        ------
+        ValueError
+            If a CPU non-scalar tensor is provided
+        """
+        try:
+            from .pytorch_utils import torch_dtype_to_nvfuser_dtype
+        except ImportError:
+            raise ImportError("Unable to import pytorch_utils!")
+
+        supported_tensor = tensor.is_cuda or (tensor.is_cpu and len(tensor.size()) == 0)
+        if not supported_tensor:
+            raise ValueError(
+                f"Found unsupported device {tensor.device}, only scalar CPU or CUDA tensors are supported"
+            )
+
+        tv = _C_DIRECT.define_tensor(
+            sizes=tensor.size(),
+            strides=tensor.stride(),
+            dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),
+            static_sizes=static_sizes,
+            is_cpu=tensor.is_cpu,
+        )
+        self.fusion.add_input(tv)
+        return tv
