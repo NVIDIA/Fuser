@@ -188,7 +188,11 @@ struct RecordFunctor {
       } else {
         os << ", ";
       }
-      os << output;
+      if (output.stype == serde::StateType::None) {
+        os << "_";        
+      } else {
+        os << output;
+      }
     }
     if (always_returns_tuple_) {
       os << ",";
