@@ -252,6 +252,7 @@ void compile(
   }
 }
 
+// NOTE: We have to keep the destructor here, otherwise the unique_ptr can't find complete type of LlvmJitImpl
 HostIrJit::~HostIrJit() = default;
 
 HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
