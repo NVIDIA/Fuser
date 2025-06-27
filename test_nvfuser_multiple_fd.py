@@ -42,6 +42,7 @@ mesh = DeviceMesh("cuda", list(range(num_devices)))
 
 hidden_size = 16
 
+
 class FusionDefinitionWrapper:
     def __init__(self, define_fusion: Callable[[nvfuser.FusionDefinition], None]):
         """Wraps a function that defines a fusion without `multidevice_schedule`."""
@@ -129,8 +130,22 @@ class FusionDefinitionWrapper:
             out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
         return out_dtensors
 
-weight = distribute_tensor(torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16), mesh, [Shard(0),])
-in_dtensor = distribute_tensor(torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16), mesh, [Shard(0),])
+
+weight = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(0),
+    ],
+)
+in_dtensor = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(0),
+    ],
+)
+
 
 def define_mul_forward(fd: FusionDefinition) -> None:
     inp = fd.define_tensor([hidden_size, hidden_size], dtype=DataType.BFloat16)
@@ -138,20 +153,21 @@ def define_mul_forward(fd: FusionDefinition) -> None:
     out = fd.ops.mul(inp, weight)
     fd.add_output(out)
 
+
 def define_add_forward(fd: FusionDefinition) -> None:
     inp = fd.define_tensor([hidden_size, hidden_size], dtype=DataType.BFloat16)
     weight = fd.define_tensor([hidden_size, hidden_size], dtype=DataType.BFloat16)
     out = fd.ops.add(inp, weight)
     fd.add_output(out)
 
+
 class ComputeType(Enum):
     MUL = auto()
     ADD = auto()
 
+
 @lru_cache
-def get_fusion_definition_wrapper(
-    compute_type: ComputeType
-) -> FusionDefinitionWrapper:
+def get_fusion_definition_wrapper(compute_type: ComputeType) -> FusionDefinitionWrapper:
     match compute_type:
         case ComputeType.MUL:
             fn = define_mul_forward
@@ -159,6 +175,7 @@ def get_fusion_definition_wrapper(
             fn = define_add_forward
 
     return FusionDefinitionWrapper(fn)
+
 
 fd = get_fusion_definition_wrapper(ComputeType.MUL)
 print(fd.uuid)
@@ -169,8 +186,20 @@ print(fd.uuid)
 result = fd([in_dtensor, weight])
 
 # Use input we same global shape but different placements.
-weight = distribute_tensor(torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16), mesh, [Shard(1),])
-in_dtensor = distribute_tensor(torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16), mesh, [Shard(0),])
+weight = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(1),
+    ],
+)
+in_dtensor = distribute_tensor(
+    torch.randn(hidden_size, hidden_size, requires_grad=True, dtype=torch.bfloat16),
+    mesh,
+    [
+        Shard(0),
+    ],
+)
 
 # [rank0]:   File "/opt/pytorch/lightning-thunder/test_nvfuser_multiple_fd.py", line 66, in _find_tensor_by_index
 # [rank0]:     for t in self.sched.tensors():

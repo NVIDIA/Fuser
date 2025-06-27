@@ -386,10 +386,8 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
             Communicator::getInstance(),
             std::move(params));
       }
-      std::cout << "MultiDeviceExecutor" << std::endl;
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
-      std::cout << "FEC" << std::endl;
       scheds->createExecutorIfNotExists();
       outputs = scheds->auto_gen_schedules->runFusionWithInputs(
           args, std::nullopt, args.getDeviceIndex());

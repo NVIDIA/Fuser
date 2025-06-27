@@ -190,10 +190,13 @@ class FusionDefinition:
 
         if not hasattr(self, "mde"):
             self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
 
         inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
         out_tensors = self.fec.execute(inputs)
-        out_shardings = _C_DIRECT.multidevice.get_output_shardings(self._fusion)
+        out_shardings = self.fec.get_output_shardings()
         assert len(out_tensors) == len(out_shardings)
 
         out_dtensors: list[DTensor] = []

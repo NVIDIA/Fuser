@@ -54,26 +54,6 @@ Returns the device mesh of the sharding.
           R"(
 Returns the axis sharded on the given parallel type.
 )");
-
-  nvfuser.def(
-      "get_output_shardings",
-      [](Fusion* fusion) {
-        std::vector<Sharding> output_shardings = getOutputShardings(fusion);
-        NVF_ERROR(
-            output_shardings.empty() ||
-                std::ssize(output_shardings) ==
-                    (int64_t)fusion->outputs().size(),
-            "Found ",
-            std::ssize(output_shardings),
-            " output shardings but expected ",
-            fusion->outputs().size(),
-            " or 0.");
-        return output_shardings;
-      },
-      py::arg("fusion"),
-      R"(
-Get the output shardings of the fusion.
-)");
 }
 
 } // namespace
