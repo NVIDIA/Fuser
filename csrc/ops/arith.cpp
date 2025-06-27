@@ -2364,30 +2364,39 @@ ScaledTensorView createGroupedMmaOutput(
     block_scaling_factor_domain.reserve(out_domain.size());
     // copy all but the last domain;
     std::transform(
-      out_domain.begin(),
-      --(out_domain.end()),
-      block_scaling_factor_domain.begin(),
-      [](IterDomain* id) {
-        return id->cloneWithoutRFactor();
-      }
-    );
+        out_domain.begin(),
+        --(out_domain.end()),
+        block_scaling_factor_domain.begin(),
+        [](IterDomain* id) { return id->cloneWithoutRFactor(); });
 
     // copy the block of last dimension.
-    // NOTE: I THINK I need to compute it through inputs, just so shape propagation works.
-    auto [outer, inner] = IterDomain::split(out_domain.back(), IrBuilder::create<Val>(out_block_scale_size), true, /*rfactor_domain=*/false, /*outer_iter_type=*/IterType::Iteration, /*inner_iter_type=*/IterType::Reduction);
+    // NOTE: I THINK I need to compute it through inputs, just so shape
+    // propagation works.
+    auto [outer, inner] = IterDomain::split(
+        out_domain.back(),
+        IrBuilder::create<Val>(out_block_scale_size),
+        true,
+        /*rfactor_domain=*/false,
+        /*outer_iter_type=*/IterType::Iteration,
+        /*inner_iter_type=*/IterType::Reduction);
     block_scaling_factor_domain.push_back(outer);
     block_scaling_factor_domain.push_back(inner);
 
-    NVF_CHECK(block_scaling_factor_dtype.has_value(), "block_scaling_factor_dtype is required");
+    NVF_CHECK(
+        block_scaling_factor_dtype.has_value(),
+        "block_scaling_factor_dtype is required");
     scaled_out.block_scaling_factor = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
-            block_scaling_factor_domain, TensorDomain::getContiguityFilledWith(block_scaling_factor_domain, true)),
+            block_scaling_factor_domain,
+            TensorDomain::getContiguityFilledWith(
+                block_scaling_factor_domain, true)),
         block_scaling_factor_dtype.value());
   }
 
   if (out_gamma) {
     scaled_out.global_scaling_factor = IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(std::vector<IterDomain*>(), std::vector<std::optional<bool>>()),
+        IrBuilder::create<TensorDomain>(
+            std::vector<IterDomain*>(), std::vector<std::optional<bool>>()),
         DataType::Float);
   }
 
@@ -2426,7 +2435,14 @@ ScaledTensorView grouped_mm(
       beta != nullptr ? "true" : "false");
 
   // TODO: check for out dtype and block/gamma scale option
-  ScaledTensorView scaled_out = createGroupedMmaOutput(mat1, mat2, offsets, dtype, out_block_scale_size, block_scaling_factor_dtype, out_gamma);
+  ScaledTensorView scaled_out = createGroupedMmaOutput(
+      mat1,
+      mat2,
+      offsets,
+      dtype,
+      out_block_scale_size,
+      block_scaling_factor_dtype,
+      out_gamma);
 
   // sanity check on scale1 and scale2
   if (has_scale) {
@@ -2438,8 +2454,8 @@ ScaledTensorView grouped_mm(
         std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
     int64_t mat2_rank =
         std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
-    int64_t out_rank =
-        std::ssize(TensorDomain::noReductions(scaled_out.mat->getLogicalDomain()));
+    int64_t out_rank = std::ssize(
+        TensorDomain::noReductions(scaled_out.mat->getLogicalDomain()));
 
     NVF_CHECK_EQ(
         scale1_rank,
@@ -2466,7 +2482,17 @@ ScaledTensorView grouped_mm(
   // subject to change.
 
   IrBuilder::create<GroupedMmaOp>(
-      scaled_out.mat, scaled_out.block_scaling_factor, scaled_out.global_scaling_factor, mat1, mat2, offsets, scale1, scale2, alpha, bias, beta);
+      scaled_out.mat,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      offsets,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
   return scaled_out;
 }
 

@@ -5789,12 +5789,14 @@ GroupedMmaOp::GroupedMmaOp(
   NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
   addOutput(out_mat);
   if (out_scale != nullptr) {
-    NVF_ERROR(out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
     addOutput(out_scale);
   }
   if (out_gamma != nullptr) {
     NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
-    NVF_ERROR(out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
     addOutput(out_gamma);
   }
   addInput(mat1);
@@ -5827,8 +5829,7 @@ GroupedMmaOp::GroupedMmaOp(
         "`alpha` must be a TensorView, but got: ",
         alpha);
     addInput(alpha);
-    alpha_offset = offset;
-    offset += 1;
+    alpha_offset = offset++;
   }
 
   bool has_bias = bias != nullptr;
@@ -5838,8 +5839,7 @@ GroupedMmaOp::GroupedMmaOp(
         "`bias` must be a TensorView, but got: ",
         bias);
     addInput(bias);
-    bias_offset = offset;
-    offset += 1;
+    bias_offset = offset++;
   }
 
   bool has_beta = beta != nullptr;
@@ -5849,8 +5849,7 @@ GroupedMmaOp::GroupedMmaOp(
         "`beta` must be a TensorView, but got: ",
         beta);
     addInput(beta);
-    beta_offset = offset;
-    offset += 1;
+    beta_offset = offset++;
   }
 
   addDataAttribute(scale_offset);

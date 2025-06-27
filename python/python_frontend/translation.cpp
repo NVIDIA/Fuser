@@ -1160,12 +1160,16 @@ class FusionTranslator : public OptInConstDispatch {
     TensorView* out_block_scale_tv = gmm_op->outScale();
     if (out_block_scale_tv != nullptr) {
       Tensor output_block_scale = fd_->defineTensor(
-          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain()).size());
+          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain())
+              .size());
       map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
       auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
-      NVF_CHECK(block_size_extent->isConstInt(), "Block size extent needs to be a constant integer");
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
       out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
-      out_block_scale_dtype = std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
     }
     TensorView* out_gamma_tv = gmm_op->outGamma();
     if (out_gamma_tv != nullptr) {
@@ -1189,7 +1193,8 @@ class FusionTranslator : public OptInConstDispatch {
                   [](TensorView* matrix1,
                      TensorView* matrix2,
                      TensorView* offsets) {
-                    ScaledTensorView scaled_out = grouped_mm(matrix1, matrix2, offsets);
+                    ScaledTensorView scaled_out =
+                        grouped_mm(matrix1, matrix2, offsets);
                     return scaled_out.mat;
                   })));
     } else {
@@ -1214,7 +1219,8 @@ class FusionTranslator : public OptInConstDispatch {
                : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
           {fd_->recordingState(output()),
            out_block_scale_tv != nullptr
-               ? fd_->recordingState(map_val_to_fd_index_.at(out_block_scale_tv))
+               ? fd_->recordingState(
+                     map_val_to_fd_index_.at(out_block_scale_tv))
                : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
            out_gamma_tv != nullptr
                ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
