@@ -16,7 +16,7 @@ void bindEnums(py::module& nvfuser) {
   //! DataTypes supported by nvFuser in the FusionDefinition. The python
   //! DataType maps to the CPP PrimDataType. On the CPP side, there is also a
   //! DateType enum that includes struct, array, pointer, or opaque datatypes.
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -33,6 +33,27 @@ void bindEnums(py::module& nvfuser) {
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
+
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
+      .value("mesh_x", ParallelType::DIDx)
+      .value("grid_x", ParallelType::BIDx)
+      .value("grid_y", ParallelType::BIDy)
+      .value("grid_z", ParallelType::BIDz)
+      .value("block_x", ParallelType::TIDx)
+      .value("block_y", ParallelType::TIDy)
+      .value("block_z", ParallelType::TIDz)
+      .value("mma", ParallelType::Mma)
+      .value("serial", ParallelType::Serial)
+      .value("tma", ParallelType::Bulk)
+      .value("unroll", ParallelType::Unroll)
+      .value("unswitch", ParallelType::Unswitch)
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
+
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc);
 }
 
 } // namespace nvfuser::python

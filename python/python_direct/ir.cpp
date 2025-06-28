@@ -67,6 +67,23 @@ Returns
 -------
 Val
     The extent of this domain.
+)")
+      .def(
+          "parallelize",
+          &IterDomain::parallelize,
+          py::arg("parallel_type"),
+          R"(
+Set the parallel type of this domain.
+
+Parameters
+----------
+parallel_type : ParallelType
+    The type of parallelization to apply (e.g., BIDx, TIDx, etc.).
+
+Notes
+-----
+This is a key function used in scheduling to specify how the domain should be parallelized
+across CUDA threads and blocks.
 )");
 
   // TensorDomain
@@ -111,6 +128,72 @@ TensorDomain
     - Logical domain (The original dimensions. It may contain rFactor iterDomains.)
     - Allocation domain (How the memory is allocated for the tensor?)
     - Loop domain (The for-loop structure for the tensor.)
+)")
+      .def(
+          "get_loop_domain",
+          &TensorView::getLoopDomain,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
+      .def(
+          "split",
+          static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
+              &TensorView::split),
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true,
+          py::return_value_policy::reference,
+          R"(
+Split an axis into two axes.
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by.
+inner_split : bool, optional
+    If True, the factor determines the size of the inner domain.
+    If False, the factor determines the size of the outer domain.
+    Default is True.
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "set_allocation_domain",
+          static_cast<void (TensorView::*)(std::vector<IterDomain*>, bool)>(
+              &TensorView::setAllocationDomain),
+          py::arg("new_allocation_domain"),
+          py::arg("new_contiguity"),
+          R"(
+Set the allocation domain of this tensor.
+
+Parameters
+----------
+new_allocation_domain : list of IterDomain
+    The new allocation iteration domains.
+new_contiguity : bool
+    The new contiguity flag.
+)")
+      .def(
+          "set_device_mesh",
+          &TensorView::setDeviceMesh,
+          py::arg("mesh"),
+          R"(
+Set the device mesh of this tensor.
+
+Parameters
+----------
+mesh : DeviceMesh
+    The device mesh to set.
 )")
       .def(
           "axis",
