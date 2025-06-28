@@ -1396,6 +1396,56 @@ TensorView
 )")
 }
 
+void bindCastOps(py::module_& ops) {
+  ops.def(
+      "cast",
+      [](TensorView* arg, PrimDataType dtype) -> TensorView* {
+        return static_cast<TensorView* (*)(DataType, TensorView*)>(castOp)(
+            dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      R"(
+Cast a tensor to a different data type.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to cast.
+dtype : PrimDataType
+    Target data type for the cast operation.
+
+Returns
+-------
+TensorView
+    A new tensor with the specified data type.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "cast",
+      [](Val* arg, PrimDataType dtype) -> Val* {
+        return static_cast<Val* (*)(DataType, Val*)>(castOp)(dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      R"(
+Cast a scalar value to a different data type.
+
+Parameters
+----------
+arg : Val
+    Input scalar value to cast.
+dtype : PrimDataType
+    Target data type for the cast operation.
+
+Returns
+-------
+Val
+    A new scalar value with the specified data type.
+)",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1404,6 +1454,7 @@ void bindOperations(py::module& nvfuser) {
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindCastOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

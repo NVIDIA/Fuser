@@ -329,7 +329,7 @@ class PythonTranslator : public OptInConstDispatch {
         continue;
       }
 
-      // Create RecordFunctor given inputs, outputs, and attributes.
+      // Create string representation given inputs, outputs, and attributes.
       visited.insert(e);
       dispatch(e);
       skip_count = 0;
@@ -438,6 +438,41 @@ class PythonTranslator : public OptInConstDispatch {
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
 
+  // Map UnaryOp to python_frontend OpRecord
+  void handle(const UnaryOp* uop) final {
+    NVF_ERROR(uop != nullptr);
+    // short-circuit: Handle cast operation separately
+    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+      return handleCastOp(uop);
+    }
+
+    // Map remaining UnaryOp to python_frontend OpRecord
+    visited_vals_.insert(uop->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(uop), {uop->in()}, {uop->out()});
+  }
+
+  // Map cast UnaryOp to CastOpRecord
+  void handleCastOp(const UnaryOp* uop) {
+    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+    visited_vals_.insert(uop->out());
+
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype = uop->out()->dtype();
+    if (scalar_dtype == DataType::Index) {
+      scalar_dtype = DataType::Int;
+    }
+
+    static const std::vector<std::string> argument_names = {"dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cast",
+        std::make_tuple(uop->in()),
+        argument_names,
+        std::make_tuple(scalar_dtype),
+        {uop->out()});
+  }
+
   // Map BinaryOp to python_frontend OpRecord
   void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop != nullptr);
@@ -467,6 +502,7 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
     NVF_ERROR(rop->out()->isA<TensorView>());
+    visited_vals_.insert(rop->out());
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
