@@ -2471,4 +2471,49 @@ TopKResult topk(
       out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
+TensorView* scan(
+    TensorView* in_tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(in_tv->getLogicalDomain());
+
+  dim = wrapDim(dim, (int64_t)logical_dom.size());
+
+  IterDomain* scan_id = logical_dom.at((size_t)dim);
+
+  // Special case: scanning along broadcast dimension is no-op
+  // Assumes init is identity for op_type
+  if (scan_id->isBroadcast()) {
+    NVF_ERROR(!scan_id->hasExpandedExtent(),
+              "Closed-form scan of expanded dimension is not yet implemented");
+    return set(in_tv);
+  }
+
+  DataType dtype = in_tv->dtype();
+  auto new_dom = ops::newOutputDomain({in_tv});
+  auto* td = IrBuilder::create<TensorDomain>(
+      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
+  auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
+
+  IrBuilder::createInContainer<ScanOp>(
+      in_tv->container(),
+      op_type,
+      init,
+      out_tv,
+      in_tv,
+      dim);
+
+  return out_tv;
+}
+
+TensorView* prefixSum(TensorView* tv, int64_t dim) {
+  return scan(
+             tv,
+             dim,
+             BinaryOpType::Add,
+             /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+}
+
 } // namespace nvfuser
