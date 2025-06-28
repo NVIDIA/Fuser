@@ -25,7 +25,7 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.ones(2, 4, 8, device="cuda"),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             c0 = fd.define_scalar(3.0)
@@ -51,7 +51,7 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.ones(2, 4, 8, device="cuda", dtype=torch.float16),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             c0 = fd.define_scalar(3.0)
@@ -79,7 +79,7 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.randn(2, 4, device="cuda", dtype=torch.float64),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
 
@@ -103,7 +103,7 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.randn(2, 4, device="cuda", dtype=torch.float64),
         ]
 
-        def fusion_func(fd: FusionDefinition):
+        def fusion_func(fd: FusionDefinition) -> None:
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
 
@@ -114,4 +114,63 @@ class TestNvFuserFrontend(NVFuserTest):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0] + inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_matmul(self):
+        m = 24
+        n = 16
+        k = 8
+        inputs = [
+            torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+            torch.randn(k, n, device="cuda", dtype=torch.bfloat16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.matmul(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.matmul(inputs[0], inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_linear_with_bias(self):
+        m = 24
+        n = 16
+        k = 8
+        inputs = [
+            torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+            torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.ops.linear(t0, t1)
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.nn.functional.linear(inputs[0], inputs[1])
+        self.assertEqual(eager_out, nvf_out[0])
+
+    def test_linear_without_bias(self):
+        m = 24
+        n = 16
+        k = 8
+        inputs = [
+            torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+            torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
+            torch.randn(n, device="cuda", dtype=torch.bfloat16),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+            t2 = fd.from_pytorch(inputs[2])
+            t3 = fd.ops.linear(t0, t1, t2)
+            fd.add_output(t3)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = torch.nn.functional.linear(inputs[0], inputs[1], inputs[2])
         self.assertEqual(eager_out, nvf_out[0])
