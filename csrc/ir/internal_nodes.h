@@ -3110,7 +3110,7 @@ class ScanOp : public Expr {
   }
 
   int64_t scanDim() const {
-    return attribute<int64_t>(1);
+    return attribute<int64_t>(2);
   }
 
   std::vector<PolymorphicValue> evaluate(

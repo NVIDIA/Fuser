@@ -138,4 +138,65 @@ TEST_F(ScanTest, Scan1D) {
   testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
 }
 
+// NOTE: Complex arithmetic + scan fusion is limited by ExprEval scheduler's 
+// single expression constraint. For complex fusions with ScanOp, nvFuser would 
+// need fusion segmentation or different scheduler approaches.
+
+// Test simple ScanOp with just one additional operation
+TEST_F(ScanTest, ScanWithSimpleArithmetic) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  
+  // Single arithmetic operation before scan
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  
+  // Scan operation  
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add, fusion.zeroVal());
+  
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({4, 8}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input});
+  
+  testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
+}
+
+// Test ScanOp with multiple arithmetic operations - investigating complex fusion behavior
+TEST_F(ScanTest, ScanWithArithmeticOps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  
+  // Multiple arithmetic operations
+  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
+  auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
+  auto tv3 = sub(tv2, IrBuilder::create<Val>(0.5));
+  
+  // Scan operation  
+  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add, fusion.zeroVal());
+  
+  // Additional operation after scan
+  auto tv5 = div(tv4, IrBuilder::create<Val>(3.0));
+  
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({4, 8}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input});
+  
+  testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
