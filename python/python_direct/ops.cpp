@@ -1456,6 +1456,57 @@ Val
       py::return_value_policy::reference);
 }
 
+void bindMatmulOps(py::module_& ops) {
+  ops.def(
+      "matmul",
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul),
+      py::arg("arg1"),
+      py::arg("arg2"),
+      R"(
+The matrix product of two tensors.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+
+Returns
+-------
+TensorView
+    The result of the matrix multiplication.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "linear",
+      [](TensorView* arg1,
+         TensorView* arg2,
+         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+        return static_cast<
+            TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
+            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      R"(
+Applies an affine linear transformation to the incoming data:
+output = arg1 @ transpose(arg2) + bias.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+bias : TensorView, optional
+    The bias vector to add to the output. If not provided, the bias is not added.
+
+Returns
+-------
+TensorView
+    The result of the affine linear transformation.
+)",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1466,6 +1517,7 @@ void bindOperations(py::module& nvfuser) {
   bindReductionOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindCastOps(nvf_ops);
+  bindMatmulOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

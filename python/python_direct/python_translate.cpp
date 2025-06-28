@@ -564,6 +564,31 @@ class PythonTranslator : public OptInConstDispatch {
         {bcast_op->out()});
   }
 
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    NVF_ERROR(matmul_op != nullptr);
+    visited_vals_.insert(matmul_op->out());
+
+    printer_.generateOperation(
+        "fd.ops.matmul",
+        {matmul_op->inA(), matmul_op->inB()},
+        {matmul_op->out()});
+  }
+
+  // Map LinearOp to python frontend
+  void handle(const LinearOp* lop) final {
+    NVF_ERROR(lop != nullptr);
+    visited_vals_.insert(lop->out());
+
+    if (lop->bias() != nullptr) {
+      printer_.generateOperation(
+          "fd.ops.linear", {lop->inA(), lop->inB(), lop->bias()}, {lop->out()});
+    } else {
+      printer_.generateOperation(
+          "fd.ops.linear", {lop->inA(), lop->inB()}, {lop->out()});
+    }
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
