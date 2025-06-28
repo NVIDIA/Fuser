@@ -32,7 +32,7 @@ jobs:
           source tools/setup-env.sh
           wait
           cd python
-          python setup.py build --cpp=23
+          python setup.py build --no-cutlass --cpp=23
 
   dynamic-type-meson:
     runs-on: ubuntu-latest
