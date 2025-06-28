@@ -2486,8 +2486,9 @@ TensorView* scan(
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type
   if (scan_id->isBroadcast()) {
-    NVF_ERROR(!scan_id->hasExpandedExtent(),
-              "Closed-form scan of expanded dimension is not yet implemented");
+    NVF_ERROR(
+        !scan_id->hasExpandedExtent(),
+        "Closed-form scan of expanded dimension is not yet implemented");
     return set(in_tv);
   }
 
@@ -2498,22 +2499,17 @@ TensorView* scan(
   auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
 
   IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(),
-      op_type,
-      init,
-      out_tv,
-      in_tv,
-      dim);
+      in_tv->container(), op_type, init, out_tv, in_tv, dim);
 
   return out_tv;
 }
 
 TensorView* prefixSum(TensorView* tv, int64_t dim) {
   return scan(
-             tv,
-             dim,
-             BinaryOpType::Add,
-             /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+      tv,
+      dim,
+      BinaryOpType::Add,
+      /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
 } // namespace nvfuser
