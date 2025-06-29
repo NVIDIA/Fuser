@@ -25,6 +25,10 @@ class HostIrJit {
       const std::vector<int64_t>& input_sizes,
       const std::vector<int64_t>& input_strides);
 
+  std::vector<at::Tensor> runFullGraph(
+      const hir::HostIrContainer* container,
+      const std::vector<at::Tensor>& inputs);
+
 LaunchKernelResult launchKernel(
       const hir::LaunchKernel* launch_kernel,
       int64_t cache_id,
