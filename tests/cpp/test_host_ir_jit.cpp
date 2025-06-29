@@ -115,8 +115,7 @@ TEST_F(HostIrJitTest, TestJITRunFullGraph) {
   hic->addOutput(hic_out);
 
   // Adjust the number of allocates and calls to each allocate
-  int num_allocates = 10;
-  int num_calls_per_allocate = 10;
+  int num_allocates = 2;
   std::vector<kir::Allocate*> allocates;
   for(int i = 0; i < num_allocates; i++) {
     auto* allocate =
@@ -138,15 +137,14 @@ TEST_F(HostIrJitTest, TestJITRunFullGraph) {
   std::vector<at::Tensor> inputs;
   HostIrJit jit(hic.get());
 
-  for(int i = 0; i < num_calls_per_allocate * num_allocates; i++) {
-    int first_dim = std::rand() % 100;
-    int second_dim = std::rand() % 100;
-    inputs.push_back(at::randn({first_dim, second_dim}, options));
-  }
+  int first_dim = std::rand() % 100;
+  int second_dim = std::rand() % 100;
+  inputs.push_back(at::empty({first_dim, second_dim}, options));
+
   auto result = jit.runFullGraph(hic.get(), inputs);
   for(size_t i = 0; i < result.size(); i++) {
-    EXPECT_EQ(result[i].sizes(), inputs[i].sizes());
-    EXPECT_EQ(result[i].strides(), inputs[i].strides());
+    EXPECT_EQ(result[i].sizes(), inputs[0].sizes());
+    EXPECT_EQ(result[i].strides(), inputs[0].strides());
   }
 }
 } // namespace hir

@@ -1033,7 +1033,10 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   // Register tensor size and stride extraction functions
   void* tensor_size_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        std::cout << "tensor_size_func_ptr called with tensor_ptr: " << tensor_ptr << ", dim: " << dim << std::endl;
+        std::cout << "tensor_size_func_ptr called with tensor_ptr: " 
+        << tensor_ptr << ", dim: " << dim 
+        << " tensor_ptr->size(dim): " << tensor_ptr->size(dim)
+        << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1042,7 +1045,10 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 
   void* tensor_stride_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        std::cout << "tensor_stride_func_ptr called with tensor_ptr: " << tensor_ptr << ", dim: " << dim << std::endl;
+        std::cout << "tensor_stride_func_ptr called with tensor_ptr: " 
+        << tensor_ptr << ", dim: " << dim 
+        << " tensor_ptr->stride(dim): " << tensor_ptr->stride(dim)
+        << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
