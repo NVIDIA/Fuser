@@ -407,12 +407,14 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags, context, builder);
+  std::cout<< "strides: " << strides.size() << std::endl;
+  std::cout << "concrete_sizes: " << concrete_sizes.size() << std::endl;
 
   return {concrete_sizes, strides};
 }
 
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferAllocationShape(
-    TensorView* tv,
+    const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
@@ -444,7 +446,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferAllocationS
 }
 
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesNonAlias(
-    TensorView* tv,
+    const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
@@ -454,7 +456,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
     return {allocation_size_stride.first, allocation_size_stride.second};
   }
   // otherwise we want return the reordered size and stride
-  return {std::vector<llvm::Value*>(), std::vector<llvm::Value*>()};
+  return {allocation_size_stride.first, allocation_size_stride.second};
 }
 
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> compileOutputTensorView(
@@ -476,7 +478,7 @@ void compileNamedScalar(
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
-  auto* named_scalar_val = named_scalar->as<Val>();
+  return;
 }
 
 void compileInputTensorView(
@@ -586,6 +588,7 @@ void processTensorViewsLLVM(
   llvm::Value* input_tensor_array = func->getArg(0);
   llvm::Value* num_inputs_val = func->getArg(1);
   llvm::Value* output_tensor_array = func->getArg(2);
+  std::cout << "num_inputs_val: " << num_inputs_val << std::endl;
   
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
   
@@ -619,7 +622,7 @@ void processTensorViewsLLVM(
   
   // resolve each output tensor shape and allocate tensors
   size_t output_idx = 0;
-  for(auto* output : container->outputs()) {
+  for(auto* output : container->topLevelExprs()) {
     if(auto* allocate = dynamic_cast<const kir::Allocate*>(output)) {
       auto* tv = allocate->buffer()->as<TensorView>();
       auto size_stride_pair = compileOutputTensorView(tv, val2llvmMap, context, builder);
@@ -630,6 +633,7 @@ void processTensorViewsLLVM(
       const auto& strides = size_stride_pair.second;
       
       if (!sizes.empty() && !strides.empty()) {
+        std::cout << "sizes and strides are not empty" << std::endl;
         // Create array allocation for sizes
         llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
         llvm::Type* int64_ptr_type = int64_type->getPointerTo();
@@ -722,7 +726,7 @@ void generateMainFunc(
     }
   }
   
-  for (auto* output : container->outputs()) {
+  for (auto* output : container->topLevelExprs()) {
     if (dynamic_cast<const kir::Allocate*>(output)) {
       num_outputs++;
     }
@@ -1115,7 +1119,7 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
   
   // Count the number of output tensors
   size_t num_outputs = 0;
-  for (auto* output : container->outputs()) {
+  for (auto* output : container->topLevelExprs()) {
     if (dynamic_cast<const kir::Allocate*>(output)) {
       num_outputs++;
     }
