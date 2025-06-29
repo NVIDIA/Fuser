@@ -665,8 +665,14 @@ void processTensorViewsLLVM(
         llvm::Value* dtype_constant = llvm::ConstantInt::get(int32_type, static_cast<int32_t>(data_type));
         llvm::Value* device_index_constant = llvm::ConstantInt::get(int64_type, host_ir_jit_params.getCommunicator()->deviceId());
         
-        // Allocate tensor result storage
-        llvm::Value* out_tensor = builder.CreateAlloca(void_ptr_type);
+        // Get the pre-allocated tensor from the output array
+        llvm::Value* output_slot = builder.CreateGEP(
+            void_ptr_type, 
+            output_tensor_array, 
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), output_idx)
+        );
+        // Load the tensor pointer - this points to a pre-allocated tensor from runFullGraph
+        llvm::Value* tensor_ptr = builder.CreateLoad(void_ptr_type, output_slot);
         
         // Get the at::native::empty_strided_cuda function
         llvm::Function* at_empty_strided_cuda_func = mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
@@ -682,7 +688,7 @@ void processTensorViewsLLVM(
               mod);
         }
         
-        // Call at::native::empty_strided_cuda
+        // Call at::native::empty_strided_cuda with the pre-allocated tensor
         builder.CreateCall(
             at_empty_strided_cuda_func,
             {sizes_array,
@@ -691,16 +697,9 @@ void processTensorViewsLLVM(
              strides_ndim_val,
              dtype_constant,
              device_index_constant,
-             out_tensor});
+             tensor_ptr});
         
-        // Store the allocated tensor in the output array
-        llvm::Value* output_slot = builder.CreateGEP(
-            void_ptr_type, 
-            output_tensor_array, 
-            llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), output_idx)
-        );
-        llvm::Value* tensor_value = builder.CreateLoad(void_ptr_type, out_tensor);
-        builder.CreateStore(tensor_value, output_slot);
+        // No need to store back - we modified the tensor in place
         
         output_idx++;
       }
@@ -1034,6 +1033,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   // Register tensor size and stride extraction functions
   void* tensor_size_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
+        std::cout << "tensor_size_func_ptr called with tensor_ptr: " << tensor_ptr << ", dim: " << dim << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1042,6 +1042,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 
   void* tensor_stride_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
+        std::cout << "tensor_stride_func_ptr called with tensor_ptr: " << tensor_ptr << ", dim: " << dim << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1125,8 +1126,14 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
     }
   }
   
-  // Create array to hold output tensor pointers
-  std::vector<at::Tensor> result_tensors(num_outputs);
+  // Create array to hold output tensor pointers - use properly initialized empty tensors
+  std::vector<at::Tensor> result_tensors;
+  result_tensors.reserve(num_outputs);
+  for (size_t i = 0; i < num_outputs; ++i) {
+    // Create a properly initialized empty tensor instead of default-constructed
+    result_tensors.emplace_back(at::empty({0}, at::kFloat));
+  }
+  
   std::vector<at::Tensor*> output_ptrs;
   output_ptrs.reserve(num_outputs);
   for (auto& tensor : result_tensors) {

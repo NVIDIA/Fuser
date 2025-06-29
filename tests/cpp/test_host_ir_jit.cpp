@@ -135,16 +135,18 @@ TEST_F(HostIrJitTest, TestJITRunFullGraph) {
       cache_id);
 
   hic->pushBackTopLevelExprs(launch_kernel);
-
+  std::vector<at::Tensor> inputs;
   HostIrJit jit(hic.get());
-  for(auto* allocate : allocates) {
-    for(int i = 0; i < num_calls_per_allocate; i++) {
-      int first_dim = std::rand() % 100;
-      int second_dim = std::rand() % 100;
-      auto allocated_t = jit.allocate(allocate, {first_dim, second_dim}, {second_dim, 1});
-      EXPECT_EQ(allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
-      EXPECT_EQ(allocated_t.strides(), at::IntArrayRef({second_dim, 1}));
-    }
+
+  for(int i = 0; i < num_calls_per_allocate * num_allocates; i++) {
+    int first_dim = std::rand() % 100;
+    int second_dim = std::rand() % 100;
+    inputs.push_back(at::randn({first_dim, second_dim}, options));
+  }
+  auto result = jit.runFullGraph(hic.get(), inputs);
+  for(size_t i = 0; i < result.size(); i++) {
+    EXPECT_EQ(result[i].sizes(), inputs[i].sizes());
+    EXPECT_EQ(result[i].strides(), inputs[i].strides());
   }
 }
 } // namespace hir
