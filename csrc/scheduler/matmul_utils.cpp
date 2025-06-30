@@ -1262,25 +1262,6 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
   }
 
-  if (mparams->tiling_strategy ==
-      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
-    const int64_t cluster_size =
-        (mparams->cluster_dims.x * mparams->cluster_dims.y *
-         mparams->cluster_dims.z);
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-
-    mparams->num_clusters = num_sms / cluster_size;
-
-    if (cluster_size > 2L) {
-      // Large cluster sizes might require lower than 100% occupancy, so we
-      // limit the number of launched CGAs here to guarantee only a single wave
-      // gets launched.
-      mparams->num_clusters = std::min(
-          mparams->num_clusters, getMaxActiveClusters(mparams->cluster_dims));
-    }
-  }
-
   if (isHopper(mparams->mma_macro)) {
     // Always maximize stages on hopper, for both default heuristic and plugin
     maximizeHopperOperandStages(

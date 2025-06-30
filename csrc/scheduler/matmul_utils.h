@@ -53,8 +53,7 @@ bool NVF_API isCpAsyncOperandLoadSupported(
 void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
 
 //! This is a utility that finds the maximum number of CGAs (clusters) that can
-//! be launched simultaneously, given a particular cluster size. The returned
-//! value is the upper bound for the `num_clusters` parameter.
+//! be launched simultaneously, given a particular cluster size.
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims);
 
 } // namespace matmul_utils

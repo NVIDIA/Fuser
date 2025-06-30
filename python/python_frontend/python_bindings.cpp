@@ -649,7 +649,6 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, circular_buffering_strategy)
       .PARAM(MatmulParams, cta_order)
       .PARAM(MatmulParams, cluster_dims)
-      .PARAM(MatmulParams, num_clusters)
       .PARAM(MatmulParams, mma_macro);
 
 #undef PARAM
