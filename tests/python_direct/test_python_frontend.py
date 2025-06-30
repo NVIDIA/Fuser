@@ -238,7 +238,6 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(y.shape, torch.Size([3, 2, 2]))
         self.assertEqual(x.flatten(), y.flatten())
 
-"""
     def test_reshape_dynamic(self):
         inputs = [
             32,
@@ -272,13 +271,14 @@ class TestNvFuserFrontend(NVFuserTest):
             S15 = fd.ops.mul(S13, S14)
             S16 = fd.ops.cast(S12, dtype=DataType.Int)
             S17 = fd.ops.sub(S15, S16)
-            V18 = fd.define_vector([S0, S17], dtype=DataType.Int)
-            T19 = fd.ops.reshape(T1, new_shape=V18)
-            T20 = fd.ops.sum(T19, dims=[1], keepdim=False, dtype=DataType.Null)
+            T19 = fd.ops.reshape(T1, new_shape=[S0, S17])
+            T20 = fd.ops.sum(T19, dims=[1], keep_dim=False, dtype=DataType.Null)
             fd.add_output(T20)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
+
+"""
     # Test empty symbolic tensors can be reshaped
     # See https://github.com/NVIDIA/Fuser/issues/2362
     def test_empty_reshape(self):

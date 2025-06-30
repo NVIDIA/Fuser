@@ -771,6 +771,27 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
+  // If input and output values share the same type, a LoadStoreOp will be
+  // created instead of a CastOp.
+  void handle(const LoadStoreOp* lsop) final {
+    // TODO short-circuit: lsop is a permutation.
+    if (lsop->out()->isA<TensorView>() &&
+        lsop->out()->as<TensorView>()->hasRoot()) {
+      NVF_ERROR(false, "Permutation is not implemented");
+    }
+
+    // If input and output values share the same type, a LoadStoreOp aka set
+    // operation will be created instead of a CastOp.
+    visited_vals_.insert(lsop->out());
+    static const std::vector<std::string> argument_names = {"dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cast",
+        std::make_tuple(lsop->in()),
+        argument_names,
+        std::make_tuple(lsop->out()->dtype()),
+        {lsop->out()});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
