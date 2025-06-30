@@ -5991,7 +5991,10 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale1 = scale1.squeeze(-1);
       scale2 = scale2.squeeze(-2);
     }
+    // undefined alpha, bias is not supported by aten API
+    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
     // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
     // moment, otherwise we should have requested the output dtype directly
     // instead of casting the output afterwards.
@@ -6001,13 +6004,15 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         scale1,
         scale2,
         offsets,
-        bias,
-        alpha,
+        /*bias=*/std::nullopt,
+        /*alpha=*/std::nullopt,
         at::ScalarType::BFloat16);
   } else {
+    // undefined bias is not supported by aten API
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
-    result = at::_grouped_mm(mat1, mat2, offsets, bias);
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
+    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
