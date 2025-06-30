@@ -1546,11 +1546,11 @@ TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
 
 void bindMetadataOps(py::module_& ops) {
   ops.def(
-      "reshape",
-      reshape_fn<py::list>,
-      py::arg("arg"),
-      py::arg("new_shape"),
-      R"(
+         "reshape",
+         reshape_fn<py::list>,
+         py::arg("arg"),
+         py::arg("new_shape"),
+         R"(
 Reshape a tensor to a new shape.
 
 Parameters
@@ -1564,13 +1564,13 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
-  ops.def(
-      "reshape",
-      reshape_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("new_shape"),
-      R"(
+         py::return_value_policy::reference)
+      .def(
+          "reshape",
+          reshape_fn<py::tuple>,
+          py::arg("arg"),
+          py::arg("new_shape"),
+          R"(
 Reshape a tensor to a new shape.
 
 Parameters
@@ -1584,7 +1584,7 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
+          py::return_value_policy::reference);
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
@@ -1609,6 +1609,34 @@ Returns
 -------
 TensorView
     The permuted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "squeeze",
+      [](TensorView* arg,
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> TensorView* {
+        return squeeze(arg, dims, squeeze_expanded);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
+      py::return_value_policy::reference,
+      R"(
+Reduce a tensor by removing specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to remove.
+squeeze_expanded : bool, optional
+    Whether to squeeze expanded dimensions. Default is False.
+
+Returns
+-------
+TensorView
+    The squeezed tensor.
 )",
       py::return_value_policy::reference);
   ops.def(
