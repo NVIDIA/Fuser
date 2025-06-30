@@ -3775,7 +3775,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             output_block_scale_dtype,
             output_gamma));
 
-        if (output_gamma == true) {
+        if (output_gamma) {
           NVF_CHECK(
               output_block_scale_size > 0,
               "output_block_scale_size must be greater than 0 when "

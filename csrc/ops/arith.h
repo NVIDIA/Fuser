@@ -754,10 +754,14 @@ NVF_API TensorView* argsort(
 //! \param alpha Global Scaling factor for mat1@mat2
 //! \param bias Bias tensor
 //! \param beta Scale tensor for bias
-//! \param dtype Output dtype
-//! \param out_block_scale_size Output block scaling factor size
-//! \param block_scaling_factor_dtype Block scaling factor dtype
-//! \param out_gamma Output gamma flag
+//! \param dtype Output dtype, if empty, the output dtype will be the same as
+//! the input dtype
+//! \param out_block_scale_size Output block scaling factor size, if 0, the
+//! output block scaling factor will not be computed
+//! \param block_scaling_factor_dtype Block scaling factor dtype. This argument
+//! is needed when out_block_scale_size is not 0.
+//! \param out_gamma Output gamma flag, if true, the output gamma will be
+//! computed
 //! \return Result of grouped matrix multiplication
 NVF_API ScaledTensorView grouped_mm(
     TensorView* mat1,
