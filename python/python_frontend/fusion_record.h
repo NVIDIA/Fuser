@@ -3396,7 +3396,7 @@ struct ScaledMmaOpRecord : RecordFunctor {
             std::move(_args),
             std::move(_outputs),
             "scaled_mm",
-            serde::RecordType::ScaledMma),
+            serde::RecordType::ScaledMmaOp),
         dtype_(dtype),
         out_block_scale_size_(output_block_scale_size),
         out_block_scale_dtype_(output_block_scale_dtype),

@@ -1268,8 +1268,8 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new ScaledMmaOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(smm_op->mat1())),
          fd_->recordingState(map_val_to_fd_index_.at(smm_op->mat2())),
-         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1()),
-         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2()),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2())),
          smm_op->hasAlpha()
              ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->alpha()))
              : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
