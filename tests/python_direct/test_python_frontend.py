@@ -195,8 +195,6 @@ class TestNvFuserFrontend(NVFuserTest):
         eager_out = torch.sum(inputs[0].reshape(new_shape), dim=3)
         self.assertEqual(eager_out, nvf_out[0])
 
-
-"""
     def test_execute_with_tuple_and_list(self):
         shape = [2, 3, 4]
         new_shape = [6, 4]
@@ -220,11 +218,10 @@ class TestNvFuserFrontend(NVFuserTest):
 
         inputs_with_tuple = [tensor, tuple(new_shape)]
         # expect to reuse fusion
-        nvf_out, _ = self.exec_nvfuser(
-            fusion_func, inputs_with_tuple, new_fusion_expected=False
-        )
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs_with_tuple)
         self.assertEqual(eager_out, nvf_out[0])
 
+"""
     def test_dynamic_reshape(self):
         def dynamic_reshape(fd: FusionDefinition) -> None:
             x = fd.define_tensor([-1, -1], [True, True])
