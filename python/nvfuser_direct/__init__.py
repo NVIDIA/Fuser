@@ -125,6 +125,22 @@ class FusionDefinition:
         self._fusion.add_input(tv)
         return tv
 
+    def define_vector(self, size):
+        """
+        Define a new vector input for the fusion.
+
+        Parameters
+        ----------
+        size : int
+            The size of the vector
+
+        Returns
+        -------
+        list of Scalar
+            The defined vector
+        """
+        return [self.define_scalar(None, DataType.Int) for i in range(size)]
+
     def define_scalar(self, *args, **kwargs):
         """
         Define a new scalar input for the fusion.

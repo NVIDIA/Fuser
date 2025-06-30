@@ -376,7 +376,7 @@ void bindDefineTensor(py::module& nvfuser) {
           py::return_value_policy::reference);
 }
 
-void bindScalar(py::module& nvfuser) {
+void bindDefineScalar(py::module& nvfuser) {
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -409,7 +409,7 @@ void bindFusionIr(py::module& nvfuser) {
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);
   bindDefineTensor(nvfuser);
-  bindScalar(nvfuser);
+  bindDefineScalar(nvfuser);
 }
 
 } // namespace nvfuser::python
