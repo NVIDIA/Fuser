@@ -5923,7 +5923,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   at::Tensor bias;
   at::Tensor beta;
   if (hasAlpha()) {
-    int alpha_offset = attribute<int64_t>(1);
+    int alpha_offset = alphaOffset();
     NVF_ERROR(
         inputs[alpha_offset].is<at::Tensor>(),
         "GroupedMmaOp expects tensor alpha at position ",
@@ -5933,7 +5933,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     alpha = inputs[alpha_offset].as<at::Tensor>();
   }
   if (hasBias()) {
-    int bias_offset = attribute<int64_t>(2);
+    int bias_offset = biasOffset();
     NVF_ERROR(
         inputs[bias_offset].is<at::Tensor>(),
         "GroupedMmaOp expects tensor bias at position ",
@@ -5943,7 +5943,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     bias = inputs[bias_offset].as<at::Tensor>();
   }
   if (hasBeta()) {
-    int beta_offset = attribute<int64_t>(3);
+    int beta_offset = betaOffset();
     NVF_ERROR(
         inputs[beta_offset].is<at::Tensor>(),
         "GroupedMmaOp expects tensor beta at position ",
@@ -5964,8 +5964,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         "GroupedMmaOp expects tensor input at position 4 but got ",
         inputs[4].type().name());
 
-    auto scale1 = inputs[3].as<at::Tensor>();
-    auto scale2 = inputs[4].as<at::Tensor>();
+    auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
+    auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
     // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
     // both input matrices.
     auto mat1_k_last = mat1.contiguous();

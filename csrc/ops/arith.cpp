@@ -2303,9 +2303,9 @@ ScaledTensorView createGroupedMmaOutput(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
-    std::optional<DataType> dtype,
+    DataType dtype,
     int64_t out_block_scale_size,
-    std::optional<DataType> block_scaling_factor_dtype,
+    DataType block_scaling_factor_dtype,
     bool out_gamma) {
   const auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
   const auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
@@ -2354,10 +2354,10 @@ ScaledTensorView createGroupedMmaOutput(
 
   ScaledTensorView scaled_out;
 
-  scaled_out.mat = IrBuilder::create<TensorView>(
+  scaled_out.tv = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      dtype.has_value() ? dtype.value() : mat1->getDataType().value());
+      dtype != DataType::Null ? dtype : mat1->getDataType().value());
 
   if (out_block_scale_size > 0) {
     std::vector<IterDomain*> block_scaling_factor_domain;
@@ -2383,14 +2383,14 @@ ScaledTensorView createGroupedMmaOutput(
     block_scaling_factor_domain.push_back(inner);
 
     NVF_CHECK(
-        block_scaling_factor_dtype.has_value(),
+        block_scaling_factor_dtype != DataType::Null,
         "block_scaling_factor_dtype is required");
     scaled_out.block_scaling_factor = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             block_scaling_factor_domain,
             TensorDomain::getContiguityFilledWith(
                 block_scaling_factor_domain, true)),
-        block_scaling_factor_dtype.value());
+        block_scaling_factor_dtype);
   }
 
   if (out_gamma) {
@@ -2414,9 +2414,9 @@ ScaledTensorView grouped_mm(
     TensorView* alpha,
     TensorView* bias,
     TensorView* beta,
-    std::optional<DataType> dtype,
+    DataType dtype,
     int64_t out_block_scale_size,
-    std::optional<DataType> block_scaling_factor_dtype,
+    DataType block_scaling_factor_dtype,
     bool out_gamma) {
   bool has_scale = scale1 != nullptr;
   NVF_CHECK(
@@ -2455,7 +2455,7 @@ ScaledTensorView grouped_mm(
     int64_t mat2_rank =
         std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
     int64_t out_rank = std::ssize(
-        TensorDomain::noReductions(scaled_out.mat->getLogicalDomain()));
+        TensorDomain::noReductions(scaled_out.tv->getLogicalDomain()));
 
     NVF_CHECK_EQ(
         scale1_rank,
@@ -2482,7 +2482,7 @@ ScaledTensorView grouped_mm(
   // subject to change.
 
   IrBuilder::create<GroupedMmaOp>(
-      scaled_out.mat,
+      scaled_out.tv,
       scaled_out.block_scaling_factor,
       scaled_out.global_scaling_factor,
       mat1,
