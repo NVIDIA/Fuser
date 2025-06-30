@@ -6130,9 +6130,9 @@ ScaledMmaOp::ScaledMmaOp(
   }
 
   // Store the offsets as attributes
-  addAttribute(alpha_offset);
-  addAttribute(bias_offset);
-  addAttribute(beta_offset);
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
 }
 
 std::string ScaledMmaOp::toString(int indent_size) const {

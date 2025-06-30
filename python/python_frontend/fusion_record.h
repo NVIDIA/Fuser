@@ -3398,9 +3398,13 @@ struct ScaledMmaOpRecord : RecordFunctor {
             "scaled_mm",
             serde::RecordType::ScaledMma),
         dtype_(dtype),
-        output_block_scale_size_(output_block_scale_size),
-        output_block_scale_dtype_(output_block_scale_dtype),
-        output_gamma_(output_gamma) {}
+        out_block_scale_size_(output_block_scale_size),
+        out_block_scale_dtype_(output_block_scale_dtype),
+        out_gamma_(output_gamma) {}
+  ~ScaledMmaOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScaledMmaOpRecord(*this);
+  }
 
   size_t hash() const final {
     auto result = RecordFunctor::hash();
@@ -3413,9 +3417,9 @@ struct ScaledMmaOpRecord : RecordFunctor {
     }
     auto other_scaled_mma = static_cast<const ScaledMmaOpRecord&>(other);
     return (dtype_ == other_scaled_mma.dtype_) &&
-           (output_block_scale_size_ == other_scaled_mma.output_block_scale_size_) &&
-           (output_block_scale_dtype_ == other_scaled_mma.output_block_scale_dtype_) &&
-           (output_gamma_ == other_scaled_mma.output_gamma_);
+           (out_block_scale_size_ == other_scaled_mma.out_block_scale_size_) &&
+           (out_block_scale_dtype_ == other_scaled_mma.out_block_scale_dtype_) &&
+           (out_gamma_ == other_scaled_mma.out_gamma_);
   }
 
   void operator()(FusionState& fd) final {
@@ -3441,7 +3445,7 @@ struct ScaledMmaOpRecord : RecordFunctor {
         ? nullptr
         : fd.getFusionState(outputs_[2].index)->template as<TensorView>();
 
-    auto result = scaled_mm(
+    auto [output_mat, output_scale, output_gamma] = scaled_mm(
         mat1,
         mat2,
         scale1,
@@ -3450,28 +3454,34 @@ struct ScaledMmaOpRecord : RecordFunctor {
         bias,
         beta,
         dtype_,
-        output_block_scale_size_,
-        output_block_scale_dtype_,
-        output_gamma_);
+        out_block_scale_size_,
+        out_block_scale_dtype_,
+        out_gamma_);
 
-    fd.setFusionState(outputs_[0].index, result.mat);
-    NVF_CHECK_EQ(out_scale != nullptr, output_block_scale_size_ > 0);
-    if (out_scale != nullptr) {
-      fd.setFusionState(outputs_[1].index, result.block_scaling_factor);
+    fd.setFusionState(outputs().at(0).index, output_mat);
+    if (out_block_scale_size_ > 0) {
+      NVF_CHECK(output_scale != nullptr, "Output scale is null");
+      NVF_CHECK(
+          outputs().at(1).stype != serde::StateType::None,
+          "Output scale is expected but is null");
+      fd.setFusionState(outputs().at(1).index, output_scale);
     }
-    NVF_CHECK_EQ(out_gamma != nullptr, output_gamma_);
-    if (out_gamma != nullptr) {
-      fd.setFusionState(outputs_[2].index, result.global_scaling_factor);
+    if (out_gamma_) {
+      NVF_CHECK(output_gamma != nullptr, "Output gamma is null");
+      NVF_CHECK(
+          outputs().at(2).stype != serde::StateType::None,
+          "Output gamma is expected but is null");
+      fd.setFusionState(outputs().at(2).index, output_gamma);
     }
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
-    os << ", output_block_scale_size=" << out_block_scale_size_;
-    os << ", output_block_scale_dtype="
+    os << ", out_block_scale_size=" << out_block_scale_size_;
+    os << ", out_block_scale_dtype="
        << dtypeToPyString(out_block_scale_dtype_);
-    os << ", output_gamma=" << (out_gamma_ ? "True" : "False");
+    os << ", out_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
@@ -3479,9 +3489,9 @@ struct ScaledMmaOpRecord : RecordFunctor {
 
  private:
   PrimDataType dtype_;
-  int64_t output_block_scale_size_;
-  PrimDataType output_block_scale_dtype_;
-  bool output_gamma_;
+  int64_t out_block_scale_size_;
+  PrimDataType out_block_scale_dtype_;
+  bool out_gamma_;
 };
 
 } // namespace nvfuser::python_frontend

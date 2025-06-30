@@ -3163,6 +3163,16 @@ class ScaledMmaOp : public Expr {
     return input(1)->as<TensorView>();
   }
 
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
   TensorView* alpha() const {
     if (hasAlpha()) {
       return input(attribute<int64_t>(0))->as<TensorView>();
