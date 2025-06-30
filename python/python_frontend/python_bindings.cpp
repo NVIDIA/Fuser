@@ -3691,7 +3691,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                        TensorView* offsets) {
                       ScaledTensorView scaled_out =
                           grouped_mm(mat1, mat2, offsets);
-                      return scaled_out.mat;
+                      return scaled_out.tv;
                     })));
         return output;
       },
