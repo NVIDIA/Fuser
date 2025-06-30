@@ -14,7 +14,7 @@
 #include <val_graph_visitor.h>
 
 #include <instrumentation.h>
-#include <llvm/ExecutionEngine/JITLink/JITLink.h> // NOLINT
+#include <llvm/ExecutionEngine/JITLink/JITLink.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
