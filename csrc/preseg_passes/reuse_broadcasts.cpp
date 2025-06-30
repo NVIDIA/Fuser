@@ -31,39 +31,12 @@ struct BroadcastInfo {
   TensorView* input;
   // The output of BroadcastOp or BroadcastOp+ExpandOp
   TensorView* output;
-  std::vector<ValGroup> output_groups;
-
-  bool operator==(const BroadcastInfo& other) const {
-    if (input != other.input) {
-      return false;
-    }
-    if (output_groups.size() != other.output_groups.size()) {
-      return false;
-    }
-    for (const auto& [g, other_g] : zip(output_groups, other.output_groups)) {
-      for (Val* v : *g) {
-        auto* extent = v->as<IterDomain>()->getMaybeExpandedExtent();
-        if (extent->isOneInt()) {
-          continue;
-        }
-        for (Val* other_v : *other_g) {
-          auto* other_extent = other_v->as<IterDomain>()->getMaybeExpandedExtent();
-          if (other_extent->isOneInt()) {
-            continue;
-          }
-          if (!extent->sameAs(other_extent)) {
-            return false;
-          }
-        }
-      }
-    }
-    return true;
-  }
 };
 
 class BroadcastReuser : OptOutDispatch {
  public:
-  BroadcastReuser(Fusion* fusion) : fusion_(fusion), id_model_(fusion, /*build_graphs=*/false) {
+  BroadcastReuser(Fusion* fusion)
+      : fusion_(fusion), id_model_(fusion, /*build_graphs=*/false) {
     id_model_.buildPermissiveGraph();
   }
 
@@ -72,24 +45,69 @@ class BroadcastReuser : OptOutDispatch {
       dispatch(expr);
     }
 
+    // At this point we have found all of the new broadcasts and expands
+    // introduced in the Fusion. These introduce new IDs and we need to know
+    // which pairs of those IDs are safe to swap with one another.
+    //
+    // For example...
+    //  TODO: more examples
+    const ValGraph& graph = id_model_.idGraph(IdMappingMode::PERMISSIVE);
+    std::unordered_map<ValGroup, std::unordered_set<ValGroup>>
+        forbidden_replacements;
+    for (TensorView* tv : fusion_->allTvs()) {
+      for (IterDomain* id1 : tv->getLogicalDomain()) {
+        ValGroup g1 = graph.toGroup(id1);
+        for (IterDomain* id2 : tv->getLogicalDomain()) {
+          ValGroup g2 = graph.toGroup(id2);
+          if (g1 == g2) {
+            continue;
+          }
+          forbidden_replacements[g1].insert(g2);
+          forbidden_replacements[g2].insert(g1);
+        }
+      }
+    }
+
     std::unordered_map<Val*, Val*> replacement_map;
     std::vector<const BroadcastInfo*> kept_bcasts;
     // NOTE: bcasts_ is built in topological order
     for (const BroadcastInfo& bcast : bcasts_) {
+      bool reusing = false;
       for (const BroadcastInfo* kept_bcast : kept_bcasts) {
-        if (bcast == *kept_bcast) {
+        bool reuse_is_safe = bcast.input == kept_bcast->input &&
+            bcast.output->getLogicalDomain().size() ==
+                kept_bcast->output->getLogicalDomain().size();
+        if (reuse_is_safe) {
+          // Verify reuse is safe by checking that any replaced ValGroups are
+          // not forbidden
+          for (const auto& [id, kept_id] :
+               zip(bcast.output->getLogicalDomain(),
+                   kept_bcast->output->getLogicalDomain())) {
+            ValGroup g = graph.toGroup(id);
+            ValGroup kept_g = graph.toGroup(kept_id);
+            if (forbidden_replacements[g].count(kept_g)) {
+              reuse_is_safe = false;
+              break;
+            }
+          }
+        }
+
+        if (reuse_is_safe) {
           // Reuse kept_bcast
           replacement_map[bcast.output] = kept_bcast->output;
-        } else {
-          // We'll keep bcast instead of reusing
-          kept_bcasts.push_back(&bcast);
+          reusing = true;
+          break;
         }
+      }
+      if (!reusing) {
+        // We'll keep bcast instead of reusing
+        kept_bcasts.push_back(&bcast);
       }
     }
 
     ir_utils::replaceValue(fusion_, replacement_map);
   }
- 
+
  private:
   using OptOutDispatch::handle;
 
@@ -97,7 +115,7 @@ class BroadcastReuser : OptOutDispatch {
     auto* tv = bop->out()->as<TensorView>();
     if (!std::all_of(tv->uses().begin(), tv->uses().end(), [](Expr* use) {
           return use->isA<ExpandOp>();
-          })) {
+        })) {
       registerBroadcast(tv);
     }
   }
@@ -117,23 +135,15 @@ class BroadcastReuser : OptOutDispatch {
       unbroadcasted = def->input(0)->as<TensorView>();
       def = unbroadcasted->definition();
     }
-
-    const ValGraph& graph = id_model_.idGraph(IdMappingMode::PERMISSIVE);
-    std::vector<ValGroup> abs_domain;
-    abs_domain.reserve(output->getLogicalDomain().size());
-    for (IterDomain* id : output->getLogicalDomain()) {
-      abs_domain.push_back(graph.toGroup(id));
-    }
-
-    bcasts_.emplace_back(unbroadcasted, output, std::move(abs_domain));
+    bcasts_.emplace_back(unbroadcasted, output);
   }
 
  private:
   Fusion* fusion_;
   IdModel id_model_;
-  // Results of BroadcastOps, excluding those whose only uses are ExpandOp, and also
-  // results of ExpandOps where the definition of the input is a BroadcastOp.
-  // These are candidates for reuse.
+  // Results of BroadcastOps, excluding those whose only uses are ExpandOp, and
+  // also results of ExpandOps where the definition of the input is a
+  // BroadcastOp. These are candidates for reuse.
   std::vector<BroadcastInfo> bcasts_;
 };
 

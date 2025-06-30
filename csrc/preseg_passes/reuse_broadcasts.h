@@ -20,11 +20,15 @@ namespace nvfuser::preseg_passes {
 //   T8 = expand(T7)
 //   T9 = set(T8)
 //
-// such that the expanded dims of T3 and T8 match, we will modify the definition of T9 to
+// such that the expanded dims of T3 and T8 match, we will modify the definition
+// of T9 to
 //
 //   T9 = set(T4)
 //
-// Note that the broadcasts do not need to be expanded. We use the permissive map to check whether dimensions match and can be re-used, so if a broadcast is concretized against a concrete dimension that matches an earlier broadcast, we can reuse it.
+// Note that the broadcasts do not need to be expanded. We use the permissive
+// map to check whether dimensions match and can be re-used, so if a broadcast
+// is concretized against a concrete dimension that matches an earlier
+// broadcast, we can reuse it.
 //
 // TODO: example of the above comment
 //
