@@ -121,7 +121,7 @@ NVF_API TensorView* reductionOpRaw(
     DataType dtype = DataType::Null);
 
 struct ScaledTensorView {
-  TensorView* mat;
+  TensorView* tv;
   TensorView* block_scaling_factor = nullptr;
   TensorView* global_scaling_factor = nullptr;
 };
@@ -772,9 +772,9 @@ NVF_API ScaledTensorView grouped_mm(
     TensorView* alpha = nullptr,
     TensorView* bias = nullptr,
     TensorView* beta = nullptr,
-    std::optional<DataType> dtype = std::nullopt,
+    DataType dtype = DataType::Null,
     int64_t out_block_scale_size = 0,
-    std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
+    DataType block_scaling_factor_dtype = DataType::Null,
     bool out_gamma = false);
 
 NVF_API ScaledTensorView scaled_mm(
