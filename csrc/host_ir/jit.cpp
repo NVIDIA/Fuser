@@ -1138,19 +1138,13 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
   FUSER_PERF_SCOPE("HostIrJit::runFullGraph");
   std::vector<at::Tensor> inputs;
   // process input values, converting IValue to PolymorphicValue
-  for (const auto& [val, pvalue] : val_to_PValue) {
-    if (pvalue.is<at::Tensor>()) {
-      auto tensor = pvalue.as<at::Tensor>();
-      // Ensure input tensor is on CUDA device
-      if (!tensor.is_cuda()) {
-        std::cout << "Converting input tensor from " << tensor.device() << " to CUDA" << std::endl;
-        tensor = tensor.to(at::kCUDA);
-      }
-      std::cout << "Input tensor device: " << tensor.device() << std::endl;
+  for(auto* input : container->inputs()) {
+    if (input->isA<TensorView>()) {
+      auto tensor_view = input->as<TensorView>();
+      auto tensor = val_to_PValue[input].as<at::Tensor>();
       inputs.push_back(tensor);
     }
   }
-  
   // Count the number of output tensors
   size_t num_outputs = 0;
   for (auto* output : container->topLevelExprs()) {
