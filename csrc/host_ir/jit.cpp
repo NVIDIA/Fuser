@@ -54,7 +54,7 @@ struct HostIrJit::LlvmJitImpl {
 };
 
 // Helper function to check for and throw errors from LLVM
-void throwIfError(llvm::Error&& err) {
+void throwIfError(llvm::Error err) {
   if (err) {
     NVF_THROW(llvm::toString(std::move(err)));
   }
