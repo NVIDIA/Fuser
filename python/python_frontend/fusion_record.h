@@ -3437,14 +3437,6 @@ struct ScaledMmaOpRecord : RecordFunctor {
         ? nullptr
         : fd.getFusionState(args_[6].index)->template as<TensorView>();
 
-    auto output = fd.getFusionState(outputs_[0].index)->template as<TensorView>();
-    auto out_scale = outputs_[1].stype == serde::StateType::None
-        ? nullptr
-        : fd.getFusionState(outputs_[1].index)->template as<TensorView>();
-    auto out_gamma = outputs_[2].stype == serde::StateType::None
-        ? nullptr
-        : fd.getFusionState(outputs_[2].index)->template as<TensorView>();
-
     auto [output_mat, output_scale, output_gamma] = scaled_mm(
         mat1,
         mat2,
