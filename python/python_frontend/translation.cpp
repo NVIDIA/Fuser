@@ -1234,56 +1234,42 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ScaledMmaOp to python frontend
   void handle(const ScaledMmaOp* smm_op) final {
-    TensorView* out_tv = smm_op->out_mat()->as<TensorView>();
-    TensorView* out_block_scale_tv = smm_op->out_block_scaling_factor();
-    TensorView* out_gamma_tv = smm_op->out_global_scaling_factor();
-
     int64_t out_block_scale_size = 0;
     PrimDataType out_block_scale_dtype = DataType::BFloat16;
     bool out_gamma = false;
 
+    TensorView* out_tv = smm_op->out();
+    TensorView* out_block_scale_tv = smm_op->outScale();
     if (out_block_scale_tv != nullptr) {
-      // Calculate the block scale size from the tensor shape
-      auto domain = TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain());
-      if (domain.size() >= 2) {
-        auto last_dim = domain.back();
-        auto second_last_dim = domain[domain.size() - 2];
-        ExpressionEvaluator ee;
-        auto last_extent = ee.evaluate(last_dim->extent());
-        auto second_last_extent = ee.evaluate(second_last_dim->extent());
-        if (last_extent.hasValue() && second_last_extent.hasValue()) {
-          out_block_scale_size = last_extent.as<int64_t>();
-        }
-      }
-      out_block_scale_dtype = std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+      Tensor output_block_scale = fd_->defineTensor(
+          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain())
+              .size());
+      map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
+      auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
     }
 
+    TensorView* out_gamma_tv = smm_op->outGamma();
     if (out_gamma_tv != nullptr) {
+      Tensor output_gamma = fd_->defineTensor(
+          TensorDomain::noReductions(out_gamma_tv->getLogicalDomain()).size());
+      map_val_to_fd_index_.emplace(out_gamma_tv, output_gamma());
       out_gamma = true;
     }
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    if (out_block_scale_tv != nullptr) {
-      Tensor out_scale = fd_->defineTensor(out_block_scale_tv->nDims());
-      map_val_to_fd_index_.emplace(out_block_scale_tv, out_scale());
-    }
-
-    if (out_gamma_tv != nullptr) {
-      Tensor out_gamma_tensor = fd_->defineTensor(0); // scalar tensor
-      map_val_to_fd_index_.emplace(out_gamma_tv, out_gamma_tensor());
-    }
-
     fd_->defineRecord(new ScaledMmaOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(smm_op->mat1())),
          fd_->recordingState(map_val_to_fd_index_.at(smm_op->mat2())),
-         smm_op->hasScale1()
-             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1()))
-             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
-         smm_op->hasScale2()
-             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2()))
-             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1()),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2()),
          smm_op->hasAlpha()
              ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->alpha()))
              : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
