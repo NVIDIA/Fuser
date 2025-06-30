@@ -1124,7 +1124,10 @@ at::Tensor HostIrJit::allocate(
   FUSER_PERF_SCOPE("HostIrJit::allocate");
   auto allocate_tensor_iter = pimpl_->allocate_tensors_.find(allocate);
   if (allocate_tensor_iter != pimpl_->allocate_tensors_.end()) {
-    return allocate_tensor_iter->second;
+    at::Tensor tensor = allocate_tensor_iter->second;
+    // Remove from map to prevent memory leak
+    pimpl_->allocate_tensors_.erase(allocate_tensor_iter);
+    return tensor;
   }
   return at::empty({0}, at::kFloat);
 }
