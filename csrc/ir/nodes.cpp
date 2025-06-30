@@ -5946,4 +5946,65 @@ IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
 
+ScanOp::ScanOp(
+    IrBuilderPasskey passkey,
+    BinaryOpType op_type,
+    Val* init,
+    Val* out,
+    Val* in,
+    int64_t dim)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addAttribute(init);
+  addDataAttribute(op_type);
+  addDataAttribute(dim);
+}
+
+std::string ScanOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString();
+  ss << "\n";
+  indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
+  indent(ss, indent_size + 1)
+      << "        init=" << init()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string ScanOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ScanOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+
+  NVF_ERROR(inputs.size() == 1);
+
+  at::Tensor out;
+  switch (opType()) {
+    case BinaryOpType::Add:
+      out = at::cumsum(input, scanDim());
+      break;
+    case BinaryOpType::Max:
+      out = std::get<0>(at::cummax(input, scanDim()));
+      break;
+    case BinaryOpType::Min:
+      out = std::get<0>(at::cummin(input, scanDim()));
+      break;
+    case BinaryOpType::Mul:
+      out = at::cumprod(input, scanDim());
+      break;
+    default:
+      NVF_THROW("Unhandled opType() ", opType());
+  }
+
+  return {out};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
+
 } // namespace nvfuser
