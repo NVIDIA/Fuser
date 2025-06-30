@@ -241,6 +241,11 @@ class NVF_API Val : public Statement {
           " for value ",
           PolymorphicValue_functions::toString(value_));
     }
+    NVF_ERROR(
+        !isPackedType(dtype_),
+        "Packed type ",
+        dtype_,
+        " must be unpacked when defining fusion");
   }
   explicit Val(IrBuilderPasskey passkey, DataType dtype)
       : Val(passkey, ValType::Others, std::move(dtype)) {}
