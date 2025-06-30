@@ -949,6 +949,7 @@ broadcast_opinfo = OpInfo(
     "broadcast",
     error_input_generator=broadcast_error_generator,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 shape_ops.append(broadcast_opinfo)
 
@@ -970,6 +971,7 @@ broadcast_in_dim_constant_opinfo = OpInfo(
         ArgumentType.Constant,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(broadcast_in_dim_constant_opinfo)
 
@@ -996,6 +998,7 @@ broadcast_in_dim_symbolic_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(broadcast_in_dim_symbolic_opinfo)
 
