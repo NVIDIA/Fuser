@@ -447,10 +447,10 @@ Val* mapToInputDomain(
     Val* currentDomain,
     std::unordered_map<Val*, bool>& boundaryVals
 ) {
-  for(auto* val : boundaryVals) { 
-    auto* domain = val->as<IterDomain>();
-    if(currentDomain->as<IterDomain>()->extent().sameAs(domain->extent())) {
-      return val;
+  for(auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) { 
+    auto* domain = it->first->as<IterDomain>();
+    if(currentDomain->as<IterDomain>()->extent()->sameAs(domain->extent())) {
+      return it->first;
     }
   }
   return nullptr;
@@ -483,6 +483,9 @@ void generate_stride_llvm_ir(
           strides.push_back(running_stride_product);
           running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val], "mapped_stride");
         }
+      }
+      else if(current_val->as<IterDomain>()->extent()->isConst() && val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+        val2llvmMap[current_val->as<IterDomain>()->extent()] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), current_val->as<IterDomain>()->extent()->value().as<int64_t>());
       }
       return;
     }
@@ -524,7 +527,7 @@ void generate_stride_llvm_ir(
         if(val2llvmMap[input_outer_val] == nullptr || val2llvmMap[input_inner_val] == nullptr || val2llvmMap[current_val] != nullptr){
           return;
         }
-        else{
+        else if(val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
           val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.CreateMul(
               val2llvmMap[input_outer_val->as<IterDomain>()->extent()],
               val2llvmMap[input_inner_val->as<IterDomain>()->extent()],
@@ -538,8 +541,6 @@ void generate_stride_llvm_ir(
         auto* output_inner_val = split_expr->inner()->as<Val>();
         auto* output_outer_val = split_expr->outer()->as<Val>();
         auto* input_mapped_val = mapToInputDomain(input_val, boundary_vals);
-        auto* output_inner_mapped_val = mapToInputDomain(output_inner_val, boundary_vals);
-        auto* output_outer_mapped_val = mapToInputDomain(output_outer_val, boundary_vals);
 
         if(input_mapped_val != nullptr){
           if(boundary_vals[input_mapped_val] == false){
@@ -555,8 +556,8 @@ void generate_stride_llvm_ir(
 
         auto* split_factor = split_expr->factor()->as<Val>();
         if(split_expr->innerSplit()){
-          if(split_factor->isConstInt()){
-            val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->as<Int>()->value());
+          if(split_factor->isConstInt() && val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+            val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->value().as<int64_t>());
           }
           else{
             if(val2llvmMap.find(split_factor) != val2llvmMap.end()){
@@ -570,15 +571,17 @@ void generate_stride_llvm_ir(
           if(val2llvmMap[input_val] == nullptr || val2llvmMap[output_inner_val] == nullptr || val2llvmMap[output_outer_val] != nullptr){
             return;
           }
+          else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
           val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = builder.CreateUDiv(
             val2llvmMap[input_val->as<IterDomain>()->extent()],
-            val2llvmMap[output_inner_val->as<IterDomain>()->extent()],
-            output_outer_val->toString() + "mapped_stride"
-          );
+              val2llvmMap[output_inner_val->as<IterDomain>()->extent()],
+              output_outer_val->toString() + "mapped_stride"
+            );
+          }
         }
         else{
-          if(split_expr->factor()->isConstInt()){
-            val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->as<Int>()->value());
+          if(split_expr->factor()->isConstInt() && val2llvmMap.find(output_outer_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+            val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->value().as<int64_t>());
           }
           else{
             if(val2llvmMap.find(split_factor) != val2llvmMap.end()){
@@ -592,6 +595,7 @@ void generate_stride_llvm_ir(
           if(val2llvmMap[input_val] == nullptr || val2llvmMap[output_inner_val] == nullptr || val2llvmMap[output_outer_val] != nullptr){
             return;
           }
+          else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
           val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.CreateUDiv(
             val2llvmMap[input_val->as<IterDomain>()->extent()],
             val2llvmMap[output_outer_val->as<IterDomain>()->extent()],
