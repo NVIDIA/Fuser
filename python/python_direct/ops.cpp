@@ -1502,6 +1502,63 @@ TensorView
           py::return_value_policy::reference);
 }
 
+template <class ITERABLE>
+std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
+  std::vector<Val*> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      NVF_CHECK(
+          !shape_check || int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
+      args.emplace_back(IrBuilder::create<Val>(int_value, DataType::Int));
+    } else if (py::isinstance<Val>(item)) {
+      args.emplace_back(py::cast<Val*>(item));
+    } else {
+      NVF_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return args;
+}
+
+template <class ShapeType>
+std::vector<Val*> SequenceAsVector(ShapeType shape, bool shape_check = true) {
+  static_assert(
+      std::is_same_v<ShapeType, py::list> ||
+      std::is_same_v<ShapeType, py::tuple>);
+  return define_vector_fn<ShapeType>(shape, /*shape_check=*/shape_check);
+}
+
+template <class ShapeType>
+TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return reshape(arg, SequenceAsVector(generic_new_shape));
+}
+
+void bindReshapeOps(py::module_& ops) {
+  ops.def(
+      "reshape",
+      reshape_fn<py::list>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+  ops.def(
+      "reshape",
+      reshape_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1512,6 +1569,7 @@ void bindOperations(py::module& nvfuser) {
   bindReductionOps(nvf_ops);
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
+  bindReshapeOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
