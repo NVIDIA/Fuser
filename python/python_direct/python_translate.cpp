@@ -754,6 +754,29 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    auto filter_range = std::views::iota(0UL, is_squeeze_dims.size()) |
+        std::views::filter([&is_squeeze_dims](int64_t dim) {
+                          return is_squeeze_dims.at(dim);
+                        });
+    std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
+
+    // Always squeeze_expanded dimensions
+    static const std::vector<std::string> squeeze_argument_names = {
+        "dims", "squeeze_expanded"};
+    printer_.generateKwargsOperation(
+        "fd.ops.squeeze",
+        std::make_tuple(sop->in()),
+        squeeze_argument_names,
+        std::make_tuple(squeeze_dims, /*squeeze_expanded=*/true),
+        {sop->out()});
+  }
+
   // Map ViewOp to python frontend
   void handle(const ViewOp* vop) final {
     NVF_ERROR(vop != nullptr);

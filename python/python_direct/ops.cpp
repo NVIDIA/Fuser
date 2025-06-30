@@ -1613,6 +1613,34 @@ TensorView
     The permuted tensor.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "squeeze",
+      [](TensorView* arg,
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> TensorView* {
+        return squeeze(arg, dims, squeeze_expanded);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
+      py::return_value_policy::reference,
+      R"(
+Reduce a tensor by removing specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to remove.
+squeeze_expanded : bool, optional
+    Whether to squeeze expanded dimensions. Default is False.
+
+Returns
+-------
+TensorView
+    The squeezed tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindTensorUtilityOps(py::module_& ops) {
