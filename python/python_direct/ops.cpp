@@ -1544,13 +1544,13 @@ TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
   return reshape(arg, SequenceAsVector(generic_new_shape));
 }
 
-void bindReshapeOps(py::module_& ops) {
+void bindMetadataOps(py::module_& ops) {
   ops.def(
-      "reshape",
-      reshape_fn<py::list>,
-      py::arg("arg"),
-      py::arg("new_shape"),
-      R"(
+         "reshape",
+         reshape_fn<py::list>,
+         py::arg("arg"),
+         py::arg("new_shape"),
+         R"(
 Reshape a tensor to a new shape.
 
 Parameters
@@ -1564,13 +1564,13 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
-  ops.def(
-      "reshape",
-      reshape_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("new_shape"),
-      R"(
+         py::return_value_policy::reference)
+      .def(
+          "reshape",
+          reshape_fn<py::tuple>,
+          py::arg("arg"),
+          py::arg("new_shape"),
+          R"(
 Reshape a tensor to a new shape.
 
 Parameters
@@ -1584,7 +1584,35 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
+          py::return_value_policy::reference)
+      .def(
+          "squeeze",
+          [](TensorView* arg,
+             std::vector<int64_t> dims,
+             const bool squeeze_expanded) -> TensorView* {
+            return squeeze(arg, dims, squeeze_expanded);
+          },
+          py::arg("arg"),
+          py::arg("dims"),
+          py::arg("squeeze_expanded") = false,
+          py::return_value_policy::reference,
+          R"(
+Reduce a tensor by removing specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to remove.
+squeeze_expanded : bool, optional
+    Whether to squeeze expanded dimensions. Default is False.
+
+Returns
+-------
+TensorView
+    The squeezed tensor.
+)",
+          py::return_value_policy::reference);
 }
 
 void bindTensorUtilityOps(py::module_& ops) {
@@ -1632,7 +1660,7 @@ void bindOperations(py::module& nvfuser) {
   bindReductionOps(nvf_ops);
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
-  bindReshapeOps(nvf_ops);
+  bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
 }
 
