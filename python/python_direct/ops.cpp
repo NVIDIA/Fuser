@@ -1544,6 +1544,11 @@ TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
   return reshape(arg, SequenceAsVector(generic_new_shape));
 }
 
+template <class ShapeType>
+TensorView* expand_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return expand(arg, SequenceAsVector(generic_new_shape));
+}
+
 void bindMetadataOps(py::module_& ops) {
   ops.def(
          "reshape",
@@ -1611,6 +1616,46 @@ TensorView
     The permuted tensor.
 )",
       py::return_value_policy::reference);
+      ops.def(
+          "expand",
+          expand_fn<py::list>,
+          py::arg("arg"),
+          py::arg("shape"),
+          R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+          py::return_value_policy::reference);
+      ops.def(
+          "expand",
+          expand_fn<py::tuple>,
+          py::arg("arg"),
+          py::arg("shape"),
+          R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+          py::return_value_policy::reference);
   ops.def(
       "squeeze",
       [](TensorView* arg,
