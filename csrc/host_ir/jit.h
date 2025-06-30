@@ -25,9 +25,12 @@ class HostIrJit {
       const std::vector<int64_t>& input_sizes,
       const std::vector<int64_t>& input_strides);
 
+  at::Tensor allocate(
+      const kir::Allocate* allocate);
+
   std::vector<at::Tensor> runFullGraph(
       const hir::HostIrContainer* container,
-      const std::vector<at::Tensor>& inputs);
+      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
 LaunchKernelResult launchKernel(
       const hir::LaunchKernel* launch_kernel,

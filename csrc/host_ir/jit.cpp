@@ -81,6 +81,7 @@ struct HostIrJit::LlvmJitImpl {
   main_func_fn main_func_;
   std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
+  std::unordered_map<const kir::Allocate*, at::Tensor> allocate_tensors_;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -588,10 +589,8 @@ void processTensorViewsLLVM(
   llvm::Value* input_tensor_array = func->getArg(0);
   llvm::Value* num_inputs_val = func->getArg(1);
   llvm::Value* output_tensor_array = func->getArg(2);
-  std::cout << "num_inputs_val: " << num_inputs_val << std::endl;
-  
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  
+  std::cout << "num_inputs val: " << num_inputs_val << std::endl;
   // setup input tensor views
   size_t tensor_idx = 0;
   for(auto* input : container->inputs()) {
@@ -633,7 +632,6 @@ void processTensorViewsLLVM(
       const auto& strides = size_stride_pair.second;
       
       if (!sizes.empty() && !strides.empty()) {
-        std::cout << "sizes and strides are not empty" << std::endl;
         // Create array allocation for sizes
         llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
         llvm::Type* int64_ptr_type = int64_type->getPointerTo();
@@ -1119,10 +1117,36 @@ at::Tensor HostIrJit::allocate(
   return tensor;
 }
 
+
+// Allocate with fullgraph mode
+at::Tensor HostIrJit::allocate(
+    const kir::Allocate* allocate) {
+  FUSER_PERF_SCOPE("HostIrJit::allocate");
+  auto allocate_tensor_iter = pimpl_->allocate_tensors_.find(allocate);
+  if (allocate_tensor_iter != pimpl_->allocate_tensors_.end()) {
+    return allocate_tensor_iter->second;
+  }
+  return at::empty({0}, at::kFloat);
+}
+
 std::vector<at::Tensor> HostIrJit::runFullGraph(
     const hir::HostIrContainer* container,
-    const std::vector<at::Tensor>& inputs) {
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::runFullGraph");
+  std::vector<at::Tensor> inputs;
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    if (pvalue.is<at::Tensor>()) {
+      auto tensor = pvalue.as<at::Tensor>();
+      // Ensure input tensor is on CUDA device
+      if (!tensor.is_cuda()) {
+        std::cout << "Converting input tensor from " << tensor.device() << " to CUDA" << std::endl;
+        tensor = tensor.to(at::kCUDA);
+      }
+      std::cout << "Input tensor device: " << tensor.device() << std::endl;
+      inputs.push_back(tensor);
+    }
+  }
   
   // Count the number of output tensors
   size_t num_outputs = 0;
@@ -1137,7 +1161,7 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
   result_tensors.reserve(num_outputs);
   for (size_t i = 0; i < num_outputs; ++i) {
     // Create a properly initialized empty tensor instead of default-constructed
-    result_tensors.emplace_back(at::empty({0}, at::kFloat));
+    result_tensors.emplace_back(at::empty({0}, at::kCUDA));
   }
   
   std::vector<at::Tensor*> output_ptrs;
@@ -1155,6 +1179,14 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
   
   // Call the main function with input array, count, and outputs
   pimpl_->main_func_(input_ptrs.data(), static_cast<int64_t>(inputs.size()), output_ptrs.data());
+  
+  size_t i = 0;
+  for (auto* expr : container->topLevelExprs()) {
+    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
+      pimpl_->allocate_tensors_[allocate] = result_tensors[i];
+      i++; 
+    }
+  }
   
   return result_tensors;
 }

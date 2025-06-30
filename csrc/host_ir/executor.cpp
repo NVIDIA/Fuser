@@ -227,9 +227,15 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
   expr_evaluator_.bind("cacheId", static_cast<int64_t>(*args.getCacheId()));
 
   NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
+  std::unordered_map<Val*, PolymorphicValue> val_to_PValue;
   for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
+    if (arg.is<at::Tensor>()) {
+      val_to_PValue[in_val] = arg.as<at::Tensor>();
+    }
     expr_evaluator_.bind(in_val, arg);
   }
+
+  jit_->runFullGraph(container_.get(), val_to_PValue);
 
   for (Expr* e : container_->topLevelExprs()) {
     const std::string event_name =
@@ -255,6 +261,7 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
   }
+  jit_->runFullGraph(container_.get(), val_to_PValue);
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
@@ -779,9 +786,8 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
-  auto shape_info = inferTensorShapes(tv, expr_evaluator_);
   auto tensor = jit_->allocate(
-      allocate, shape_info.logical_sizes, shape_info.logical_strides);
+      allocate);
   expr_evaluator_.bind(tv, tensor);
 }
 #else
