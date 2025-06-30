@@ -14,8 +14,8 @@ namespace nvfuser {
 
 constexpr int64_t kHostIrJitCompileThreads = 4;
 
-constexpr std::string_view kHostIrJitEmptyStridedCudaFuncName =
-    "empty_strided_cuda";
+constexpr std::string_view kHostIrJitAtEmptyStridedCudaFuncName =
+    "at_empty_strided_cuda";
 class HostIrJit {
  public:
   at::Tensor allocate(

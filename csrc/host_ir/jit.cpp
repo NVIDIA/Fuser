@@ -44,13 +44,13 @@
 
 namespace nvfuser {
 
-using allocate_fn = std::function<
+using AllocateFunc = std::function<
     void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
 
-// PIMPL implementation for HostIrJit
+// Pimpl for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
+  std::unordered_map<const kir::Allocate*, AllocateFunc> allocate_funcs_;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -58,7 +58,7 @@ struct HostIrJit::LlvmJitImpl {
 // Helper function to check for and throw errors from LLVM
 void throwIfError(llvm::Error&& err) {
   if (err) {
-    NVF_THROW(llvm::toString(std::move(err)));
+    NVF_THROW(llvm::toString(err));
   }
 }
 
@@ -74,8 +74,8 @@ T throwIfError(llvm::Expected<T>&& E) {
 void dimCheck(
     llvm::Value* ndim_arg,
     llvm::Value* ndim_val,
-    llvm::IRBuilder<>& builder,
-    llvm::Module* mod) {
+    llvm::IRBuilder<>& builder) {
+    auto mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::LLVMContext& context = mod->getContext();
   llvm::Value* cmp = builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
   llvm::Function* trap_func =
@@ -205,10 +205,10 @@ void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
-    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_) {
+    std::unordered_map<const kir::Allocate*, AllocateFunc>& allocate_funcs) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   // If the JIT is already compiled, return
-  if (allocate_funcs_.size() > 0) {
+  if (allocate_funcs.size() > 0) {
     return;
   }
   NVF_ERROR(
@@ -239,7 +239,7 @@ void compile(
   for (auto* allocate : allocate_exprs) {
     auto func_name = ir_utils::varName(allocate->buffer()->as<Val>());
     auto func_addr = throwIfError(jit->lookup(func_name));
-    allocate_funcs_[allocate] = reinterpret_cast<void (*)(
+    allocate_funcs[allocate] = reinterpret_cast<void (*)(
         const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
         func_addr.getValue());
   }
@@ -265,7 +265,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 
   // Create wrapper function for at::native::empty_strided_cuda
   // TODO: Remove this wrapper in the future
-  void* empty_strided_cuda_func_ptr =
+  void* at_empty_strided_cuda_func_ptr =
       reinterpret_cast<void*>(+[](const int64_t* sizes,
                                   int64_t ndim,
                                   const int64_t* strides,
@@ -288,12 +288,12 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
       });
 
   // Register wrapper functions in JIT
-  auto empty_strided_cuda_addr =
-      llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
+  auto at_empty_strided_cuda_addr =
+      llvm::orc::ExecutorAddr::fromPtr(at_empty_strided_cuda_func_ptr);
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
       llvm::orc::ExecutorSymbolDef(
-          empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
+          at_empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
@@ -311,7 +311,7 @@ at::Tensor HostIrJit::allocate(
       allocate_func_iter != pimpl_->allocate_funcs_.end(),
       "allocate function not found for ",
       allocate);
-  auto& func_ptr = allocate_func_iter->second;
+  const auto& func_ptr = allocate_func_iter->second;
 
   at::Tensor tensor;
   func_ptr(

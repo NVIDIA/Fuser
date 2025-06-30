@@ -24,7 +24,7 @@ namespace hir {
 
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
-TEST_F(HostIrJitTest, TestJITInferTensorShapes) {
+TEST_F(HostIrJitTest, Allocate) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(2);
@@ -61,17 +61,6 @@ TEST_F(HostIrJitTest, TestJITInferTensorShapes) {
     allocates.push_back(allocate);
     hic->pushBackTopLevelExprs(allocate);
   }
-
-  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-  auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0,
-      LaunchParams(),
-      CompileParams(),
-      std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out},
-      cache_id);
-
-  hic->pushBackTopLevelExprs(launch_kernel);
 
   HostIrJit jit(hic.get());
   for (auto* allocate : allocates) {
