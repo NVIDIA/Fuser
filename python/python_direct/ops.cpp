@@ -1550,13 +1550,76 @@ void bindReshapeOps(py::module_& ops) {
       reshape_fn<py::list>,
       py::arg("arg"),
       py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
       py::return_value_policy::reference);
   ops.def(
       "reshape",
       reshape_fn<py::tuple>,
       py::arg("arg"),
       py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
       py::return_value_policy::reference);
+}
+
+void bindTensorUtilityOps(py::module_& ops) {
+  ops.def(
+         "size",
+         [](TensorView* arg, int64_t dim) -> Val* { return size(arg, dim); },
+         py::arg("arg"),
+         py::arg("dim"),
+         R"(
+Get the size of a tensor.
+
+Parameters
+----------
+arg : TensorView
+dim : int
+    The dimension to get the size of.
+
+Returns
+-------
+int
+    The size of the dimension.
+)",
+         py::return_value_policy::reference)
+      .def(
+          "shape",
+          [](TensorView* arg) { return shape(arg); },
+          py::return_value_policy::reference,
+          R"(
+Get the shape of a tensor.
+
+Returns
+-------
+list of Val
+    The shape of the tensor.
+)");
 }
 
 } // namespace
@@ -1570,6 +1633,7 @@ void bindOperations(py::module& nvfuser) {
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindReshapeOps(nvf_ops);
+  bindTensorUtilityOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

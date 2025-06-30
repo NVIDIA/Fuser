@@ -466,40 +466,24 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
+  // Filter Functions
+
+  // Gather all TensorViews and FusionDefinition indices
+  std::vector<const nvfuser::Val*> tensors() {
+    std::vector<const nvfuser::Val*> tensors;
+    std::copy_if(
+        visited_vals_.begin(),
+        visited_vals_.end(),
+        std::back_inserter(tensors),
+        [](const nvfuser::Val* v) { return v->isA<TensorView>(); });
+    return tensors;
+  }
+
+  // =================================================================================
+
   // Create scalar for given nvfuser value. The nvfuser value must not already
   // exist and have a definition. It can be a fusion input, a constant, or a
   // tensor's extent.
-
-  // Check if the value is a scalar that is used in a reshape operation.
-  // Dynamic scalars are cast to DataType::Index before being used in reshape
-  // operation.
-  bool isReshapeScalar(const Val* v) {
-    if (!v->isSymbolic()) {
-      return false;
-    }
-
-    if (v->uses().size() != 1) {
-      return false;
-    }
-
-    Expr* use = *v->uses().begin();
-    if (use->isA<ViewOp>()) {
-      return true;
-    }
-
-    if (!use->isA<UnaryOp>()) {
-      return false;
-    }
-
-    UnaryOp* uop = use->as<UnaryOp>();
-    if (uop->getUnaryOpType() != UnaryOpType::Cast) {
-      return false;
-    }
-
-    return uop->out()->uses().empty();
-  }
-
-  // Add scalar value to Fusion Definition
   void handle(const Val* v) final {
     NVF_ERROR(v != nullptr);
     // short-circuit: scalar definition has a definition
@@ -512,8 +496,37 @@ class PythonTranslator : public OptInConstDispatch {
     }
     visited_vals_.insert(v);
 
-    // short-circuit: value is a reshape scalar
-    if (isReshapeScalar(v)) {
+    // Since scalars can come from TensorView dimension sizes, search through
+    // all TensorViews for an iterDomain whose extent matches the desired
+    // value and then use size op.
+    for (const nvfuser::Val* tv_val : tensors()) {
+      const TensorView* tv = tv_val->as<TensorView>();
+
+      // Get extents for each IterDomain
+      std::vector<IterDomain*> filtered_logical_domain =
+          TensorDomain::noReductions(tv->domain()->logical());
+      std::vector<Val*> extents;
+      extents.reserve(filtered_logical_domain.size());
+      std::transform(
+          filtered_logical_domain.begin(),
+          filtered_logical_domain.end(),
+          std::back_inserter(extents),
+          [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+
+      // Check if value matches iterdomain extent
+      auto iter = std::find(extents.begin(), extents.end(), v);
+      if (iter == extents.end()) {
+        continue;
+      }
+
+      int64_t dim = std::distance(extents.begin(), iter);
+      static const std::vector<std::string> argument_names = {"dim"};
+      printer_.generateKwargsOperation(
+          "fd.ops.size",
+          std::make_tuple(tv),
+          argument_names,
+          std::make_tuple(dim),
+          {v});
       return;
     }
 
@@ -631,11 +644,6 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
     visited_vals_.insert(uop->out());
 
-    // short-circuit: output of cast op is not used
-    if (uop->out()->uses().empty() && !uop->out()->isFusionOutput()) {
-      return;
-    }
-
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
     DataType scalar_dtype = uop->out()->dtype();
@@ -717,22 +725,20 @@ class PythonTranslator : public OptInConstDispatch {
   // Map ViewOp to python frontend
   void handle(const ViewOp* vop) final {
     NVF_ERROR(vop != nullptr);
-    visited_vals_.insert(vop->out());
 
     // Get extent's for output's logical domain
     TensorView* out_tv = vop->out()->as<TensorView>();
     std::vector<Val*> new_shape = getShape(out_tv);
 
-    std::cout << out_tv->toString() << std::endl;
-
-    bool is_symbolic =
+    // Check if new_shape is a vector of symbolic fusion inputs
+    bool is_vector =
         std::all_of(new_shape.begin(), new_shape.end(), [](Val* v) {
-          return v->isSymbolic();
+          return v->isSymbolic() && v->isFusionInput();
         });
 
     static const std::vector<std::string> reshape_argument_names = {
         "new_shape"};
-    if (is_symbolic) {
+    if (is_vector) {
       static const std::vector<std::string> define_vector_argument_names = {
           "size"};
       std::string new_shape_str = printer_.toString(vop->out()) + "_shape";
@@ -743,6 +749,7 @@ class PythonTranslator : public OptInConstDispatch {
           define_vector_argument_names,
           std::make_tuple(new_shape.size()),
           {new_shape_str});
+      visited_vals_.insert(vop->out());
       printer_.generateKwargsOperation(
           "fd.ops.reshape",
           std::make_tuple(vop->in()),
@@ -750,6 +757,11 @@ class PythonTranslator : public OptInConstDispatch {
           std::make_tuple(new_shape_str),
           {vop->out()});
     } else {
+      // Add CPP values to Fusion Definition if necessary
+      std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
+        OptOutConstDispatch::dispatch(v);
+      });
+      visited_vals_.insert(vop->out());
       printer_.generateKwargsOperation(
           "fd.ops.reshape",
           std::make_tuple(vop->in()),

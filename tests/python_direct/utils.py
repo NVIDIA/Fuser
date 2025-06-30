@@ -32,6 +32,7 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
     try:
         fd_str = fd.__repr__()
         func_name = "nvfuser_fusion"
+        print(fd_str)
         exec(fd_str)
 
         # Execute the python definition that was captured
