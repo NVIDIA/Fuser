@@ -794,7 +794,7 @@ NVF_API TensorView* scan(
     TensorView* in_tv,
     int64_t dim,
     BinaryOpType op_type,
-    Val* init);
+    Val* init = nullptr);
 
 //! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
 NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);

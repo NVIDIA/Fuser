@@ -2498,6 +2498,11 @@ TensorView* scan(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
   auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
 
+  if (init == nullptr) {
+    init = ops::binOpIdentity(op_type, dtype);
+    NVF_ERROR(init != nullptr);
+  }
+
   IrBuilder::createInContainer<ScanOp>(
       in_tv->container(), op_type, init, out_tv, in_tv, dim);
 

@@ -5965,9 +5965,9 @@ std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString();
   ss << "\n";
-  indent(ss, indent_size + 1) << " = scan(" << opType() << ",\n";
-  indent(ss, indent_size + 1) << "        " << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
   indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ")\n";
   return ss.str();
