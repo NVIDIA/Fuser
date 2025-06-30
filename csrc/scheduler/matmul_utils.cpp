@@ -1331,7 +1331,12 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     // See https://github.com/NVIDIA/Fuser/issues/3963
     mparams->use_ldst_matrix =
         problem_shape[(size_t)MatmulDimRole::M] % 16L == 0L &&
-        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0;
+        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0L;
+
+    // Disable stmatrix when warp N is less than 32 bytes since this indicates
+    // we will not be swizzling.
+    mparams->use_ldst_matrix =
+        mparams->use_ldst_matrix && mparams->tile_sizes.warp_tile.n >= 16;
 
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
