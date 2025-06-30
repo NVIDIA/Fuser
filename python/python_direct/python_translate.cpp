@@ -148,6 +148,33 @@ class PythonPrinter {
   }
 
   // Generate a python list of values.
+  template <typename T>
+  std::string toString(
+      const std::vector<std::optional<T>>& vec,
+      bool is_list = true) {
+    if (std::all_of(vec.begin(), vec.end(), [](const std::optional<T>& v) {
+          return !v.has_value();
+        })) {
+      return "";
+    }
+
+    std::stringstream ss;
+    if (is_list) {
+      ss << "[";
+    }
+    for (auto&& [i, val] : enumerate(vec)) {
+      ss << toString(val, /*skip_none=*/false);
+      if (i < vec.size() - 1) {
+        ss << ", ";
+      }
+    }
+    if (is_list) {
+      ss << "]";
+    }
+    return ss.str();
+  }
+
+  // Generate a python list of values.
   template <typename... Ts>
   std::string generateList(std::tuple<Ts...> const& args) {
     if (sizeof...(Ts) == 0) {

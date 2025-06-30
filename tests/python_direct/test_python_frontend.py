@@ -277,8 +277,6 @@ class TestNvFuserFrontend(NVFuserTest):
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-
-"""
     # Test empty symbolic tensors can be reshaped
     # See https://github.com/NVIDIA/Fuser/issues/2362
     def test_empty_reshape(self):
@@ -296,9 +294,7 @@ class TestNvFuserFrontend(NVFuserTest):
             )
             S2 = fd.define_scalar(5, dtype=DataType.Int)
             S3 = fd.define_scalar(0, dtype=DataType.Int)
-            V4 = fd.define_vector([S2, S3], dtype=DataType.Int)
-            T5 = fd.ops.reshape(T0, new_shape=V4)
+            T5 = fd.ops.reshape(T0, new_shape=[S2, S3])
             fd.add_output(T5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
-"""
