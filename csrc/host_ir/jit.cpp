@@ -408,9 +408,6 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags, context, builder);
-  std::cout<< "strides: " << strides.size() << std::endl;
-  std::cout << "concrete_sizes: " << concrete_sizes.size() << std::endl;
-
   return {concrete_sizes, strides};
 }
 
@@ -460,6 +457,186 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
   return {allocation_size_stride.first, allocation_size_stride.second};
 }
 
+void generate_stride_llvm_ir(
+    Val* current_val,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::IRBuilder<>& builder,
+    llvm::Value*& running_stride_product,
+    std::unordered_map<Val*, bool>& boundary_vals,
+    std::vector<llvm::Value*>& strides
+) {
+
+    // Check if the current val is nullptr
+    if (current_val == nullptr) {
+        NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
+        return;
+    }
+
+    // Check if the current val is a boundary val
+    int cur_val_potential_index = mapToInputDomain(boundary_vals, current_val_to_process);
+    if(cur_val_potential_index != -1){
+      // TODO: If the iter domain is a broadcast domain, then we have multiple inputs values pointing to the same valgroup
+      NVF_ERROR(!boundary_vals[cur_val_potential_index]->as<IterDomain>()->isBroadcast(), "LLVM Lowering Error: Broadcast domain is not supported in stride inference");
+      if(val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride == nullptr){
+        val2stride_map[boundary_vals[cur_val_potential_index]].llvm_stride = running_stride_product;
+        running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[cur_val_potential_index]].llvm_extent, "stride_root_val");
+      }
+      return;
+    }
+
+    // Memoization: Already processed
+    if (val2stride_map.find(current_val_to_process) != val2stride_map.end() && val2stride_map[current_val_to_process].llvm_stride != nullptr) {
+        return;
+    }
+
+    auto* def_expr = current_val_to_process->definition();
+
+    // Check if the current val is missing
+    if (def_expr == nullptr) {
+        if (val2stride_map.find(current_val_to_process) == val2stride_map.end() || val2stride_map[current_val_to_process].llvm_stride == nullptr) {
+            NVF_ERROR(false, "LLVM Lowering Error: StrideInfo not pre-populated for root Val: " + current_val_to_process->toString() + ". Its stride will be unknown.");
+        }
+        return;
+    }
+
+    std::string op_type = def_expr->getOpString();
+    // For each merge op, we need to check if it is valid split, we don't want to merge two values that has gaps in between
+    if (op_type == "Merge") {
+        auto* merge_expr = def_expr->as<Merge>();
+        auto* input_inner_val = merge_expr->inner()->as<Val>();
+        auto* input_outer_val = merge_expr->outer()->as<Val>();
+        int input_inner_potential_index = mapToInputDomain(boundary_vals, input_inner_val);
+        int input_outer_potential_index = mapToInputDomain(boundary_vals, input_outer_val);
+        if(!verify(merge_expr->as<Expr>(), boundary_vals, graph)){
+          NVF_ERROR(false, "LLVM Lowering Error: Invalid merge expr: " + merge_expr->toString());
+        }
+        // Check if the inner val is a boundary val
+        if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_inner_potential_index]].llvm_extent, "stride_merge_inner_val");
+        }
+        else if(input_inner_potential_index != -1 && val2stride_map[boundary_vals[input_inner_potential_index]].llvm_stride != nullptr){
+          return;
+        }
+        else{
+          generate_stride_llvm_ir(input_inner_val, val2stride_map, builder, boundary_vals, running_stride_product, graph);
+        }
+
+        // Check if the outer val is a boundary val
+        if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_outer_potential_index]].llvm_extent, "stride_merge_outer_val");
+        }
+        else if(input_outer_potential_index != -1 && val2stride_map[boundary_vals[input_outer_potential_index]].llvm_stride != nullptr){
+          // case where the outer val is already computed in previous dfs calls
+          return;
+        }
+        else{
+          generate_stride_llvm_ir(input_outer_val, val2stride_map, builder, boundary_vals, running_stride_product, graph);
+        }
+        
+        // Extent of merged domain
+        if(val2stride_map[input_outer_val].llvm_extent == nullptr || val2stride_map[input_inner_val].llvm_extent == nullptr || val2stride_map[current_val_to_process].llvm_extent != nullptr){
+          return;
+        }
+        else{
+          val2stride_map[current_val_to_process].llvm_extent = builder.CreateMul(
+              val2stride_map[input_outer_val].llvm_extent,
+              val2stride_map[input_inner_val].llvm_extent,
+              current_val_to_process->toString() + "_merged_extent"
+          );
+        }
+
+    } else if (op_type == "Split") {
+        auto* split_expr = def_expr->as<Split>();
+        auto* input_val = split_expr->in()->as<Val>();
+        auto* output_inner_val = split_expr->inner()->as<Val>();
+        auto* output_outer_val = split_expr->outer()->as<Val>();
+        int input_val_potential_index = mapToInputDomain(boundary_vals, input_val);
+
+        if(input_val_potential_index != -1 && val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride == nullptr){
+          val2stride_map[boundary_vals[input_val_potential_index]].llvm_stride = running_stride_product;
+          running_stride_product = builder.CreateMul(running_stride_product, val2stride_map[boundary_vals[input_val_potential_index]].llvm_extent, "stride_split_input_val");
+          return;
+        }
+        else{
+          generate_stride_llvm_ir(input_val, val2stride_map, builder, boundary_vals, running_stride_product, graph);
+        }
+
+        int64_t split_factor = stoi(split_expr->factor()->toString());
+        if(split_expr->innerSplit()){
+          if(split_expr->factor()->isConstInt()){
+            val2stride_map[output_inner_val].llvm_extent = builder.getInt64(split_factor);
+          }
+          else{
+            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
+              val2stride_map[output_inner_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            }
+            else{
+              NVF_ERROR(false, "LLVM Lowering Error: Inner split factor is not a constant and not found in val2stride_map");
+              return;
+            }
+          }
+          if(val2stride_map[input_val].llvm_extent == nullptr || val2stride_map[output_inner_val].llvm_extent == nullptr || val2stride_map[output_outer_val].llvm_extent != nullptr){
+            return;
+          }
+          val2stride_map[output_outer_val].llvm_extent = builder.CreateUDiv(
+            val2stride_map[input_val].llvm_extent,
+            val2stride_map[output_inner_val].llvm_extent,
+            output_outer_val->toString() + "_split_extent"
+          );
+        }
+        else{
+          if(split_expr->factor()->isConstInt()){
+            val2stride_map[output_outer_val].llvm_extent = builder.getInt64(split_factor);
+          }
+          else{
+            if(val2stride_map.find(split_expr->factor()) != val2stride_map.end()){
+              val2stride_map[output_outer_val].llvm_extent = val2stride_map[split_expr->factor()].llvm_extent;
+            }
+            else{
+              NVF_ERROR(false, "LLVM Lowering Error: Outer split factor is not a constant and not found in val2stride_map");
+              return;
+            }
+          }
+          if(val2stride_map[input_val].llvm_extent == nullptr || val2stride_map[output_inner_val].llvm_extent == nullptr || val2stride_map[output_outer_val].llvm_extent != nullptr){
+            return;
+          }
+          val2stride_map[output_inner_val].llvm_extent = builder.CreateUDiv(
+            val2stride_map[input_val].llvm_extent,
+            val2stride_map[output_outer_val].llvm_extent,
+            output_inner_val->toString() + "_split_extent"
+          );
+        }
+
+    } else { // Fallback for other ops (e.g., simple unary pass-through)
+        NVF_ERROR(false, "LLVM Lowering Error: Unhandled op_type '" + op_type + "' for Val " + current_val_to_process->toString());
+    }
+}
+std::vector<llvm::Value*> inferTensorStrides(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  std::vector<llvm::Value*> strides;
+   llvm::Value* running_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+   std::unordered_map<Val*, bool> boundaryValVisited;
+   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+   for(auto* val : logical_domain) {
+    boundaryValVisited[val] = false;
+   }
+   for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
+      auto iter_domain = *it;
+      if(iter_domain->getParallelType() == ParallelType::DIDx) {
+          continue;
+      }
+      generate_stride_llvm_ir(iter_domain->as<Val>(), val2llvmMap, builder, running_stride, boundaryValVisited, strides);
+    }
+  return strides;
+}
+
+
+
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> compileOutputTensorView(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
@@ -470,8 +647,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> compileOutputTen
   if (alias_info.type != AllocationType::New) {
     return {std::vector<llvm::Value*>(), std::vector<llvm::Value*>()};
   }
+
   return inferTensorShapesNonAlias(tv, val2llvmMap, context, builder);
 }
+
+
 
 
 void compileNamedScalar(
@@ -587,10 +767,10 @@ void processTensorViewsLLVM(
   
   // Get function parameters
   llvm::Value* input_tensor_array = func->getArg(0);
-  llvm::Value* num_inputs_val = func->getArg(1);
+  // llvm::Value* num_inputs_val = func->getArg(1);
   llvm::Value* output_tensor_array = func->getArg(2);
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  std::cout << "num_inputs val: " << num_inputs_val << std::endl;
+  // std::cout << "num_inputs val: " << num_inputs_val << std::endl;
   // setup input tensor views
   size_t tensor_idx = 0;
   for(auto* input : container->inputs()) {
@@ -1031,10 +1211,10 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   // Register tensor size and stride extraction functions
   void* tensor_size_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        std::cout << "tensor_size_func_ptr called with tensor_ptr: " 
-        << tensor_ptr << ", dim: " << dim 
-        << " tensor_ptr->size(dim): " << tensor_ptr->size(dim)
-        << std::endl;
+        // std::cout << "tensor_size_func_ptr called with tensor_ptr: " 
+        // << tensor_ptr << ", dim: " << dim 
+        // << " tensor_ptr->size(dim): " << tensor_ptr->size(dim)
+        // << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1043,10 +1223,10 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 
   void* tensor_stride_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        std::cout << "tensor_stride_func_ptr called with tensor_ptr: " 
-        << tensor_ptr << ", dim: " << dim 
-        << " tensor_ptr->stride(dim): " << tensor_ptr->stride(dim)
-        << std::endl;
+        // std::cout << "tensor_stride_func_ptr called with tensor_ptr: " 
+        // << tensor_ptr << ", dim: " << dim 
+        // << " tensor_ptr->stride(dim): " << tensor_ptr->stride(dim)
+        // << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1140,8 +1320,7 @@ std::vector<at::Tensor> HostIrJit::runFullGraph(
   // process input values, converting IValue to PolymorphicValue
   for(auto* input : container->inputs()) {
     if (input->isA<TensorView>()) {
-      auto tensor_view = input->as<TensorView>();
-      auto tensor = val_to_PValue[input].as<at::Tensor>();
+      auto tensor = val_to_PValue.at(input).as<at::Tensor>();
       inputs.push_back(tensor);
     }
   }
