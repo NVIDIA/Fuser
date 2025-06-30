@@ -82,14 +82,14 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 NVF_API ScaledTensorView scaled_mm(
     TensorView* mat1,
     TensorView* mat2,
-    TensorView* scale1 = nullptr,
-    TensorView* scale2 = nullptr,
+    TensorView* scale1,
+    TensorView* scale2,
     TensorView* alpha = nullptr,
     TensorView* bias = nullptr,
     TensorView* beta = nullptr,
-    std::optional<DataType> dtype = std::nullopt,
+    DataType dtype = DataType::Null,
     int64_t out_block_scale_size = 0,
-    std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
+    DataType block_scaling_factor_dtype = DataType::Null,
     bool out_gamma = false);
 
 // Scaled Dot Product Flash Attention Forward Result

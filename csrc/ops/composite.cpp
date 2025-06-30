@@ -494,14 +494,6 @@ ScaledTensorView scaled_mm(
     int64_t out_block_scale_size,
     std::optional<DataType> block_scaling_factor_dtype,
     bool out_gamma) {
-  bool has_scale = scale1 != nullptr;
-  NVF_CHECK(
-      has_scale == (scale2 != nullptr),
-      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
-      has_scale ? "true" : "false",
-      " and scale2 : ",
-      scale2 != nullptr ? "true" : "false");
-
   bool has_bias = bias != nullptr;
   NVF_CHECK(
       has_bias == (beta != nullptr),
@@ -514,7 +506,7 @@ ScaledTensorView scaled_mm(
   ScaledTensorView scaled_out;
   
   // TODO: check for out dtype and block/gamma scale option
-  scaled_out.mat = newForMatmul(mat1, mat2);
+  scaled_out.tv = newForMatmul(mat1, mat2);
   //     dtype,
   //     out_block_scale_size,
   //     block_scaling_factor_dtype,
@@ -525,7 +517,7 @@ ScaledTensorView scaled_mm(
   // subject to change.
 
   IrBuilder::create<ScaledMmaOp>(
-      scaled_out.mat,
+      scaled_out.tv,
       scaled_out.block_scaling_factor,
       scaled_out.global_scaling_factor,
       mat1,
