@@ -777,19 +777,6 @@ NVF_API ScaledTensorView grouped_mm(
     DataType block_scaling_factor_dtype = DataType::Null,
     bool out_gamma = false);
 
-NVF_API ScaledTensorView scaled_mm(
-    TensorView* mat1,
-    TensorView* mat2,
-    TensorView* scale1 = nullptr,
-    TensorView* scale2 = nullptr,
-    TensorView* alpha = nullptr,
-    TensorView* bias = nullptr,
-    TensorView* beta = nullptr,
-    std::optional<DataType> dtype = std::nullopt,
-    int64_t out_block_scale_size = 0,
-    std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
-    bool out_gamma = false);
-
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!
 //! Returns the k largest (if largest=true) or smallest (if largest=false)
