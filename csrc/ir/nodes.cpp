@@ -6059,4 +6059,135 @@ IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
 
+ScaledMmaOp::ScaledMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
+    Val* mat1,
+    Val* mat2,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  addOutput(out_mat);
+  if (out_scale != nullptr) {
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
+  addInput(mat1);
+  addInput(mat2);
+  NVF_ERROR(scale1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(scale2->isA<TensorView>(), "Second input must be a TensorView");
+  addInput(scale1);
+  addInput(scale2);
+
+  int64_t offset = 4;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset++;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset++;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset++;
+  }
+
+  // Store the offsets as attributes
+  addAttribute(alpha_offset);
+  addAttribute(bias_offset);
+  addAttribute(beta_offset);
+}
+
+std::string ScaledMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "ScaledMmaOp(\n";
+  ++indent_size;
+  indent(ss, indent_size) << "out: " << out()->toString() << "\n";
+  if (outScale() != nullptr) {
+    indent(ss, indent_size) << "out_scale: " << outScale()->toString() << "\n";
+  }
+  if (outGamma() != nullptr) {
+    indent(ss, indent_size) << "out_gamma: " << outGamma()->toString() << "\n";
+  }
+  indent(ss, indent_size) << "mat1: " << matrix1()->toString() << "\n";
+  indent(ss, indent_size) << "mat2: " << matrix2()->toString() << "\n";
+  indent(ss, indent_size) << "scale1: " << scale1()->toString() << "\n";
+  indent(ss, indent_size) << "scale2: " << scale2()->toString() << "\n";
+  if (hasAlpha()) {
+    indent(ss, indent_size) << "alpha: " << alpha()->toString() << "\n";
+  }
+  if (hasBias()) {
+    indent(ss, indent_size) << "bias: " << bias()->toString() << "\n";
+  }
+  if (hasBeta()) {
+    indent(ss, indent_size) << "beta: " << beta()->toString() << "\n";
+  }
+  --indent_size;
+  indent(ss, indent_size) << ")";
+  return ss.str();
+}
+
+std::string ScaledMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // For now, we'll use a fallback implementation
+  // This should be replaced with actual scaled matrix multiplication logic
+  NVF_THROW("ScaledMmaOp evaluation not implemented yet");
+}
+
+IterDomain* ScaledMmaOp::getKDimOfMatrix1() const {
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix1()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* ScaledMmaOp::getKDimOfMatrix2() const {
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix2()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 2);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
+
 } // namespace nvfuser

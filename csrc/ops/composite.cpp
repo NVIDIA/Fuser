@@ -482,6 +482,62 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   return out;
 }
 
+ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
+    std::optional<DataType> dtype,
+    int64_t out_block_scale_size,
+    std::optional<DataType> block_scaling_factor_dtype,
+    bool out_gamma) {
+  bool has_scale = scale1 != nullptr;
+  NVF_CHECK(
+      has_scale == (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
+      has_scale ? "true" : "false",
+      " and scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      has_bias == (beta != nullptr),
+      "bias and beta needs to be non-null or both null, got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+
+  // TODO: check for out dtype and block/gamma scale option
+  ScaledTensorView scaled_out;
+  
+  // TODO: check for out dtype and block/gamma scale option
+  scaled_out.mat = newForMatmul(mat1, mat2);
+  //     dtype,
+  //     out_block_scale_size,
+  //     block_scaling_factor_dtype,
+  //     out_gamma);
+
+  // NOTE: we don't sanity check on alpha, bias and beta for now, because the
+  // semantics of alpha, bias and beta are defined by fallback path and is
+  // subject to change.
+
+  IrBuilder::create<ScaledMmaOp>(
+      scaled_out.mat,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
+  return scaled_out;
+}
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,

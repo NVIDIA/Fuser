@@ -3094,8 +3094,8 @@ class ScaledMmaOp : public Expr {
       Val* out_gamma,
       Val* mat1,
       Val* mat2,
-      Val* scale1 = nullptr,
-      Val* scale2 = nullptr,
+      Val* scale1,
+      Val* scale2,
       Val* alpha = nullptr,
       Val* bias = nullptr,
       Val* beta = nullptr);

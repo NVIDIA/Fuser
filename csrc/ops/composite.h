@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <visibility.h>
+#include <ops/arith.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -77,6 +78,19 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // A[*, M, K] / A[K] and B[*, K, N] / B[K], but the tensors may have different
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
+
+NVF_API ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1 = nullptr,
+    TensorView* scale2 = nullptr,
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
+    std::optional<DataType> dtype = std::nullopt,
+    int64_t out_block_scale_size = 0,
+    std::optional<DataType> block_scaling_factor_dtype = std::nullopt,
+    bool out_gamma = false);
 
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {
