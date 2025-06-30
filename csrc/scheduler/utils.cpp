@@ -3092,5 +3092,12 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
   return tv;
 }
 
+bool isSymbolicTensor(const TensorView* tv) {
+  return std::any_of(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      [](IterDomain* id) { return !id->extent()->isConst(); });
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser

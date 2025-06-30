@@ -855,6 +855,7 @@ void KernelExecutor::computeArgs(
               ? buffer_info.shape_info.logical_strides
               : buffer_info.shape_info.allocation_strides,
           idx_type,
+          getLastDimAdjustment(buffer_info.tv->dtype()),
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
@@ -911,7 +912,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         expected_dynamic_smem_size);
   }
   NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      getStaticSmemSize() + dynamic_smem_size <= device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
       dynamic_smem_size,

@@ -4149,6 +4149,9 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4199,6 +4202,9 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4250,6 +4256,9 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4315,6 +4324,9 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4384,6 +4396,9 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4468,6 +4483,9 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4559,6 +4577,9 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
@@ -4611,6 +4632,9 @@ TEST_P(MLPBenchmarkTest, BatchGEMM) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  // Disable NVRTC caching so that we can reliably observe ptxas output
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
   CompileParams compile_opts;
   compile_opts.enable_ptxas_verbose = true;
   captureStdout();
