@@ -490,9 +490,9 @@ ScaledTensorView scaled_mm(
     TensorView* alpha,
     TensorView* bias,
     TensorView* beta,
-    std::optional<DataType> dtype,
+    DataType dtype,
     int64_t out_block_scale_size,
-    std::optional<DataType> block_scaling_factor_dtype,
+    DataType block_scaling_factor_dtype,
     bool out_gamma) {
   bool has_bias = bias != nullptr;
   NVF_CHECK(

@@ -3479,7 +3479,19 @@ struct ScaledMmaOpRecord : RecordFunctor {
     }
   }
 
- private:
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::ScaledOp,
+        serde::CreateScaledOp(
+            builder,
+            nvfuser::toUnderlying(dtype_),
+            out_block_scale_size_,
+            nvfuser::toUnderlying(out_block_scale_dtype_),
+            out_gamma_)
+            .Union()};
+  };
+
   PrimDataType dtype_;
   int64_t out_block_scale_size_;
   PrimDataType out_block_scale_dtype_;

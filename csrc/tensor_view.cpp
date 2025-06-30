@@ -779,6 +779,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   NVF_ERROR(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
   NVF_CHECK(definition() != nullptr, "Definition is a nullptr");
+  // TODO: support ScaledMmaOp
   NVF_CHECK(
       (definition()
            ->isStrictlyOneOf<
