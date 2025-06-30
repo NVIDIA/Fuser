@@ -75,7 +75,7 @@ void dimCheck(
     llvm::Value* ndim_arg,
     llvm::Value* ndim_val,
     llvm::IRBuilder<>& builder) {
-    auto mod = builder.GetInsertBlock()->getParent()->getParent();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::LLVMContext& context = mod->getContext();
   llvm::Value* cmp = builder.CreateICmpEQ(ndim_arg, ndim_val, "ndim_check");
   llvm::Function* trap_func =
