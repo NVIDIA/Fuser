@@ -8,8 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
-#include <visibility.h>
 #include <ops/arith.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>

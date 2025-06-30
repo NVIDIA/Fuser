@@ -3417,9 +3417,9 @@ struct ScaledMmaOpRecord : RecordFunctor {
     }
     auto other_scaled_mma = static_cast<const ScaledMmaOpRecord&>(other);
     return (dtype_ == other_scaled_mma.dtype_) &&
-           (out_block_scale_size_ == other_scaled_mma.out_block_scale_size_) &&
-           (out_block_scale_dtype_ == other_scaled_mma.out_block_scale_dtype_) &&
-           (out_gamma_ == other_scaled_mma.out_gamma_);
+        (out_block_scale_size_ == other_scaled_mma.out_block_scale_size_) &&
+        (out_block_scale_dtype_ == other_scaled_mma.out_block_scale_dtype_) &&
+        (out_gamma_ == other_scaled_mma.out_gamma_);
   }
 
   void operator()(FusionState& fd) final {
@@ -3471,8 +3471,7 @@ struct ScaledMmaOpRecord : RecordFunctor {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
     os << ", out_block_scale_size=" << out_block_scale_size_;
-    os << ", out_block_scale_dtype="
-       << dtypeToPyString(out_block_scale_dtype_);
+    os << ", out_block_scale_dtype=" << dtypeToPyString(out_block_scale_dtype_);
     os << ", out_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";

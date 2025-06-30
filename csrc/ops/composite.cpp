@@ -504,7 +504,7 @@ ScaledTensorView scaled_mm(
 
   // TODO: check for out dtype and block/gamma scale option
   ScaledTensorView scaled_out;
-  
+
   // TODO: check for out dtype and block/gamma scale option
   scaled_out.tv = newForMatmul(mat1, mat2);
   //     dtype,

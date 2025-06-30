@@ -1281,8 +1281,7 @@ class FusionTranslator : public OptInConstDispatch {
              : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
         {fd_->recordingState(output()),
          out_block_scale_tv != nullptr
-             ? fd_->recordingState(
-                   map_val_to_fd_index_.at(out_block_scale_tv))
+             ? fd_->recordingState(map_val_to_fd_index_.at(out_block_scale_tv))
              : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
          out_gamma_tv != nullptr
              ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
