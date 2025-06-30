@@ -58,7 +58,7 @@ struct HostIrJit::LlvmJitImpl {
 // Helper function to check for and throw errors from LLVM
 void throwIfError(llvm::Error&& err) {
   if (err) {
-    NVF_THROW(llvm::toString(err));
+    NVF_THROW(llvm::toString(std::move(err)));
   }
 }
 
@@ -138,9 +138,9 @@ void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
   int64_t ndim = std::ssize(logical_domain);
   llvm::Value* ndim_val = llvm::ConstantInt::get(int64_type, ndim);
   // Check shape ndim
-  dimCheck(shape_ndim_arg, ndim_val, builder, mod);
+  dimCheck(shape_ndim_arg, ndim_val, builder);
   // Check strides ndim
-  dimCheck(strides_ndim_arg, shape_ndim_arg, builder, mod);
+  dimCheck(strides_ndim_arg, shape_ndim_arg, builder);
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -155,7 +155,7 @@ void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
   llvm::Function* at_empty_strided_cuda_func =
-      mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
+      mod->getFunction(kHostIrJitAtEmptyStridedCudaFuncName);
   if (at_empty_strided_cuda_func == nullptr) {
     llvm::FunctionType* at_empty_strided_cuda_func_type =
         llvm::FunctionType::get(
@@ -171,7 +171,7 @@ void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
     at_empty_strided_cuda_func = llvm::Function::Create(
         at_empty_strided_cuda_func_type,
         llvm::Function::ExternalLinkage,
-        kHostIrJitEmptyStridedCudaFuncName,
+        kHostIrJitAtEmptyStridedCudaFuncName,
         mod);
   }
 
@@ -291,7 +291,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   auto at_empty_strided_cuda_addr =
       llvm::orc::ExecutorAddr::fromPtr(at_empty_strided_cuda_func_ptr);
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
+  symbolMap[mangler(kHostIrJitAtEmptyStridedCudaFuncName)] =
       llvm::orc::ExecutorSymbolDef(
           at_empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
 
