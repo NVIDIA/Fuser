@@ -30,6 +30,11 @@ class PythonPrinter {
     return b ? "True" : "False";
   }
 
+  // Generate a python string for an size_t value.
+  std::string toString(size_t i) {
+    return std::to_string(i);
+  }
+
   // Generate a python string for an int64_t value.
   std::string toString(int64_t i) {
     return std::to_string(i);
@@ -60,6 +65,11 @@ class PythonPrinter {
     }
   }
 
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
+
   // Generate a python string for a Datatype.
   std::string toString(DataType dtype) {
     return dtypeToPyString(std::get<PrimDataType>(dtype.type));
@@ -75,6 +85,8 @@ class PythonPrinter {
       return toString(pv.as<std::complex<double>>());
     } else if (pv.is<double>()) {
       return toString(pv.as<double>());
+    } else if (pv.is<std::monostate>()) {
+      return "None";
     } else {
       NVF_THROW("Unsupported PolymorphicValue type");
     }
@@ -199,6 +211,18 @@ class PythonPrinter {
         << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
+  template <typename... arg_types, typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::tuple<arg_types...>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::string& output_name) {
+    std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
+    os_ << kTab << output_name << " = " << op_name << "(" << generateList(args)
+        << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
   // Generate a python definition for a FusionDefinition.
   void generateFusionDefinition() {
     os_ << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
@@ -256,13 +280,89 @@ class PythonTranslator : public OptInConstDispatch {
     return false;
   }
 
+  // The new shape for view operation can be dynamic. Check that all dynamic
+  // scalar dependencies are handled before the ViewOp.
+  bool checkViewShapeDependency(const ViewOp* vop) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        vop->out()->as<TensorView>()->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return std::all_of(
+        logical_domain_extents.begin(),
+        logical_domain_extents.end(),
+        [&](Val* v) {
+          std::cout << "Check: " << v->toString() << std::endl;
+          return v->definition() == nullptr || visited_vals_.count(v) > 0;
+        });
+  }
+
+  // Gather the expressions necessary to create a scalar value.
+  std::vector<Expr*> gatherScalarExpressions(Val* v) {
+    NVF_ERROR(v != nullptr);
+    NVF_ERROR(v->isScalar());
+
+    // short-circuit: v does not have a definition.
+    if (v->definition() == nullptr) {
+      return {};
+    }
+
+    std::vector<Expr*> expression_chain;
+    std::unordered_set<Expr*> visited;
+    std::vector<Expr*> to_visit = {v->definition()};
+    while (!to_visit.empty()) {
+      Expr* e = to_visit.back();
+      to_visit.pop_back();
+
+      expression_chain.push_back(e);
+      visited.insert(e);
+
+      for (Val* input : e->inputs()) {
+        // short-circuit: input does not have a definition.
+        if (input->definition() == nullptr) {
+          continue;
+        }
+
+        // short-circuit: input definition is already visited.
+        if (visited.count(input->definition()) > 0) {
+          continue;
+        }
+
+        to_visit.push_back(input->definition());
+      }
+    }
+    return expression_chain;
+  }
+
+  // Gather the scalar expressions necessary to create the logical domain for a
+  // TensorView.
+  std::vector<Expr*> gatherScalarExpressions(TensorView* tv) {
+    NVF_ERROR(tv != nullptr);
+    std::vector<Expr*> logical_domain_expressions;
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    for (IterDomain* id : logical_out_domain) {
+      std::vector<Expr*> extent_definitions =
+          gatherScalarExpressions(id->getMaybeExpandedExtent());
+      logical_domain_expressions.insert(
+          logical_domain_expressions.end(),
+          extent_definitions.begin(),
+          extent_definitions.end());
+    }
+    return logical_domain_expressions;
+  }
+
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
-    // TODO Add check_view_dependency
-    return std::all_of(
-        e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return visited_vals_.count(v) > 0;
-        });
+    bool check_view_dependency =
+        !e->isA<ViewOp>() || checkViewShapeDependency(e->as<ViewOp>());
+    return check_view_dependency &&
+        std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
+             return visited_vals_.count(v) > 0;
+           });
   }
 
   void translate() {
@@ -278,8 +378,18 @@ class PythonTranslator : public OptInConstDispatch {
     std::deque<nvfuser::Expr*> to_visit(
         fusion_exprs.begin(), fusion_exprs.end());
 
-    // TODO: Scalar expressions are not handled by Fusion::exprs, so gather them
+    // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
+    for (Expr* e : to_visit) {
+      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+        std::vector<Expr*> extent_definitions =
+            gatherScalarExpressions(e->output(0)->as<TensorView>());
+        to_visit.insert(
+            to_visit.end(),
+            extent_definitions.begin(),
+            extent_definitions.end());
+      }
+    }
 
     // Topological search of Fusion expressions
     size_t skip_count = 0;
@@ -360,6 +470,35 @@ class PythonTranslator : public OptInConstDispatch {
   // exist and have a definition. It can be a fusion input, a constant, or a
   // tensor's extent.
 
+  // Check if the value is a scalar that is used in a reshape operation.
+  // Dynamic scalars are cast to DataType::Index before being used in reshape
+  // operation.
+  bool isReshapeScalar(const Val* v) {
+    if (!v->isSymbolic()) {
+      return false;
+    }
+
+    if (v->uses().size() != 1) {
+      return false;
+    }
+
+    Expr* use = *v->uses().begin();
+    if (use->isA<ViewOp>()) {
+      return true;
+    }
+
+    if (!use->isA<UnaryOp>()) {
+      return false;
+    }
+
+    UnaryOp* uop = use->as<UnaryOp>();
+    if (uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return false;
+    }
+
+    return uop->out()->uses().empty();
+  }
+
   // Add scalar value to Fusion Definition
   void handle(const Val* v) final {
     NVF_ERROR(v != nullptr);
@@ -372,6 +511,11 @@ class PythonTranslator : public OptInConstDispatch {
       return;
     }
     visited_vals_.insert(v);
+
+    // short-circuit: value is a reshape scalar
+    if (isReshapeScalar(v)) {
+      return;
+    }
 
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
@@ -426,6 +570,36 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
+  // Utility functions
+
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  std::vector<Val*> getShape(TensorView* tv) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return logical_domain_extents;
+  }
+
+  // Find integer index corresponding with reduction iterDomains
+  std::vector<int64_t> getReductionAxes(TensorView* tv) {
+    std::vector<int64_t> axes;
+    const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
+    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+      if (logical_domain.at(dim)->isReduction()) {
+        axes.push_back(dim);
+      }
+    }
+    return axes;
+  }
+
+  // =================================================================================
   // Handle add_output variants
 
   // Add Tensor output to FusionDefinition
@@ -457,6 +631,11 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
     visited_vals_.insert(uop->out());
 
+    // short-circuit: output of cast op is not used
+    if (uop->out()->uses().empty() && !uop->out()->isFusionOutput()) {
+      return;
+    }
+
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
     DataType scalar_dtype = uop->out()->dtype();
@@ -484,18 +663,6 @@ class PythonTranslator : public OptInConstDispatch {
         "fd.ops." + nvfuser::python::toString(bop),
         {bop->lhs(), bop->rhs()},
         {bop->out()});
-  }
-
-  // Find integer index corresponding with reduction iterDomains
-  std::vector<int64_t> getReductionAxes(TensorView* tv) {
-    std::vector<int64_t> axes;
-    const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
-    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
-      if (logical_domain.at(dim)->isReduction()) {
-        axes.push_back(dim);
-      }
-    }
-    return axes;
   }
 
   // Map ReductionOp to python frontend
@@ -544,6 +711,51 @@ class PythonTranslator : public OptInConstDispatch {
     } else {
       printer_.generateOperation(
           "fd.ops.linear", {lop->inA(), lop->inB()}, {lop->out()});
+    }
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    NVF_ERROR(vop != nullptr);
+    visited_vals_.insert(vop->out());
+
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    std::vector<Val*> new_shape = getShape(out_tv);
+
+    std::cout << out_tv->toString() << std::endl;
+
+    bool is_symbolic =
+        std::all_of(new_shape.begin(), new_shape.end(), [](Val* v) {
+          return v->isSymbolic();
+        });
+
+    static const std::vector<std::string> reshape_argument_names = {
+        "new_shape"};
+    if (is_symbolic) {
+      static const std::vector<std::string> define_vector_argument_names = {
+          "size"};
+      std::string new_shape_str = printer_.toString(vop->out()) + "_shape";
+
+      printer_.generateKwargsOperation(
+          "fd.define_vector",
+          std::tuple<>{},
+          define_vector_argument_names,
+          std::make_tuple(new_shape.size()),
+          {new_shape_str});
+      printer_.generateKwargsOperation(
+          "fd.ops.reshape",
+          std::make_tuple(vop->in()),
+          reshape_argument_names,
+          std::make_tuple(new_shape_str),
+          {vop->out()});
+    } else {
+      printer_.generateKwargsOperation(
+          "fd.ops.reshape",
+          std::make_tuple(vop->in()),
+          reshape_argument_names,
+          std::make_tuple(new_shape),
+          {vop->out()});
     }
   }
 
