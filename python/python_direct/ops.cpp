@@ -1657,6 +1657,27 @@ Returns
 TensorView
     The squeezed tensor.
 )",
+          py::return_value_policy::reference)
+      .def(
+          "broadcast",
+          [](TensorView* arg, std::vector<bool>& is_broadcast_dim)
+              -> TensorView* { return broadcast(arg, is_broadcast_dim); },
+          py::arg("arg"),
+          py::arg("is_broadcast_dim"),
+          R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
           py::return_value_policy::reference);
 }
 
