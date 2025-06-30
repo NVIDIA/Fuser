@@ -778,6 +778,27 @@ class PythonTranslator : public OptInConstDispatch {
         {vop->out()});
   }
 
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    std::vector<Val*> shape = getShape(out_tv);
+
+    static const std::vector<std::string> expand_argument_names = {"shape"};
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(
+        shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+    visited_vals_.insert(eop->out());
+    printer_.generateKwargsOperation(
+        "fd.ops.expand",
+        std::make_tuple(eop->in()),
+        expand_argument_names,
+        std::make_tuple(shape),
+        {eop->out()});
+  }
+
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
