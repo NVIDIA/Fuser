@@ -15,11 +15,23 @@
 #include <ops/all_ops.h>
 #include <type.h>
 #include <utils.h>
+
 #include <ranges>
+#include <type_traits>
 
 namespace nvfuser::python {
 
 namespace {
+
+// Check if a type is an optional via type_traits
+template <typename T>
+struct is_optional : std::false_type {};
+
+template <typename T>
+struct is_optional<std::optional<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
 
 class PythonPrinter {
  public:
@@ -136,34 +148,11 @@ class PythonPrinter {
       ss << "[";
     }
     for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val);
-      if (i < vec.size() - 1) {
-        ss << ", ";
+      if constexpr (is_optional_v<T>) {
+        ss << toString(val, /*skip_none=*/false);
+      } else {
+        ss << toString(val);
       }
-    }
-    if (is_list) {
-      ss << "]";
-    }
-    return ss.str();
-  }
-
-  // Generate a python list of values.
-  template <typename T>
-  std::string toString(
-      const std::vector<std::optional<T>>& vec,
-      bool is_list = true) {
-    if (std::all_of(vec.begin(), vec.end(), [](const std::optional<T>& v) {
-          return !v.has_value();
-        })) {
-      return "";
-    }
-
-    std::stringstream ss;
-    if (is_list) {
-      ss << "[";
-    }
-    for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val, /*skip_none=*/false);
       if (i < vec.size() - 1) {
         ss << ", ";
       }
