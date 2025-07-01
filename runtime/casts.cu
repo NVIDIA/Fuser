@@ -14,6 +14,9 @@
     return result;                                 \
   }
 
+// clang-format off
+// Disable clang-format because it tries to put the _Pragma("unroll")
+// and the for loop on the same line, which doesn't make sense.
 #define DEFINE_CAST_VECN_WITH_VEC2(name, from_type, to_type)        \
   template <int n, int align>                                       \
   __device__ __inline__ Array<to_type, n, align> name(              \
@@ -38,11 +41,13 @@
   __device__ __inline__ Array<to_type, n, align> name(   \
       const Array<from_type, n, align>& input) {         \
     Array<to_type, n, align> result;                     \
-    _Pragma("unroll") for (int i = 0; i < n; i += 1) {   \
+    _Pragma("unroll")                                    \
+    for (int i = 0; i < n; i ++) {                       \
       result[i] = name(input[i]);                        \
     }                                                    \
     return result;                                       \
   }
+// clang-format on
 
 __device__ __inline__ __half __float2half(const float f) {
   __half val;
