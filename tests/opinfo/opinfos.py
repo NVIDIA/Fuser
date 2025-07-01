@@ -1311,6 +1311,7 @@ full_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(full_opinfo)
 
