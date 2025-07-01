@@ -782,13 +782,8 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
-  TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (expr_evaluator_.isKnown(tv)) {
-    return;
-  }
-  auto tensor = jit_->allocate(
-      allocate);
-  expr_evaluator_.bind(tv, tensor);
+  auto tensor = jit_->allocate(allocate);
+  expr_evaluator_.bind(allocate->buffer(), tensor);
 }
 #else
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
