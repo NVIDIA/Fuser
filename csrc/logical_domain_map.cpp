@@ -240,8 +240,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   // For ScaledMatmulOp, use the corresponding mapped input iterdomains.
-  if (ScaleMatmulOp* op =
-          dynamic_cast<ScaledMatmulOp*>(consumer_tv_->definition())) {
+  if (ScaledMmaOp* op =
+          dynamic_cast<ScaledMmaOp*>(consumer_tv_->definition())) {
     if (consumer_tv_ == op->out()) {
       if (producer_tv_ == op->matrix1() || producer_tv_ == op->matrix2()) {
         auto out_size = consumer_root.size();
