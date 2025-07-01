@@ -239,6 +239,39 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
+  // For ScaledMatmulOp, use the corresponding mapped input iterdomains.
+  if (ScaleMatmulOp* op =
+          dynamic_cast<ScaledMatmulOp*>(consumer_tv_->definition())) {
+    if (consumer_tv_ == op->out()) {
+      if (producer_tv_ == op->matrix1() || producer_tv_ == op->matrix2()) {
+        auto out_size = consumer_root.size();
+        // Check if the producer is lhs/rhs input
+        int64_t input_position = (producer_tv_ == op->matrix1()) ? 0 : 1;
+        // For MatmulOp, the input iterdomains at a given index do not
+        // necessarily map to the output iterdomain at that index
+        // `mapMatmulOpIterDomains` outputs a vector of the input iterdomains
+        // aligned to the output domain which can be used to create a pairwise
+        // map between input-output. For eg:
+        // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping
+        // between input and output for index=2
+        // 2. `[B, M, K] x [K, N] -> [B, M, N]`: For input B, the second
+        // iterdomain maps to the third output iterdomain.
+        const std::vector<IterDomain*>& aligned_producer_ids =
+            ops::mapMatmulOpIterDomains(
+                producer_logical, input_position, out_size);
+        pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+        return dom_map;
+      }
+      // note op->beta() should map as a pointwise
+      if (producer_tv_ != op->beta()) {
+        return dom_map;
+      }
+    } else {
+      // TODO: map output block scale as well
+      return dom_map;
+    }
+  }
+
   if (LinearOp* op = dynamic_cast<LinearOp*>(consumer_tv_->definition())) {
     auto out_size = consumer_root.size();
 
