@@ -2890,8 +2890,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   at::Tensor input =
       at::randint(0, 256, {1024}, options).view(torch::kFloat4_e2m1fn_x2);
 #else
-  at::Tensor input =
-      at::randint(0, 256, {1024}, options).view(torch::kByte);
+  at::Tensor input = at::randint(0, 256, {1024}, options).view(torch::kByte);
 #endif
 
   KernelExecutor ke;

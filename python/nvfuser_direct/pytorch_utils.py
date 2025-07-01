@@ -30,7 +30,10 @@ _torch_dtype_to_nvfuser_dtype_map = {
 }
 
 if hasattr(torch, "float4_e2m1fn_x2"):
-    _torch_dtype_to_nvfuser_dtype_map[torch.float4_e2m1fn_x2] = DataType.Float4_e2m1fn_x2
+    _torch_dtype_to_nvfuser_dtype_map[torch.float4_e2m1fn_x2] = (
+        DataType.Float4_e2m1fn_x2
+    )
+
 
 def torch_dtype_to_nvfuser_dtype(dtype: Union[torch.dtype, NumberTypeType]):
     """
