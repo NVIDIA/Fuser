@@ -3199,14 +3199,26 @@ class ScaledMmaOp : public Expr {
     return attribute<int64_t>(0) != -1;
   }
 
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
   // True if bias is present
   bool hasBias() const {
     return attribute<int64_t>(1) != -1;
   }
 
+  int64_t biasOffset() const {
+    return attribute<int64_t>(1);
+  }
+
   // True if beta is present
   bool hasBeta() const {
     return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(2);
   }
 
   // Get the IterDomain for the k-dimension of the first input matrix
