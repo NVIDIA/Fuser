@@ -1326,6 +1326,7 @@ iota_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(iota_opinfo)
 
