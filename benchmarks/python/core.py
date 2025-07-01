@@ -59,7 +59,11 @@ def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
     # It is required for both correctness and performance for backward pass when dropout is involved.
     if executor == "thunder":
         return thunder.jit(
-            fwd_fn, nv_enable_bookend=False, disable_replace_uniform = True, executors=[nvfuserex], **kwargs
+            fwd_fn,
+            nv_enable_bookend=False,
+            disable_replace_uniform=True,
+            executors=[nvfuserex],
+            **kwargs,
         )
     if executor == "thunder-torchcompile":
         return thunder.jit(fwd_fn, executors=["torchcompile"], **kwargs)
