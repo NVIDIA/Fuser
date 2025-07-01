@@ -7,6 +7,7 @@ import pytest
 import torch
 import torch._refs as refs
 import torch._prims as prims
+from typing import List
 
 from nvfuser_direct import (
     FusionDefinition,
@@ -427,3 +428,54 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
         eager_out = refs.add(inputs[0], prims.broadcast_in_dim(inputs[1], [3, 3], [0]))
         self.assertEqual(eager_out, nvf_out[0])
+
+    def test_prim_layer_norm_fwd(self):
+        input_size = [64, 128, 1024]
+        dtype = torch.float32
+        device = "cuda"
+        inputs = [
+            torch.randn(*input_size, device=device, requires_grad=True),
+            torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+            torch.nn.Parameter(torch.randn(input_size[2], dtype=dtype, device=device)),
+        ]
+
+        def primitive_definition(
+            inputs: torch.Tensor,
+            weight: torch.Tensor,
+            bias: torch.Tensor,
+            normalization_axis: int,
+            keepdim: bool,
+        ) -> torch.Tensor:
+            mean = inputs.mean(normalization_axis, keepdim=keepdim)
+            diff = inputs - mean
+            diff_sq = diff * diff
+            var = diff_sq.mean(normalization_axis, keepdim=keepdim)
+            pre_shift_scale_norm_output = (inputs - mean) / torch.sqrt(var + 1e-12)
+            norm_output = weight * pre_shift_scale_norm_output + bias
+            return norm_output
+
+        def nvfuser_fusion(
+            fd: FusionDefinition,
+            normalization_axis: int,
+            norm_size: int,
+            input_shape: List[int],
+            eps: float,
+            keepDim: bool,
+        ) -> None:
+            inputs = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+            )
+            weights = fd.define_tensor(
+                shape=[-1], contiguity=[True], dtype=DataType.Float
+            )
+            bias = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float)
+            sum0 = fd.ops.sum(inputs, dims=[normalization_axis], keepdim=keepDim)
+            norm_const = fd.define_scalar(norm_size)
+            mean = fd.ops.div(sum0, norm_const)
+            diff = fd.ops.sub(inputs, mean)
+            diff_sq = fd.ops.mul(diff, diff)
+            sum1 = fd.ops.sum(diff_sq, dims=[normalization_axis], keepdim=keepDim)
+            var = fd.ops.div(sum1, norm_const)
+            eps_const = fd.define_scalar(eps)
