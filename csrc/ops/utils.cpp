@@ -626,5 +626,28 @@ std::vector<unsigned int> canonicalizeAxes(
   return uint_axes;
 }
 
+Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  switch (op_type) {
+    case BinaryOpType::Add:
+      return fusion->zeroVal(dtype);
+    case BinaryOpType::Mul:
+      return fusion->oneVal(dtype);
+    case BinaryOpType::Min:
+      return getMaximumValue(dtype);
+    case BinaryOpType::Max:
+      return getMinimumValue(dtype);
+    case BinaryOpType::LogicalAnd:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->trueVal();
+    case BinaryOpType::LogicalOr:
+      NVF_ERROR(isBooleanType(dtype));
+      return fusion->falseVal();
+    default:
+      NVF_THROW("Binary op ", op_type, " has no two-sided inverse");
+  }
+  return nullptr;
+}
+
 } // namespace ops
 } // namespace nvfuser
