@@ -283,7 +283,7 @@ void generateLaunchKernelFunc(
 }
 
 
-llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder) {
+llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder) {
   if (val2llvmMap.find(val) != val2llvmMap.end()) {
     return val2llvmMap[val];
   }
@@ -293,16 +293,16 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
       auto* left = binary_op->lhs()->as<Val>();
       auto* right = binary_op->rhs()->as<Val>();
       if(left->isConst() && val2llvmMap.find(left) == val2llvmMap.end()) {
-        val2llvmMap[left] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), left->value().as<int64_t>());
+        val2llvmMap[left] = builder.getInt64(left->value().as<int64_t>());
       }
       else if(!left->isConst() && val2llvmMap.find(left) == val2llvmMap.end()) {
-        traverseExtentDFS(left, val2llvmMap, context, builder);
+        traverseExtentDFS(left, val2llvmMap, builder);
       }
       if(right->isConst() && val2llvmMap.find(right) == val2llvmMap.end()) {
-        val2llvmMap[right] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), right->value().as<int64_t>());
+        val2llvmMap[right] = builder.getInt64(right->value().as<int64_t>());
       }
       else if(!right->isConst() && val2llvmMap.find(right) == val2llvmMap.end()) {
-        traverseExtentDFS(right, val2llvmMap, context, builder);
+        traverseExtentDFS(right, val2llvmMap, builder);
       }
       if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
         val2llvmMap[val] = builder.CreateAdd(val2llvmMap[left], val2llvmMap[right]);
@@ -316,7 +316,7 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
     }
   }
   else if(val->isConst()) {
-    val2llvmMap[val] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), val->value().as<int64_t>());
+    val2llvmMap[val] = builder.getInt64(val->value().as<int64_t>());
   }
   else{
     std::cout << "val: " << val->toString() << " is not a binary op or constant" << std::endl;
@@ -399,7 +399,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
 
   for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
-    traverseExtentDFS(symbolic_size, val2llvmMap, context, builder);
+    traverseExtentDFS(symbolic_size, val2llvmMap, builder);
     auto* inferred_val = val2llvmMap[symbolic_size];
     if(inferred_val == nullptr) {
       std::cout << "inferred_val is nullptr for " << symbolic_size->toString() << std::endl;
@@ -466,7 +466,7 @@ void generate_stride_llvm_ir(
 ) {
 
     // Check if the current val is nullptr
-    if (current_val == nullptr) {
+  if (current_val == nullptr) {
         NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
         return;
     }
@@ -481,11 +481,11 @@ void generate_stride_llvm_ir(
         if(boundary_vals[original_val] == false){
           boundary_vals[original_val] = true;
           strides.push_back(running_stride_product);
-          running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val], "mapped_stride");
+          running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val->as<IterDomain>()->extent()], "mapped_stride");
         }
       }
       else if(current_val->as<IterDomain>()->extent()->isConst() && val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
-        val2llvmMap[current_val->as<IterDomain>()->extent()] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), current_val->as<IterDomain>()->extent()->value().as<int64_t>());
+        val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.getInt64(current_val->as<IterDomain>()->extent()->value().as<int64_t>());
       }
       return;
     }
@@ -524,7 +524,7 @@ void generate_stride_llvm_ir(
         }
         
         // Extent of merged domain
-        if(val2llvmMap[input_outer_val] == nullptr || val2llvmMap[input_inner_val] == nullptr || val2llvmMap[current_val] != nullptr){
+        if(val2llvmMap[input_outer_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[input_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[current_val->as<IterDomain>()->extent()] != nullptr){
           return;
         }
         else if(val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
@@ -555,6 +555,9 @@ void generate_stride_llvm_ir(
         }
 
         auto* split_factor = split_expr->factor()->as<Val>();
+        if(val2llvmMap.find(split_factor) == val2llvmMap.end()){
+          val2llvmMap[split_factor] = traverseExtentDFS(split_factor, val2llvmMap, builder);
+        }
         if(split_expr->innerSplit()){
           if(split_factor->isConstInt() && val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
             val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->value().as<int64_t>());
@@ -568,7 +571,7 @@ void generate_stride_llvm_ir(
               return;
             }
           }
-          if(val2llvmMap[input_val] == nullptr || val2llvmMap[output_inner_val] == nullptr || val2llvmMap[output_outer_val] != nullptr){
+          if(val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_outer_val->as<IterDomain>()->extent()] != nullptr){
             return;
           }
           else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
@@ -592,7 +595,7 @@ void generate_stride_llvm_ir(
               return;
             }
           }
-          if(val2llvmMap[input_val] == nullptr || val2llvmMap[output_inner_val] == nullptr || val2llvmMap[output_outer_val] != nullptr){
+          if(val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_outer_val->as<IterDomain>()->extent()] != nullptr){
             return;
           }
           else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
@@ -601,6 +604,7 @@ void generate_stride_llvm_ir(
             val2llvmMap[output_outer_val->as<IterDomain>()->extent()],
             output_inner_val->toString() + "mapped_stride"
           );
+          }
         }
 
     } else { // Fallback for other ops (e.g., simple unary pass-through)
