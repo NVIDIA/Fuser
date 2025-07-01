@@ -1055,6 +1055,7 @@ index_select_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(index_select_opinfo)
 

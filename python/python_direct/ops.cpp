@@ -1796,6 +1796,57 @@ list of Val
 )");
 }
 
+void bindIndexingOps(py::module_& ops) {
+  ops.def(
+         "index_select",
+         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+           return indexSelect(arg, dim, index);
+         },
+         py::arg("arg"),
+         py::arg("index"),
+         py::arg("dim"),
+         py::return_value_policy::reference,
+         R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : TensorView
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)")
+      .def(
+          "select",
+          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+            return select(arg, dim, index);
+          },
+          py::arg("arg"),
+          py::arg("index"),
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : Scalar
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)");
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1808,6 +1859,7 @@ void bindOperations(py::module& nvfuser) {
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
+  bindIndexingOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
