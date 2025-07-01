@@ -981,6 +981,29 @@ class PythonTranslator : public OptInConstDispatch {
         {lsop->out()});
   }
 
+  // Map IotaOp to python frontend
+  void handle(const IotaOp* iop) final {
+    NVF_ERROR(iop != nullptr);
+    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+
+    dispatch(iop->length());
+    dispatch(iop->start());
+    dispatch(iop->step());
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(iop->length())>{"length", std::nullopt},
+        KeywordArgument<decltype(iop->start())>{"start", nullptr},
+        KeywordArgument<decltype(iop->step())>{"step", nullptr},
+        KeywordArgument<DataType>{"dtype", DataType::Int});
+    printer_.generateKwargsOperation(
+        "fd.ops.iota",
+        std::make_tuple(),
+        default_args,
+        std::make_tuple(iop->length(), iop->start(), iop->step(), iop->dtype()),
+        {out_tv});
+  }
+
   // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);

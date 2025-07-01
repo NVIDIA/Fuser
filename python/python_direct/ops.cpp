@@ -2281,6 +2281,37 @@ TensorView
 )");
 }
 
+void bindTensorFactoryOps(py::module_& ops) {
+  ops.def(
+      "iota",
+      [](Val* length, Val* start, Val* step, PrimDataType dtype)
+          -> TensorView* { return iota(length, start, step, dtype); },
+      py::arg("length"),
+      py::arg("start").none(true) = py::none(),
+      py::arg("step").none(true) = py::none(),
+      py::arg("dtype") = DataType::Int,
+      R"(
+Create a tensor with values from 0 to length-1.
+
+Parameters
+----------
+length : Val
+    The length of the tensor.
+start : Val, optional
+    The start of the tensor. When the default is None, start is set to zero.
+step : Val, optional
+    The step of the tensor. When the default is None, step is set to zero.
+dtype : PrimDataType, optional
+    The data type of the tensor. Default is DataType::Int.
+
+Returns
+-------
+TensorView
+    The tensor with values from 0 to length-1.
+)",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2290,12 +2321,13 @@ void bindOperations(py::module& nvfuser) {
   bindBinaryOps(nvf_ops);
   bindTernaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindScanOps(nvf_ops);
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
   bindIndexingOps(nvf_ops);
-  bindScanOps(nvf_ops);
+  bindTensorFactoryOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
