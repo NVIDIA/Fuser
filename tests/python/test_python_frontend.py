@@ -143,7 +143,8 @@ class TestNvFuserFrontend(NVFuserTest):
                 # do not match exactly. e8m0 can only represent 2^x, so we are
                 # asserting that the x of the two results are off by at most 1.
                 nvf_out_fp32 = nvf_out[0].to(torch.float32)
-                rel_err = eager_out.div(nvf_out_fp32).max().item()
+                eager_out_fp32 = eager_out.to(torch.float32)
+                rel_err = eager_out_fp32.div(nvf_out_fp32).max().item()
                 self.assertTrue(rel_err <= 2 and rel_err >= 0.5)
             else:
                 self.assertEqual(eager_out, nvf_out[0])
