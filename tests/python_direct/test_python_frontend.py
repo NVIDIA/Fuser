@@ -7,15 +7,24 @@ import pytest
 import torch
 import torch._refs as refs
 import torch._prims as prims
+
 from typing import List
+import itertools
 
 from nvfuser_direct import (
     FusionDefinition,
     DataType,
 )
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-from nvfuser_direct.testing.utils import is_pre_volta
-from utils import NVFuserTest
+from nvfuser_direct.testing.utils import (
+    is_pre_ampere,
+    is_pre_volta,
+)
+
+from utils import (
+    NVFuserTest,
+)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -545,3 +554,120 @@ class TestNvFuserFrontend(NVFuserTest):
 
         test_fn(0)
         test_fn(1)
+
+    def test_where(self):
+        # nvfuser_where is a decorator function. It takes the input arguments
+        # and creates a function that builds a FusionDefinition.
+        def nvfuser_where(pred, a, b):
+            def fusion_func(fd: FusionDefinition):
+                nv_pred = fd.define_tensor(
+                    sizes=pred.shape, strides=pred.stride(), dtype=DataType.Bool
+                )
+                nv_a = fd.define_tensor(
+                    sizes=a.shape,
+                    strides=a.stride(),
+                    dtype=torch_dtype_to_nvfuser_dtype(a.dtype),
+                )
+                nv_b = fd.define_tensor(
+                    sizes=b.shape,
+                    strides=b.stride(),
+                    dtype=torch_dtype_to_nvfuser_dtype(b.dtype),
+                )
+                result = fd.ops.where(nv_pred, nv_a, nv_b)
+                fd.add_output(result)
+
+            return fusion_func
+
+        # get list of dtypes to test with
+        list_of_dtype = [torch.float16, torch.float32]
+        if not is_pre_ampere():
+            list_of_dtype.append(torch.bfloat16)
+
+        pred = torch.testing.make_tensor((5,), device="cuda", dtype=torch.bool)
+        for atype, btype in itertools.product(list_of_dtype, list_of_dtype):
+            a = torch.randn((5,), device="cuda", dtype=atype)
+            b = torch.randn((5,), device="cuda", dtype=btype)
+            fusion_func = nvfuser_where(pred, a, b)
+            nv_result, _ = self.exec_nvfuser(fusion_func, [pred, a, b])
+            torch_result = torch.where(pred, a, b)
+            self.assertEqual(nv_result[0], torch_result)
+
+    def test_where_dtypes(self):
+        inputs = [
+            torch.arange(2, device="cuda").type(torch.bool),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+
+            c0 = fd.define_scalar(3.0)
+            c1 = fd.define_scalar(5.0)
+            t1 = fd.ops.where(t0, c0, c1)  # DataType.Double
+            fd.add_output(t1)
+
+            c0f = fd.define_scalar(3.0, DataType.Float)
+            c1f = fd.define_scalar(5.0, DataType.Float)
+            t1f = fd.ops.where(t0, c0f, c1f)  # DataType.Float
+            fd.add_output(t1f)
+
+            c0d = fd.define_scalar(3.0, DataType.Double)
+            c1d = fd.define_scalar(5.0, DataType.Double)
+            t1d = fd.ops.where(t0, c0d, c1d)  # DataType.Double
+            fd.add_output(t1d)
+
+            c0i = fd.define_scalar(3, DataType.Int32)
+            c1i = fd.define_scalar(5, DataType.Int32)
+            t1i = fd.ops.where(t0, c0i, c1i)  # DataType.Int32
+            fd.add_output(t1i)
+
+            c0l = fd.define_scalar(3)
+            c1l = fd.define_scalar(5)
+            t1l = fd.ops.where(t0, c0l, c1l)  # DataType.Int
+            fd.add_output(t1l)
+
+            c0c = fd.define_scalar(complex(3.0))
+            c1c = fd.define_scalar(complex(5.0))
+            t1c = fd.ops.where(t0, c0c, c1c)  # DataType.ComplexDouble
+            fd.add_output(t1c)
+
+            c0cf = fd.define_scalar(3.0 + 0j, DataType.ComplexFloat)
+            c1cf = fd.define_scalar(5.0 + 0j, DataType.ComplexFloat)
+            t1cf = fd.ops.where(t0, c0cf, c1cf)  # DataType.ComplexFloat
+            fd.add_output(t1cf)
+
+            c0cd = fd.define_scalar(3.0 + 0j, DataType.ComplexDouble)
+            c1cd = fd.define_scalar(5.0 + 0j, DataType.ComplexDouble)
+            t1cd = fd.ops.where(t0, c0cd, c1cd)  # DataType.ComplexDouble
+            fd.add_output(t1cd)
+
+            c0b = fd.define_scalar(True, DataType.Bool)
+            c1b = fd.define_scalar(False, DataType.Bool)
+            t1b = fd.ops.where(t0, c0b, c1b)  # DataType.Bool
+            fd.add_output(t1b)
+
+        (
+            n,
+            nf,
+            nd,
+            ni,
+            nl,
+            nc,
+            ncf,
+            ncd,
+            nb,
+        ), _ = self.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.where(inputs[0], 3.0, 5.0)
+
+        # explicit Float dtype matches torch.where behavior
+        self.assertEqual(eager_out, nf)
+
+        assert n.dtype == torch.float64
+        assert nf.dtype == torch.float32
+        assert nd.dtype == torch.float64
+        assert ni.dtype == torch.int32
+        assert nl.dtype == torch.int64
+        assert nc.dtype == torch.complex128
+        assert ncf.dtype == torch.complex64
+        assert ncd.dtype == torch.complex128
+        assert nb.dtype == torch.bool

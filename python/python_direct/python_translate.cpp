@@ -689,6 +689,16 @@ class PythonTranslator : public OptInConstDispatch {
         {bop->out()});
   }
 
+  // Map TernaryOp to python frontend
+  void handle(const TernaryOp* top) final {
+    NVF_ERROR(top != nullptr);
+    visited_vals_.insert(top->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(top),
+        {top->in1(), top->in2(), top->in3()},
+        {top->out()});
+  }
+
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
