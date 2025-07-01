@@ -36,16 +36,6 @@
 #include <unordered_map>
 #include <vector>
 
-#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
-
-#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
-
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val

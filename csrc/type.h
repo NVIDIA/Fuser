@@ -27,6 +27,16 @@
 #include <unordered_set>
 #include <variant>
 
+#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+
+#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
+
 namespace nvfuser {
 
 // Order of strength
