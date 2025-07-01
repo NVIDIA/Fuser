@@ -313,13 +313,20 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
       else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
         val2llvmMap[val] = builder.CreateMul(val2llvmMap[left], val2llvmMap[right]);
       }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
+        // Implement ceilDiv as (a + b - 1) / b
+        llvm::Value* numerator = builder.CreateAdd(val2llvmMap[left], val2llvmMap[right]);
+        llvm::Value* one = builder.getInt64(1);
+        numerator = builder.CreateSub(numerator, one);
+        val2llvmMap[val] = builder.CreateUDiv(numerator, val2llvmMap[right]);
+      }
     }
   }
   else if(val->isConst()) {
     val2llvmMap[val] = builder.getInt64(val->value().as<int64_t>());
   }
   else{
-    std::cout << "val: " << val->toString() << " is not a binary op or constant" << std::endl;
+    NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val.");
   }
   return val2llvmMap[val];
 }
@@ -332,16 +339,20 @@ std::vector<llvm::Value*> getContiguousStrides(
   NVF_ERROR(sizes.size() == expand_flags.size());
 
   std::vector<llvm::Value*> strides(sizes.size());
-  llvm::Value* cur_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+  llvm::Value* cur_stride = builder.getInt64(1);
   for (auto i = sizes.size(); i > 0; --i) {
     llvm::Value* size = sizes.at(i - 1);
     llvm::Value* stride = cur_stride;
     // If expanded, stride is 0
     if (expand_flags.at(i - 1)) {
-      stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0);
+      stride = builder.getInt64(0);
     } else {
+      // Handle null size values by treating them as size 1 (safety check)
+      if (size == nullptr) {
+        size = builder.getInt64(1);
+      }
       // Create comparison: size == 0
-      llvm::Value* is_zero = builder.CreateICmpEQ(size, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0));
+      llvm::Value* is_zero = builder.CreateICmpEQ(size, builder.getInt64(0));
       
       // Get current function for creating basic blocks
       llvm::Function* current_function = builder.GetInsertBlock()->getParent();
@@ -356,7 +367,7 @@ std::vector<llvm::Value*> getContiguousStrides(
       
       // Handle size == 0 case
       builder.SetInsertPoint(zero_block);
-      llvm::Value* stride_if_zero = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+      llvm::Value* stride_if_zero = builder.getInt64(1);
       builder.CreateBr(merge_block);
       
       // Handle size != 0 case
@@ -393,7 +404,6 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
     llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
-
   std::vector<llvm::Value*> concrete_sizes(symbolic_sizes.size(), nullptr);
 
   for (const auto i : arange(symbolic_sizes.size())) {
@@ -401,7 +411,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShape(
     traverseExtentDFS(symbolic_size, val2llvmMap, builder);
     auto* inferred_val = val2llvmMap[symbolic_size];
     if(inferred_val == nullptr) {
-      std::cout << "inferred_val is nullptr for " << symbolic_size->toString() << std::endl;
+      NVF_THROW("LLVM Lowering Error: inferred_val is nullptr for " + symbolic_size->toString());
     }
     concrete_sizes.at(i) = inferred_val;
   }
@@ -453,7 +463,7 @@ Val* mapToInputDomain(
 ) {
   for(auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) { 
     auto* domain = it->first->as<IterDomain>();
-    if(currentDomain->as<IterDomain>()->extent()->sameAs(domain->extent())) {
+    if(currentDomain->as<IterDomain>() == domain) {
       return it->first;
     }
   }
@@ -471,9 +481,9 @@ void generate_stride_llvm_ir(
 
     // Check if the current val is nullptr
   if (current_val == nullptr) {
-        NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
-        return;
-    }
+      NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
+      return;
+  }
     auto* def_expr = current_val->definition();
     // Check if the current val is missing
     if (def_expr == nullptr) {
