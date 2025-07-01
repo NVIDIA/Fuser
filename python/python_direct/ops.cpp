@@ -2281,6 +2281,15 @@ TensorView
 )");
 }
 
+template <class ShapeType>
+TensorView* full_op_fn(
+    ShapeType generic_output_shape,
+    Val* fill_value,
+    PrimDataType dtype) {
+  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  return full(output_shape, fill_value, dtype);
+}
+
 void bindTensorFactoryOps(py::module_& ops) {
   ops.def(
       "iota",
@@ -2308,6 +2317,37 @@ Returns
 -------
 TensorView
     The tensor with values from 0 to length-1.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::list>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::tuple>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      R"(
+Create a tensor with all elements set to a specified value.
+
+Parameters
+----------
+shape : list or tuple
+    The shape of the tensor.
+fill_value : Val
+    The value to fill the tensor with.
+dtype : PrimDataType
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+    The tensor with all elements set to the specified value.
 )",
       py::return_value_policy::reference);
 }
