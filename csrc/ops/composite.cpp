@@ -455,7 +455,8 @@ TensorView* newForMatmul(
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, dtype == DataType::Null ? tv_a->dtype(), dtype);
+  return IrBuilder::create<TensorView>(
+      td, dtype == DataType::Null ? tv_a->dtype() : dtype);
 }
 
 } // namespace
