@@ -120,6 +120,12 @@ NVF_API TensorView* reductionOpRaw(
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
+struct ScaledTensorView {
+  TensorView* tv;
+  TensorView* block_scaling_factor = nullptr;
+  TensorView* global_scaling_factor = nullptr;
+};
+
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
 struct WelfordResult {
@@ -736,21 +742,40 @@ NVF_API TensorView* argsort(
 //! Grouped matrix multiplication
 //!
 //! Performs matrix multiplication on grouped sets of matrices using offsets
-//! to define variable-sized groups.
+//! to define variable-sized groups. This op computes:
+//!
+//! alpha * grouped_mm((mat1 * scale1), (mat2 * scale2), offsets) + bias * beta
 //!
 //! \param mat1 First set of matrices
 //! \param mat2 Second set of matrices
 //! \param offsets Offsets tensor defining group boundaries
 //! \param scale1 Scale tensor for mat1
 //! \param scale2 Scale tensor for mat2
+//! \param alpha Global Scaling factor for mat1@mat2
+//! \param bias Bias tensor
+//! \param beta Scale tensor for bias
+//! \param dtype Output dtype, if empty, the output dtype will be the same as
+//! the input dtype
+//! \param out_block_scale_size Output block scaling factor size, if 0, the
+//! output block scaling factor will not be computed
+//! \param block_scaling_factor_dtype Block scaling factor dtype. This argument
+//! is needed when out_block_scale_size is not 0.
+//! \param out_gamma Output gamma flag, if true, the output gamma will be
+//! computed
 //! \return Result of grouped matrix multiplication
-NVF_API TensorView* grouped_mm(
+NVF_API ScaledTensorView grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* offsets,
     TensorView* scale1 = nullptr,
     TensorView* scale2 = nullptr,
-    std::optional<DataType> dtype = std::nullopt);
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
+    DataType dtype = DataType::Null,
+    int64_t out_block_scale_size = 0,
+    DataType block_scaling_factor_dtype = DataType::Null,
+    bool out_gamma = false);
 
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!

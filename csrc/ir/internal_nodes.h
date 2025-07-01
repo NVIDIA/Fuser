@@ -2865,12 +2865,27 @@ class ArgsortOp : public Expr {
 //! This operation performs a grouped matrix multiplication.
 //!
 //! Parameters:
-//! - out: output tensor
+//! - out_mat: output tensor
+//! - out_scale: output block scaling factor tensor
+//! - out_gamma: output global scaling factor tensor
 //! - matrix1: first input tensor matrix
 //! - matrix2: second input tensor matrix
 //! - offsets: 1D offsets tensor, specifying the ending index of each group
 //! - scale1: scale tensor for matrix1 (optional)
 //! - scale2: scale tensor for matrix2 (optional)
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is roughly two steps:
+//! out =
+//!   alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets)
+//!   + beta * bias
+//! out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! Post quantization only applies when out_scale / out_gamma is not nullptr;
+//!
+//! Regarding the grouped mm semantics:
 //!
 //! The offsets tensor is a vector tensor of length `num_groups` that specifies
 //! the ending index of each group in the matrix1 and matrix2 tensors.
@@ -2932,12 +2947,17 @@ class GroupedMmaOp : public Expr {
 
   GroupedMmaOp(
       IrBuilderPasskey,
-      Val* out,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
       Val* mat1,
       Val* mat2,
       Val* offsets,
       Val* scale1 = nullptr,
-      Val* scale2 = nullptr);
+      Val* scale2 = nullptr,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2954,6 +2974,22 @@ class GroupedMmaOp : public Expr {
   // Get output matrix
   TensorView* out() const {
     return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
   }
 
   // Get first input matrix
@@ -2974,7 +3010,7 @@ class GroupedMmaOp : public Expr {
   // Get scale factor for first input matrix, returns nullptr if not present
   TensorView* scale1() const {
     if (hasScale()) {
-      return input(3)->as<TensorView>();
+      return input(attribute<int64_t>(0))->as<TensorView>();
     }
     return nullptr;
   }
@@ -2982,14 +3018,70 @@ class GroupedMmaOp : public Expr {
   // Get scale factor for second input matrix, returns nullptr if not present
   TensorView* scale2() const {
     if (hasScale()) {
-      return input(4)->as<TensorView>();
+      return input(attribute<int64_t>(0) + 1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(3))->as<TensorView>();
     }
     return nullptr;
   }
 
   // True if scale factors are present
   bool hasScale() const {
-    return inputs().size() == 5;
+    return attribute<int64_t>(0) != -1;
+  }
+
+  int64_t scale1Offset() const {
+    return attribute<int64_t>(0);
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(1);
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t biasOffset() const {
+    return attribute<int64_t>(2);
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(3) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t scale2Offset() const {
+    return attribute<int64_t>(0) + 1;
   }
 
   // Get the IterDomain for the k-dimension of the first input matrix
