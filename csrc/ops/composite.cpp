@@ -404,7 +404,10 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    DataType dtype = DataType::Null) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -452,7 +455,7 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(td, dtype == DataType::Null ? tv_a->dtype(), dtype);
 }
 
 } // namespace
@@ -506,7 +509,7 @@ ScaledTensorView scaled_mm(
   ScaledTensorView scaled_out;
 
   // TODO: check for out dtype and block/gamma scale option
-  scaled_out.tv = newForMatmul(mat1, mat2);
+  scaled_out.tv = newForMatmul(mat1, mat2, dtype);
   //     dtype,
   //     out_block_scale_size,
   //     block_scaling_factor_dtype,
