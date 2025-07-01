@@ -5907,7 +5907,7 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
   NVF_ERROR(
       inputs[1].is<at::Tensor>(),
-      "GroupedMmaOp expects tensor input at position4 but got ",
+      "GroupedMmaOp expects tensor input at position 1 but got ",
       inputs[1].type().name());
 
   NVF_ERROR(
@@ -6171,9 +6171,75 @@ std::string ScaledMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // For now, we'll use a fallback implementation
-  // This should be replaced with actual scaled matrix multiplication logic
-  NVF_THROW("ScaledMmaOp evaluation not implemented yet");
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
+  // we'll fallback with aten kernels
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& scale1 = inputs[2].as<at::Tensor>();
+  const auto& scale2 = inputs[3].as<at::Tensor>();
+
+  at::Tensor alpha;
+  at::Tensor bias;
+  at::Tensor beta;
+  if (hasAlpha()) {
+    int alpha_offset = alphaOffset();
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = biasOffset();
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = betaOffset();
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
+
+  // at::_scaled_mm has implementation limitations:
+  NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outScale() == nullptr,
+      "output block scaling factor in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outGamma() == nullptr,
+      "output global scaling factor in ScaledMmaOp is not supported yet");
+  result = at::_scaled_mm(
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      bias.defined() ? bias : std::nullopt,
+      alpha.defined() ? alpha : std::nullopt,
+      data_type_to_aten(out()->dtype()));
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+
+  return {result};
+
+#else
+  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+#endif
 }
 
 IterDomain* ScaledMmaOp::getKDimOfMatrix1() const {
