@@ -311,7 +311,6 @@ class PythonTranslator : public OptInConstDispatch {
         logical_domain_extents.begin(),
         logical_domain_extents.end(),
         [&](Val* v) {
-          std::cout << "Check: " << v->toString() << std::endl;
           return v->definition() == nullptr || visited_vals_.count(v) > 0;
         });
   }
