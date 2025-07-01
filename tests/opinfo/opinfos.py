@@ -1265,6 +1265,7 @@ slice_opinfo = OpInfo(
     error_input_generator=slice_error_generator,
     reference=jax.lax.slice if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
+    supports_direct_bindings=True,
 )
 shape_ops.append(slice_opinfo)
 

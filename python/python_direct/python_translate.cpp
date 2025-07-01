@@ -819,6 +819,37 @@ class PythonTranslator : public OptInConstDispatch {
         {eop->out()});
   }
 
+  // Map SliceOp to python frontend
+  void handle(const SliceOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
+
+    std::vector<Val*> start_indices;
+    start_indices.reserve(slices.size());
+
+    std::vector<Val*> stop_indices;
+    stop_indices.reserve(slices.size());
+
+    std::vector<Val*> strides;
+    strides.reserve(slices.size());
+
+    for (const nvfuser::Slice& s : slices) {
+      start_indices.push_back(s.start);
+      stop_indices.push_back(s.stop);
+      strides.push_back(s.step);
+    }
+
+    visited_vals_.insert(sop->out());
+    static const std::vector<std::string> slice_argument_names = {
+        "start_indices", "end_indices", "strides", "manual_normalization"};
+    printer_.generateKwargsOperation(
+        "fd.ops.slice",
+        std::make_tuple(sop->in()),
+        slice_argument_names,
+        std::make_tuple(start_indices, stop_indices, strides, true),
+        {sop->out()});
+  }
+
   // If input and output values share the same type, a LoadStoreOp will be
   // created instead of a CastOp.
   void handle(const LoadStoreOp* lsop) final {
