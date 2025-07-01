@@ -13,6 +13,8 @@ from torch.distributed.tensor.placement_types import Shard, Replicate
 
 
 @pytest.mark.mpi
+@pytest.mark.parametrize("setup_default_process_group", ["direct"], indirect=True)
+@pytest.mark.parametrize("multidevice_test", ["direct"], indirect=True)
 def test_plus_one(setup_default_process_group, multidevice_test):
     def define_fusion(fd: FusionDefinition):
         inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)

@@ -2,7 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import nvfuser
 import os
 import pytest
 import torch
@@ -10,8 +9,8 @@ import torch.distributed as dist
 
 
 class MultideviceTest:
-    def __init__(self):
-        self._communicator = nvfuser.Communicator.instance()
+    def __init__(self, communicator):
+        self._communicator = communicator
 
         # This way, when individual tests create unsharded input, each rank
         # receives the same data.
@@ -37,9 +36,7 @@ class MultideviceTest:
     def local_rank(self):
         return self._communicator.local_rank()
 
-    def shard_tensor(
-        self, t: torch.Tensor, dim: int, mesh: nvfuser.DeviceMesh
-    ) -> torch.Tensor:
+    def shard_tensor(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
         assert t.is_cpu, (
             "This is not strictly required but it's a general good practice "
             "for unit tests to create unsharded data on CPU to reduce GPU "
@@ -49,23 +46,31 @@ class MultideviceTest:
 
 
 @pytest.fixture
-def multidevice_test():
+def multidevice_test(request):
     os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
-    # Reset the cache here to work around a bug in FusionDefintion.execute.
-    # FusionDefinition._finalize_definition maps the same `definition` to the
-    # same FusionSchedules and therefore the same FusionExecutorCache. This was
-    # correct until multiple FusionDefinitions started to have the same
-    # `definition` but different `multidevice_schedule`s. This seems to be a
-    # known issue beacuse a similar workaround for single-GPU schedules is done
-    # here:
-    # https://github.com/NVIDIA/Fuser/blob/f44f1913c26f8325099ab6fe46d678cbea435658/tests/python/test_schedule_ops.py#L115.
-    #
-    # I couldn't think of an easy way to fix this issue properly. Also, that
-    # FusionCache is obsolete makes me less motivated to do so.
-    nvfuser.FusionCache.reset()
+    if request.param == "fusion_cache":
+        print("fusion_cache")
+        import nvfuser as nvf
 
-    fixture = MultideviceTest()
+        # Reset the cache here to work around a bug in FusionDefintion.execute.
+        # FusionDefinition._finalize_definition maps the same `definition` to the
+        # same FusionSchedules and therefore the same FusionExecutorCache. This was
+        # correct until multiple FusionDefinitions started to have the same
+        # `definition` but different `multidevice_schedule`s. This seems to be a
+        # known issue beacuse a similar workaround for single-GPU schedules is done
+        # here:
+        # https://github.com/NVIDIA/Fuser/blob/f44f1913c26f8325099ab6fe46d678cbea435658/tests/python/test_schedule_ops.py#L115.
+        #
+        # I couldn't think of an easy way to fix this issue properly. Also, that
+        # FusionCache is obsolete makes me less motivated to do so.
+        nvf.FusionCache.reset()
+
+        fixture = MultideviceTest(nvf.Communicator.instance())
+    else:
+        print("direct")
+        import nvfuser_direct as nvfd
+        fixture = MultideviceTest(nvfd.multidevice.Communicator.instance())
     yield fixture
     # Sync all ranks after each test for isolation.
     fixture.communicator.barrier()
@@ -80,8 +85,15 @@ def multidevice_test():
 # https://github.com/pytorch/pytorch/issues/119196 reported race conditions
 # when reinitializing process groups.
 @pytest.fixture(scope="session")
-def setup_default_process_group():
-    communicator = nvfuser.Communicator.instance()
+def setup_default_process_group(request):
+    if request.param == "fusion_cache":
+        print("fusion_cache")
+        import nvfuser as nvf
+        communicator = nvf.Communicator.instance()
+    else:
+        print("direct")
+        import nvfuser_direct as nvfd
+        communicator = nvfd.multidevice.Communicator.instance()
 
     local_rank = communicator.local_rank()
     torch.cuda.set_device(local_rank)
