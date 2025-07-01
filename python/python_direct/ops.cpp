@@ -105,6 +105,22 @@ namespace {
       DOCSTRING,                                                               \
       py::return_value_policy::reference);
 
+#define NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP(NAME, OP_NAME, DOCSTRING)     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+        return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      DOCSTRING);                                                              \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      DOCSTRING);
+
 #define NVFUSER_DIRECT_BINDING_REDUCTION_OP(NAME, OP_NAME, DOCSTRING)   \
   ops.def(                                                              \
       NAME,                                                             \
@@ -1395,6 +1411,36 @@ Returns
 -------
 Val or TensorView
     Elements from x if condition is True, otherwise elements from y.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("clamp", clamp, R"(
+Clamps all elements in input into the range [ min, max ]
+
+Parameters
+----------
+input : Val or TensorView
+min : Val or TensorView
+max : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Clamped values.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("threshold", threshold, R"(
+Thresholds each element of the input Tensor.
+
+Parameters
+----------
+input : Val or TensorView
+threshold : Val or TensorView
+value : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Thresholded values.
 )")
 }
 
