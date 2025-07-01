@@ -847,13 +847,23 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         consumer,
         producer);
   } else if (auto grouped_mma = dynamic_cast<GroupedMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        grouped_mma->outScale() == nullptr &&
+            grouped_mma->outGamma() == nullptr,
+        "not implemented yet");
     IrBuilder::create<GroupedMmaOp>(
         producer,
+        grouped_mma->outScale(),
+        grouped_mma->outGamma(),
         grouped_mma->matrix1(),
         grouped_mma->matrix2(),
         grouped_mma->offsets(),
         grouped_mma->scale1(),
-        grouped_mma->scale2());
+        grouped_mma->scale2(),
+        grouped_mma->alpha(),
+        grouped_mma->bias(),
+        grouped_mma->beta());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add,
         IrBuilder::create<Val>(0.0, producer->dtype()),

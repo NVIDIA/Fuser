@@ -804,4 +804,29 @@ NVF_API TopKResult topk(
     bool sorted = false,
     bool maybe_symbolic = true);
 
+//! Computes an inclusive scan of a tensor in a single dimension.
+//!
+//! Given a 1D input tensor x, this computes the output
+//! recursively via
+//!
+//!   y = scan(x, 0, Add, zeroVal())
+//!
+//!   y[0] = x[0]
+//!   y[i] = y[i-1] + x[i] for 0 < i < n
+//!
+//! If the dimension being scanned is an expanded broadcast, we throw an error.
+NVF_API TensorView* scan(
+    TensorView* in_tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init = nullptr);
+
+//! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
+NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
+
+//! Another alias for PyTorch's cumsum
+NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
+  return prefixSum(tv, dim);
+}
+
 } // namespace nvfuser

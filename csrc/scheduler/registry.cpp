@@ -45,7 +45,8 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           ArgsortOp,
           GroupedMmaOp,
           ScaledMmaOp,
-          TopKOp>(fusion)) {
+          TopKOp,
+          ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;

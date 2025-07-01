@@ -3276,4 +3276,51 @@ class NVF_API TopKOp : public Expr {
   }
 };
 
+class ScanOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScanOp(
+      IrBuilderPasskey,
+      BinaryOpType op_type,
+      Val* init,
+      Val* out,
+      Val* in,
+      int64_t dim);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ScanOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Returns the inclusive scan output
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  Val* init() const {
+    return attributeVal(0);
+  }
+
+  BinaryOpType opType() const {
+    return attribute<BinaryOpType>(1);
+  }
+
+  int64_t scanDim() const {
+    return attribute<int64_t>(2);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser
