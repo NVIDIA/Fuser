@@ -381,7 +381,7 @@ template <int align>
 __device__ __inline__ Array<__e4m3, 2, align> __half2e4m3(
     const Array<__half, 2, align>& input) {
   Array<__e4m3, 2, align> result;
-  uint32_t& input_scalar = *reinterpret_cast<uint32_t*>(&input);
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e4m3x2.f16x2 %0, %1;}"
       : "=h"(result_scalar) 
@@ -402,7 +402,7 @@ template <int align>
 __device__ __inline__ Array<__half, 2, align> __e4m32half(
     const Array<__e4m3, 2, align>& input) {
   Array<__half, 2, align> result;
-  uint16_t& input_scalar = *reinterpret_cast<uint16_t*>(&input);
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
   asm("{cvt.rn.f16x2.e4m3x2 %0, %1;}"
       : "=f"(result_scalar) 
@@ -448,7 +448,7 @@ template <int align>
 __device__ __inline__ Array<__e5m2, 2, align> __half2e5m2(
     const Array<__half, 2, align>& input) {
   Array<__e5m2, 2, align> result;
-  uint32_t& input_scalar = *reinterpret_cast<uint32_t*>(&input);
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e5m2x2.f16x2 %0, %1;}"
       : "=h"(result_scalar) 
@@ -469,7 +469,7 @@ template <int align>
 __device__ __inline__ Array<__e5m2, 2, align> __e5m22half(
     const Array<__e5m2, 2, align>& input) {
   Array<__e5m2, 2, align> result;
-  uint16_t& input_scalar = *reinterpret_cast<uint16_t*>(&input);
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
   asm("{cvt.rn.f16x2.e5m2x2 %0, %1;}"
       : "=f"(result_scalar) 
@@ -534,7 +534,7 @@ template <int align>
 __device__ __inline__ Array<__bfloat, 2, align> __e8m02bfloat(
     const Array<__e8m0, 2, align>& input) {
   Array<__bfloat, 2, align> result;
-  uint16_t& input_scalar = *reinterpret_cast<uint16_t*>(&input);
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
   asm("{cvt.rn.bf16x2.ue8m0x2 %0, %1;}"
       : "=r"(result_scalar) 
