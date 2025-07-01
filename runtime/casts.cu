@@ -359,9 +359,10 @@ __device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
   return (val != 0U) ? true : false;
 }
 
-__device__ __inline__ Array<__e4m3, 2, 1> __float2e4m3(
-    const Array<float, 2, 1>& input) {
-  Array<__e4m3, 2, 1> result;
+template <int align>
+__device__ __inline__ Array<__e4m3, 2, align> __float2e4m3(
+    const Array<float, 2, align>& input) {
+  Array<__e4m3, 2, align> result;
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;}"
       : "=h"(result_scalar)
@@ -428,9 +429,10 @@ __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
   return __float2bfloat(__e4m32float(b));
 }
 
-__device__ __inline__ Array<__e5m2, 2, 1> __float2e5m2(
-    const Array<float, 2, 1>& input) {
-  Array<__e5m2, 2, 1> result;
+template <int align>
+__device__ __inline__ Array<__e5m2, 2, align> __float2e5m2(
+    const Array<float, 2, align>& input) {
+  Array<__e5m2, 2, align> result;
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e5m2x2.f32 %0, %1, %2;}"
       : "=h"(result_scalar)
@@ -468,13 +470,13 @@ __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
 }
 
 template <int align>
-__device__ __inline__ Array<__e5m2, 2, align> __e5m22half(
+__device__ __inline__ Array<__half, 2, align> __e5m22half(
     const Array<__e5m2, 2, align>& input) {
-  Array<__e5m2, 2, align> result;
+  Array<__half, 2, align> result;
   const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
   asm("{cvt.rn.f16x2.e5m2x2 %0, %1;}"
-      : "=f"(result_scalar)
+      : "=r"(result_scalar)
       : "h"(input_scalar));
   return result;
 }
@@ -496,9 +498,10 @@ __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 b) {
   return __float2bfloat(__e5m22float(b));
 }
 
-__device__ __inline__ Array<__e8m0, 2, 1> __float2e8m0(
-    const Array<float, 2, 1>& input) {
-  Array<__e8m0, 2, 1> result;
+template <int align>
+__device__ __inline__ Array<__e8m0, 2, align> __float2e8m0(
+    const Array<float, 2, align>& input) {
+  Array<__e8m0, 2, align> result;
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rz.satfinite.ue8m0x2.f32 %0, %1, %2;}"
       : "=h"(result_scalar)
@@ -519,13 +522,15 @@ __device__ __inline__ __e8m0 __half2e8m0(const __half h) {
   return __float2e8m0(__half2float(h));
 }
 
-__device__ __inline__ Array<__e8m0, 2, 1> __bfloat2e8m0(
-    const Array<__bfloat, 2, 1>& input) {
-  Array<__e8m0, 2, 1> result;
+template <int align>
+__device__ __inline__ Array<__e8m0, 2, align> __bfloat2e8m0(
+    const Array<__bfloat, 2, align>& input) {
+  Array<__e8m0, 2, align> result;
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
-  asm("{cvt.rz.satfinite.ue8m0x2.bf16x2 %0, %1, %2;}"
+  asm("{cvt.rz.satfinite.ue8m0x2.bf16x2 %0, %1;}"
       : "=h"(result_scalar)
-      : "r"(input[1]), "r"(input[0]));
+      : "r"(input_scalar));
   return result;
 }
 
