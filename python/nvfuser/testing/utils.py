@@ -91,7 +91,6 @@ map_dtype_to_str = {
     torch.float8_e4m3fn: "float8_e4m3fn",
     torch.float8_e5m2: "float8_e5m2",
     torch.float8_e8m0fnu: "float8_e8m0fnu",
-    torch.float4_e2m1fn_x2: "float4_e2m1fn_x2",
     torch.bfloat16: "bfloat16",
     torch.float16: "float16",
     torch.float32: "float32",
@@ -99,6 +98,9 @@ map_dtype_to_str = {
     torch.complex64: "complex64",
     torch.complex128: "complex128",
 }
+
+if hasattr(torch, "float4_e2m1fn_x2"):
+    map_dtype_to_str[torch.float4_e2m1fn_x2] = "float4_e2m1fn_x2"
 
 torch_to_jax_dtype_map = None
 if JAX_AVAILABLE:

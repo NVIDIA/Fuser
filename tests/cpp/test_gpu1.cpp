@@ -2886,8 +2886,13 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor input =
       at::randint(0, 256, {1024}, options).view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input =
+      at::randint(0, 256, {1024}, options).view(torch::kByte);
+#endif
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2936,9 +2941,15 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
                          .narrow(1, 0, 1024)
                          .view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
+                         .narrow(1, 0, 1024)
+                         .view(torch::kByte);
+#endif
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
@@ -2990,10 +3001,17 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor input = at::randint(0, 256, {1024, 2}, options)
                          .narrow(1, 0, 1)
                          .squeeze()
                          .view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input = at::randint(0, 256, {1024, 2}, options)
+                         .narrow(1, 0, 1)
+                         .squeeze()
+                         .view(torch::kByte);
+#endif
 
   KernelExecutor ke;
 
