@@ -407,7 +407,7 @@ __device__ __inline__ Array<__half, 2, align> __e4m32half(
   const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
   asm("{cvt.rn.f16x2.e4m3x2 %0, %1;}"
-      : "=f"(result_scalar)
+      : "=r"(result_scalar)
       : "h"(input_scalar));
   return result;
 }
