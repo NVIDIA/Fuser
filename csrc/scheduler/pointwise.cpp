@@ -541,11 +541,53 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
+namespace {
+
+struct CoveredDomainPropagator : MaxInfoSpanningTree::Propagator {
+  bool found_unmapped_dim = false;
+
+  void propagateC2P(TensorView* from, TensorView* to) override {
+    check(from->getMaybeRootDomain(), to->getLogicalDomain());
+  }
+  void propagateP2C(TensorView* from, TensorView* to) override {
+    check(from->getLogicalDomain(), to->getMaybeRootDomain());
+  }
+  void propagateSibling(TensorView* from, TensorView* to) override {
+    // Siblings require no special consideration in this check
+  }
+
+  void check(
+      const std::vector<IterDomain*>& from_domain,
+      const std::vector<IterDomain*>& to_domain) {
+    if (found_unmapped_dim) {
+      return;
+    }
+    // If we introduce a new root dimension, such as in a broadcast or reverse
+    // through a squeeze, we cannot propagate scheduling information
+    found_unmapped_dim = to_domain.size() > from_domain.size();
+  }
+};
+
+} // namespace
+
 //! Utility for canSchedule interface to check if this fusion has
 //!  a fully broadcasted reference tensor, which is necessary for
 //!  the pointwise scheduler.
 bool hasReferenceTensorView(Fusion* fusion) {
-  return pointwise_utils::getReferenceTensor(fusion) != nullptr;
+  TensorView* reference = pointwise_utils::getReferenceTensor(fusion);
+  if (reference == nullptr) {
+    return false;
+  }
+
+  // If we can find a reference TV, verify that propagation will not need to
+  // schedule any IDs that were lost along the propagation path
+  MaxLogicalDomainInfoSpanningTree tree(
+      reference,
+      /*selector=*/nullptr,
+      /*propagate_through_resize=*/true);
+  CoveredDomainPropagator propagator;
+  tree.traverse(&propagator);
+  return !propagator.found_unmapped_dim;
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
