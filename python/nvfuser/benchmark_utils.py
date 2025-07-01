@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
-import sys
 from cupti import cupti
 import cxxfilt
 
@@ -36,7 +35,7 @@ def cupti_call_safe(func, *args):
         return func(*args)
     except Exception as e:
         print(f"CUPTI call {func.__name__} failed: {e}")
-        sys.exit(1)
+        pytest.exit(1)
 
 
 class CuptiProfiler:
