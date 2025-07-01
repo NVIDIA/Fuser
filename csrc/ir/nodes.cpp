@@ -6226,8 +6226,8 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
       mat2,
       scale1,
       scale2,
-      bias.defined() ? bias : std::nullopt,
-      alpha.defined() ? alpha : std::nullopt,
+      bias.defined() ? std::optional<at::Tenosr>(bias) : std::nullopt,
+      alpha.defined() ? std::optional<at::Tenosr>(alpha) : std::nullopt,
       data_type_to_aten(out()->dtype()));
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
