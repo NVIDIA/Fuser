@@ -902,6 +902,26 @@ class PythonTranslator : public OptInConstDispatch {
         {bcast_op->out()});
   }
 
+  // Map IotaOp to python frontend
+  void handle(const IotaOp* iop) final {
+    NVF_ERROR(iop != nullptr);
+    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+
+    handle(iop->length());
+    handle(iop->start());
+    handle(iop->step());
+
+    static const std::vector<std::string> argument_names = {
+        "length", "start", "step", "dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.iota",
+        std::make_tuple(),
+        argument_names,
+        std::make_tuple(iop->length(), iop->start(), iop->step(), iop->dtype()),
+        {out_tv});
+  }
+
   // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);
