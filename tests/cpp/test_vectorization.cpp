@@ -755,8 +755,10 @@ auto all_vectorization_cast_params = ::testing::Values(
     // cvt.frnd2{.relu}{.satfinite}.bf16x2.f32
     VectorizationCastParams(DataType::Float, DataType::BFloat16, 2),
     // Two cvt.frnd2{.relu}{.satfinite}.bf16x2.f32
-    VectorizationCastParams(DataType::Float, DataType::BFloat16, 4),
+    VectorizationCastParams(DataType::Float, DataType::BFloat16, 4));
 
+// Not enabled yet, just because it will be implemented in a later PR.
+auto disabled_vectorization_cast_params = ::testing::Values(
     // cvt.rn.satfinite{.relu}.f8x2type.f32
     VectorizationCastParams(DataType::Float, DataType::Float8_e4m3fn, 2),
     VectorizationCastParams(DataType::Float, DataType::Float8_e5m2, 2),
