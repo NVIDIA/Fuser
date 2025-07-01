@@ -3863,18 +3863,18 @@ void initNvFuserPythonBindings(PyObject* module) {
 
         /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */
         size_t out_ndims;
-        if (arg1.dims <= 2 && arg2.dims <= 2) {
-          out_ndims = arg1.dims + arg2.dims - 2;
+        if (mat1.dims <= 2 && mat2.dims <= 2) {
+          out_ndims = mat1.dims + mat2.dims - 2;
         } else {
           /* batch matmul */
-          out_ndims = std::max(arg1.dims, arg2.dims);
+          out_ndims = std::max(mat1.dims, mat2.dims);
         }
         Tensor output = fd->defineTensor(out_ndims);
         //
         std::optional<Tensor> out_scale = std::nullopt;
         std::optional<Tensor> out_gamma = std::nullopt;
         if (output_block_scale_size > 0) {
-          out_scale = fd->defineTensor(output_dims);
+          out_scale = fd->defineTensor(out_ndims);
         }
         if (output_gamma) {
           // out_gamma is a scalar tensor
