@@ -336,7 +336,6 @@ std::vector<llvm::Value*> getContiguousStrides(
   for (auto i = sizes.size(); i > 0; --i) {
     llvm::Value* size = sizes.at(i - 1);
     llvm::Value* stride = cur_stride;
-
     // If expanded, stride is 0
     if (expand_flags.at(i - 1)) {
       stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 0);
@@ -422,6 +421,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferAllocationS
   // Allocate the allocation domain
   for (const auto id : tv->getMaybeAllocationDomain()) {
     if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+
+    // Skip DIDx parallel domains to match inferTensorStrides filtering
+    if (id->getParallelType() == ParallelType::DIDx || id->getParallelType() == ParallelType::DIDy || id->getParallelType() == ParallelType::DIDz) {
       continue;
     }
 
@@ -625,7 +629,7 @@ std::vector<llvm::Value*> inferTensorStrides(
    }
    for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
       auto iter_domain = *it;
-      if(iter_domain->getParallelType() == ParallelType::DIDx) {
+      if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
           continue;
       }
       generate_stride_llvm_ir(iter_domain->as<Val>(), val2llvmMap, builder, running_stride, boundaryValVisited, strides);
