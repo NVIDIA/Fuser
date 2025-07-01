@@ -861,6 +861,34 @@ class PythonTranslator : public OptInConstDispatch {
         {bcast_op->out()});
   }
 
+  // Map IndexSelectOp to IndexSelectOpRecord
+  void handle(const IndexSelectOp* isop) final {
+    NVF_ERROR(isop != nullptr);
+    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.index_select",
+        std::make_tuple(isop->lookupTv(), isop->indexTv()),
+        argument_names,
+        std::make_tuple(isop->dim()),
+        {out_tv});
+  }
+
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.select",
+        std::make_tuple(sop->lookupTv(), sop->input(1)),
+        argument_names,
+        std::make_tuple(sop->dim()),
+        {out_tv});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
