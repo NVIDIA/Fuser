@@ -6221,7 +6221,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   NVF_CHECK(
       outGamma() == nullptr,
       "output global scaling factor in ScaledMmaOp is not supported yet");
-  result = at::_scaled_mm(
+  auto result = at::_scaled_mm(
       mat1,
       mat2,
       scale1,
