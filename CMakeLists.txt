@@ -811,6 +811,13 @@ if(BUILD_TEST)
   add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_argsort)
 
+  set(SCAN_TEST_SRCS)
+  list(APPEND SCAN_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_scan.cpp
+  )
+  add_test(test_scan "${SCAN_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_scan)
+
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_topk.cpp
@@ -1024,6 +1031,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
