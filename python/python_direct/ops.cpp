@@ -1584,6 +1584,32 @@ Returns
 TensorView
     The reshaped tensor.
       )",
+          py::return_value_policy::reference);
+  ops.def(
+      "permute",
+      [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == (int64_t)dims.size(),
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
+        return permute(arg, dims);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Permute a tensor.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to permute.
+
+Returns
+-------
+TensorView
+    The permuted tensor.
+)",
       py::return_value_policy::reference);
 }
 
