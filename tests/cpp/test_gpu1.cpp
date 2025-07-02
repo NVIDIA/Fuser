@@ -2704,6 +2704,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         t0 = t0.abs() + 1e-6;
       }
 
+      PointWiseScheduler::schedule(&fusion);
+
       KernelExecutor ke;
       bool unsupported_device = false;
       if (fp8_type == DataType::Float8_e8m0fnu) {
