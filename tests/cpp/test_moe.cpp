@@ -1,0 +1,184 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#include <csrc/exceptions.h>
+#include <device_lower/lower2device.h>
+#include <expr_evaluator.h>
+#include <fusion.h>
+#include <ir/all_nodes.h>
+#include <ir/utils.h>
+#include <ops/all_ops.h>
+#include <runtime/executor.h>
+#include <runtime/executor_utils.h>
+#include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
+
+#include <gtest/gtest.h>
+
+namespace nvfuser {
+
+// Reproducing the CUDA kernels used in SGLang MoE gate
+// logic.
+// https://github.com/sgl-project/sglang/blob/main/sgl-kernel/csrc/moe/prepare_moe_input.cu
+class SgLangMoETest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+
+ protected:
+  int64_t num_experts = 16;
+  int64_t num_tokens = 32;
+  int64_t k = 4;
+  int64_t rounding_factor = 128;
+};
+
+TEST_F(SgLangMoETest, ComputeProblemSizes) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // topk_ids
+  auto tv0 = makeContigConcreteTensor({num_tokens, k}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = flatten(tv0);
+
+  // tokens_per_expert
+  auto tv2 = zeros({IrBuilder::create<Val>(num_experts)}, DataType::Int);
+
+  auto tv3 = ones({IrBuilder::create<Val>(num_tokens * k)}, DataType::Int);
+
+  auto tv4 = indexPutAccumulate(tv2, tv1, tv3);
+
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, num_experts, {num_tokens, k}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(SgLangMoETest, ComputeExpertOffsets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // tokens_per_expert
+  auto tv0 = makeContigConcreteTensor({num_experts}, DataType::Int);
+  fusion.addInput(tv0);
+
+  // Inclusive scan
+  auto tv1 = cumsum(tv0, 0);
+  // Exclusive scan + total count
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, num_tokens * k, {num_experts}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // tokens_per_expert
+  auto tv0 = makeContigConcreteTensor({num_experts}, DataType::Int);
+  fusion.addInput(tv0);
+
+  // The first part is the same as ComputeExpertOffsets
+  auto tv1 = cumsum(tv0, 0);
+  auto tv2 =
+      pad(tv1, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+
+  // Does the same cumsum with rounded token counts
+  auto tv3 =
+      ceilDiv(tv0, IrBuilder::create<Val>(rounding_factor, DataType::Int));
+  auto tv4 = mul(tv3, IrBuilder::create<Val>(rounding_factor, DataType::Int));
+  auto tv5 = cumsum(tv4, 0);
+  auto tv6 =
+      pad(tv5, {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, num_tokens * k, {num_experts}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  // Manually computing the results as ceilDiv doesn't seem to work
+  // with ExprEvaluator. This is the error message:
+  //
+  // C++ exception with description "std::get: wrong index for variant" thrown
+  // in the test body.
+  auto t2 = at::pad(at::cumsum(t0, 0), {1, 0});
+  auto t0_rounded =
+      at::floor((t0 + rounding_factor - 1) / rounding_factor) * rounding_factor;
+  auto t6 = at::pad(at::cumsum(t0_rounded, 0), {1, 0});
+
+  testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
+}
+
+TEST_F(SgLangMoETest, ComputeArgSort) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // topk_ids
+  auto tv0 = makeContigConcreteTensor({num_tokens, k}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = flatten(tv0);
+  // argsort indices
+  auto tv2 = argsort(tv1, 0, /*descending=*/true, /*stable=*/true);
+  // input_permutation
+  auto tv3 = div(tv2, IrBuilder::create<Val>(k, DataType::Int));
+
+  // This doesn't need to be initialized
+  // output_permutation
+  auto tv4 = zeros({IrBuilder::create<Val>(num_tokens * k)}, DataType::Int);
+  // topk_ids_offset
+  auto tv5 = arange(
+      fusion.zeroVal(DataType::Int),
+      IrBuilder::create<Val>(num_tokens * k, DataType::Int),
+      DataType::Int);
+  auto tv6 = scatter(tv4, 0, tv2, tv5);
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randint(0, num_tokens * k, {num_tokens, k}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto t2 = at::argsort(t0.flatten(), true, 0, true);
+  auto t3 = at::floor(t2 / k);
+  auto t4 = at::zeros({num_tokens * k}, options);
+  auto t5 = at::arange(0, num_tokens * k, options);
+  t4.scatter_(0, t2, t5);
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t3));
+  EXPECT_TRUE(outputs[1].as<at::Tensor>().equal(t4));
+}
+
+} // namespace nvfuser
