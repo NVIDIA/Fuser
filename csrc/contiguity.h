@@ -59,6 +59,10 @@ class OrderedIdInformation : public OptInDispatch {
     return id_to_alloc_ids_.find(id);
   }
 
+  void setCurrentDirection(Direction dir) {
+    current_direction_ = dir;
+  }
+
  protected:
   OrderedIdInformation(
       const std::vector<IterDomain*>& alloc_domain,
@@ -124,6 +128,9 @@ class OrderedIdInformation : public OptInDispatch {
   // domain. Helps us identify which ids are consistently_ordered_ids_. Used
   // for intermediate storage, not to return.
   std::vector<IterDomain*> active_ids_;
+
+  // Current traversal direction
+  Direction current_direction_ = Direction::Forward;
 
   // IterDomains in this set exclusively consume all the uses of their
   // allocations. For example: [i0, i1] split(0, f)->merge(1) [ceilDiv(i0, f),

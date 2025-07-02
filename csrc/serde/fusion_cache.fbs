@@ -50,6 +50,7 @@ enum RecordType: int {
     IndexSelectOp,
     IndexPutAccumulateOp,
     SelectOp,
+    ScatterOp,
     GatherOp,
     TakeAlongAxisOp,
     Unary_TV,
@@ -86,6 +87,7 @@ enum RecordType: int {
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -100,6 +102,8 @@ enum RecordType: int {
     VarianceMeanOp,
     Vector,
     WelfordOp,
+    ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -126,6 +130,9 @@ union RecordData {
   TensorCreationSymbolic,
   Vector,
   Welford,
+  Sort,
+  TopK,
+  ScaledOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -343,6 +350,28 @@ table Vector {
 // Data for WelfordOpRecord
 table Welford {
   axes: [long];
+}
+
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
+}
+
+// Data for ScaledGroupedMmaOpRecord
+table ScaledOp {
+  dtype: long;
+  block_scale_size: long;
+  block_scale_dtype: long;
+  gamma: bool;
 }
 
 // =====================================================================================

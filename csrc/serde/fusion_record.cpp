@@ -660,6 +660,28 @@ void RecordFunctorFactory::registerAllParsers() {
         parseVector(buffer->data_as_Welford()->axes()));
   };
   registerParser(RecordType::WelfordOp, deserializeWelfordRecord);
+
+  auto deserializeArgsortRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_Sort();
+    return new python_frontend::ArgsortOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->descending(),
+        data->stable());
+  };
+  registerParser(RecordType::ArgsortOp, deserializeArgsortRecord);
+
+  auto deserializeTopKRecord = [](const RecordFunctor* buffer) {
+    auto data = buffer->data_as_TopK();
+    return new python_frontend::TopKOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        data->dim(),
+        data->largest(),
+        data->sorted());
+  };
+  registerParser(RecordType::TopKOp, deserializeTopKRecord);
 }
 
 void RecordFunctorFactory::setupFunctionMaps() {
@@ -831,6 +853,12 @@ void RecordFunctorFactory::setupFunctionMaps() {
   NVFUSER_UNARY_TV_ALPHA_OP("triu", triu)
 
   NVFUSER_BINARY_TV_ONLY_OP("matmul", matmul)
+  NVFUSER_TERNARY_TV_ONLY_OP(
+      "grouped_mm",
+      [](TensorView* mat1, TensorView* mat2, TensorView* offsets) {
+        ScaledTensorView scaled_out = grouped_mm(mat1, mat2, offsets);
+        return scaled_out.tv;
+      })
   NVFUSER_BINARY_TV_ONLY_OP("linear", linear)
   NVFUSER_TERNARY_TV_ONLY_OP("linear", linear)
 

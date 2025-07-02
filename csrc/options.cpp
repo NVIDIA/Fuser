@@ -147,7 +147,8 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
-      {"transform_propagator", DebugDumpOption::TransformPropagator}};
+      {"transform_propagator", DebugDumpOption::TransformPropagator},
+      {"communication", DebugDumpOption::Communication}};
 
   return parseEnvOptions("DUMP", available_options);
 }
@@ -206,6 +207,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
           {"parallel_serde", DisableOption::ParallelSerde},

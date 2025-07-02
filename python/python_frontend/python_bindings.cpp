@@ -641,6 +641,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, async_gmem_load_operands)
       .PARAM(MatmulParams, grid_traversal_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
+      .PARAM(MatmulParams, use_ldst_matrix)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
       .PARAM(MatmulParams, tiling_strategy)
@@ -673,6 +674,9 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
       .value("Float8_e5m2", DataType::Float8_e5m2)
+      .value("Float8_e8m0fnu", DataType::Float8_e8m0fnu)
+      .value("Float4_e2m1fn", DataType::Float4_e2m1fn)
+      .value("Float4_e2m1fn_x2", DataType::Float4_e2m1fn_x2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
@@ -2980,6 +2984,52 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Tensor src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg1.dims == index.dims && arg1.dims == src.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            ", ",
+            index.dims,
+            " and ",
+            src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
@@ -3584,6 +3634,258 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("norm_type").none(true) = py::none(),
       py::arg("scale_grad_by_freq").none(true) = py::none(),
       py::arg("sparse").none(true) = py::none(),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "argsort",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         int64_t dim,
+         bool descending,
+         bool stable) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.argsort");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ArgsortOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            dim,
+            descending,
+            stable));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("descending") = false,
+      py::arg("stable") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor offsets) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        // Calculate output dimensions based on mat1 & mat2 rank
+        size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
+        Tensor output = fd->defineTensor(output_dims);
+        fd->defineRecord(
+            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                {fd->recordingState(mat1()),
+                 fd->recordingState(mat2()),
+                 fd->recordingState(offsets())},
+                {fd->recordingState(output())},
+                ("ops.grouped_mm"),
+                serde::RecordType::Ternary_TV,
+                static_cast<
+                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                    [](TensorView* mat1,
+                       TensorView* mat2,
+                       TensorView* offsets) {
+                      ScaledTensorView scaled_out =
+                          grouped_mm(mat1, mat2, offsets);
+                      return scaled_out.tv;
+                    })));
+        return output;
+      },
+      R"(
+      Grouped matrix multiplication.
+
+      Performs matrix multiplication on grouped sets of matrices using offsets
+      to define variable-sized groups.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          offsets (Tensor): Offsets tensor defining group boundaries
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor offsets,
+         Tensor scale1,
+         Tensor scale2,
+         std::optional<Tensor> alpha,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        // Calculate output dimensions based on mat1 & mat2 rank
+        size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
+        Tensor output = fd->defineTensor(output_dims);
+        std::optional<Tensor> out_scale = std::nullopt;
+        std::optional<Tensor> out_gamma = std::nullopt;
+        if (output_block_scale_size > 0) {
+          out_scale = fd->defineTensor(output_dims);
+        }
+        if (output_gamma) {
+          // out_gamma is a scalar tensor
+          out_gamma = fd->defineTensor(0);
+        }
+
+        fd->defineRecord(new ScaledGroupedMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(offsets()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             alpha.has_value()
+                 ? fd->recordingState(alpha.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             bias.has_value()
+                 ? fd->recordingState(bias.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             beta.has_value()
+                 ? fd->recordingState(beta.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            {fd->recordingState(output()),
+             out_scale.has_value()
+                 ? fd->recordingState(out_scale.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             out_gamma.has_value()
+                 ? fd->recordingState(out_gamma.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma));
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is "
+              "true");
+          return std::make_tuple(output, out_scale, out_gamma);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, out_scale, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      R"(
+      Scaled Grouped matrix multiplication.
+
+      Performs matrix multiplication on grouped sets of matrices using offsets
+      to define variable-sized groups.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          offsets (Tensor): Offsets tensor defining group boundaries
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor [optional]
+          bias (Tensor): Bias tensor [optional]
+          beta (Tensor): Beta tensor [optional]
+          dtype (ScalarType): Output tensor type [optional]
+          output_block_scale_size (int): Output block scale size [optional]
+          output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
+          output_gamma (bool): Output gamma [optional, default: False]
+
+      The math operation is roughly two steps:
+          out = alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets) + beta * bias
+
+          (out_mat, out_scale, out_gamma) = Quantization(
+              out,
+              dtype,
+              output_block_scale_size,
+              output_block_scale_dtype,
+              output_gamma)
+
+      Note 1: The post quantization only applies when output_block_scale_size > 0,
+              which would produce out_scale tensor. Otherwise, None will be returned;
+      Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+              Otherwise, None will be returned.
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+          Tensor: Output block scale tensor [optional]
+          Tensor: Output gamma tensor [optional]
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha") = std::nullopt,
+      py::arg("bias") = std::nullopt,
+      py::arg("beta") = std::nullopt,
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "topk",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar k,
+         int64_t dim,
+         bool largest,
+         bool sorted) -> py::tuple {
+        FUSER_PERF_SCOPE("Operators.topk");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor values = fd->defineTensor(arg.dims);
+        Tensor indices = fd->defineTensor(arg.dims);
+
+        fd->defineRecord(new TopKOpRecord(
+            {fd->recordingState(arg()), fd->recordingState(k())},
+            {fd->recordingState(values()), fd->recordingState(indices())},
+            dim,
+            largest,
+            sorted));
+
+        return py::make_tuple(values, indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
       py::return_value_policy::reference);
 
   bindSchedule(fusion_def);

@@ -17,7 +17,6 @@
 #include <dynamic_transform.h>
 #include <fusion_profiler.h>
 #include <host_ir/executor.h>
-#include <host_ir/lower.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <instrumentation.h>
@@ -46,16 +45,9 @@ HostIrExecutor::HostIrExecutor(
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
-        return isResharding(e) && HostIrLower::canLower(e);
-      })) {
+  if (std::any_of(exprs.begin(), exprs.end(), isResharding)) {
     NVF_ERROR(
-        std::all_of(
-            exprs.begin(),
-            exprs.end(),
-            [](Expr* e) {
-              return isResharding(e) && HostIrLower::canLower(e);
-            }),
+        std::all_of(exprs.begin(), exprs.end(), isResharding),
         "Could not execute fusion as all expressions in a host IR container "
         "must be communication based at this point.");
     return true;
@@ -82,8 +74,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = convertSingleOpToCommunication(
-          cloner.clone(e), my_device_idx, HostIrLowerParams());
+      std::vector<Expr*> communications =
+          convertSingleOpToCommunication(cloner.clone(e), my_device_idx);
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -456,7 +448,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
-               hu->fusion_to_execute(), 1, 1, 1, 1)});
+               hu->fusion_to_execute(), 1, 1, 1, 1, SchedulerType::None)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
         ExecutorDispatch::compile(
@@ -658,10 +650,10 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
-  TensorView* in = linear->inA()->as<TensorView>();
-  TensorView* weight = linear->inB()->as<TensorView>();
-  TensorView* bias = linear->bias()->as<TensorView>();
-  TensorView* out = linear->out()->as<TensorView>();
+  auto* in = linear->inA()->as<TensorView>();
+  auto* weight = linear->inB()->as<TensorView>();
+  auto* bias = linear->bias()->as<TensorView>();
+  auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
@@ -682,8 +674,8 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
-      load_store_op->opType() == LoadStoreOpType::Set,
-      "LoadStoreOp must be a Set");
+      load_store_op->opType() == LoadStoreOpType::Set ||
+      load_store_op->opType() == LoadStoreOpType::SegmenterSet);
   NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();

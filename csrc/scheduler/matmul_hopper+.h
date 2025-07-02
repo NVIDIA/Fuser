@@ -77,7 +77,7 @@ class HopperPlus : public Common {
 
   void run() final;
 
- private:
+ protected:
   void validate() const;
 
   bool isCooperative() const {
@@ -128,13 +128,21 @@ class HopperPlus : public Common {
       const std::vector<TensorView*>& operands,
       std::vector<TensorView*>& smem_operands);
 
+  //! This is a utility used within blockTileTensors which does the CGA and CTA
+  //! tile split and also handles swizzling.
+  std::vector<MatmulDimRole> applyCgaAndCtaTilingWithSwizzling(
+      TensorView* tv,
+      const std::vector<MatmulDimRole>& orig_merged_roles) const;
+
   //! Swizzle the M and N outer dimensions after makeTile has been called.
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
   //! the split. This is analogous to forwarding during transform propagation.
-  void reorderBlockTileTraversal(
+  //!
+  //! Returns the new outer dim roles
+  std::vector<MatmulDimRole> reorderBlockTileTraversal(
       TensorView* tv,
-      std::vector<MatmulDimRole>& outer_dim_roles);
+      const std::vector<MatmulDimRole>& outer_dim_roles) const;
 
   //! Do block tiling for a collection of TensorViews. The tensors should be
   //! unscheduled before this method is called.
@@ -163,6 +171,10 @@ class HopperPlus : public Common {
     }
   }
 
+  //! Computes the number of CGAs we can launch in a single wave on the current
+  //! device
+  int64_t numCGAs() const;
+
   //! Schedule the loads of all operands from global memory to shared memory.
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
@@ -175,22 +187,13 @@ class HopperPlus : public Common {
 
   void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
 
-  int64_t getLdTMemVectorizeFactor() const;
-
-  void setMmaResultAllocationDomain(TensorView* mma_result);
+  virtual void setMmaResultAllocationDomain(TensorView* mma_result) = 0;
   void scheduleMmaResults();
 
-  void scheduleEpilogueWithoutSmemEpilogueHopper();
-  void scheduleEpilogueWithoutSmemEpilogueBlackwell();
-  void scheduleEpilogueWithoutSmemEpilogue();
-  void scheduleEpilogueWithSmemEpilogue();
+  virtual void scheduleEpilogueWithoutSmemEpilogue() = 0;
+  virtual void scheduleEpilogueWithSmemEpilogue() = 0;
   void scheduleEpilogue();
-
-  void scheduleSplitKSumHopper();
-  void scheduleSplitKSumBlackwell();
-  void scheduleSplitKSum();
-
-  std::vector<TensorView*> createTMemLoad();
+  virtual void scheduleSplitKSum() = 0;
 
   void setUpInlining();
 
@@ -213,6 +216,39 @@ class HopperPlus : public Common {
 
   // This is like the above method, but tv should not have any K dimension
   void transformLikeMmaOutputWithoutK(TensorView* tv);
+
+  // Get the number of warp groups that are used for epilogue operations.
+  // For Hopper, it is the number of warp groups that are used for mma +
+  // epilogue operations. For Blackwell, it is the number of warp groups that
+  // are used for epilogue operations (mma is fully async, and it only needs
+  // one thread).
+  int64_t getNumEpilogueWarpGroups() const;
+
+  // Get the circular buffer type: pipelined or warp-specialized?
+  // If warp-specialized, on which parallel type? Do we want register sharing?
+  CircularBufferType getCircularBufferType() const;
+};
+
+class Hopper : public HopperPlus {
+ public:
+  using HopperPlus::HopperPlus;
+
+  void setMmaResultAllocationDomain(TensorView* mma_result) final;
+  void scheduleEpilogueWithoutSmemEpilogue() final;
+  void scheduleEpilogueWithSmemEpilogue() final;
+  void scheduleSplitKSum() final;
+};
+
+class Blackwell : public HopperPlus {
+ public:
+  using HopperPlus::HopperPlus;
+
+  std::vector<TensorView*> createTMemLoad();
+  int64_t getLdTMemVectorizeFactor() const;
+  void setMmaResultAllocationDomain(TensorView* mma_result) final;
+  void scheduleEpilogueWithoutSmemEpilogue() final;
+  void scheduleEpilogueWithSmemEpilogue() final;
+  void scheduleSplitKSum() final;
 };
 
 } // namespace schedule_matmul

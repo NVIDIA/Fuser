@@ -473,8 +473,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
 
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(
-            kernel_summary.largest_smem_data_type, index_type) *
+        dataTypeSizeByte(kernel_summary.largest_smem_data_type, index_type) *
         grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
@@ -856,6 +855,7 @@ void KernelExecutor::computeArgs(
               ? buffer_info.shape_info.logical_strides
               : buffer_info.shape_info.allocation_strides,
           idx_type,
+          getLastDimAdjustment(buffer_info.tv->dtype()),
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
@@ -912,7 +912,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         expected_dynamic_smem_size);
   }
   NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      getStaticSmemSize() + dynamic_smem_size <= device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
       dynamic_smem_size,
@@ -1008,7 +1008,7 @@ KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("KernelExecutor::runFusion");
+  FUSER_PERF_SCOPE("KernelExecutor::run");
 
   if (isProfilerEnabled()) {
     NVF_CHECK(

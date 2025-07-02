@@ -78,7 +78,7 @@ class TMAInfo {
   }
 
   Val* tileSizeBytes() const {
-    int64_t itemsize = dataTypeSize(gmem_tv_->dtype());
+    int64_t itemsize = dataTypeSizeByte(gmem_tv_->dtype());
     Val* size = IrBuilder::create<Val>(itemsize, DataType::Index);
     for (const auto& d : dims_) {
       size = SimplifyingIrBuilder::mulExpr(size, d.tileSize());

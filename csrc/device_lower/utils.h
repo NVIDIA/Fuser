@@ -176,6 +176,15 @@ bool isTMAOrMMASmemTv(TensorView* tv);
 //! an input of an MmaOp, or the smem tv of TMA load/store.
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
 
+//! Get the stage_slice_position if it is defined in the WarpSpecialized
+//! circular buffer options struct.
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv);
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type);
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -369,6 +378,19 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma);
 // Check if the given ForLoop is a warp specialized loop by checking
 // the circular buffer type of the loop domain.
 bool isWarpSpecializedLoop(ForLoop* loop);
-} // namespace lower_utils
 
+// Check if the given Expr is only a data copy, and no math is done on it.
+// For example, set, broadcast, squeeze, slice, pad, reshape, etc.
+// When an Expr is copy only, regardless of the architecture, it is always
+// supported. For example, it is totally OK to broadcast a fp8 tensor of shape
+// [1024] to a fp8 tensor of shape [1024, 1] on NVIDIA GeForce 8800 GTX, the
+// first device that supports CUDA, because it just involves byte copying, which
+// is supported on all architectures.
+bool isCopyOnly(Expr* expr);
+
+// Check if the given Val is only copied from/to other Val, and no math is done
+// on it.
+bool isCopyOnly(Val* val);
+
+} // namespace lower_utils
 } // namespace nvfuser
