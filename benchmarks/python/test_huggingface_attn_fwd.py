@@ -138,7 +138,9 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
-    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True)
+    inputs = torch.randn(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
+    )
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )
