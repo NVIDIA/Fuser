@@ -1966,10 +1966,11 @@ def scaled_grouped_mm_input_generator(
 ###############################################################################
 # largest power of 2 representable in `torch.float8_e4m3fn`
 F8E4M3_LARGEST_POW2 = 8
-# max value of `torch.float8_e4m3fn` (448)        
+# max value of `torch.float8_e4m3fn` (448)
 F8E4M3_MAX_VAL = torch.finfo(torch.float8_e4m3fn).max
-# exponent bias of `torch.float8_e8m0fnu`         
+# exponent bias of `torch.float8_e8m0fnu`
 F8E8M0_EXP_BIAS = 127
+
 
 def data_to_mxfp8_scale(x, block_size):
     # simple implementation of https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
@@ -1979,11 +1980,14 @@ def data_to_mxfp8_scale(x, block_size):
     max_abs = torch.amax(torch.abs(x), 1)
     largest_p2_lt_max_abs = torch.floor(torch.log2(max_abs))
     scale_e8m0_unbiased = largest_p2_lt_max_abs - F8E4M3_LARGEST_POW2
-    scale_e8m0_unbiased = torch.clamp(scale_e8m0_unbiased, -1 * F8E8M0_EXP_BIAS, F8E8M0_EXP_BIAS)
+    scale_e8m0_unbiased = torch.clamp(
+        scale_e8m0_unbiased, -1 * F8E8M0_EXP_BIAS, F8E8M0_EXP_BIAS
+    )
     scale_e8m0_biased = scale_e8m0_unbiased + F8E8M0_EXP_BIAS
     scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
     scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
     return scale_e8m0_biased.reshape(orig_shape[0], -1)
+
 
 def data_to_mxfp8(x, block_size):
     x_scale = data_to_mxfp8_scale(x, block_size)

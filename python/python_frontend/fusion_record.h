@@ -3471,7 +3471,8 @@ struct ScaledMmaOpRecord : RecordFunctor {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
     os << ", output_block_scale_size=" << out_block_scale_size_;
-    os << ", output_block_scale_dtype=" << dtypeToPyString(out_block_scale_dtype_);
+    os << ", output_block_scale_dtype="
+       << dtypeToPyString(out_block_scale_dtype_);
     os << ", output_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";

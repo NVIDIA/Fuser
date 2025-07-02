@@ -1358,7 +1358,9 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
 
     def scaled_mm_wrapper(mat1, mat2, scale1, scale2, alpha, bias, beta, dtype):
         assert beta is None
-        return torch._scaled_mm(mat1, mat2, scale1, scale2, bias, alpha, out_dtype=dtype)
+        return torch._scaled_mm(
+            mat1, mat2, scale1, scale2, bias, alpha, out_dtype=dtype
+        )
 
     scaled_mm_opinfo = OpInfo(
         lambda fd: fd.ops.scaled_mm,
