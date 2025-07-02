@@ -6,14 +6,6 @@
  */
 // clang-format on
 
-#define DEFINE_CAST_VEC1(name, from_type, to_type) \
-  __device__ __inline__ Array<to_type, 1, 1> name( \
-      const Array<from_type, 1, 1>& input) {       \
-    Array<to_type, 1, 1> result;                   \
-    result[0] = name(input[0]);                    \
-    return result;                                 \
-  }
-
 // clang-format off
 // Disable clang-format because it tries to put the _Pragma("unroll")
 // and the for loop on the same line, which doesn't make sense.
@@ -256,8 +248,6 @@ __device__ __inline__ __half __float2half(const float f) {
   return val;
 }
 
-DEFINE_CAST_VEC1(__float2half, float, __half);
-
 template <int align>
 __device__ __inline__ Array<__half, 2, align> __float2half(
     const Array<float, 2, align>& input) {
@@ -446,8 +436,6 @@ __device__ __inline__ __bfloat __float2bfloat(const float f) {
       : "f"(f));
   return val;
 }
-
-DEFINE_CAST_VEC1(__float2bfloat, float, __bfloat);
 
 template <int align>
 __device__ __inline__ Array<__bfloat, 2, align> __float2bfloat(
@@ -751,8 +739,16 @@ __device__ __inline__ __e4m3 __half2e4m3(const __half h) {
   return __half2e4m3(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__half2e4m3, __half, __e4m3);
+
 __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
   return __float2e4m3(__bfloat2float(h));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e4m3, n, align> __bfloat2e4m3(
+    const Array<__bfloat, n, align>& input) {
+  return __float2e4m3(__bfloat2float(input));
 }
 
 template <int align>
@@ -772,16 +768,36 @@ __device__ __inline__ __half __e4m32half(const __e4m3 b) {
   return __e4m32half(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__e4m32half, __e4m3, __half);
+
 __device__ __inline__ float __e4m32float(const __e4m3 b) {
   return __half2float(__e4m32half(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<float, n, align> __e4m32float(
+    const Array<__e4m3, n, align>& input) {
+  return __half2float(__e4m32half(input));
 }
 
 __device__ __inline__ double __e4m32double(const __e4m3 b) {
   return __e4m32float(b);
 }
 
+template <int n, int align>
+__device__ __inline__ Array<double, n, align> __e4m32double(
+    const Array<__e4m3, n, align>& input) {
+  return __to_double(__e4m32float(input));
+}
+
 __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
   return __float2bfloat(__e4m32float(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__bfloat, n, align> __e4m32bfloat(
+    const Array<__e4m3, n, align>& input) {
+  return __float2bfloat(__e4m32float(input));
 }
 
 // e5m2 casts
@@ -801,8 +817,16 @@ __device__ __inline__ __e5m2 __float2e5m2(const float f) {
   return __float2e5m2(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__float2e5m2, float, __e5m2);
+
 __device__ __inline__ __e5m2 __double2e5m2(const double f) {
   return __float2e5m2(f);
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e5m2, n, align> __double2e5m2(
+    const Array<double, n, align>& input) {
+  return __float2e5m2(__to_float(input));
 }
 
 template <int align>
@@ -822,8 +846,16 @@ __device__ __inline__ __e5m2 __half2e5m2(const __half h) {
   return __half2e5m2(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__half2e5m2, __half, __e5m2);
+
 __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
   return __float2e5m2(__bfloat2float(h));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e5m2, n, align> __bfloat2e5m2(
+    const Array<__bfloat, n, align>& input) {
+  return __float2e5m2(__bfloat2float(input));
 }
 
 template <int align>
@@ -843,16 +875,36 @@ __device__ __inline__ __half __e5m22half(const __e5m2 b) {
   return __e5m22half(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__e5m22half, __e5m2, __half);
+
 __device__ __inline__ float __e5m22float(const __e5m2 b) {
   return __half2float(__e5m22half(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<float, n, align> __e5m22float(
+    const Array<__e5m2, n, align>& input) {
+  return __half2float(__e5m22half(input));
 }
 
 __device__ __inline__ double __e5m22double(const __e5m2 b) {
   return __e5m22float(b);
 }
 
+template <int n, int align>
+__device__ __inline__ Array<double, n, align> __e5m22double(
+    const Array<__e5m2, n, align>& input) {
+  return __to_double(__e5m22float(input));
+}
+
 __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 b) {
   return __float2bfloat(__e5m22float(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__bfloat, n, align> __e5m22bfloat(
+    const Array<__e5m2, n, align>& input) {
+  return __float2bfloat(__e5m22float(input));
 }
 
 // e8m0 casts
@@ -873,12 +925,26 @@ __device__ __inline__ __e8m0 __float2e8m0(const float f) {
   return __float2e8m0(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__float2e8m0, float, __e8m0);
+
 __device__ __inline__ __e8m0 __double2e8m0(const double f) {
   return __float2e8m0(f);
 }
 
+template <int n, int align>
+__device__ __inline__ Array<__e8m0, n, align> __double2e8m0(
+    const Array<double, n, align>& input) {
+  return __float2e8m0(__to_float(input));
+}
+
 __device__ __inline__ __e8m0 __half2e8m0(const __half h) {
   return __float2e8m0(__half2float(h));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e8m0, n, align> __half2e8m0(
+    const Array<__half, n, align>& input) {
+  return __float2e8m0(__half2float(input));
 }
 
 template <int align>
@@ -898,6 +964,8 @@ __device__ __inline__ __e8m0 __bfloat2e8m0(const __bfloat h) {
   return __bfloat2e8m0(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__bfloat2e8m0, __bfloat, __e8m0);
+
 template <int align>
 __device__ __inline__ Array<__bfloat, 2, align> __e8m02bfloat(
     const Array<__e8m0, 2, align>& input) {
@@ -915,14 +983,34 @@ __device__ __inline__ __bfloat __e8m02bfloat(const __e8m0 b) {
   return __e8m02bfloat(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__e8m02bfloat, __e8m0, __bfloat);
+
 __device__ __inline__ float __e8m02float(const __e8m0 b) {
   return __bfloat2float(__e8m02bfloat(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<float, n, align> __e8m02float(
+    const Array<__e8m0, n, align>& input) {
+  return __bfloat2float(__e8m02bfloat(input));
 }
 
 __device__ __inline__ double __e8m02double(const __e8m0 b) {
   return __bfloat2double(__e8m02bfloat(b));
 }
 
+template <int n, int align>
+__device__ __inline__ Array<double, n, align> __e8m02double(
+    const Array<__e8m0, n, align>& input) {
+  return __bfloat2double(__e8m02bfloat(input));
+}
+
 __device__ __inline__ __half __e8m02half(const __e8m0 b) {
   return __float2half(__e8m02float(b));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__half, n, align> __e8m02half(
+    const Array<__e8m0, n, align>& input) {
+  return __float2half(__e8m02float(input));
 }
