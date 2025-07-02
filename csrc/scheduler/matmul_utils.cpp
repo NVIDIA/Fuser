@@ -1103,11 +1103,6 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   thread_local std::array<int64_t, 16> cached_results;
 
   const int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
-  std::cout << "cached_results=";
-  for (size_t i : arange((size_t)16)) {
-    std::cout << cached_results[i] << " ";
-  }
-  std::cout << "  cluster_size=" << cluster_size << std::endl;
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
