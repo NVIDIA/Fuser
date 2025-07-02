@@ -731,10 +731,19 @@ TEST_P(VectorizationCastTest, CastKernel) {
     tv->axis(0)->parallelize(ParallelType::Vectorize);
   }
 
-  auto options = at::TensorOptions()
-                     .dtype(data_type_to_aten(dtype_from))
-                     .device(at::kCUDA, 0);
-  auto t0 = at::randn({vectorization_factor}, options);
+  at::Tensor t0;
+  if (dtype_from == DataType::Float8_e4m3fn || dtype_from == DataType::Float8_e5m2 || dtype_from == DataType::Float8_e8m0fnu) {
+    auto options = at::TensorOptions()
+                      .dtype(at::ScalarType::Byte)
+                      .device(at::kCUDA, 0);
+    t0 = at::randint(0, 255, {vectorization_factor}, options)
+    .view(aten_to_data_type(dtype_from));
+  } else {
+    auto options = at::TensorOptions()
+                      .dtype(data_type_to_aten(dtype_from))
+                      .device(at::kCUDA, 0);
+    t0 = at::randn({vectorization_factor}, options);
+  }
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
