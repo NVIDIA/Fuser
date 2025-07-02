@@ -2696,7 +2696,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
       auto options =
           at::TensorOptions().dtype(at_src_type).device(at::kCUDA, 0);
 
-      at::Tensor t0 = at::randn({1, 4}, options);
+      const int n = std::rand() % (1024 * 1024 * 2) + 1;
+      at::Tensor t0 = at::randn({n, 4}, options);
 
       if (fp8_type == DataType::Float8_e8m0fnu) {
         // e8m0 can only represent positive values
