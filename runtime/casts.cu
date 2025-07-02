@@ -47,7 +47,206 @@
     }                                                    \
     return result;                                       \
   }
+
+#define DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(name, to_type) \
+  template <typename T, int n, int align>                   \
+  __device__ __inline__ Array<to_type, n, align> name(      \
+      const Array<T, n, align>& input) {                    \
+    Array<to_type, n, align> result;                        \
+    _Pragma("unroll")                                       \
+    for (int i = 0; i < n; i++) {                           \
+      result[i] = name(input[i]);                           \
+    }                                                       \
+    return result;                                          \
+  }
 // clang-format on
+
+
+// Wrappers for static casts
+template <typename T>
+__device__ __inline__ float __to_float(const T f) {
+  return static_cast<float>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_float, float);
+
+template <typename T>
+__device__ __inline__ float __real_then_to_float(const T f) {
+  return __to_float(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_float, float);
+
+template <typename T>
+__device__ __inline__ int8_t __to_int8(const T f) {
+  return static_cast<int8_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_int8, int8_t);
+
+template <typename T>
+__device__ __inline__ int16_t __to_int16(const T f) {
+  return static_cast<int16_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_int16, int16_t);
+
+template <typename T>
+__device__ __inline__ int32_t __to_int32(const T f) {
+  return static_cast<int32_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_int32, int32_t);
+
+template <typename T>
+__device__ __inline__ int64_t __to_int64(const T f) {
+  return static_cast<int64_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_int64, int64_t);
+
+template <typename T>
+__device__ __inline__ int8_t __real_then_to_int8(const T f) {
+  return __to_int8(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_int8, int8_t);
+
+template <typename T>
+__device__ __inline__ int16_t __real_then_to_int16(const T f) {
+  return __to_int16(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_int16, int16_t);
+
+template <typename T>
+__device__ __inline__ int32_t __real_then_to_int32(const T f) {
+  return __to_int32(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_int32, int32_t);
+
+template <typename T>
+__device__ __inline__ int64_t __real_then_to_int64(const T f) {
+  return __to_int64(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_int64, int64_t);
+
+template <typename T>
+__device__ __inline__ uint8_t __to_uint8(const T f) {
+  return static_cast<uint8_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_uint8, uint8_t);
+
+template <typename T>
+__device__ __inline__ uint16_t __to_uint16(const T f) {
+  return static_cast<uint16_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_uint16, uint16_t);
+
+template <typename T>
+__device__ __inline__ uint32_t __to_uint32(const T f) {
+  return static_cast<uint32_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_uint32, uint32_t);
+
+template <typename T>
+__device__ __inline__ uint64_t __to_uint64(const T f) {
+  return static_cast<uint64_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_uint64, uint64_t);
+
+template <typename T>
+__device__ __inline__ uint8_t __real_then_to_uint8(const T f) {
+  return __to_uint8(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_uint8, uint8_t);
+
+template <typename T>
+__device__ __inline__ uint16_t __real_then_to_uint16(const T f) {
+  return __to_uint16(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_uint16, uint16_t);
+
+template <typename T>
+__device__ __inline__ uint32_t __real_then_to_uint32(const T f) {
+  return __to_uint32(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_uint32, uint32_t);
+
+template <typename T>
+__device__ __inline__ uint64_t __real_then_to_uint64(const T f) {
+  return __to_uint64(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_uint64, uint64_t);
+
+template <typename T>
+__device__ __inline__ nvfuser_index_t __to_index(const T f) {
+  return static_cast<nvfuser_index_t>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_index, nvfuser_index_t);
+
+template <typename T>
+__device__ __inline__ nvfuser_index_t __real_then_to_index(const T f) {
+  return __to_index(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_index, nvfuser_index_t);
+
+template <typename T>
+__device__ __inline__ double __to_double(const T f) {
+  return static_cast<double>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_double, double);
+
+template <typename T>
+__device__ __inline__ double __real_then_to_double(const T f) {
+  return __to_double(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_double, double);
+
+template <typename T>
+__device__ __inline__ bool __to_bool(const T f) {
+  return static_cast<bool>(f);
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_bool, bool);
+
+template <typename T>
+__device__ __inline__ bool __real_then_to_bool(const T f) {
+  return __to_bool(std::real(f));
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__real_then_to_bool, bool);
+
+template <typename T>
+__device__ __inline__ std::complex<double> __to_complex_double(const T f) {
+  return (std::complex<double>)f;
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_complex_double, std::complex<double>);
+
+template <typename T>
+__device__ __inline__ std::complex<float> __to_complex_float(const T f) {
+  return (std::complex<float>)f;
+}
+
+DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_complex_float, std::complex<float>);
+
+
+// Half casts
 
 __device__ __inline__ __half __float2half(const float f) {
   __half val;
@@ -135,6 +334,18 @@ __device__ __inline__ float __half2float(const __half h) {
 }
 
 DEFINE_CAST_NAIVE_VECN(__half2float, __half, float);
+
+__device__ __inline__ std::complex<float> __half2complex_float(const __half h) {
+  return (std::complex<float>)__half2float(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__half2complex_float, __half, std::complex<float>);
+
+__device__ __inline__ std::complex<double> __half2complex_double(const __half h) {
+  return (std::complex<double>)__half2double(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__half2complex_double, __half, std::complex<double>);
 
 __device__ __inline__ double __half2double(const __half h) {
   double val;
@@ -225,6 +436,8 @@ __device__ __inline__ __half __real_then_2half(const std::complex<double> c) {
 }
 
 DEFINE_CAST_NAIVE_VECN(__real_then_2half, std::complex<double>, __half);
+
+// Bfloat casts
 
 __device__ __inline__ __bfloat __float2bfloat(const float f) {
   __bfloat val;
@@ -334,6 +547,18 @@ __device__ __inline__ float __bfloat2float(const __bfloat h) {
 }
 
 DEFINE_CAST_NAIVE_VECN(__bfloat2float, __bfloat, float);
+
+__device__ __inline__ std::complex<float> __bfloat2complex_float(const __bfloat h) {
+  return (std::complex<float>)__bfloat2float(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__bfloat2complex_float, __bfloat, std::complex<float>);
+
+__device__ __inline__ std::complex<double> __bfloat2complex_double(const __bfloat h) {
+  return (std::complex<double>)__bfloat2double(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__bfloat2complex_double, __bfloat, std::complex<double>);
 
 __device__ __inline__ double __bfloat2double(const __bfloat h) {
 #if __CUDA_ARCH__ >= 900
@@ -500,6 +725,8 @@ __device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
   return (val != 0U) ? true : false;
 }
 
+// e4m3 casts
+
 template <int align>
 __device__ __inline__ Array<__e4m3, 2, align> __float2e4m3(
     const Array<float, 2, align>& input) {
@@ -516,8 +743,16 @@ __device__ __inline__ __e4m3 __float2e4m3(const float f) {
   return __float2e4m3(input)[0];
 }
 
+DEFINE_CAST_VECN_WITH_VEC2(__float2e4m3, float, __e4m3);
+
 __device__ __inline__ __e4m3 __double2e4m3(const double d) {
   return __float2e4m3(d);
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e4m3, n, align> __double2e4m3(
+    const Array<double, n, align>& input) {
+  return __float2e4m3(__to_float(input));
 }
 
 template <int align>
@@ -569,6 +804,8 @@ __device__ __inline__ double __e4m32double(const __e4m3 b) {
 __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
   return __float2bfloat(__e4m32float(b));
 }
+
+// e5m2 casts
 
 template <int align>
 __device__ __inline__ Array<__e5m2, 2, align> __float2e5m2(
@@ -638,6 +875,8 @@ __device__ __inline__ double __e5m22double(const __e5m2 b) {
 __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 b) {
   return __float2bfloat(__e5m22float(b));
 }
+
+// e8m0 casts
 
 template <int align>
 __device__ __inline__ Array<__e8m0, 2, align> __float2e8m0(
