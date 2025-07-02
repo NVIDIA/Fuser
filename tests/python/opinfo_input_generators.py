@@ -2029,7 +2029,7 @@ def scaled_mm_input_generator(
 
     # TODO: support nvfp4
     assert dtype == torch.float8_e4m3fn
-    quantization = data_to_mxfp8
+    quantization = partial(data_to_mxfp8, block_size=32)
 
     for config in configs:
         m, k, n, dtype = config
@@ -2037,4 +2037,4 @@ def scaled_mm_input_generator(
         mat2_ref = make_arg((k, n))
         mat1, scale1 = quantization(mat1_ref)
         mat2, scale2 = quantization(mat2_ref)
-        yield SampleInput(mat1, mat2, scale1, scale2, None, None, None, dtype)
+        yield SampleInput(mat1, mat2.t(), scale1, scale2, None, None, None, dtype)
