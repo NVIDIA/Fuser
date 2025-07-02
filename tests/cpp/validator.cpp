@@ -112,31 +112,77 @@ void testValidate(
           common_dtype == at::ScalarType::Float8_e8m0fnu) {
         common_dtype = at::ScalarType::Float;
       }
-      NVF_ERROR(
-          aten_output_tensor.to(common_dtype).allclose(
-              fusion_output_tensor.to(common_dtype),
-              tolerance_values.second,
-              tolerance_values.first,
-              /*equal_nan=*/true),
-          "\n",
-          err_msg,
-          "\nValidation error in output ",
-          i,
-          " on line ",
-          line_number,
-          " in file ",
-          file_name,
-          ".\n  Detected max abs error of: ",
-          aten_output_tensor.to(common_dtype)
-              .sub(fusion_output_tensor.to(common_dtype))
-              .abs()
-              .max()
-              .item()
-              .to<double>(),
-          "\n    absolute tolerance was set to ",
-          tolerance_values.first,
-          "\n    and relative tolerance set to ",
-          tolerance_values.second);
+      auto aten_output_in_common_dtype = aten_output_tensor.to(common_dtype);
+      auto fusion_output_in_common_dtype = fusion_output_tensor.to(common_dtype);
+      if (aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ||
+          fusion_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu) {
+        // Unfortunately PyTorch's implementation of e8m0 casting mismatches with
+        // the hardware implementation. So we can not check the equality of the
+        // two tensors directly. Note that e8m0 can only represent 2^x, so we
+        // check that the x for aten and fusion are off by at most 1.
+        // e8m0 is always positive, however, other types can be zero, when
+        // aten and fusion dtypes mismatch, we try our best to pick the one
+        // that is not zero.
+        at::Tensor numerator = aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ?
+            fusion_output_in_common_dtype :
+            aten_output_in_common_dtype;
+        at::Tensor denominator = aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ?
+            aten_output_in_common_dtype :
+            fusion_output_in_common_dtype;
+        at::Tensor ratio = (numerator / denominator).abs();
+        NVF_ERROR(
+            ratio.max().item<double>() <= 2.0,
+            "\n",
+            err_msg,
+            ".\n  Validation error in output ",
+            i,
+            " on line ",
+            line_number,
+            " in file ",
+            file_name,
+            ".\n  Detected max ratio of: ",
+            ratio.max().item<double>(),
+            "\n   tolerance was set to 2");
+        NVF_ERROR(
+            ratio.min().item<double>() >= 0.5,
+            "\n",
+            err_msg,
+            ".\n  Validation error in output ",
+            i,
+            " on line ",
+            line_number,
+            " in file ",
+            file_name,
+            ".\n  Detected min ratio of: ",
+            ratio.min().item<double>(),
+            "\n   tolerance was set to 0.5");
+      } else {
+        NVF_ERROR(
+            aten_output_in_common_dtype.allclose(
+                fusion_output_in_common_dtype,
+                tolerance_values.second,
+                tolerance_values.first,
+                /*equal_nan=*/true),
+            "\n",
+            err_msg,
+            "\nValidation error in output ",
+            i,
+            " on line ",
+            line_number,
+            " in file ",
+            file_name,
+            ".\n  Detected max abs error of: ",
+            aten_output_in_common_dtype
+                .sub(fusion_output_in_common_dtype)
+                .abs()
+                .max()
+                .item()
+                .to<double>(),
+            "\n    absolute tolerance was set to ",
+            tolerance_values.first,
+            "\n    and relative tolerance set to ",
+            tolerance_values.second);
+      }
     } else {
       NVF_ERROR(
           aten_output_tensor.equal(
