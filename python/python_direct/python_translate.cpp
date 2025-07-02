@@ -781,6 +781,20 @@ class PythonTranslator : public OptInConstDispatch {
         {rop->out()});
   }
 
+  // Map ScanOp to python frontend
+  void handle(const ScanOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+    static const auto default_args =
+        std::make_tuple(KeywordArgument<int64_t>{"dim", std::nullopt});
+    printer_.generateKwargsOperation(
+        "fd.ops." + toString(sop),
+        std::make_tuple(sop->in()),
+        default_args,
+        std::make_tuple(sop->dim()),
+        {sop->out()});
+  }
+
   // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
     NVF_ERROR(bcast_op != nullptr);
@@ -1051,18 +1065,21 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map ScanOp to python frontend
-  void handle(const ScanOp* sop) final {
-    NVF_ERROR(sop != nullptr);
-    visited_vals_.insert(sop->out());
-    static const auto default_args =
-        std::make_tuple(KeywordArgument<int64_t>{"dim", std::nullopt});
+  // Map TopKOp to python frontend
+  void handle(const TopKOp* topkop) final {
+    NVF_ERROR(topkop != nullptr);
+    visited_vals_.insert(topkop->output(0));
+    visited_vals_.insert(topkop->output(1));
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(topkop->dim())>{"dim", -1},
+        KeywordArgument<bool>{"largest", true},
+        KeywordArgument<bool>{"sorted", false});
     printer_.generateKwargsOperation(
-        "fd.ops." + toString(sop),
-        std::make_tuple(sop->in()),
+        "fd.ops.topk",
+        std::make_tuple(topkop->in(), topkop->k()),
         default_args,
-        std::make_tuple(sop->dim()),
-        {sop->out()});
+        std::make_tuple(topkop->dim(), topkop->isLargest(), topkop->isSorted()),
+        std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
   }
 
  private:
