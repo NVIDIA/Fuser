@@ -331,12 +331,6 @@ __device__ __inline__ std::complex<float> __half2complex_float(const __half h) {
 
 DEFINE_CAST_NAIVE_VECN(__half2complex_float, __half, std::complex<float>);
 
-__device__ __inline__ std::complex<double> __half2complex_double(const __half h) {
-  return (std::complex<double>)__half2double(h);
-}
-
-DEFINE_CAST_NAIVE_VECN(__half2complex_double, __half, std::complex<double>);
-
 __device__ __inline__ double __half2double(const __half h) {
   double val;
   asm("{  cvt.f64.f16 %0, %1;}\n" : "=d"(val) : "h"(__NVFUSER_HALF_TO_CUS(h)));
@@ -344,6 +338,12 @@ __device__ __inline__ double __half2double(const __half h) {
 }
 
 DEFINE_CAST_NAIVE_VECN(__half2double, __half, double);
+
+__device__ __inline__ std::complex<double> __half2complex_double(const __half h) {
+  return (std::complex<double>)__half2double(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__half2complex_double, __half, std::complex<double>);
 
 __device__ int __half2int32(const __half h) {
   int val;
