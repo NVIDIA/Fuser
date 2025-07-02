@@ -554,6 +554,8 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
     std::unordered_map<IterDomain*, IterDomain*> c2p =
         PairwiseLogicalDomainMap(to, from)
             .mapBroadcast(true)
+            .mapDifferentExtents(true)
+            .mapIndexedDomains(true)
             .mapConsumerToProducer();
     check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
     if (to->hasRoot()) {
@@ -580,13 +582,16 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
     std::unordered_map<IterDomain*, IterDomain*> p2c =
         PairwiseLogicalDomainMap(from, to)
             .mapBroadcast(true)
+            .mapDifferentExtents(true)
+            .mapIndexedDomains(true)
             .mapProducerToConsumer();
     check(from->getLogicalDomain(), to->getMaybeRootDomain(), p2c);
     if (to->hasRoot()) {
       // propagate untracked property through root->logical transforms
       for (Expr* e : StmtSort::getExprsBetween(
                {to->getLogicalDomain().begin(), to->getLogicalDomain().end()},
-           {to->getMaybeRootDomain().begin(), to->getMaybeRootDomain().end()})) {
+               {to->getMaybeRootDomain().begin(),
+                to->getMaybeRootDomain().end()})) {
         // TODO: should we exclude ID exprs other than Merge/Split here?
         bool has_unscheduled_input = std::any_of(
             e->inputs().begin(), e->inputs().end(), [&](Val* in_val) {
