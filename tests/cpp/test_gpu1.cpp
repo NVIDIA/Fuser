@@ -2685,10 +2685,6 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       fusion.addInput(tv0);
       fusion.addOutput(out);
-      tv0->computeAt(out, -1);
-
-      out->axis(0)->parallelize(ParallelType::BIDx);
-      out->axis(-1)->parallelize(ParallelType::TIDx);
 
       auto at_src_type = data_type_to_aten(src_type);
       auto at_fp8_type = data_type_to_aten(fp8_type);
