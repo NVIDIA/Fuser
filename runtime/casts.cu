@@ -359,176 +359,211 @@ __device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
   return (val != 0U) ? true : false;
 }
 
-// NOTE [ fp8 cast optimization ]
-//
-// For simplicity, we only provided fp8 <-> fp32 cast implementation, while
-// relying on any other fp cast in the form of target_fp <-> fp32 <-> fp8.
-// This avoids the complication of handling hardware specific instructions on
-// various compute capabilities.
-// But this simplicity could come at the cost of performance. In cuda_fp8.hpp,
-// 1. bf16 -> fp8 is done via bf16 -> float -> fp8
-// 2. fp16 -> fp8 is done with a conditional
-//    # if (> sm_89)
-//    fp16 -> fp8
-//    # else
-//    fp16 -> fp32 -> fp8
-//    # endif
-// 3. fp64 -> fp8 is handled explicitly as bitwise operations.
-// TODO consider cuda_fp8.hpp for performance optimized cast.
-__device__ __inline__ __e4m3 __float2e4m3(const float f) {
-  constexpr float f_const_zero = 0.f;
-  unsigned short _tmp_buffer;
-  __e4m3 val;
+template <int align>
+__device__ __inline__ Array<__e4m3, 2, align> __float2e4m3(
+    const Array<float, 2, align>& input) {
+  Array<__e4m3, 2, align> result;
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;}"
-      : "=h"(_tmp_buffer)
-      : "f"(f_const_zero), "f"(f));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-
-  return val;
+      : "=h"(result_scalar)
+      : "f"(input[1]), "f"(input[0]));
+  return result;
 }
 
-__device__ __inline__ float __e4m32float(const __e4m3 b) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &b, sizeof(uint8_t));
-  float val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e4m3x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f32.f16 %0, %1;\n\t"
-      "}"
-      : "=f"(val)
-      : "h"(_tmp_buffer));
-
-  return val;
+__device__ __inline__ __e4m3 __float2e4m3(const float f) {
+  Array<float, 2, 1> input = {f, f};
+  return __float2e4m3(input)[0];
 }
 
 __device__ __inline__ __e4m3 __double2e4m3(const double d) {
   return __float2e4m3(d);
 }
 
-__device__ __inline__ double __e4m32double(const __e4m3 b) {
-  return __e4m32float(b);
+template <int align>
+__device__ __inline__ Array<__e4m3, 2, align> __half2e4m3(
+    const Array<__half, 2, align>& input) {
+  Array<__e4m3, 2, align> result;
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
+  asm("{cvt.rn.satfinite.e4m3x2.f16x2 %0, %1;}"
+      : "=h"(result_scalar)
+      : "r"(input_scalar));
+  return result;
 }
 
 __device__ __inline__ __e4m3 __half2e4m3(const __half h) {
-  return __float2e4m3(__half2float(h));
-}
-
-__device__ __inline__ __half __e4m32half(const __e4m3 b) {
-  return __float2half(__e4m32float(b));
+  Array<__half, 2, 1> input = {h, h};
+  return __half2e4m3(input)[0];
 }
 
 __device__ __inline__ __e4m3 __bfloat2e4m3(const __bfloat h) {
   return __float2e4m3(__bfloat2float(h));
 }
 
+template <int align>
+__device__ __inline__ Array<__half, 2, align> __e4m32half(
+    const Array<__e4m3, 2, align>& input) {
+  Array<__half, 2, align> result;
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
+  uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
+  asm("{cvt.rn.f16x2.e4m3x2 %0, %1;}"
+      : "=r"(result_scalar)
+      : "h"(input_scalar));
+  return result;
+}
+
+__device__ __inline__ __half __e4m32half(const __e4m3 b) {
+  Array<__e4m3, 2, 1> input = {b, b};
+  return __e4m32half(input)[0];
+}
+
+__device__ __inline__ float __e4m32float(const __e4m3 b) {
+  return __half2float(__e4m32half(b));
+}
+
+__device__ __inline__ double __e4m32double(const __e4m3 b) {
+  return __e4m32float(b);
+}
+
 __device__ __inline__ __bfloat __e4m32bfloat(const __e4m3 b) {
   return __float2bfloat(__e4m32float(b));
 }
 
-// see NOTE [ fp8 cast optimization ]
-__device__ __inline__ __e5m2 __float2e5m2(const float f) {
-  constexpr float f_const_zero = 0.f;
-  unsigned short _tmp_buffer;
-  __e5m2 val;
+template <int align>
+__device__ __inline__ Array<__e5m2, 2, align> __float2e5m2(
+    const Array<float, 2, align>& input) {
+  Array<__e5m2, 2, align> result;
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rn.satfinite.e5m2x2.f32 %0, %1, %2;}"
-      : "=h"(_tmp_buffer)
-      : "f"(f_const_zero), "f"(f));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-
-  return val;
+      : "=h"(result_scalar)
+      : "f"(input[1]), "f"(input[0]));
+  return result;
 }
-
-__device__ __inline__ float __e5m22float(const __e5m2 b) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &b, sizeof(uint8_t));
-  float val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.f16x2.e5m2x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f32.f16 %0, %1;\n\t"
-      "}"
-      : "=f"(val)
-      : "h"(_tmp_buffer));
-
-  return val;
+__device__ __inline__ __e5m2 __float2e5m2(const float f) {
+  Array<float, 2, 1> input = {f, f};
+  return __float2e5m2(input)[0];
 }
 
 __device__ __inline__ __e5m2 __double2e5m2(const double f) {
   return __float2e5m2(f);
 }
 
-__device__ __inline__ double __e5m22double(const __e5m2 b) {
-  return __e5m22float(b);
+template <int align>
+__device__ __inline__ Array<__e5m2, 2, align> __half2e5m2(
+    const Array<__half, 2, align>& input) {
+  Array<__e5m2, 2, align> result;
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
+  asm("{cvt.rn.satfinite.e5m2x2.f16x2 %0, %1;}"
+      : "=h"(result_scalar)
+      : "r"(input_scalar));
+  return result;
 }
 
 __device__ __inline__ __e5m2 __half2e5m2(const __half h) {
-  return __float2e5m2(__half2float(h));
-}
-
-__device__ __inline__ __half __e5m22half(const __e5m2 b) {
-  return __float2half(__e5m22float(b));
+  Array<__half, 2, 1> input = {h, h};
+  return __half2e5m2(input)[0];
 }
 
 __device__ __inline__ __e5m2 __bfloat2e5m2(const __bfloat h) {
   return __float2e5m2(__bfloat2float(h));
 }
 
+template <int align>
+__device__ __inline__ Array<__half, 2, align> __e5m22half(
+    const Array<__e5m2, 2, align>& input) {
+  Array<__half, 2, align> result;
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
+  uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
+  asm("{cvt.rn.f16x2.e5m2x2 %0, %1;}"
+      : "=r"(result_scalar)
+      : "h"(input_scalar));
+  return result;
+}
+
+__device__ __inline__ __half __e5m22half(const __e5m2 b) {
+  Array<__e5m2, 2, 1> input = {b, b};
+  return __e5m22half(input)[0];
+}
+
+__device__ __inline__ float __e5m22float(const __e5m2 b) {
+  return __half2float(__e5m22half(b));
+}
+
+__device__ __inline__ double __e5m22double(const __e5m2 b) {
+  return __e5m22float(b);
+}
+
 __device__ __inline__ __bfloat __e5m22bfloat(const __e5m2 b) {
   return __float2bfloat(__e5m22float(b));
 }
 
-// see NOTE [ fp8 cast optimization ]
-__device__ __inline__ __e8m0 __float2e8m0(const float f) {
-  constexpr float f_const_zero = 0.f;
-  unsigned short _tmp_buffer;
-  __e8m0 val;
+template <int align>
+__device__ __inline__ Array<__e8m0, 2, align> __float2e8m0(
+    const Array<float, 2, align>& input) {
+  Array<__e8m0, 2, align> result;
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
   asm("{cvt.rz.satfinite.ue8m0x2.f32 %0, %1, %2;}"
-      : "=h"(_tmp_buffer)
-      : "f"(f_const_zero), "f"(f));
-  memcpy(&val, &_tmp_buffer, sizeof(uint8_t));
-
-  return val;
+      : "=h"(result_scalar)
+      : "f"(input[1]), "f"(input[0]));
+  return result;
 }
 
-__device__ __inline__ float __e8m02float(const __e8m0 b) {
-  unsigned short _tmp_buffer;
-  memcpy(&_tmp_buffer, &b, sizeof(uint8_t));
-  float val;
-  asm("{\n\t"
-      ".reg .b32 buf0;\n\t"
-      "cvt.rn.bf16x2.ue8m0x2 buf0, %1;\n\t"
-      "cvt.u16.u32 %1, buf0;\n\t"
-      "cvt.f32.bf16 %0, %1;\n\t"
-      "}"
-      : "=f"(val)
-      : "h"(_tmp_buffer));
-
-  return val;
+__device__ __inline__ __e8m0 __float2e8m0(const float f) {
+  Array<float, 2, 1> input = {f, f};
+  return __float2e8m0(input)[0];
 }
 
 __device__ __inline__ __e8m0 __double2e8m0(const double f) {
   return __float2e8m0(f);
 }
 
-__device__ __inline__ double __e8m02double(const __e8m0 b) {
-  return __e8m02float(b);
-}
-
 __device__ __inline__ __e8m0 __half2e8m0(const __half h) {
   return __float2e8m0(__half2float(h));
 }
 
-__device__ __inline__ __half __e8m02half(const __e8m0 b) {
-  return __float2half(__e8m02float(b));
+template <int align>
+__device__ __inline__ Array<__e8m0, 2, align> __bfloat2e8m0(
+    const Array<__bfloat, 2, align>& input) {
+  Array<__e8m0, 2, align> result;
+  const uint32_t& input_scalar = *reinterpret_cast<const uint32_t*>(&input);
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
+  asm("{cvt.rz.satfinite.ue8m0x2.bf16x2 %0, %1;}"
+      : "=h"(result_scalar)
+      : "r"(input_scalar));
+  return result;
 }
 
 __device__ __inline__ __e8m0 __bfloat2e8m0(const __bfloat h) {
-  return __float2e8m0(__bfloat2float(h));
+  Array<__bfloat, 2, 1> input = {h, h};
+  return __bfloat2e8m0(input)[0];
+}
+
+template <int align>
+__device__ __inline__ Array<__bfloat, 2, align> __e8m02bfloat(
+    const Array<__e8m0, 2, align>& input) {
+  Array<__bfloat, 2, align> result;
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
+  uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
+  asm("{cvt.rn.bf16x2.ue8m0x2 %0, %1;}"
+      : "=r"(result_scalar)
+      : "h"(input_scalar));
+  return result;
 }
 
 __device__ __inline__ __bfloat __e8m02bfloat(const __e8m0 b) {
-  return __float2bfloat(__e8m02float(b));
+  Array<__e8m0, 2, 1> input = {b, b};
+  return __e8m02bfloat(input)[0];
+}
+
+__device__ __inline__ float __e8m02float(const __e8m0 b) {
+  return __bfloat2float(__e8m02bfloat(b));
+}
+
+__device__ __inline__ double __e8m02double(const __e8m0 b) {
+  return __bfloat2double(__e8m02bfloat(b));
+}
+
+__device__ __inline__ __half __e8m02half(const __e8m0 b) {
+  return __float2half(__e8m02float(b));
 }
