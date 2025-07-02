@@ -5,6 +5,7 @@
 import torch
 from cupti import cupti
 import cxxfilt
+import pytest
 
 
 # Base class for all timers used by pytest-benchmark.
@@ -157,3 +158,10 @@ class FusionProfileTimer(Timer):
             self._increment_global_time(elapsed_host_time)
         self.execution_start = not self.execution_start
         return self.current_time
+
+
+if __name__ == "__main__":
+    timer = CuptiProfiler()
+    timer.start()
+    timer.stop()
+    print(timer.profiler_output)
