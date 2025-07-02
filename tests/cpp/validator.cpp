@@ -106,9 +106,13 @@ void testValidate(
 
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {
+      auto common_dtype = aten_output_tensor.dtype();
+      if (common_dtype == at::ScalarType::Float8_e4m3fn || common_dtype == at::ScalarType::Float8_e5m2fn) {
+        common_dtype = at::ScalarType::Float;
+      }
       NVF_ERROR(
-          aten_output_tensor.allclose(
-              fusion_output_tensor.to(aten_output_tensor.dtype()),
+          aten_output_tensor.to(common_dtype).allclose(
+              fusion_output_tensor.to(common_dtype),
               tolerance_values.second,
               tolerance_values.first,
               /*equal_nan=*/true),
