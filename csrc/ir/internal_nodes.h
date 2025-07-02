@@ -3103,6 +3103,31 @@ class GroupedMmaOp : public Expr {
   IterDomain* getGroupDimOfOutput() const;
 };
 
+//! NOTE -- [ Scaled Matrix Multiplication semantics ]
+//!
+//! This operation performs a grouped matrix multiplication.
+//!
+//! Parameters:
+//! - out_mat: [output] tensor matrix
+//! - out_scale: [output] block scaling factor tensor
+//! - out_gamma: [output] global scaling factor tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - scale1: scale tensor for matrix1
+//! - scale2: scale tensor for matrix2
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is conceptually:
+//!   out =
+//!       alpha * (dequant(mat1, scale1) @ dequant(mat2, scale2), offsets)
+//!       + beta * bias
+//!   out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! TODO: This operation is here to support non-codegen kernel. The block
+//! semantics in scaling factor have implementation/hardware-specific padding
+//! and alignment requirement. We haven't mapped it to out_scale/out_gamma yet.
 class ScaledMmaOp : public Expr {
  public:
   using Expr::Expr;

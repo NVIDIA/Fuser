@@ -8,10 +8,10 @@
 #pragma once
 
 #include <exceptions.h>
-#include <ops/arith.h>
 #include <visibility.h>
 
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 
 //
@@ -79,6 +79,16 @@ NVF_API TensorView* view_as_real(TensorView* x);
 // layouts via strides. This has the same functionality as torch.matmul
 TensorView* matmul(TensorView* tv_a, TensorView* tv_b);
 
+// Scaled Matrix Multiplication
+// returns ScaledTensorView {tv, block_scaling_factor, global_scaling_factor}
+//
+// dtype: output tv dtype
+// out_block_scale_size: if 0, there won't be block_scaling_factor on output.
+// block_scaling_factor_dtype: when block_scaling_factor is generated, this is
+// the factor of the number of elements that share the same scaling factor.
+// out_gamma: if true, the op will produce global_scaling_factor.
+//
+// Note: out_gamma can only be true when block_scaling_factor_dtype > 0
 NVF_API ScaledTensorView scaled_mm(
     TensorView* mat1,
     TensorView* mat2,
