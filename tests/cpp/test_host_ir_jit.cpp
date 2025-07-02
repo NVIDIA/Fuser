@@ -25,28 +25,16 @@ namespace hir {
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
 TEST_F(HostIrJitTest, Allocate) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* in = makeSymbolicTensor(2);
-  fusion.addInput(in);
-
-  TensorView* out = set(in);
-  fusion.addOutput(out);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({32, 32}, options);
   auto ke = std::make_unique<KernelExecutor>();
   ke->setGroupId(0);
-  ke->compile(&fusion, {t0});
 
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
   hic->addKernelExecutor(std::move(ke));
 
-  IrCloner ir_cloner(hic.get());
-  auto hic_in = ir_cloner.clone(in);
-  auto hic_out = ir_cloner.clone(out);
+  auto hic_in = makeSymbolicTensor(2);
+  auto hic_out = set(hic_in);
 
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
