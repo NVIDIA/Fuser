@@ -1165,6 +1165,7 @@ topk_opinfo = OpInfo(
         ArgumentType.Constant,  # largest
         ArgumentType.Constant,  # sorted
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(topk_opinfo)
 

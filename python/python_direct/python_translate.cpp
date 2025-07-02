@@ -983,6 +983,21 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map TopKOp to python frontend
+  void handle(const TopKOp* topkop) final {
+    NVF_ERROR(topkop != nullptr);
+    visited_vals_.insert(topkop->output(0));
+    visited_vals_.insert(topkop->output(1));
+    static const std::vector<std::string> argument_names = {
+        "dim", "largest", "sorted"};
+    printer_.generateKwargsOperation(
+        "fd.ops.topk",
+        std::make_tuple(topkop->in(), topkop->k()),
+        argument_names,
+        std::make_tuple(topkop->dim(), topkop->isLargest(), topkop->isSorted()),
+        std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
