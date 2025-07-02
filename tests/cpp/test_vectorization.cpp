@@ -737,7 +737,7 @@ TEST_P(VectorizationCastTest, CastKernel) {
                       .dtype(at::ScalarType::Byte)
                       .device(at::kCUDA, 0);
     t0 = at::randint(0, 255, {vectorization_factor}, options)
-    .view(aten_to_data_type(dtype_from));
+    .view(data_type_to_aten(dtype_from));
   } else {
     auto options = at::TensorOptions()
                       .dtype(data_type_to_aten(dtype_from))
