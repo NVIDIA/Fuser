@@ -507,7 +507,7 @@ ScaledTensorView scaled_mm(
       beta != nullptr ? "true" : "false");
   // TODO: support scaled output
   NVF_CHECK(
-      out_block_scale_size == 0, "output_block_scale is not yet supported");
+      output_block_scale_size == 0, "output_block_scale is not yet supported");
   NVF_CHECK(output_gamma, "output_gamma is not yet supported");
 
   ScaledTensorView scaled_out;
