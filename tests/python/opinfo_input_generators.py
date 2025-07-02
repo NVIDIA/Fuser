@@ -2034,7 +2034,7 @@ def scaled_mm_input_generator(
     for config in configs:
         m, k, n, dtype = config
         mat1_ref = make_arg((m, k))
-        mat2_ref = make_arg((k, n))
+        mat2_ref = make_arg((n, k))
         mat1, scale1 = quantization(mat1_ref)
         mat2, scale2 = quantization(mat2_ref)
         yield SampleInput(mat1, mat2.t(), scale1, scale2, None, None, None, dtype)
