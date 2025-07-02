@@ -2330,6 +2330,37 @@ TensorView
       py::return_value_policy::reference);
 }
 
+void bindSearchOps(py::module_& ops) {
+  ops.def(
+      "topk",
+      [](TensorView* arg, Val* k, int64_t dim, bool largest, bool sorted)
+          -> py::tuple {
+        auto output = topk(arg, k, dim, largest, sorted);
+        return py::make_tuple(output.values, output.indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -2345,6 +2376,7 @@ void bindOperations(py::module& nvfuser) {
   bindTensorUtilityOps(nvf_ops);
   bindIndexingOps(nvf_ops);
   bindTensorFactoryOps(nvf_ops);
+  bindSearchOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
