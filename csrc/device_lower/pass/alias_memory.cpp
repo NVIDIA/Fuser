@@ -1394,7 +1394,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     // Check index map for the corresponding axes.
     for (const auto id_it : arange(alloc_domains.size())) {
       if (GpuLower::current()->hasIdModel()) {
-        if (!GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT).disjointValSets().areMapped(
+        if (!GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT).disjointValSets().strictAreMapped(
               alloc_domains[id_it],
               reuse_domains[id_it])) {
           return false;
