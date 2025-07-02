@@ -769,3 +769,111 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out = fd.execute([2.0, 3.0])
         eager_out = torch.full([2, 2], 1.0) * 5.0
         self.assertEqual(eager_out, nvf_out[0])
+
+    def test_nanogpt_split_mha_linears(self):
+        inputs = [
+            torch.randn(16, 128, 3072, device="cuda"),
+        ]
+
+        def nvfuser_fusion_0(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T0_slice1 = fd.ops.slice(T0, [0, 0, 0], [16, 128, 1024], [1, 1, 1])
+            T0_slice2 = fd.ops.slice(T0, [0, 0, 1024], [16, 128, 2048], [1, 1, 1])
+            T0_slice3 = fd.ops.slice(T0, [0, 0, 2048], [16, 128, 3072], [1, 1, 1])
+            T1_slice1 = fd.ops.reshape(T0_slice1, [16, 128, 16, 64])
+            T1_slice2 = fd.ops.reshape(T0_slice2, [16, 128, 16, 64])
+            T1_slice3 = fd.ops.reshape(T0_slice3, [16, 128, 16, 64])
+            T2_slice1 = fd.ops.permute(T1_slice1, [0, 2, 1, 3])
+            T2_slice2 = fd.ops.permute(T1_slice2, [0, 2, 1, 3])
+            T2_slice3 = fd.ops.permute(T1_slice3, [0, 2, 1, 3])
+            fd.add_output(T2_slice1)
+            fd.add_output(T2_slice2)
+            fd.add_output(T2_slice3)
+
+        def torch_def_0(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            k = k.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            q = q.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            v = v.view(B, T, n_head, (C // 3) // n_head).transpose(
+                1, 2
+            )  # (B, nh, T, hs)
+            return (
+                q,
+                k,
+                v,
+            )
+
+        def nvfuser_fusion_1(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1, -1],
+                contiguity=[True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+            )
+            T1 = fd.ops.slice(
+                T0,
+                start_indices=[0, 0, 0],
+                end_indices=[16, 128, 1024],
+                strides=[1, 1, 1],
+            )
+            T2 = fd.ops.slice(
+                T0,
+                start_indices=[0, 0, 1024],
+                end_indices=[16, 128, 2048],
+                strides=[1, 1, 1],
+            )
+            T3 = fd.ops.slice(
+                T0,
+                start_indices=[0, 0, 2048],
+                end_indices=[16, 128, 3072],
+                strides=[1, 1, 1],
+            )
+            fd.add_output(T1)
+            fd.add_output(T2)
+            fd.add_output(T3)
+
+        def torch_def_1(acts, n_embd, n_head):
+            B, T, C = acts.size()
+            q, k, v = acts.split(n_embd, dim=2)
+            return (
+                q,
+                k,
+                v,
+            )
+
+        tests = [
+            (nvfuser_fusion_0, torch_def_0),
+            (nvfuser_fusion_1, torch_def_1),
+        ]
+
+        for nvf_func, torch_func in tests:
+            nvf_out, _ = self.exec_nvfuser(nvf_func, inputs)
+            eager_out = torch_func(*inputs, 1024, 16)
+            for idx in range(len(eager_out)):
+                self.assertEqual(eager_out[idx], nvf_out[idx])
+
+    def test_alias_output_to_input(self):
+        in_tensors = [
+            torch.ones(4, 4, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(in_tensors[0])  # = 1.0
+            one = fd.define_scalar(1.0)
+            two = fd.define_scalar(2.0)
+            t1 = fd.ops.add(t0, one)  # = t0 + 1.0 = 2.0
+            t2 = fd.ops.add(t1, two)  # = t1 + 2.0 = 4.0
+            fd.add_output(t1, alias_input=t0)
+            fd.add_output(t2)
+
+        out_tensors, _ = self.exec_nvfuser(fusion_func, in_tensors)
+
+        # t1 is an alias and therefore is hidden.
+        self.assertEqual(len(out_tensors), 1)
+        self.assertEqual(out_tensors[0], torch.full((4, 4), 4.0, device="cuda"))
+        self.assertEqual(in_tensors[0], torch.full((4, 4), 2.0, device="cuda"))
