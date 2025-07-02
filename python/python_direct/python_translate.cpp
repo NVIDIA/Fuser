@@ -472,7 +472,16 @@ class PythonTranslator : public OptInConstDispatch {
           break;
         }
         case AllocationType::ReuseBuffer: {
-          NVF_THROW("Not implemented");
+          size_t num_visited = visited_alias_output.count(v);
+          if (num_visited == 0) {
+            visited_alias_output.insert(v);
+            handleOutput(v->as<TensorView>(), alias_info);
+          }
+          // An alias output can also be returned as a fusion output
+          // if it is already aliased or if not hide_output
+          if (num_visited > 0 || !alias_info.hide_output) {
+            handleOutput(v->as<TensorView>());
+          }
           break;
         }
         default:
@@ -637,6 +646,12 @@ class PythonTranslator : public OptInConstDispatch {
     printer_.generateOperation("fd.add_output", {tv}, {});
   }
 
+  // Alias output Tensor with input tensor
+  void handleOutput(const TensorView* tv, const AliasInfo& alias_info) {
+    NVF_ERROR(tv != nullptr);
+    printer_.generateOperation(
+        "fd.add_output", {tv, alias_info.aliased_io}, {});
+  }
   // =================================================================================
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
