@@ -2704,7 +2704,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         t0 = t0.abs() + 1e-6;
       }
 
-      scheduleAndRun(&fusion, SchedulerType::Pointwise, {t0});
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
 
       KernelExecutor ke;
       bool unsupported_device = false;
