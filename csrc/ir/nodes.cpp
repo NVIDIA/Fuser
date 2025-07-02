@@ -6144,7 +6144,7 @@ std::string ScaledMmaOp::toString(int indent_size) const {
   if (outGamma() != nullptr) {
     ss << ", " << outGamma();
   }
-  ss << "ScaledMmaOp(";
+  ss << " = ScaledMmaOp(";
   ss << "mat1=" << matrix1() << ", ";
   ss << "mat2=" << matrix2() << ", ";
   ss << "scale1=" << scale1() << ", ";
@@ -6184,7 +6184,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int alpha_offset = alphaOffset();
     NVF_ERROR(
         inputs[alpha_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor alpha at position ",
+        "ScaledMmaOp expects tensor alpha at position ",
         alpha_offset,
         " but got ",
         inputs[alpha_offset].type().name());
@@ -6194,7 +6194,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int bias_offset = biasOffset();
     NVF_ERROR(
         inputs[bias_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor bias at position ",
+        "ScaledMmaOp expects tensor bias at position ",
         bias_offset,
         " but got ",
         inputs[bias_offset].type().name());
@@ -6204,7 +6204,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int beta_offset = betaOffset();
     NVF_ERROR(
         inputs[beta_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor beta at position ",
+        "ScaledMmaOp expects tensor beta at position ",
         beta_offset,
         " but got ",
         inputs[beta_offset].type().name());
@@ -6236,7 +6236,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   return {result};
 
 #else
-  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
 #endif
 }
 
