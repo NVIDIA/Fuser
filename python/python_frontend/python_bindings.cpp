@@ -3931,7 +3931,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           bias (Tensor): Bias tensor [optional]
           beta (Tensor): Beta tensor [optional]
           dtype (ScalarType): Output tensor type [optional]
-          output_block_scale_size (int): Output block scale size [optional]
+          output_block_scale_size (int): Output block scale size [optional, default 0]
           output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
           output_gamma (bool): Output gamma [optional, default: False]
 

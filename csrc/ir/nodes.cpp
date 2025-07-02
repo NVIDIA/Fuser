@@ -6137,30 +6137,28 @@ ScaledMmaOp::ScaledMmaOp(
 
 std::string ScaledMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "ScaledMmaOp(\n";
-  ++indent_size;
-  indent(ss, indent_size) << "out: " << out()->toString() << "\n";
+  indent(ss, indent_size) << out();
   if (outScale() != nullptr) {
-    indent(ss, indent_size) << "out_scale: " << outScale()->toString() << "\n";
+    ss << ", " << outScale();
   }
   if (outGamma() != nullptr) {
-    indent(ss, indent_size) << "out_gamma: " << outGamma()->toString() << "\n";
+    ss << ", " << outGamma();
   }
-  indent(ss, indent_size) << "mat1: " << matrix1()->toString() << "\n";
-  indent(ss, indent_size) << "mat2: " << matrix2()->toString() << "\n";
-  indent(ss, indent_size) << "scale1: " << scale1()->toString() << "\n";
-  indent(ss, indent_size) << "scale2: " << scale2()->toString() << "\n";
+  ss << "ScaledMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << "";
   if (hasAlpha()) {
-    indent(ss, indent_size) << "alpha: " << alpha()->toString() << "\n";
+    ss << ", alpha=" << alpha();
   }
   if (hasBias()) {
-    indent(ss, indent_size) << "bias: " << bias()->toString() << "\n";
+    ss << ", bias=" << bias();
   }
   if (hasBeta()) {
-    indent(ss, indent_size) << "beta: " << beta()->toString() << "\n";
+    ss << ", beta=" << beta();
   }
-  --indent_size;
-  indent(ss, indent_size) << ")";
+  ss << ")\n";
   return ss.str();
 }
 

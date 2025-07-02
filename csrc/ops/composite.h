@@ -98,9 +98,9 @@ NVF_API ScaledTensorView scaled_mm(
     TensorView* bias = nullptr,
     TensorView* beta = nullptr,
     DataType dtype = DataType::Null,
-    int64_t out_block_scale_size = 0,
-    DataType block_scaling_factor_dtype = DataType::Null,
-    bool out_gamma = false);
+    int64_t output_block_scale_size = 0,
+    DataType output_block_scale_dtype = DataType::Null,
+    bool output_gamma = false);
 
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {
