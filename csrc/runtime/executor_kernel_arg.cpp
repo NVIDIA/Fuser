@@ -260,11 +260,16 @@ std::vector<std::byte> polymorphicValueToBytes(
       at::Float8_e5m2 v8 = (at::Float8_e5m2)(float)v;
       return std::vector<std::byte>(
           (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e5m2));
+    } else if (dtype == DataType::Float8_e8m0fnu) {
+      at::Float8_e8m0fnu v8 = (at::Float8_e8m0fnu)(float)v;
+      return std::vector<std::byte>(
+          (std::byte*)&v8, (std::byte*)&v8 + sizeof(at::Float8_e8m0fnu));
     } else {
       NVF_THROW(
           "Cannot convert double to ",
           dtype,
-          " type: only half, bfloat16, float and double are supported.");
+          " type: only half, bfloat16, float, double, fp8_e4m3fn, fp8_e5m2, "
+          "fp8_e8m0fnu are supported.");
     }
   } else if (argument.is<std::complex<double>>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(std::complex<double>)");
@@ -314,6 +319,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& alloc_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim,
     const std::vector<int64_t>& unsharded_logical_sizes) {
   std::vector<std::byte> bytes;
   NVF_ERROR(
@@ -336,29 +342,87 @@ std::vector<std::byte> tensorToBytes(
         bytes.end(),
         (std::byte*)size_to_use.data(),
         (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_strides.data(),
-        (std::byte*)alloc_strides.data() +
-            sizeof(int64_t) * alloc_strides.size());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!size_to_use.empty()) {
+      int64_t& last_size = *reinterpret_cast<int64_t*>(
+          bytes.data() + bytes.size() - sizeof(int64_t));
+      last_size = adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
+    }
+
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // [Adjust all strides but not the last one]
+      // raw_stride is in the unit of "ATen elements". For the case where
+      // the DataType is not supported by PyTorch, we want to convert the
+      // unit to "NVFuser elements". For example, for fp4 tensor, we use Byte
+      // as the corresponding ATen ScalarType, so the unit of raw_stride is 8
+      // bits, and here we want to convert the unit to 4 bits. This conversion
+      // should happen on all dimensions except the last one. Why is the last
+      // dimension special? The definition of a dimension's "stride" is, if you
+      // increment the index of this dimension by 1, how many units do you need
+      // to skip in memory? For dimensions other than the last one, the meaning
+      // of "unit" has changes, but the definition of "increment by one" remains
+      // the same, so we need to adjust the stride to account for the change of
+      // definition of "unit". For the last dimension, the definition of "unit"
+      // changes the same way as the other dimensions, but besides that, because
+      // we adjusted the logical size of the last dimension, the definition of
+      // "increment by one" also changes. We need to account for both changes,
+      // not just the change of definition of "unit". The effect of the
+      // definition change of "unit" and the definition change of "increment by
+      // one" cancel each other, so we just use the raw_stride as is.
+      int64_t stride = (i == size_to_use.size() - 1)
+          ? raw_stride
+          : adjust_last_dim.fromATenToNVF(raw_stride);
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride,
+          (std::byte*)&stride + sizeof(int64_t));
+    }
   } else {
     bytes.reserve(
         sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
         sizeof(int32_t) * alloc_strides.size());
     bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
     std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+
+    // Adjust the last dimension of the logical domain to support DataType
+    // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+    // in type.h for more details.
+    if (!logical_size32.empty()) {
+      int32_t& last_size = logical_size32.back();
+      last_size = (int32_t)adjust_last_dim.fromATenToNVF(last_size);
+    } else {
+      NVF_ERROR(
+          adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+          "DataType not supported");
+    }
+
     bytes.insert(
         bytes.end(),
         (std::byte*)logical_size32.data(),
         (std::byte*)logical_size32.data() +
             sizeof(int32_t) * logical_size32.size());
-    std::vector<int32_t> alloc_stride32(
-        alloc_strides.begin(), alloc_strides.end());
-    bytes.insert(
-        bytes.end(),
-        (std::byte*)alloc_stride32.data(),
-        (std::byte*)alloc_stride32.data() +
-            sizeof(int32_t) * alloc_stride32.size());
+
+    // Adjust the strides to support DataType that is not supported by PyTorch.
+    // See the comment of getLastDimAdjustment in type.h for more details.
+    for (auto [i, raw_stride] : enumerate(alloc_strides)) {
+      // See [Adjust all strides but not the last one]
+      int32_t stride32 = (i == size_to_use.size() - 1)
+          ? raw_stride
+          : (int32_t)adjust_last_dim.fromATenToNVF(raw_stride);
+      bytes.insert(
+          bytes.end(),
+          (std::byte*)&stride32,
+          (std::byte*)&stride32 + sizeof(int32_t));
+    }
   }
   return bytes;
 }

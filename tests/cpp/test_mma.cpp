@@ -537,6 +537,17 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   }
 
   MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  if (swizzle != MmaInputSmemSwizzle::None && tile_n == 8) {
+    GTEST_SKIP() << "IdModel does not support stmatrix.x2";
+  }
+
+  AbstractTensor stmatrix_abstract =
+      mma_utils::scheduleLdStMatrixSharedMemory(tv3, tile_m, tile_n);
+  std::vector<IterDomain*> stmatrix = stmatrix_abstract.as<IterDomain*>();
+  stmatrix.at(stmatrix.size() - 2)->parallelize(ParallelType::TIDx);
+  stmatrix.at(stmatrix.size() - 1)->parallelize(ParallelType::Vectorize);
+  tv3->setAlternateLoopDomain(stmatrix);
+
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv3->getLoopDomain());

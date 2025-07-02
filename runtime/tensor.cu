@@ -5,13 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+template <typename T>
+struct PointerHelper {
+  using type = T*;
+};
+
+template <>
+struct PointerHelper<__e2m1> {
+  using type = __e2m1_ptr;
+};
+
+template <typename T>
+using Pointer = typename PointerHelper<T>::type;
+
 template <typename T, int Dims, int AllocDims = Dims>
 struct Tensor {
   __device__ T& operator[](nvfuser_index_t ind) {
     return data[ind];
   };
 
-  T* data;
+  Pointer<T> data;
   Array<nvfuser_index_t, Dims, 1> logical_size;
   Array<nvfuser_index_t, AllocDims, 1> alloc_stride;
 };

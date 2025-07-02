@@ -30,15 +30,6 @@ int64_t roundUpSharedMemory(
     int64_t threads_per_block_max,
     int64_t threads_per_block_step);
 
-// Return the broadcast tvs that are broadcast to the iteration dimensions of
-// the inner reduction tv. These tvs are reused in the loop over the iteration
-// dimension. This reuse reduced the number loads from gmem and this tensor
-// is likely the first candidate to be moved to shared memory when the register
-// space runs low.
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs);
-
 // Size of buffers storing intermediate outer reduction results
 // TODO: check if we can directly start with [buffer_size = 1]
 int64_t partialOuterReductionBufferSize(
@@ -111,13 +102,13 @@ std::vector<TensorView*> sortProjectableBufferInputs(
 // is separated into two disjoint loops by the runtime function. To be
 // accessible in both, certain tvs must be hoisted outside.
 
-// The algorithm traces all paths from `inner_bcast_tv` to fusion outputs:
+// The algorithm traces all paths from `cached_input` to fusion outputs:
 // (1) tvs on paths that include a reduction go into `p_of_reductions`.
 // (2) tvs on paths without reductions go into `c_of_reductions`.
 // (3) tvs in both sets are considered persistent.
 std::vector<TensorView*> getGroupedReductionPersistentTvs(
     Fusion* fusion,
-    TensorView* inner_bcast_tv,
+    TensorView* cached_input,
     const std::vector<TensorView*>& reduction_tvs);
 
 } // namespace inner_outer_utils

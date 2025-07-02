@@ -301,22 +301,22 @@ bool isLocalSizeOne(IterDomain* id) {
 
 } // namespace
 
-CommunicationInfo getCommunicationInfo(Expr* expr) {
+CommunicationInfo getCommunicationInfo(Expr* e) {
   NVF_ERROR(
-      isResharding(expr),
-      "getCommunicationInfo should only be called when `expr` is known to be a "
-      "communication. So `expr` should be resharding. Given: ",
-      expr);
+      isResharding(e),
+      "getCommunicationInfo should only be called when `e` is known to be a "
+      "communication. So `e` should be resharding. Given: ",
+      e);
 
   NVF_ERROR(
-      expr->isA<LoadStoreOp>() || expr->isA<ReductionOp>(),
-      "getCommunicationInfo should only be called when `expr` is known to be a "
-      "communication. So `expr` should be either a LoadStoreOp or a "
+      e->isA<LoadStoreOp>() || e->isA<ReductionOp>(),
+      "getCommunicationInfo should only be called when `e` is known to be a "
+      "communication. So `e` should be either a LoadStoreOp or a "
       "ReductionOp. Given: ",
-      expr);
+      e);
 
-  auto* producer = expr->inputs().at(0)->as<TensorView>();
-  auto* consumer = expr->outputs().at(0)->as<TensorView>();
+  auto* producer = e->inputs().at(0)->as<TensorView>();
+  auto* consumer = e->outputs().at(0)->as<TensorView>();
   std::optional<CommunicationInfo> communication_info = std::nullopt;
 
   // Fill `communication_info` instead of returning the result, so we can catch
@@ -355,7 +355,7 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
     const bool c_sharded = c_loop_did != nullptr && consumer_mesh.size() > 1;
     const bool same_mesh = producer_mesh == consumer_mesh;
 
-    if (expr->isA<LoadStoreOp>()) {
+    if (e->isA<LoadStoreOp>()) {
       if (p_sharded && !c_sharded) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allgather
@@ -375,7 +375,7 @@ CommunicationInfo getCommunicationInfo(Expr* expr) {
             CommunicationType::SendRecv, p_logical_id, c_logical_id);
       }
     } else {
-      NVF_ERROR(expr->isA<ReductionOp>());
+      NVF_ERROR(e->isA<ReductionOp>());
       if (!p_sharded) {
         // Not a reduction based communication.
         continue;

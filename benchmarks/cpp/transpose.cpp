@@ -129,7 +129,7 @@ static void NvFuserScheduler_Transpose(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      ((at_input1.numel() * 3) * int64_t(dataTypeSize(dtype))));
+      ((at_input1.numel() * 3) * dataTypeSizeByte(dtype)));
 }
 
 //------------------------------------------------------------------------------
@@ -440,7 +440,7 @@ static void Baseline_Transpose(
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (at_input1.numel() * 3 * int64_t(dataTypeSize(dtype))));
+      (at_input1.numel() * 3 * dataTypeSizeByte(dtype)));
 }
 
 //------------------------------------------------------------------------------

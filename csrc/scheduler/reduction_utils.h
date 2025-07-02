@@ -81,6 +81,7 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 //                                   or vectorizable.
 //
 //   selected_tvs: TensorViews selected for parallelization, default is all Tvs.
+//   skip_input_output_unroll: If true, skip unrolling inputs and outputs.
 NVF_API void propagateParallelization(
     TensorView* reduction_tv,
     TensorView* reference_tv,
@@ -88,7 +89,8 @@ NVF_API void propagateParallelization(
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
-    const std::vector<TensorView*>& selected_tvs = {});
+    const std::vector<TensorView*>& selected_tvs = {},
+    const bool skip_input_output_unroll = false);
 
 // Sort and rfactor the reference tv in a consistent way for reduction inliner.
 // Order of the sort is:
@@ -144,5 +146,13 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     const int64_t io_vectorization_factor);
 
+// Get number of threads for computation in x dimension.
+// If warp specialized  on TIDx, returns bdimx minus number of padded threads.
+// Use this version, when warp_specialized_on is known, e.g. in codegen.
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx);
+// Use this version, need to check circular buffer options, e.g. in scheduler.
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

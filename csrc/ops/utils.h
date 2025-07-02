@@ -123,5 +123,9 @@ std::vector<unsigned int> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims);
 
+// Returns a scalar which is a two-sided identity element for the given binary
+// operator
+Val* binOpIdentity(BinaryOpType op_type, DataType dtype);
+
 } // namespace ops
 } // namespace nvfuser

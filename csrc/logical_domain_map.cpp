@@ -79,7 +79,8 @@ namespace {
 // select doesn't have a consumer ID, whereas index_select does.
 std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
-    const TensorView* consumer_tv) {
+    const TensorView* consumer_tv,
+    bool map_different_extents) {
   std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
@@ -112,6 +113,24 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
+  } else if (auto top = dynamic_cast<TopKOp*>(consumer_tv->definition());
+             top != nullptr && !map_different_extents) {
+    // For TopKOp, the topk dimension should not be mapped between producer and
+    // consumer because they have different extents: input[topk_dim] = D,
+    // output[topk_dim] = k (where k < D)
+    if (producer_tv == top->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto topk_dim = top->dim();
+      NVF_ERROR(
+          topk_dim >= 0 && (size_t)topk_dim < producer_logical.size(),
+          "TopKOp dimension ",
+          topk_dim,
+          " is out of bounds for producer logical domain size ",
+          producer_logical.size());
+      non_mapping_ids.insert(producer_logical.at(topk_dim));
+      has_consumer_id = true;
+    }
   }
 
   return std::make_pair(non_mapping_ids, has_consumer_id);
@@ -136,7 +155,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
-      getNonMappingDomainInfo(producer_tv_, consumer_tv_);
+      getNonMappingDomainInfo(
+          producer_tv_, consumer_tv_, map_different_extents_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());
@@ -211,7 +231,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // which can be used to create a pairwise map between input-output. For eg:
     // 1. `[M, K] x [K, N] -> [M, N]`: For input A, there is no mapping between
     // input and output for index=2
-    // 2. `B, M, K] x [K, N] -> [B, M, N]`: For  input B, the second iterdomain
+    // 2. `[B, M, K] x [K, N] -> [B, M, N]`: For input B, the second iterdomain
     // maps to the third output iterdomain.
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapMatmulOpIterDomains(producer_logical, input_position, out_size);
@@ -344,6 +364,79 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     if (producer_tv_->sameAs(op->weight())) {
       updatePairwiseLogicalDomainMap(
           producer_logical.back(), consumer_root.back());
+    }
+    return dom_map;
+  }
+
+  // TODO: refactor to use getNonMappingDomainInfo instead.
+  if (auto* op = dynamic_cast<GroupedMmaOp*>(consumer_tv_->definition())) {
+    bool has_g = TensorDomain::noReductions(consumer_root).size() == 3;
+    int64_t ndims_out = std::ssize(consumer_root);
+    // [rk] is the reduction axis for the matmul operation, it only exists if k
+    // is not broadcast.
+    bool has_rk = consumer_root.back()->isReduction();
+    int64_t out_non_rk_last_idx = has_rk ? ndims_out - 2 : ndims_out - 1;
+
+    int64_t last_producer_idx = std::ssize(producer_logical) - 1;
+    if (producer_tv_ == op->matrix1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx - 1),
+          consumer_root.at(out_non_rk_last_idx - 1));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->matrix2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      // mapping rk/k dimension;
+      if (has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->offsets()) {
+      // mapping g dimension;
+      if (has_g) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+    } else if (producer_tv_ == op->scale1()) {
+      // mapping m dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx), consumer_root.at(0));
+      // mapping g dimension;
+      if (has_g) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
+      if (map_different_extents_ && has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx), consumer_root.back());
+      }
+    } else if (producer_tv_ == op->scale2()) {
+      // mapping n dimension;
+      updatePairwiseLogicalDomainMap(
+          producer_logical.at(last_producer_idx),
+          consumer_root.at(out_non_rk_last_idx));
+      if (has_g) {
+        // mapping g dimension;
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(0), consumer_root.at(0));
+      }
+      // Note: since scale factor k' doesn't have to have the same extent as k,
+      // we only map it to rk/k dimension if map_different_extents_ is true.
+      if (map_different_extents_ && has_rk) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(last_producer_idx - 1), consumer_root.back());
+      }
+    } else {
+      NVF_THROW("Producer did not match any GroupedMmaOp input.");
     }
     return dom_map;
   }

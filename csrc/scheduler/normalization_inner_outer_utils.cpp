@@ -37,39 +37,6 @@ int64_t roundUpSharedMemory(
   }
   return max_smem;
 }
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
-  // set reference broadcast mask using the first inner reduction tv
-  std::vector<bool> ref_broadcast_mask;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& logical = tv->getLogicalDomain();
-      ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : arange(logical.size())) {
-        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
-      }
-      break;
-    }
-  }
-  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
-
-  // find the broadcast tensor whose broadcast mask is same to the reference
-  std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
-      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
-        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
-          outer_broadcast_tvs.emplace_back(tv);
-        }
-      }
-    }
-  }
-  return outer_broadcast_tvs;
-}
 
 int64_t partialOuterReductionBufferSize(
     const std::vector<TensorView*>& reduction_tvs,
@@ -94,8 +61,8 @@ int64_t partialOuterReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+            dataTypeSizeByte(buffer->getDataType().value(),
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
@@ -161,7 +128,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // outer broadcast tvs and always project to inputs.
   // Warp specialized persistent kernel always cache inputs in shared memory,
   // should project to inputs.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  const auto& outer_broadcast_tvs =
+      normalization_scheduler_utils::getOuterBroadcastTvs(
+          fusion, reduction_tvs);
   bool skip_check_buffer_size =
       !outer_broadcast_tvs.empty() || is_warp_specialized;
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
@@ -245,7 +214,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ? buffer_size_regs
         : roundUpSharedMemory(
               buffer_size_regs,
-              dataTypeSize(buffer->getDataType().value()),
+              dataTypeSizeByte(buffer->getDataType().value()),
               vectorize_factor,
               threads_per_block_min,
               threads_per_block_max,
@@ -324,7 +293,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
 std::vector<TensorView*> getGroupedReductionPersistentTvs(
     Fusion* fusion,
-    TensorView* inner_bcast_tv,
+    TensorView* cached_input,
     const std::vector<TensorView*>& reduction_tvs) {
   std::vector<TensorView*> res;
   // Get all fusion outputs that are consumers of reduction tvs
@@ -334,7 +303,7 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
   std::unordered_set<TensorView*> c_of_reductions;
   for (auto output : reduction_to_output) {
     auto chains_to_output =
-        DependencyCheck::getAllDependencyChains(inner_bcast_tv, output);
+        DependencyCheck::getAllDependencyChains(cached_input, output);
     for (auto chain : chains_to_output) {
       auto tv_chain = ir_utils::filterByType<TensorView>(chain);
       bool is_reduction_chain =
@@ -356,11 +325,9 @@ std::vector<TensorView*> getGroupedReductionPersistentTvs(
     }
   }
   for (auto tv : p_of_reductions) {
-    // must exists in both set, not same as inner_bcast_tv, and
-    // has multiple consumers, i.e., exclude chain unary ops from
-    // inner_bcast_tv to the actual persistent tv.
-    if (c_of_reductions.count(tv) && tv != inner_bcast_tv &&
-        ir_utils::consumerTvsOf(tv).size() > 1) {
+    // must exists in both set, and has multiple consumers, i.e., exclude chain
+    // unary ops from cached_input to the actual persistent tv.
+    if (c_of_reductions.count(tv) && ir_utils::consumerTvsOf(tv).size() > 1) {
       res.push_back(tv);
     }
   }

@@ -1496,7 +1496,7 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
   for (auto tv : unrollable_inputs_outputs) {
     max_dtype_size_for_vectorization = std::max(
         max_dtype_size_for_vectorization,
-        static_cast<int64_t>(dataTypeSize(
+        static_cast<int64_t>(dataTypeSizeByte(
             tv->getDataType().value(), runtime_info.getIndexType())));
     if (!tv->isFusionInput()) {
       continue;

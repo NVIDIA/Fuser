@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion.h>
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
 
@@ -25,5 +26,8 @@ void bindRuntime(py::module& nvfuser);
 
 // Add bindings for CPP Fusion Operations
 void bindOperations(py::module& nvfuser);
+
+// Translate a CPP Fusion to a bindings python function
+std::string translateFusion(Fusion* f);
 
 } // namespace nvfuser::python

@@ -5,6 +5,7 @@
 
 import math
 import torch
+from looseversion import LooseVersion
 from opinfo_core import OpInfo, ReferenceType, Domain
 from opinfo_fusion_definitions import (
     api_test_fd_fn,
@@ -57,6 +58,8 @@ from opinfo_input_generators import (
     linear_error_generator,
     triu_input_generator,
     triu_error_generator,
+    grouped_mm_input_generator,
+    scaled_grouped_mm_input_generator,
 )
 from nvfuser.testing.utils import (
     bool_int_dtypes,
@@ -1295,6 +1298,67 @@ matmul_opinfo = OpInfo(
     reference=torch.matmul,
 )
 matmul_ops.append(matmul_opinfo)
+
+# torch._grouped_mm and torch._scaled_grouped_mm is not available prior to PyTorch 2.8.0
+if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
+    grouped_mm_opinfo = OpInfo(
+        lambda fd: fd.ops.grouped_mm,
+        "grouped_mm",
+        # only bf16 is supported
+        dtypes=(torch.bfloat16,),
+        sample_input_generator=grouped_mm_input_generator,
+        reference=torch._grouped_mm,
+    )
+
+    def scaled_grouped_mm_wrapper(
+        mat1, mat2, offsets, scale1, scale2, alpha, bias, beta, dtype
+    ):
+        assert beta is None
+        # mat1 needs to be in column major while mat2 needs to be in row major.
+        row_major_mat2 = mat2.transpose(-1, -2).contiguous().transpose(-1, -2)
+        if mat1.ndim == 2 and mat2.ndim == 2:
+            # case 1, mat1 and mat2 are both 2D, aten fallback expects collapsed 1D scale with group dimension on the slower side.
+            reshaped_scale1 = scale1.reshape(-1)
+            reshaped_scale2 = scale2.reshape(-1)
+        else:
+            # squeeze out the k dimension
+            reshaped_scale1 = scale1.squeeze(-1)
+            reshaped_scale2 = scale2.squeeze(-2)
+        return torch._scaled_grouped_mm(
+            mat1,
+            row_major_mat2,
+            reshaped_scale1,
+            reshaped_scale2,
+            offsets,
+            bias,
+            alpha,
+            dtype,
+        )
+
+    scaled_grouped_mm_opinfo = OpInfo(
+        lambda fd: fd.ops.grouped_mm,
+        "scaled_grouped_mm",
+        # only float8 is supported
+        dtypes=(torch.float8_e4m3fn,),
+        sample_input_generator=scaled_grouped_mm_input_generator,
+        reference=scaled_grouped_mm_wrapper,
+        symbolic_parameter_list=(
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+        ),
+    )
+
+    # only hopper is supported with torch._grouped_mm at this point.
+    if torch.cuda.get_device_properties(torch.cuda.current_device()).major == 9:
+        matmul_ops.append(grouped_mm_opinfo)
+        matmul_ops.append(scaled_grouped_mm_opinfo)
 
 linear_ops = []
 

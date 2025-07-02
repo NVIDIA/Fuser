@@ -233,6 +233,7 @@ std::vector<std::byte> tensorToBytes(
     const std::vector<int64_t>& logical_sizes,
     const std::vector<int64_t>& allocation_strides,
     PrimDataType idx_type,
+    AdjustLastDim adjust_last_dim = {1, 1},
     const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);

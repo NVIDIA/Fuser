@@ -229,7 +229,8 @@ def definition_op_in_schedule_error_test_fn(opinfo: OpInfo, sample: SampleInput)
             result = opinfo.op(fd)(*nvf_inputs, **sample.kwargs)
             if isinstance(result, tuple):
                 for a in result:
-                    self.add_output(a)
+                    if a is not None:
+                        self.add_output(a)
             else:
                 self.add_output(result)
 

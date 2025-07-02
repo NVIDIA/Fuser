@@ -255,7 +255,7 @@ static void NvFuserScheduler_IndexSelectSimple(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (select_size + nFeat * select_size /*index select op*/) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void NvFuserScheduler_IndexSelect(
@@ -288,7 +288,7 @@ static void NvFuserScheduler_IndexSelect(
       int64_t(benchmark_state.iterations()) *
       (nFeat * select_size * 2 /*2 elemwise ops*/ + select_size +
        nFeat * select_size /*index select op*/) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 NVFUSER_BENCHMARK_DEFINE(
@@ -351,7 +351,7 @@ static void Baseline_IndexSelectSimple(
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
       (select_size + nFeat * select_size /*index select op*/) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_IndexSelect(
@@ -392,7 +392,7 @@ static void Baseline_IndexSelect(
       int64_t(benchmark_state.iterations()) *
       (nFeat * select_size * 2 /*2 elemwise ops*/ + select_size +
        nFeat * select_size /*index select op*/) *
-      int64_t(dataTypeSize(dtype)));
+      dataTypeSizeByte(dtype));
 }
 
 static void Baseline_IndexSelectSimple_Outer_fp32(

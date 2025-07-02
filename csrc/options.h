@@ -87,6 +87,7 @@ enum class DebugDumpOption {
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -135,6 +136,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
