@@ -615,7 +615,6 @@ class VectorizeValidator : public OptInDispatch {
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
     if (tv_def->isA<LoadStoreOp>()) {
-
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
       // TMem can vectorize up to 4096 bits.
