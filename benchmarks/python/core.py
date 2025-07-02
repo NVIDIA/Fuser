@@ -20,7 +20,6 @@ BENCHMARK_CONFIG = {
     "rounds": 10,
     "warmup_rounds": 1,
     "num_inputs": None,
-    "with_nsys": False,
 }
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
@@ -106,13 +105,11 @@ class NVFBenchmark:
             self.benchmark: Underlying pytest-benchmark fixture
         """
         self.device = device
-        if not BENCHMARK_CONFIG["with_nsys"]:
-            self._setup_timer(benchmark_fixture, device, precision)
+        self._setup_timer(benchmark_fixture, device, precision)
         self.benchmark = benchmark_fixture
 
     def _setup_timer(self, benchmark_fixture, device: str, precision: float):
         """Setup the appropriate timer based on device type."""
-        # Timer selection based on device
         timer_class = CuptiTimer if device == "cuda" else FusionProfileTimer
         benchmark_fixture._timer = timer_class()
 
@@ -138,8 +135,7 @@ class NVFBenchmark:
         self._timer.set_fd(fd)
 
     def cleanup(self):
-        if not BENCHMARK_CONFIG["with_nsys"]:
-            self._timer.cleanup()
+        self._timer.cleanup()
 
     def set_metrics(
         self,
