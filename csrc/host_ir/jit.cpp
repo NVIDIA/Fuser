@@ -91,7 +91,9 @@ void dimCheck(
 }
 
 // Generate kir::Allocate runtime function
-void createAndInsertAllocationFunction(const kir::Allocate* allocate, llvm::Module* mod) {
+void createAndInsertAllocationFunction(
+    const kir::Allocate* allocate,
+    llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
 
   // Define function signature: void(i64*, i64, i64*, i64, void*)
