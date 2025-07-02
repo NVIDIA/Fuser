@@ -91,7 +91,7 @@ void dimCheck(
 }
 
 // Generate kir::Allocate runtime function
-void generateAllocateFunc(const kir::Allocate* allocate, llvm::Module* mod) {
+void createAndInsertAllocationFunction(const kir::Allocate* allocate, llvm::Module* mod) {
   llvm::LLVMContext& context = mod->getContext();
 
   // Define function signature: void(i64*, i64, i64*, i64, void*)
@@ -217,12 +217,12 @@ void compile(
   std::vector<kir::Allocate*> allocate_exprs;
   for (auto* expr : container->topLevelExprs()) {
     if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      generateAllocateFunc(allocate, mod.get());
+      createAndInsertAllocationFunction(allocate, mod.get());
       allocate_exprs.push_back(allocate);
     } else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
       for (auto* expr : for_loop->body().exprs()) {
         if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-          generateAllocateFunc(allocate, mod.get());
+          createAndInsertAllocationFunction(allocate, mod.get());
           allocate_exprs.push_back(allocate);
         }
       }
