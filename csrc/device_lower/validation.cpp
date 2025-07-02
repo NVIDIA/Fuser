@@ -642,6 +642,10 @@ class VectorizeValidator : public OptInDispatch {
           " bits are supported.");
     }
 
+    if (!tv_def->isA<LoadStoreOp>()) {
+      return;
+    }
+
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
