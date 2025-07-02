@@ -826,6 +826,13 @@ if(BUILD_TEST)
   add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_topk)
 
+  set(MOE_TEST_SRCS)
+  list(APPEND MOE_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_moe.cpp
+  )
+  add_test(test_moe "${MOE_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_moe)
+
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
