@@ -37,23 +37,24 @@ TEST_F(HostIrJitTest, Allocate) {
   // Adjust the number of allocates and calls to each allocate
   int num_allocates = 10;
   int num_calls_per_allocate = 10;
-  std::vector<kir::Allocate*> allocates;
   for (int i = 0; i < num_allocates; i++) {
     auto* allocate =
         IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-    allocates.push_back(allocate);
     hic->pushBackTopLevelExprs(allocate);
   }
 
   HostIrJit jit(hic.get());
-  for (auto* allocate : allocates) {
-    for (int i = 0; i < num_calls_per_allocate; i++) {
-      int first_dim = std::rand() % 100;
-      int second_dim = std::rand() % 100;
-      auto allocated_t =
-          jit.allocate(allocate, {first_dim, second_dim}, {second_dim, 1});
-      EXPECT_EQ(allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
-      EXPECT_EQ(allocated_t.strides(), at::IntArrayRef({second_dim, 1}));
+  for (auto* expr : hic->topLevelExprs()) {
+    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
+      for (int i = 0; i < num_calls_per_allocate; i++) {
+        int first_dim = std::rand() % 100;
+        int second_dim = std::rand() % 100;
+        auto allocated_t =
+            jit.allocate(allocate, {first_dim, second_dim}, {second_dim, 1});
+        EXPECT_EQ(
+            allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
+        EXPECT_EQ(allocated_t.strides(), at::IntArrayRef({second_dim, 1}));
+      }
     }
   }
 }
