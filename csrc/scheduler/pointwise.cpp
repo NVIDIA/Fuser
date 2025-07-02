@@ -556,8 +556,25 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
             .mapBroadcast(true)
             .mapConsumerToProducer();
     check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
-    // TODO: propagate untracked property in reverse through logical->root
-    // transforms
+    if (to->hasRoot()) {
+      // propagate untracked property through root->logical transforms
+      for (Expr* e : std::ranges::views::reverse(StmtSort::getExprsBetween(
+               {to->getMaybeRootDomain().begin(),
+                to->getMaybeRootDomain().end()},
+               {to->getLogicalDomain().begin(),
+                to->getLogicalDomain().end()}))) {
+        bool has_unscheduled_output = std::any_of(
+            e->outputs().begin(), e->outputs().end(), [&](Val* out_val) {
+              auto* id = dynamic_cast<IterDomain*>(out_val);
+              return id && unscheduled_ids_.count(id);
+            });
+        if (has_unscheduled_output) {
+          for (Val* in_val : e->inputs()) {
+            unscheduled_ids_.insert(in_val->as<IterDomain>());
+          }
+        }
+      }
+    }
   }
   void propagateP2C(TensorView* from, TensorView* to) override {
     std::unordered_map<IterDomain*, IterDomain*> p2c =
@@ -565,7 +582,24 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
             .mapBroadcast(true)
             .mapProducerToConsumer();
     check(from->getLogicalDomain(), to->getMaybeRootDomain(), p2c);
-    // TODO: propagate untracked property through root->logical transforms
+    if (to->hasRoot()) {
+      // propagate untracked property through root->logical transforms
+      for (Expr* e : StmtSort::getExprsBetween(
+               {to->getLogicalDomain().begin(), to->getLogicalDomain().end()},
+           {to->getMaybeRootDomain().begin(), to->getMaybeRootDomain().end()})) {
+        // TODO: should we exclude ID exprs other than Merge/Split here?
+        bool has_unscheduled_input = std::any_of(
+            e->inputs().begin(), e->inputs().end(), [&](Val* in_val) {
+              auto* id = dynamic_cast<IterDomain*>(in_val);
+              return id && unscheduled_ids_.count(id);
+            });
+        if (has_unscheduled_input) {
+          for (Val* out_val : e->outputs()) {
+            unscheduled_ids_.insert(out_val->as<IterDomain>());
+          }
+        }
+      }
+    }
   }
   void propagateSibling(TensorView* from, TensorView* to) override {
     // Siblings require no special consideration in this check
