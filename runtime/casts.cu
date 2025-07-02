@@ -540,14 +540,6 @@ __device__ __inline__ std::complex<float> __bfloat2complex_float(const __bfloat 
   return (std::complex<float>)__bfloat2float(h);
 }
 
-DEFINE_CAST_NAIVE_VECN(__bfloat2complex_float, __bfloat, std::complex<float>);
-
-__device__ __inline__ std::complex<double> __bfloat2complex_double(const __bfloat h) {
-  return (std::complex<double>)__bfloat2double(h);
-}
-
-DEFINE_CAST_NAIVE_VECN(__bfloat2complex_double, __bfloat, std::complex<double>);
-
 __device__ __inline__ double __bfloat2double(const __bfloat h) {
 #if __CUDA_ARCH__ >= 900
   double val;
@@ -561,6 +553,14 @@ __device__ __inline__ double __bfloat2double(const __bfloat h) {
 }
 
 DEFINE_CAST_NAIVE_VECN(__bfloat2double, __bfloat, double);
+
+DEFINE_CAST_NAIVE_VECN(__bfloat2complex_float, __bfloat, std::complex<float>);
+
+__device__ __inline__ std::complex<double> __bfloat2complex_double(const __bfloat h) {
+  return (std::complex<double>)__bfloat2double(h);
+}
+
+DEFINE_CAST_NAIVE_VECN(__bfloat2complex_double, __bfloat, std::complex<double>);
 
 __device__ int __bfloat2int32(const __bfloat h) {
 #if __CUDA_ARCH__ >= 900
