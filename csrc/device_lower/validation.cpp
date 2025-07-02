@@ -620,7 +620,7 @@ class VectorizeValidator : public OptInDispatch {
       // TMem can vectorize up to 4096 bits.
       if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
           (ldst->opType() == LoadStoreOpType::LdTMem ||
-          ldst->opType() == LoadStoreOpType::StTMem)) {
+           ldst->opType() == LoadStoreOpType::StTMem)) {
         allowed_vector_sizes_bit.push_back(256);
         allowed_vector_sizes_bit.push_back(512);
         allowed_vector_sizes_bit.push_back(1024);

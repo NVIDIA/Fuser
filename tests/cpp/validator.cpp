@@ -113,22 +113,25 @@ void testValidate(
         common_dtype = at::ScalarType::Float;
       }
       auto aten_output_in_common_dtype = aten_output_tensor.to(common_dtype);
-      auto fusion_output_in_common_dtype = fusion_output_tensor.to(common_dtype);
+      auto fusion_output_in_common_dtype =
+          fusion_output_tensor.to(common_dtype);
       if (aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ||
           fusion_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu) {
-        // Unfortunately PyTorch's implementation of e8m0 casting mismatches with
-        // the hardware implementation. So we can not check the equality of the
-        // two tensors directly. Note that e8m0 can only represent 2^x, so we
-        // check that the x for aten and fusion are off by at most 1.
-        // e8m0 is always positive, however, other types can be zero, when
-        // aten and fusion dtypes mismatch, we try our best to pick the one
-        // that is not zero.
-        at::Tensor numerator = aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ?
-            fusion_output_in_common_dtype :
-            aten_output_in_common_dtype;
-        at::Tensor denominator = aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu ?
-            aten_output_in_common_dtype :
-            fusion_output_in_common_dtype;
+        // Unfortunately PyTorch's implementation of e8m0 casting mismatches
+        // with the hardware implementation. So we can not check the equality of
+        // the two tensors directly. Note that e8m0 can only represent 2^x, so
+        // we check that the x for aten and fusion are off by at most 1. e8m0 is
+        // always positive, however, other types can be zero, when aten and
+        // fusion dtypes mismatch, we try our best to pick the one that is not
+        // zero.
+        at::Tensor numerator =
+            aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu
+            ? fusion_output_in_common_dtype
+            : aten_output_in_common_dtype;
+        at::Tensor denominator =
+            aten_output_tensor.dtype() == at::ScalarType::Float8_e8m0fnu
+            ? aten_output_in_common_dtype
+            : fusion_output_in_common_dtype;
         at::Tensor ratio = (numerator / denominator).abs();
         NVF_ERROR(
             ratio.max().item<double>() <= 2.0,
@@ -172,8 +175,7 @@ void testValidate(
             " in file ",
             file_name,
             ".\n  Detected max abs error of: ",
-            aten_output_in_common_dtype
-                .sub(fusion_output_in_common_dtype)
+            aten_output_in_common_dtype.sub(fusion_output_in_common_dtype)
                 .abs()
                 .max()
                 .item()

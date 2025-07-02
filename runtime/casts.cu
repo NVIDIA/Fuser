@@ -53,7 +53,6 @@
   }
 // clang-format on
 
-
 // Wrappers for static casts
 template <typename T>
 __device__ __inline__ float __to_float(const T f) {
@@ -237,7 +236,6 @@ __device__ __inline__ std::complex<float> __to_complex_float(const T f) {
 
 DEFINE_CAST_NAIVE_VECN_FROM_TEMPLATE(__to_complex_float, std::complex<float>);
 
-
 // Half casts
 
 __device__ __inline__ __half __float2half(const float f) {
@@ -339,7 +337,8 @@ __device__ __inline__ double __half2double(const __half h) {
 
 DEFINE_CAST_NAIVE_VECN(__half2double, __half, double);
 
-__device__ __inline__ std::complex<double> __half2complex_double(const __half h) {
+__device__ __inline__ std::complex<double> __half2complex_double(
+    const __half h) {
   return (std::complex<double>)__half2double(h);
 }
 
@@ -536,7 +535,8 @@ __device__ __inline__ float __bfloat2float(const __bfloat h) {
 
 DEFINE_CAST_NAIVE_VECN(__bfloat2float, __bfloat, float);
 
-__device__ __inline__ std::complex<float> __bfloat2complex_float(const __bfloat h) {
+__device__ __inline__ std::complex<float> __bfloat2complex_float(
+    const __bfloat h) {
   return (std::complex<float>)__bfloat2float(h);
 }
 
@@ -556,7 +556,8 @@ DEFINE_CAST_NAIVE_VECN(__bfloat2double, __bfloat, double);
 
 DEFINE_CAST_NAIVE_VECN(__bfloat2complex_float, __bfloat, std::complex<float>);
 
-__device__ __inline__ std::complex<double> __bfloat2complex_double(const __bfloat h) {
+__device__ __inline__ std::complex<double> __bfloat2complex_double(
+    const __bfloat h) {
   return (std::complex<double>)__bfloat2double(h);
 }
 
