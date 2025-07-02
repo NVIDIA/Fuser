@@ -136,15 +136,11 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
 // Returns true if the given id has a root-to-logical transform
 // if traversed from loop domain to root domain.
 bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
-  if (!tv->hasRoot()) {
-    return false;
-  }
   auto logical_ids = IterVisitor::getInputsTo(
       {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
-        return logical_val->isA<IterDomain>() &&
-            logical_val->as<IterDomain>()->isRFactorProduct();
+        return logical_val->definition() != nullptr;
       });
 }
 
@@ -183,7 +179,7 @@ void transformLoopDomain(
   };
 
   for (Expr* transform : transforms) {
-    Split* split = dynamic_cast<Split*>(transform);
+    auto* split = dynamic_cast<Split*>(transform);
     NVF_ERROR(
         split != nullptr,
         "Expected a split transform producing the device id. Got: ",

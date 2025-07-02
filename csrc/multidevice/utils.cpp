@@ -715,20 +715,4 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
   return ret;
 }
 
-void propagateDIDTransform(
-    const TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    int64_t did_pos,
-    PropagateDirection direction) {
-  TensorDomain* replayed_domain = nullptr;
-  for (TensorView* tv : tvs) {
-    if (direction == PropagateDirection::kForward) {
-      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
-    } else {
-      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
-    }
-    tv->setLoopDomain(replayed_domain->loop());
-  }
-}
-
 } // namespace nvfuser
