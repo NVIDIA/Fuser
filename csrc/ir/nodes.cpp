@@ -6242,18 +6242,6 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 #endif
 }
 
-IterDomain* ScaledMmaOp::getKDimOfMatrix1() const {
-  const auto& logical_domain =
-      TensorDomain::noReductions(matrix1()->getLogicalDomain());
-  return logical_domain.at(logical_domain.size() - 1);
-}
-
-IterDomain* ScaledMmaOp::getKDimOfMatrix2() const {
-  const auto& logical_domain =
-      TensorDomain::noReductions(matrix2()->getLogicalDomain());
-  return logical_domain.at(logical_domain.size() - 2);
-}
-
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
 
 ScanOp::ScanOp(

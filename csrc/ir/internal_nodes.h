@@ -3220,12 +3220,6 @@ class ScaledMmaOp : public Expr {
   int64_t betaOffset() const {
     return attribute<int64_t>(2);
   }
-
-  // Get the IterDomain for the k-dimension of the first input matrix
-  IterDomain* getKDimOfMatrix1() const;
-
-  // Get the IterDomain for the k-dimension of the second input matrix
-  IterDomain* getKDimOfMatrix2() const;
 };
 
 //! TopK operation that finds the k largest or smallest elements
