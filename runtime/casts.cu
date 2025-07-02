@@ -704,27 +704,6 @@ __device__ __inline__ __bfloat __real_then_2bfloat(
 
 DEFINE_CAST_NAIVE_VECN(__real_then_2bfloat, std::complex<double>, __bfloat);
 
-__device__ __inline__ bool __heq(const __bfloat a, const __bfloat b) {
-// From cuda_bf16.hpp
-#if __CUDA_ARCH__ >= 900
-  unsigned short val;
-  asm("{ .reg .pred __$temp3;\n"
-      "  setp.eq.bf16  __$temp3, %1, %2;\n"
-      "  selp.u16 %0, 1, 0, __$temp3;}"
-      : "=h"(val)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(a)), "h"(__NVFUSER_BFLOAT_TO_CUS(b)));
-#else
-  unsigned int val;
-  asm("{.reg .b32 a,b;\n"
-      "  mov.b32 a, {0, %1};\n"
-      "  mov.b32 b, {0, %2};\n"
-      "  set.eq.f32.f32 %0, a, b;}\n"
-      : "=r"(val)
-      : "h"(__NVFUSER_BFLOAT_TO_CUS(a)), "h"(__NVFUSER_BFLOAT_TO_CUS(b)));
-#endif
-  return (val != 0U) ? true : false;
-}
-
 // e4m3 casts
 
 template <int align>
