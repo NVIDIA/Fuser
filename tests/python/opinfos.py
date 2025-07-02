@@ -1384,6 +1384,9 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         matmul_ops.append(grouped_mm_opinfo)
         matmul_ops.append(scaled_grouped_mm_opinfo)
 
+    if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 10:
+        matmul_ops.append(scaled_mm_opinfo)
+
 linear_ops = []
 
 linear_opinfo = OpInfo(
