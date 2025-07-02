@@ -523,6 +523,7 @@ bool fillDefaultHopperHeuristic(
     }
 
     mparams->cluster_dims = largest_cga_cfg;
+    mparams->cluster_dims = {4, 2, 1};
   }
 
   // This is the size of the non-fast dimension before swizzling
@@ -1103,24 +1104,29 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   thread_local std::array<int64_t, 16> cached_results;
 
   const int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
+  std::cout << "cached_results=";
+  for (size_t i : arange((size_t)16)) {
+    std::cout << cached_results[i] << " ";
+  }
+  std::cout << "  cluster_size=" << cluster_size << std::endl;
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
 
-  // TODO: make these thread_local and initialize only once to reduce latency
-  cudaLibrary_t lib;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaLibraryLoadData(&lib, noopPtx, NULL, NULL, 0, NULL, NULL, 0));
-  cudaKernel_t func;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaLibraryGetKernel(&func, lib, "noopKernel"));
+  CUmodule mod;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, mod, "noopKernel"));
 
   int max_smem_opt_in;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
-      &max_smem_opt_in, cudaDevAttrMaxSharedMemoryPerBlockOptin, /*device=*/0));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaFuncSetAttribute(
-      func, cudaFuncAttributeMaxDynamicSharedMemorySize, max_smem_opt_in));
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaFuncSetAttribute(
-      func, cudaFuncAttributeNonPortableClusterSizeAllowed, 1));
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/0));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
 
   size_t maxDynamicSmemSize;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyAvailableDynamicSMemPerBlock(
@@ -1153,7 +1159,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaOccupancyMaxActiveClusters(&num_clusters, (CUfunction)func, &config));
 
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaLibraryUnload(lib));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(mod));
 
   cached_results.at(cluster_size) = (int64_t)num_clusters;
   return cached_results.at(cluster_size);
