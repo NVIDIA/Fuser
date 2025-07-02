@@ -127,7 +127,8 @@ void testValidate(
           " in file ",
           file_name,
           ".\n  Detected max abs error of: ",
-          aten_output_tensor.sub(fusion_output_tensor)
+          aten_output_tensor.to(common_dtype)
+              .sub(fusion_output_tensor.to(common_dtype))
               .abs()
               .max()
               .item()
