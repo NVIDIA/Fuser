@@ -205,10 +205,6 @@ void compile(
     llvm::orc::LLJIT* jit,
     std::unordered_map<const kir::Allocate*, AllocateFunc>& allocate_funcs) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
-  // If the JIT is already compiled, return
-  if (allocate_funcs.size() > 0) {
-    return;
-  }
   NVF_ERROR(
       container != nullptr,
       "container is nullptr during host ir JIT compilation");
