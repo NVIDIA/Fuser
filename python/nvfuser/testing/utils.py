@@ -209,6 +209,11 @@ def is_pre_hopper():
     return prop.major < 9
 
 
+def is_pre_blackwell():
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major < 10
+
+
 def verify_stride_order(output_strides, stride_order):
     sorted_stride = list(output_strides)
     rank = len(output_strides)
