@@ -61,13 +61,6 @@ def pytest_addoption(parser):
         help="Number of inputs to randomly sample for each benchmark.",
     )
 
-    parser.addoption(
-        "--with-nsys",
-        action="store_true",
-        default=False,
-        help="Run benchmark scripts with nsys. Disable all other profilers.",
-    )
-
 
 @pytest.fixture
 def disable_validation(request):
@@ -98,8 +91,6 @@ def pytest_configure(config):
 
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
-    if config.getoption("--with-nsys"):
-        BENCHMARK_CONFIG["with_nsys"] = True
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
