@@ -543,29 +543,69 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
 namespace {
 
-struct CoveredDomainPropagator : MaxInfoSpanningTree::Propagator {
-  bool found_unmapped_dim = false;
-
+class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
+ public:
   void propagateC2P(TensorView* from, TensorView* to) override {
-    check(from->getMaybeRootDomain(), to->getLogicalDomain());
+    if (to->isFusionInput()) {
+      // We are not concerned with scheduling fusion inputs during transform
+      // propagation
+      return;
+    }
+    std::unordered_map<IterDomain*, IterDomain*> c2p =
+        PairwiseLogicalDomainMap(to, from)
+            .mapBroadcast(true)
+            .mapConsumerToProducer();
+    check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
+    // TODO: propagate untracked property in reverse through logical->root
+    // transforms
   }
   void propagateP2C(TensorView* from, TensorView* to) override {
-    check(from->getLogicalDomain(), to->getMaybeRootDomain());
+    std::unordered_map<IterDomain*, IterDomain*> p2c =
+        PairwiseLogicalDomainMap(from, to)
+            .mapBroadcast(true)
+            .mapProducerToConsumer();
+    check(from->getLogicalDomain(), to->getMaybeRootDomain(), p2c);
+    // TODO: propagate untracked property through root->logical transforms
   }
   void propagateSibling(TensorView* from, TensorView* to) override {
     // Siblings require no special consideration in this check
   }
 
+  bool hasUnscheduledConcreteIDs() const {
+    for (IterDomain* id : unscheduled_ids_) {
+      if (!id->isBroadcast()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+ private:
   void check(
       const std::vector<IterDomain*>& from_domain,
-      const std::vector<IterDomain*>& to_domain) {
-    if (found_unmapped_dim) {
-      return;
+      const std::vector<IterDomain*>& to_domain,
+      const std::unordered_map<IterDomain*, IterDomain*>& f2t) {
+    std::unordered_set<IterDomain*> seen_to;
+    for (IterDomain* from_id : from_domain) {
+      auto it = f2t.find(from_id);
+      if (it != f2t.end()) {
+        IterDomain* to_id = it->second;
+        if (unscheduled_ids_.count(from_id)) {
+          unscheduled_ids_.insert(to_id);
+        }
+        seen_to.insert(to_id);
+      }
     }
-    // If we introduce a new root dimension, such as in a broadcast or reverse
-    // through a squeeze, we cannot propagate scheduling information
-    found_unmapped_dim = to_domain.size() > from_domain.size();
+    for (IterDomain* to_id : to_domain) {
+      if (!seen_to.count(to_id)) {
+        // This is a new ID introduced along the propagation path
+        unscheduled_ids_.insert(to_id);
+      }
+    }
   }
+
+ private:
+  std::unordered_set<IterDomain*> unscheduled_ids_;
 };
 
 } // namespace
@@ -587,7 +627,7 @@ bool hasReferenceTensorView(Fusion* fusion) {
       /*propagate_through_resize=*/true);
   CoveredDomainPropagator propagator;
   tree.traverse(&propagator);
-  return !propagator.found_unmapped_dim;
+  return !propagator.hasUnscheduledConcreteIDs();
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
