@@ -1668,9 +1668,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(/*Aligned=*/false);
-      template_args.arg(
-          reduction_scheduler_utils::getComputeBdimx(
-              warp_specialized_on_, lparams_.bdimx()));
+      template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+          warp_specialized_on_, lparams_.bdimx()));
 
       indent() << genCall(
                       "warp::staticWarpAllReduceTIDX", template_args, func_args)
@@ -3352,9 +3351,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
-    template_args.arg(
-        reduction_scheduler_utils::getComputeBdimx(
-            warp_specialized_on_, lparams_.bdimx()));
+    template_args.arg(reduction_scheduler_utils::getComputeBdimx(
+        warp_specialized_on_, lparams_.bdimx()));
     if (has_independent_compute_warp_groups_) {
       func_args.arg(genBarrierId(true));
     }
