@@ -196,7 +196,7 @@ def test_inplace_issue2664():
     # Reference out = T4 (aliased to inputs[-1]), T8
     ref_out = [inputs[-1] + 1.0, (inputs[-1] + 1.0) * inputs[0]]
 
-    out = fd.execute(inputs, profile=True)
+    out = fd.execute(inputs, profile=False)
 
     # Disabled due to CUDA 13 compatibility
     # assert fd.profile().segments == 2
@@ -247,7 +247,7 @@ def test_inplace_post_bcast():
         inputs[0] + inputs[1],
     ]
 
-    out = fd.execute(inputs, profile=True)
+    out = fd.execute(inputs, profile=False)
 
     # Disabled due to CUDA 13 compatibility
     # assert fd.profile().segments == 2
@@ -297,7 +297,7 @@ def test_multi_inplace():
     # Reference out = T6 (aliased to inputs[2]), T7 (aliased to inputs[1])
     ref_out = [inputs[-1] + 1.0, (inputs[0] + inputs[1]).sum(dim=-1)]
 
-    fd.execute(inputs, profile=True)
+    fd.execute(inputs, profile=False)
     # Disabled due to CUDA 13 compatibility
     # assert fd.profile().segments == 4
 
