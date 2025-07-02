@@ -609,12 +609,12 @@ class VectorizeValidator : public OptInDispatch {
         "Tv has no definition, cannot validate vectorization:",
         tv);
 
+    auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
+    auto vector_size_bit =
+        dataTypeSizeBit(
+            tv->getDataType().value(), GpuLower::current()->indexType()) *
+        vector_word_size;
     if (tv_def->isA<LoadStoreOp>()) {
-      auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
-      auto vector_size_bit =
-          dataTypeSizeBit(
-              tv->getDataType().value(), GpuLower::current()->indexType()) *
-          vector_word_size;
 
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
