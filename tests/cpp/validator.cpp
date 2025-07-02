@@ -107,7 +107,7 @@ void testValidate(
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {
       auto common_dtype = aten_output_tensor.dtype();
-      if (common_dtype == at::ScalarType::Float8_e4m3fn || common_dtype == at::ScalarType::Float8_e5m2) {
+      if (common_dtype == at::ScalarType::Float8_e4m3fn || common_dtype == at::ScalarType::Float8_e5m2 || common_dtype == at::ScalarType::Float8_e8m0fnu) {
         common_dtype = at::ScalarType::Float;
       }
       NVF_ERROR(
