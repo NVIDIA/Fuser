@@ -508,7 +508,7 @@ ScaledTensorView scaled_mm(
   // TODO: support scaled output
   NVF_CHECK(
       output_block_scale_size == 0, "output_block_scale is not yet supported");
-  NVF_CHECK(output_gamma, "output_gamma is not yet supported");
+  NVF_CHECK(!output_gamma, "output_gamma is not yet supported");
 
   ScaledTensorView scaled_out;
 
