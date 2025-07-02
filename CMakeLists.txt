@@ -378,7 +378,6 @@ target_link_libraries(codegen_internal PUBLIC
   dynamic_type
   ${LIBCUPTI}
   ${TORCH_LIBRARIES}
-  cuda
   dl
 )
 

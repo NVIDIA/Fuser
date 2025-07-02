@@ -523,7 +523,6 @@ bool fillDefaultHopperHeuristic(
     }
 
     mparams->cluster_dims = largest_cga_cfg;
-    mparams->cluster_dims = {4, 2, 1};
   }
 
   // This is the size of the non-fast dimension before swizzling
