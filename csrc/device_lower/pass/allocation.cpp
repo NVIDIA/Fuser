@@ -214,13 +214,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
         }
       }
     }
+
     // Allocation position is not always the same as the CA
     // position. See also lower_utils::getAllocInformation.
     int64_t allocation_pos =
         lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
-
-    std::cout << "allocation_pos: " << allocation_pos << std::endl;
-    std::cout << "use_set_allocation_domain: " << use_set_allocation_domain << std::endl;
 
     if (use_set_allocation_domain) {
       if (tv->getMemoryType() == MemoryType::Global) {
@@ -236,7 +234,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
             exclude_ca_ids.insert(ca_id);
-            std::cout << "insert exclude_ca_ids: " << ca_id->toString() << std::endl;
           }
         }
         for (auto i : arange(tv->getAllocationDomain().size())) {
@@ -250,24 +247,16 @@ class AllocationDomainSetup : private kir::IrVisitor {
             contiguity.push_back(tv->domain()->contiguity()[i]);
           } else {
             exclude_ca_ids.erase(id);
-            std::cout << "erase exclude_ca_ids: " << id->toString() << std::endl;
           }
         }
-        for (auto id : exclude_ca_ids) {
-          std::cout << "remaining exclude_ca_ids: " << id->toString() << std::endl;
-        }
-        // If some compute-at IDs are not found in the allocation domain, 
-        // it means they were already excluded during allocation domain setup.
-        // This is acceptable when the allocation domain is manually set.
-        if (!exclude_ca_ids.empty()) {
-          // Log a warning for debugging purposes
-          if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-            debug() << "Warning: Some compute-at IDs are not found in the "
-                    << "allocation domain for tensor: " << tv->toString()
-                    << ". This is expected when allocation domain is manually set."
-                    << std::endl;
-          }
-        }
+        NVF_ERROR(
+            exclude_ca_ids.empty(),
+            "The non-allocating compute-at IDs are not found in the allocation "
+            "domain. ",
+            "It is unclear how to allocate the tensor: ",
+            tv->toString(),
+            " allocation domain: ",
+            ir_utils::toString(tv->getAllocationDomain()));
       }
     } else {
       // If allocation domain is not set, assume that:
