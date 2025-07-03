@@ -1110,11 +1110,6 @@ __device__ __inline__ Array<__e2m1, n, align> __bfloat2e2m1(
   return __float2e2m1(__bfloat2float(input));
 }
 
-__device__ __inline__ __half __e2m12half(const __e2m1 b) {
-  Array<__e2m1, 2, 1> input = {b, b};
-  return __e2m12half(input)[0];
-}
-
 __device__ __inline__ Array<__half, 2, 2> __e2m12half(
     const Array<__e2m1, 2, 2>& input) {
   // Note: Inline PTX can not pass 8-bit register as parameter
