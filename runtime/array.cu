@@ -34,6 +34,32 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
   }
 };
 
+template <int size, int align_size = 2>
+struct alignas(align_size) Array<__e2m1, size, align_size> {
+  static_assert(size % 2 == 0, "There must be an even number of fp4 elements");
+  uint8_t array[size / 2];
+
+  __device__ uint8_t& operator[](const unsigned int i) {
+    // For performance reason, we do not check the index is even, but we assume
+    // it. assert(index % 2 == 0);
+    return array[i / 2];
+  }
+
+  __device__ const uint8_t& operator[](const unsigned int i) const {
+    // For performance reason, we do not check the index is even, but we assume
+    // it. assert(index % 2 == 0);
+    return array[i / 2];
+  }
+
+  Array& operator=(const Array& a) {
+#pragma unroll
+    for (int i = 0; i < size / 2; ++i) {
+      array[i] = a[i];
+    }
+    return *this;
+  }
+};
+
 // Used for vectorized allocations that are not in registers
 template <typename scalar_t, int vec_size>
 __device__ void arraySet(scalar_t* buff, scalar_t val) {
