@@ -1258,6 +1258,10 @@ class AllocationInserter : public kir::ExprMutator {
         // initialize TMem yet. For now, we just skip the initialization for
         // TMem.
         init = default_val;
+      } else if (out_tv->dtype() == DataType::Float4_e2m1fn) {
+        // TODO: fp4 is smaller than one byte, it is impossible to specify a
+        // fp4 value in computer. For now, we just skip the initialization.
+        init = default_val;
       }
 
       if (ir_utils::isCpAsyncOp(expr) || ir_utils::isCpAsyncBulk(expr)) {
