@@ -5704,7 +5704,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 8192, N = 8192, K = 8192;
+  constexpr int64_t M = 4096, N = 3584, K = 512;
   const auto dtype = DataType::BFloat16;
 
   auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
@@ -5746,8 +5746,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  // TODO use legacy launch to avoid CGA tile
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 2, 1};
   mparams.promote_prologue_smem_reuse = true;
   mparams.grid_traversal_factor = {16, 8};
 
