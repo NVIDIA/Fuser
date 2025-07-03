@@ -2685,10 +2685,6 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       fusion.addInput(tv0);
       fusion.addOutput(out);
-      tv0->computeAt(out, -1);
-
-      out->axis(0)->parallelize(ParallelType::BIDx);
-      out->axis(-1)->parallelize(ParallelType::TIDx);
 
       auto at_src_type = data_type_to_aten(src_type);
       auto at_fp8_type = data_type_to_aten(fp8_type);
@@ -2696,7 +2692,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
       auto options =
           at::TensorOptions().dtype(at_src_type).device(at::kCUDA, 0);
 
-      at::Tensor t0 = at::randn({1, 4}, options);
+      const int n = std::rand() % (1024 * 1024 * 2) + 1;
+      at::Tensor t0 = at::randn({n, 4}, options);
 
       if (fp8_type == DataType::Float8_e8m0fnu) {
         // e8m0 can only represent positive values
@@ -2726,6 +2723,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
             testing::ThrowsMessage<nvfuser::nvfError>(
                 testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
+        scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
 
