@@ -24,6 +24,7 @@ class BuildConfig:
     build_with_ucc: bool = False
     build_with_asan: bool = False
     build_without_distributed: bool = False
+    build_with_system_nvtx: bool = True
     explicit_error_check: bool = False
     build_with_host_ir_jit: bool = False
     overwrite_version: bool = False
@@ -264,6 +265,10 @@ def override_build_config_from_env(config):
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
         config.build_without_distributed = get_env_flag_bool(
             "NVFUSER_BUILD_WITHOUT_DISTRIBUTED"
+        )
+    if "NVFUSER_BUILD_WITH_SYSTEM_NVTX" in os.environ:
+        config.build_with_system_nvtx = get_env_flag_bool(
+            "NVFUSER_BUILD_WITH_SYSTEM_NVTX"
         )
     if "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK" in os.environ:
         config.explicit_error_check = get_env_flag_bool(
