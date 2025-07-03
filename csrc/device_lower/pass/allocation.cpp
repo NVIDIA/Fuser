@@ -1261,7 +1261,7 @@ class AllocationInserter : public kir::ExprMutator {
       } else if (out_tv->dtype() == DataType::Float4_e2m1fn) {
         // TODO: fp4 is smaller than one byte, it is impossible to specify a
         // fp4 value in computer. For now, we just skip the initialization.
-        init = default_val;
+        init = nullptr;
       }
 
       if (ir_utils::isCpAsyncOp(expr) || ir_utils::isCpAsyncBulk(expr)) {
