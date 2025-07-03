@@ -20,6 +20,12 @@ namespace nvfuser {
 
 enum class AttnRole { Q = 0, K, V, Mask };
 
+struct ScaledTensorView {
+  TensorView* tv;
+  TensorView* block_scaling_factor = nullptr;
+  TensorView* global_scaling_factor = nullptr;
+};
+
 namespace ops {
 
 TensorView* maybe_broadcast_inner_to_rank(TensorView* t, size_t rank);
