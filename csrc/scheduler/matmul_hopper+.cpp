@@ -378,7 +378,6 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
       params_->tile_sizes.cta_tile.k};
 
   merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
-
   merged_roles = reorderBlockTileTraversal(tv, merged_roles);
 
   merged_roles =
@@ -630,7 +629,9 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
       const int64_t num_clusters =
           matmul_utils::getMaxActiveClusters(params_->cluster_dims);
       if (isCooperative()) {
+        // outer, cga_m, cga_n
         tv->split(num_device_dims_, num_clusters);
+        // outer/num_cgas, num_cgas, cga_m, cga_n
       } else {
         // Schedule TensorViews for Ping-Pong schedule; Only for Hopper
         // Create iterDomain for the number of compute warp groups
@@ -638,23 +639,22 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         constexpr int64_t num_compute_warp_groups = 2;
         int64_t outer_split = num_clusters * num_compute_warp_groups;
 
-        // outer
+        // outer, cga_m, cga_n
         tv->split(num_device_dims_, outer_split);
-        // outer / (num_cgas * num_wgs), (num_cgas * num_wgs)
+        // outer / (num_cgas * num_wgs), (num_cgas * num_wgs), cga_m, cga_n
 
         tv->split(num_device_dims_ + 1, num_clusters);
-        // outer / (num_cgas * num_wgs), num_wgs, num_cgas
+        // outer / (num_cgas * num_wgs), num_wgs, num_cgas, cga_m, cga_n
 
         if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::TIDy);
         }
-        // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas
+        // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas, cga_m, cga_n
 
-        // Reorder so num_sms axis is in the same position as cooperative
-        tv->reorder(
-            {{num_device_dims_ + 1, num_device_dims_ + 2},
-             {num_device_dims_ + 2, num_device_dims_ + 1}});
-        // outer / (num_cgas * num_wgs), num_cgas, num_wgs (TIDy)
+        // Reorder so num_cgas, cga_m, and cga_n axes are in the same positions
+        // as cooperative
+        tv->reorder({{num_device_dims_ + 1, num_device_dims_ + 4}});
+        // outer / (num_cgas * num_wgs), num_cgas, cga_m, cga_n, num_wgs (TIDy)
       }
     } else {
       NVF_THROW("Unsupported tiling strategy");
@@ -1337,7 +1337,7 @@ void HopperPlus::setUpInlining() {
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
 
   for (TensorView* mma_result : mma_results_) {
-    inlineSelectedAt(smem_loads, mma_result, num_device_and_batch_dims_ + 2);
+    inlineSelectedAt(smem_loads, mma_result, num_device_dims_ + 4);
   }
 }
 
@@ -1375,7 +1375,7 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
               ParallelType::TIDy,
               std::make_pair(
                   num_registers_async_warp, num_registers_compute_warp),
-              /*stage_slice_position=*/4);
+              /*stage_slice_position=*/7);
         } else {
           return (CircularBufferType)WarpSpecialized(
               ParallelType::TIDy,
