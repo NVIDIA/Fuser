@@ -15,6 +15,7 @@
 
 #include <debug.h>
 #include <mma_type.h>
+#include <options.h>
 #include <tma.h>
 #include <type.h>
 
@@ -53,6 +54,9 @@
 //! 5. ir/internal_nodes.h ** - Any internal-only IR nodes
 
 namespace nvfuser {
+
+//! Warp specialization padded threads count
+constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
 class KernelArgumentHolder;
 
@@ -551,7 +555,7 @@ NVF_API const char* getNvFuserEnv(
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
-const V& getOrDefault(
+V getOrDefault(
     const std::unordered_map<K, V>& map,
     const K& key,
     const V& default_value = V()) {
@@ -758,7 +762,7 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    std::size_t index_;
+    int64_t index_;
 
     iterator_base() = default;
     iterator_base(base_iterator current, std::size_t index)

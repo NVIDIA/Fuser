@@ -44,9 +44,10 @@ void UnrollPass::dispatch(Expr* expr) {
   // short-circuit: skip adding predicate if tma load with circular buffering or
   // stand-alone arrive_expect_tx.
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
-  bool is_circular_buffer_tma_load = ir_utils::isCpAsyncBulkLoad(expr) &&
+  bool is_circular_buffer_nd_tma_load =
+      ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
       expr->output(0)->as<TensorView>()->isCircularBuffered();
-  if (is_arrive_expect_tx || is_circular_buffer_tma_load) {
+  if (is_arrive_expect_tx || is_circular_buffer_nd_tma_load) {
     return;
   }
 
@@ -59,6 +60,18 @@ void UnrollPass::dispatch(Expr* expr) {
         IrBuilder::create<kir::IfThenElse>(expr->predicate());
     kir::ExprMutator::registerReplace(expr, inline_ite);
     inline_ite->thenBody().push_back(expr);
+    return;
+  }
+
+  // Predicate MBarrierWaitParity is required for 1D TMA.
+  if (one_dim_tma_predicate_added_ && expr->isA<kir::MBarrierWaitParity>() &&
+      ir_utils::containsCircularBufferStage(
+          for_loops_, CircularBufferLoopStage::ComputeWarp)) {
+    auto pred = IrBuilder::create<kir::Predicate>(
+        PredicateType::OneDimTmaWaitParity, expr);
+    auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+    inline_ite->thenBody().push_back(expr);
+    kir::ExprMutator::registerReplace(expr, inline_ite);
     return;
   }
 
@@ -157,8 +170,10 @@ void UnrollPass::dispatch(Expr* expr) {
       pred = IrBuilder::create<kir::Predicate>(PredicateType::Vectorize);
     }
 
-    // short-circuit: wrap tma expressions with elect sync predicate
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    // short-circuit: wrap tma and blackwell mma expressions with elect sync
+    // predicate
+    if (ir_utils::isCpAsyncBulkTensorTile(expr) ||
+        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::ElectSync, expr, thread_pred);
@@ -175,6 +190,25 @@ void UnrollPass::dispatch(Expr* expr) {
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
+    }
+
+    // For 1d tma load, replace the current ElectSync predicate with
+    // PredicateType::OneDimTmaLoadExpectArrive. When there are multiple 1D TMA
+    // loads, only need to do the replacement for the first one.
+    if (ir_utils::isCpAsyncBulk1DLoad(expr) &&
+        expr->output(0)->as<TensorView>()->isCircularBuffered()) {
+      NVF_ERROR(
+          current_elect_sync_ite_ != nullptr,
+          "Expect current_elect_sync_ite_ to be not null");
+      if (!one_dim_tma_predicate_added_) {
+        auto new_pred = IrBuilder::create<kir::Predicate>(
+            PredicateType::OneDimTmaLoadExpectArrive, expr, for_loops_);
+        auto new_ite = current_elect_sync_ite_->withPredicate(new_pred);
+        kir::ExprMutator::registerReplace(
+            current_elect_sync_ite_, new_ite, elect_sync_scope_);
+        one_dim_tma_predicate_added_ = true;
+      }
+      return;
     }
 
     // Try to use inline predicate if possible.
@@ -201,6 +235,13 @@ void UnrollPass::dispatch(Expr* expr) {
   } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
+      // Keep tract of the current ElectSync predicate, if there are 1D
+      // TMA loads within the ite scope, we need to replace it with
+      // PredicateType::OneDimTmaLoadExpectArrive
+      current_elect_sync_ite_ = ite;
+      elect_sync_scope_ = scope_.back();
+    }
     kir::ExprMutator::handle(ite);
   }
 }
@@ -213,9 +254,21 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unroll ||
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
+  // Don't need to unroll for 1D TMA load since split by unroll factor
+  // for 1D TMA tv is divisible.
+  bool is_unroll_1d_tma = false;
+  if (fl->iter_domain()->getParallelType() == ParallelType::Unroll) {
+    const auto& exprs = ir_utils::flattenScopedExprs(fl->body().exprs());
+    for (auto expr : exprs) {
+      if (ir_utils::isCpAsyncBulk1DLoad(expr)) {
+        is_unroll_1d_tma = true;
+        break;
+      }
+    }
+  }
   // If we're not looking for an unroll loop, or didn't find one, process as
   // normal.
-  if (!is_unroll || !look_for_unroll_) {
+  if (!is_unroll || !look_for_unroll_ || is_unroll_1d_tma) {
     for_loops_.push_back(fl);
     scope_.push_back(&fl->body());
     scope_exprs_.push_back(fl);

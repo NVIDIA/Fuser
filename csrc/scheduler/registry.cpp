@@ -35,7 +35,17 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>(fusion)) {
+  // TODO: remove IndexPutAccumulateOp
+  if (ir_utils::hasOpsOfType<
+          ScatterOp,
+          SdpaFwdOp,
+          SdpaBwdOp,
+          EmbeddingFwdOp,
+          IndexPutAccumulateOp,
+          ArgsortOp,
+          GroupedMmaOp,
+          TopKOp,
+          ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Has unsupported ops");
     return false;
@@ -64,6 +74,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   if (registry_utils::SchedulerTopologyChecker::hasResizeAndIndexOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "has resize-based ops and index ops");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::hasCyclicReshape(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has cyclic reshapes.");
     return false;
   }
 

@@ -12,6 +12,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -842,6 +843,59 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
+// Check if a traversal from vectorized reference IDs may reach the
+// IDs of a resize expr without visiting the Resize expr itself. That's
+// problematic for the vectorization analysis as the spanning-tree
+// based analysis may miss the constraint by the Resize expr.
+//
+// For this analysis, we start a traversal from the vectorized
+// reference IDs to both the input and output of the Resize expr but
+// disallow visiting the Resize expr itself. If the traversal is still
+// successful, it means there's a path from the reference IDs to the
+// resize input and output IDs without visiting the Resize expr.
+//
+// Permissive BFS is used in this traversal as the vectorized
+// reference IDs may not have all the dependencies for the
+// traversal. For example, suppose there's a split resshape, and only
+// the innermost ID is vectorized. The standard BFS is not able to
+// move forward if only the vectorized ID is give as the backward
+// split requires both outputs to be presented.
+class CanSkipResize : public ValGraphPermissiveBFS {
+ public:
+  static bool run(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      Resize* resize) {
+    ValGroups resize_in_out_groups;
+    resize_in_out_groups.pushBack(graph.toGroup(resize->in()));
+    resize_in_out_groups.pushBack(graph.toGroup(resize->out()));
+    CanSkipResize bfs(graph, ref_groups, resize_in_out_groups, resize);
+    bfs.traverse();
+    return bfs.allToNodesVisited();
+  }
+
+  CanSkipResize(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      const ValGroups& resize_in_out_groups,
+      Resize* resize)
+      : ValGraphPermissiveBFS(
+            graph,
+            {ref_groups.begin(), ref_groups.end()},
+            {resize_in_out_groups.begin(), resize_in_out_groups.end()},
+            /*require_all_to_visited=*/false,
+            /*allowed_direction=*/Direction::Undefined),
+        resize_(resize) {}
+
+  bool excludeFromTraversal(const NodeType& node) const override {
+    const ExprGroup* e = std::get_if<ExprGroup>(&node);
+    return e != nullptr && (*e)->has(resize_);
+  }
+
+ private:
+  Resize* resize_ = nullptr;
+};
+
 // This is a WAR for vectorizing through resized iter domains. The
 // spanning tree based analysis is not guaranteed to take all resize
 // ops into considerations (issue
@@ -852,84 +906,48 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     TensorView* reference_tv,
     int64_t break_point) {
   Fusion* fusion = reference_tv->fusion();
-  std::unordered_set<Val*> factors;
   const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
 
   if (resize_based_ops.empty()) {
-    return factors;
+    return {};
   }
 
-  IdModel id_model(reference_tv->fusion());
+  IdModel id_model(fusion);
   const auto& graph = id_model.buildExactGraph();
 
-  const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
+  std::unordered_set<Val*> resize_factors;
 
-  // For each of resize-based tensor ops, find all resize ops
-  // that exist between the vectorized reference IDs and the output
-  // tensor.
-  for (auto resize_based_op : resize_based_ops) {
-    auto resize_out = resize_based_op->output(0)->as<TensorView>();
-    NVF_ERROR(
-        resize_out->hasRoot(), "Unexpected op: ", resize_based_op->toString());
-    // getAllExprGroupsBetween finds exprs between IDs. To make sure
-    // the the resize op of this resize_based_op tensor op is found,
-    // use both the root and logical domains as the traversal targets.
-    ValGroups resize_inp_out;
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getRootDomain()));
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getLogicalDomain()));
-
-    auto expr_path = getAllExprGroupsBetween(
-                         graph,
-                         ref_groups,
-                         resize_inp_out,
-                         /*require_all_to_visited=*/false)
-                         .first;
-
-    ValGroups vectorized_groups;
-    for (auto it = reference_tv->getLogicalDomain().begin() + break_point;
-         it != reference_tv->getLogicalDomain().end();
-         ++it) {
-      vectorized_groups.pushBack(graph.toGroup(*it));
+  auto add_resize_factors = [&](Resize* resize) {
+    if (!resize->leftExpand()->isZeroInt()) {
+      resize_factors.insert(resize->leftExpand());
     }
+    if (!resize->rightExpand()->isZeroInt()) {
+      resize_factors.insert(resize->rightExpand());
+    }
+  };
 
-    // Find all resize exprs that appear in expr_path and depend on
-    // vectorized_groups. Since expr_path is not guaranteed to be
-    // topologically sorted, need to loop through the path until
-    // converged.
+  const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
+      reference_tv->getLogicalDomain().begin() + break_point,
+      reference_tv->getLogicalDomain().end()});
 
-    bool something_has_changed = true;
-    while (something_has_changed) {
-      something_has_changed = false;
-      for (const auto& [expr_g, dir] : expr_path) {
-        const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
-        if (std::none_of(
-                inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
-                  return vectorized_groups.has(inp);
-                })) {
-          continue;
-        }
+  // For each of Resize exprs, if it's reachable from the reference
+  // vectorized IDs without visiting the Resize expr itself, its
+  // constraint may not be reflectd in the inner sizes.
+  for (auto resize : resize_based_ops) {
+    auto resize_out_tv = resize->output(0)->as<TensorView>();
+    for (const auto logical_id : resize_out_tv->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
 
-        if (vectorized_groups.pushBack(
-                getOutputsOfExprGroup(graph, expr_g, dir))) {
-          something_has_changed = true;
-        }
-
-        auto resize = dynamic_cast<Resize*>(expr_g->front());
-        if (resize == nullptr) {
-          continue;
-        }
-
-        // These three vals need to be divisible
-        factors.emplace(resize->leftExpand());
-        factors.emplace(resize->rightExpand());
-        factors.emplace(
-            dir == Direction::Forward ? resize->out()->extent()
-                                      : resize->in()->extent());
+      if (CanSkipResize::run(graph, ref_vec_groups, resize)) {
+        add_resize_factors(resize);
       }
     }
   }
 
-  return factors;
+  return resize_factors;
 }
 
 } // namespace
@@ -985,7 +1003,7 @@ int64_t getVectorizationFactor(
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size
     const auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
+        dataTypeSizeByte(inp_or_out->dtype(), runtime_info.getIndexType());
     max_vec_size = std::min(
         max_vec_size,
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
@@ -1028,7 +1046,11 @@ int64_t getVectorizationFactor(
     if (!inferred_val.hasValue()) {
       return 1;
     }
-    max_vec_size = std::gcd(max_vec_size, inferred_val.as<int64_t>());
+    auto inferred_val_int = inferred_val.as<int64_t>();
+    if (inferred_val_int == 0) {
+      continue;
+    }
+    max_vec_size = std::gcd(max_vec_size, inferred_val_int);
   }
 
   return max_vec_size;

@@ -103,6 +103,10 @@ class MultiDeviceExecutor {
     return host_ir_executor_->getFusionExecutorCaches();
   };
 
+  auto* hostIrEvaluator() const {
+    return host_ir_executor_.get();
+  }
+
  private:
   // holds the Communicator to be used for execution
   Communicator& comm_;

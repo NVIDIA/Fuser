@@ -353,8 +353,7 @@ TEST_F(
       /*in=*/tvc_locally_reduced_j,
       /*team=*/all_devices_,
       /*(unused)root=*/-1,
-      RedOpType::SUM,
-      /*scattered_axis=*/0);
+      RedOpType::SUM);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.

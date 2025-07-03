@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -49,6 +50,7 @@ enum class DebugDumpOption {
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
   LaunchParam, //!< Dump the Launch parameters of kernel
+  DynamicSharedMemory, //!< Dump the dynamic shared memory allocation
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
@@ -64,13 +66,15 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
+  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
+  Sass, //! Dump disassembled SASS
+  SassToFile, //!< Dump disassembled SASS to File
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
@@ -79,10 +83,11 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  Occupancy, // Dump occupancy
+  Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -131,6 +136,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
@@ -179,16 +185,31 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
+  Options(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    options_ = other.options_;
+  }
+
+  Options& operator=(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
+    options_ = other.options_;
+    return *this;
+  }
+
   bool has(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.count(option);
   }
 
   bool hasAny() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
     NVF_ERROR(has(option), "Option not set");
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.at(option);
   }
 
@@ -201,10 +222,12 @@ class Options {
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_[option_type] = option;
   }
 
   void unset(OptionEnum option_type) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_.erase(option_type);
   }
 
@@ -213,6 +236,7 @@ class Options {
 
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
+  mutable std::mutex mutex_;
 };
 
 //! Utility class to temporarily overrride the Enable options,

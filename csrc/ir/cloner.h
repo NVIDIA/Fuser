@@ -13,6 +13,7 @@
 #include <ir/builder.h>
 #include <visibility.h>
 
+#include <optional>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -73,6 +74,14 @@ class IrCloner {
       copy.push_back(clone(p));
     }
     return copy;
+  }
+
+  template <class T>
+  std::optional<T> clone(const std::optional<T>& optional_container) {
+    if (!optional_container.has_value()) {
+      return std::nullopt;
+    }
+    return clone(optional_container.value());
   }
 
   template <class T>

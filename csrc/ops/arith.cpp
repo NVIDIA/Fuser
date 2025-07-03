@@ -17,11 +17,6 @@
 #include <type.h>
 #include <type_promotion.h>
 
-#include <c10/util/BFloat16.h>
-#include <c10/util/Float8_e4m3fn.h>
-#include <c10/util/Float8_e5m2.h>
-#include <c10/util/Half.h>
-
 #include <cfloat>
 
 namespace nvfuser {
@@ -82,7 +77,7 @@ Val* bitCastOp(DataType dtype, Val* v1) {
   }
 
   NVF_CHECK(
-      dataTypeSize(v1->getDataType().value()) == dataTypeSize(dtype),
+      dataTypeSizeByte(v1->getDataType().value()) == dataTypeSizeByte(dtype),
       "BitCast only works for types of the same size");
 
   Val* out = ops::newValLike(v1, dtype);
@@ -144,7 +139,8 @@ static TensorView* factoryOutput(
     if (ext.hasValue()) {
       NVF_CHECK(
           ext.is<int64_t>(),
-          "Expected int extent argument to factory function but found constant value ",
+          "Expected int extent argument to factory function but found constant "
+          "value ",
           shi->toInlineString());
       iter_type =
           ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
@@ -1188,7 +1184,8 @@ TensorView* newForReduction(
       *(axes_set.rbegin()),
       ") is outside nDims (",
       orig_domain.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
+      "). Keep in mind reductions are relative to root domains, not modified "
+      "views.");
 
   auto reduced_axis_iter = axes_set.begin();
   for (const auto dim : arange(orig_domain.size())) {
@@ -1205,7 +1202,8 @@ TensorView* newForReduction(
       if (id->isBroadcast()) {
         NVF_CHECK(
             id->isImplicitBroadcast(),
-            "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+            "Cannot reduce an axis that is marked as broadcasted as it has an "
+            "undetermined size. Tried to reduce ID = ",
             id,
             " of tensor ",
             tv);
@@ -1260,12 +1258,15 @@ TensorView* reductionOpRaw(
 
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1360,12 +1361,15 @@ TensorView* reductionOp(
     DataType dtype /* DataType::Null */) {
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
 
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1571,8 +1575,10 @@ WelfordResult WelfordRaw(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1637,8 +1643,10 @@ WelfordResult Welford(
     Val* init_N) {
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  Logical: ",
+      "Reducing a tensor once it's gone under transformations is not permitted "
+      "at this time. \n",
+      "Please set reductions before calling split/merge/computeAt.\n  "
+      "Logical: ",
       tv->getLogicalDomain(),
       "\n  Domain: ",
       tv->domain()->toString());
@@ -1733,6 +1741,11 @@ WelfordResult::WelfordResult(
   }
   NVF_ERROR(avg->definition()->sameAs(var_sum->definition()));
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
+}
+
+TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
+    : values(in_values), indices(in_indices) {
+  NVF_ERROR(values->definition()->sameAs(indices->definition()));
 }
 
 // COMPOUND OPERATIONS
@@ -2127,7 +2140,8 @@ static TensorView* newForMma(
         ax,
         ") is outside nDims (",
         orig_domain_a.size(),
-        "). Keep in mind reductions are relative to root domains, not modified views.");
+        "). Keep in mind reductions are relative to root domains, not modified "
+        "views.");
     is_reduction[ax] = true;
   }
   std::vector<IterDomain*> new_domain;
@@ -2145,7 +2159,8 @@ static TensorView* newForMma(
 
     NVF_CHECK(
         !(dim_is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+        "Cannot reduce an axis that is marked as broadcasted as it has an "
+        "undetermined size. Tried to reduce ID = ",
         id,
         " of tensor ",
         tv_a,
@@ -2207,7 +2222,8 @@ TensorView* fusedMultiplySum(
   //  mma as well, for maybe fusing bias in prolog.
   NVF_CHECK(
       init->isConstScalar(),
-      "Cannot create a reduction operation where the initial value is not a const scalar.");
+      "Cannot create a reduction operation where the initial value is not a "
+      "const scalar.");
   NVF_CHECK(
       init->dtype() == out->dtype(),
       "Init value dtype for fusedMultiplySum must match output.");
@@ -2252,6 +2268,292 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
+TensorView* argsort(
+    TensorView* inp,
+    int64_t dim,
+    bool descending,
+    bool stable) {
+  Val* out = ops::newValLike(inp, DataType::Int);
+  IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
+  return out->as<TensorView>();
+}
+
+namespace {
+// Create output tensor for grouped matrix multiplication
+// For grouped MM, determine output shape based on mat1 and mat2 structures.
+// [rk] is the reduction axis for the matmul operation, it only exists if k is
+// not broadcast.
+//
+// case 1:
+//   mat1   [m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [g, m, n, [rk]]
+// case 2:
+//   mat1   [g, m, k]
+//   mat2   [k, n]
+//   offset [g]
+//   output -> [m, n, [rk]]
+// case 3:
+//   mat1   [m, k]
+//   mat2   [g, k, n]
+//   offset [g]
+//   output -> [m, n, [rk]]
+ScaledTensorView createGroupedMmaOutput(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    DataType dtype,
+    int64_t out_block_scale_size,
+    DataType block_scaling_factor_dtype,
+    bool out_gamma) {
+  const auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  const auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  const auto offs_domain =
+      TensorDomain::noReductions(offsets->getLogicalDomain());
+
+  IterDomain* k_id_mat1 = mat1_domain.back();
+  IterDomain* k_id_mat2 = mat2_domain.at(mat2_domain.size() - 2);
+
+  NVF_CHECK(offs_domain.size() == 1, "offsets needs to be 1-D for grouped mm");
+  NVF_CHECK(
+      k_id_mat1->isBroadcast() == k_id_mat2->isBroadcast(),
+      "K should be broadcast in both A and B, or neither.");
+
+  std::vector<IterDomain*> out_domain;
+
+  if (mat1_domain.size() == 2 && mat2_domain.size() == 2) {
+    out_domain = {
+        offs_domain[0]->cloneWithoutRFactor(),
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
+  } else if (mat1_domain.size() == 3 && mat2_domain.size() == 2) {
+    out_domain = {
+        mat1_domain[1]->cloneWithoutRFactor(),
+        mat2_domain[1]->cloneWithoutRFactor()};
+  } else if (mat1_domain.size() == 2 && mat2_domain.size() == 3) {
+    out_domain = {
+        mat1_domain[0]->cloneWithoutRFactor(),
+        mat2_domain[2]->cloneWithoutRFactor()};
+  } else {
+    NVF_THROW(
+        "Unexpected operand ranks. If two 3D tensors, you should use "
+        "bmm/matmul instead of grouped_mm: ",
+        mat1,
+        " and ",
+        mat2);
+  }
+
+  // Following the semantics of matmul, output has a reduction axis rk if k is
+  // not broadcast
+  if (!k_id_mat1->isBroadcast()) {
+    out_domain.push_back(ops::newOutputIterDomain(
+        {k_id_mat1, k_id_mat2},
+        /*force_iter_type=*/IterType::Reduction));
+  }
+
+  ScaledTensorView scaled_out;
+
+  scaled_out.tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      dtype != DataType::Null ? dtype : mat1->getDataType().value());
+
+  if (out_block_scale_size > 0) {
+    std::vector<IterDomain*> block_scaling_factor_domain;
+    block_scaling_factor_domain.reserve(out_domain.size());
+    // copy all but the last domain;
+    std::transform(
+        out_domain.begin(),
+        --(out_domain.end()),
+        block_scaling_factor_domain.begin(),
+        [](IterDomain* id) { return id->cloneWithoutRFactor(); });
+
+    // copy the block of last dimension.
+    // NOTE: I THINK I need to compute it through inputs, just so shape
+    // propagation works.
+    auto [outer, inner] = IterDomain::split(
+        out_domain.back(),
+        IrBuilder::create<Val>(out_block_scale_size),
+        true,
+        /*rfactor_domain=*/false,
+        /*outer_iter_type=*/IterType::Iteration,
+        /*inner_iter_type=*/IterType::Reduction);
+    block_scaling_factor_domain.push_back(outer);
+    block_scaling_factor_domain.push_back(inner);
+
+    NVF_CHECK(
+        block_scaling_factor_dtype != DataType::Null,
+        "block_scaling_factor_dtype is required");
+    scaled_out.block_scaling_factor = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            block_scaling_factor_domain,
+            TensorDomain::getContiguityFilledWith(
+                block_scaling_factor_domain, true)),
+        block_scaling_factor_dtype);
+  }
+
+  if (out_gamma) {
+    scaled_out.global_scaling_factor = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            std::vector<IterDomain*>(), std::vector<std::optional<bool>>()),
+        DataType::Float);
+  }
+
+  return scaled_out;
+}
+
+} // namespace
+
+ScaledTensorView grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
+    DataType dtype,
+    int64_t out_block_scale_size,
+    DataType block_scaling_factor_dtype,
+    bool out_gamma) {
+  bool has_scale = scale1 != nullptr;
+  NVF_CHECK(
+      has_scale == (scale2 != nullptr),
+      "scale1 and scale2 needs to be non-null or both null, got scale1 : ",
+      has_scale ? "true" : "false",
+      " and scale2 : ",
+      scale2 != nullptr ? "true" : "false");
+
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      has_bias == (beta != nullptr),
+      "bias and beta needs to be non-null or both null, got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+
+  // TODO: check for out dtype and block/gamma scale option
+  ScaledTensorView scaled_out = createGroupedMmaOutput(
+      mat1,
+      mat2,
+      offsets,
+      dtype,
+      out_block_scale_size,
+      block_scaling_factor_dtype,
+      out_gamma);
+
+  // sanity check on scale1 and scale2
+  if (has_scale) {
+    int64_t scale1_rank =
+        std::ssize(TensorDomain::noReductions(scale1->getLogicalDomain()));
+    int64_t scale2_rank =
+        std::ssize(TensorDomain::noReductions(scale2->getLogicalDomain()));
+    int64_t mat1_rank =
+        std::ssize(TensorDomain::noReductions(mat1->getLogicalDomain()));
+    int64_t mat2_rank =
+        std::ssize(TensorDomain::noReductions(mat2->getLogicalDomain()));
+    int64_t out_rank = std::ssize(
+        TensorDomain::noReductions(scaled_out.tv->getLogicalDomain()));
+
+    NVF_CHECK_EQ(
+        scale1_rank,
+        std::max(mat1_rank, out_rank),
+        "mat1 rank: ",
+        mat1_rank,
+        ", out rank: ",
+        out_rank,
+        ", scale1 rank: ",
+        scale1_rank);
+    NVF_CHECK_EQ(
+        scale2_rank,
+        std::max(mat2_rank, out_rank),
+        "mat2 rank: ",
+        mat2_rank,
+        ", out rank: ",
+        out_rank,
+        ", scale2 rank: ",
+        scale2_rank);
+  }
+
+  // NOTE: we don't sanity check on alpha, bias and beta for now, because the
+  // semantics of alpha, bias and beta are defined by fallback path and is
+  // subject to change.
+
+  IrBuilder::create<GroupedMmaOp>(
+      scaled_out.tv,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      offsets,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
+  return scaled_out;
+}
+
+TopKResult topk(
+    TensorView* inp,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted,
+    bool maybe_symbolic) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  dim = wrapDim(dim, std::ssize(inp_domain));
+
+  NVF_CHECK(
+      k->dtype() == DataType::Int,
+      "TopKOp expects int64_t input for k but got ",
+      k->dtype());
+
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(inp_domain.size());
+
+  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+    // TODO: nvfuser enumerate implementation is not correct, it should return
+    // signed ints instead.
+    if (index != (size_t)dim) {
+      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+      continue;
+    }
+
+    // Handling top k dimension, since the output extent is k.
+    ExpressionEvaluator ee;
+    PolymorphicValue ext = ee.evaluate(k);
+
+    IterType iter_type;
+    if (ext.hasValue()) {
+      iter_type =
+          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    } else {
+      iter_type =
+          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+    }
+    out_domain.push_back(
+        IterDomainBuilder(
+            inp->fusion()->zeroVal(),
+            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
+            .iter_type(iter_type)
+            .build());
+  }
+
+  TensorView* out_values = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  Val* out_indices = ops::newValLike(out_values, DataType::Int);
+
+  IrBuilder::create<TopKOp>(
+      out_values, out_indices, inp, k, dim, largest, sorted);
+  return TopKResult(
+      out_values->as<TensorView>(), out_indices->as<TensorView>());
+}
+
 ScanResult scan(
     TensorView* tv,
     int64_t dim,
@@ -2266,6 +2568,11 @@ ScanResult scan(
   dim = wrapDim(dim, (int64_t)logical_dom.size());
 
   IterDomain* scan_id = logical_dom.at((size_t)dim);
+
+  if (init == nullptr) {
+    init = ops::binOpIdentity(op_type, tv->dtype());
+    NVF_ERROR(init != nullptr);
+  }
 
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type

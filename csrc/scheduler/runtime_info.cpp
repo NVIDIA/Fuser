@@ -23,13 +23,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     std::optional<PrimDataType> forced_index_type)
     : complete_fusion_(complete_fusion) {
   FUSER_PERF_SCOPE("SchedulerRuntimeInfo::SchedulerRuntimeInfo");
-  NVF_ERROR(
-      complete_fusion_->inputs().size() == args.size(),
-      "The provided fusion group expects ",
-      complete_fusion_->inputs().size(),
-      " arguments, but ",
-      args.size(),
-      " arguments were passed in.");
+  NVF_ERROR_EQ(std::ssize(complete_fusion_->inputs()), args.size());
 
   expression_evaluator_ = getExpressionEvaluator(args, precomputed_values);
 
@@ -70,7 +64,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       }
 
       // find and push discontiguous stride
-      int64_t dtype_size = dataTypeSize(input_tv->dtype());
+      int64_t dtype_size = dataTypeSizeByte(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
       auto dims = static_cast<int64_t>(alloc_strides.size());
       int64_t expected_stride = 1;

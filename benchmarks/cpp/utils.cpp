@@ -129,7 +129,8 @@ std::string toString(const std::unique_ptr<HeuristicParams>& params) {
     return toString(tparams);
   }
   NVF_THROW(
-      "Unknown heuristic parameter type. Did you just added a new heuristic parameter type but forget to update here?");
+      "Unknown heuristic parameter type. Did you just added a new heuristic "
+      "parameter type but forget to update here?");
 }
 
 std::string toString(LaunchParams lparams) {
@@ -153,7 +154,7 @@ int64_t getSizeOfArgs(const KernelArgumentHolder& args) {
     }
     const auto& inp_tensor = inp.as<at::Tensor>();
     bytes += inp_tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(inp_tensor.scalar_type()));
+        dataTypeSizeByte(aten_to_data_type(inp_tensor.scalar_type()));
   }
   return bytes;
 }

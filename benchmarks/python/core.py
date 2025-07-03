@@ -4,8 +4,6 @@
 from collections.abc import Iterable
 import pytest_benchmark
 import torch
-from torch.autograd import DeviceType
-from torch.profiler import profile, ProfilerActivity
 from typing import List, Callable, Union
 import numpy as np
 from nvfuser import FusionDefinition, FusionCache
@@ -13,6 +11,7 @@ from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
+from nvfuser.benchmark_utils import TorchProfileTimer, FusionProfileTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -65,7 +64,7 @@ def with_executor(executor: str, fwd_fn: Callable, **kwargs) -> Callable:
 
 
 def compute_total_iobytes(
-    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]]
+    tensor_props: dict[str, tuple[int | tuple[int, ...], torch.dtype]],
 ):
     """
     Compute IObytes for baselines from given description:
@@ -102,33 +101,20 @@ class NVFBenchmark:
             self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
-
         self.device = device
-        self.fd = None  # Set through setup() for host benchmarking.
         self.benchmark = benchmark_fixture
 
+        # Modify the default timer.
         if device == "cuda":
-            # Initialize a Torch Profiler object
-            self.prof = profile(
-                activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU]
-            )
-            # Modify the default timer.
-            benchmark_fixture._timer = self.torchprofile_timer
+            benchmark_fixture._timer = TorchProfileTimer()
         else:
-            benchmark_fixture._timer = self.fusionprofile_timer
+            benchmark_fixture._timer = FusionProfileTimer()
         # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
         # calibration using subsequent timer calls produces invalid results.
         # https://github.com/ionelmc/pytest-benchmark/blob/728752d2976ef53fde7e40beb3e55f09cf4d4736/src/pytest_benchmark/timers.py#L15
         benchmark_fixture._precisions[benchmark_fixture._timer] = precision
 
         self.benchmark = benchmark_fixture
-
-        # Global montonic clock
-        self.current_time = 0.0
-
-        # Specifies if the timer in host measurement is called at the start/finish of execution.
-        # Timings are measured at the end of execution.
-        self.execution_start = True
 
     def __call__(self, function_to_benchmark: Callable, *args, **kwargs):
         return self.benchmark(function_to_benchmark, *args, **kwargs)
@@ -138,73 +124,14 @@ class NVFBenchmark:
             return getattr(self.benchmark, attr)
         return super().__getattr__(attr)
 
-    def torchprofile_timer(self) -> float:
-        """
-        Custom torchprofiler-based timer used by pytest-benchmark.
-        At every timer call, the profiler is stopped to compute the elapsed CUDA time
-        and the global clock is incremented. The profiler is restarted before returning to continue tracing.
+    # Set the fd object for fusion profiling.
+    # fd is returned by setup() for host benchmarking.
+    def set_fd(self, fd):
+        assert isinstance(self._timer, FusionProfileTimer)
+        self._timer.set_fd(fd)
 
-        Returns:
-            self.current_time: Global monotonic clock variable
-        """
-        try:
-            self.prof.stop()
-        except AssertionError:
-            self.prof.start()
-            return self.current_time
-
-        prof_averages = self.prof.key_averages()
-        elapsed_cuda_time = self._get_kernel_time(prof_averages)
-        self._increment_global_time(elapsed_cuda_time)
-        # Clear the internal profiler object to avoid accumulating function events and then restart the profiler
-        # See PR: https://github.com/pytorch/pytorch/pull/125510
-        self.prof.profiler = None
-
-        return self.current_time
-
-    def fusionprofile_timer(self) -> float:
-        if not self.execution_start:
-            profile = self.fd.profile()
-            elapsed_host_time = profile.host_time_ms / 1e3
-            self._increment_global_time(elapsed_host_time)
-        self.execution_start = not self.execution_start
-        return self.current_time
-
-    def _get_kernel_time(
-        self, prof_averages: torch.autograd.profiler_util.EventList
-    ) -> float:
-        """
-        Arguments:
-            prof_averages: Output of self.prof.key_averages()
-        Returns:
-            time_value: Elapsed CUDA time in seconds.
-        """
-        elapsed_cuda_time = 0
-        has_cuda_event = False
-        for event in prof_averages:
-            if event.device_type != DeviceType.CUDA:
-                continue
-            has_cuda_event = True
-            # Re: torch profiler API changes in https://github.com/pytorch/pytorch/pull/123247
-            elapsed_cuda_time = (
-                elapsed_cuda_time + event.self_device_time_total
-                if hasattr(event, "self_device_time_total")
-                else event.self_cuda_time_total
-            )
-        assert has_cuda_event, "No CUDA events found"
-        return elapsed_cuda_time / 1e6
-
-    def _increment_global_time(self, elapsed_time: float) -> None:
-        self.current_time += elapsed_time
-
-    def cleanup(self) -> None:
-        """
-        Stops a running torchprofiler instance if found.
-        """
-        try:
-            self.prof.stop()
-        except AssertionError:
-            pass
+    def cleanup(self):
+        self._timer.cleanup()
 
     def set_metrics(
         self,
@@ -228,15 +155,16 @@ class NVFBenchmark:
             % Peak Bandwidth (SOL): 100 * Bandwidth /PEAK_BANDWIDTH
         """
         if not iobytes:
-            if not isinstance(inputs, Iterable):
+            if not isinstance(inputs, Iterable) or isinstance(inputs, torch.Tensor):
                 inputs = [inputs]
-            if not isinstance(outputs, Iterable):
+            if not isinstance(outputs, Iterable) or isinstance(outputs, torch.Tensor):
                 outputs = [outputs]
 
             iobytes = 0
             for inp in inputs:
                 if isinstance(inp, torch.Tensor):
                     iobytes += inp.element_size() * inp.numel()
+
             for out in outputs:
                 if isinstance(out, torch.Tensor):
                     iobytes += out.element_size() * out.numel()
@@ -374,7 +302,7 @@ def run_benchmark(
     # The host_benchmark_fn uses the `fd` object returned from setup function.
     def host_benchmark_fn(inputs, fd):
         # Set the fd variable used to query the profile object
-        nvf_benchmark.fd = fd
+        nvf_benchmark.set_fd(fd)
         return fd.execute(inputs, profile=True)
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn

@@ -212,7 +212,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
             std::is_permutation(
                 tv->getLoopDomain().begin(),
                 tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin())) {
+                tv->getAllocationDomain().begin(),
+                tv->getAllocationDomain().end())) {
           use_set_allocation_domain = true;
         }
 
@@ -262,7 +263,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
         }
         NVF_ERROR(
             exclude_ca_ids.empty(),
-            "The non-allocating compute-at IDs are not found in the allocation domain. ",
+            "The non-allocating compute-at IDs are not found in the allocation "
+            "domain. ",
             "It is unclear how to allocate the tensor: ",
             tv->toString(),
             " allocation domain: ",
@@ -822,7 +824,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
           /*require_all_to_visited=*/false);
       NVF_ERROR(
           all_visited,
-          "Failed to infer valid allocation IDs. Indexed logical IDs need to be entirely allocated but not found in the inferred allocation ID set. Indexed logical ID: ",
+          "Failed to infer valid allocation IDs. Indexed logical IDs need to "
+          "be entirely allocated but not found in the inferred allocation ID "
+          "set. Indexed logical ID: ",
           indexed_logical_id->toString(),
 
           ". Allocation IDs: ",
@@ -1215,12 +1219,14 @@ class AllocationInserter : public kir::ExprMutator {
       if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {
         NVF_ERROR(
             default_val == nullptr,
-            "Reduction should not have a default initialization value for predicate elimination.");
+            "Reduction should not have a default initialization value for "
+            "predicate elimination.");
         init = expr->as<ReductionOp>()->init();
       } else if (expr->isA<GroupedReductionOp>() && out_tv->hasReduction()) {
         NVF_ERROR(
             default_val == nullptr,
-            "Reduction should not have a default initialization value for predicate elimination.");
+            "Reduction should not have a default initialization value for "
+            "predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
       } else if (MmaOp* mma = dynamic_cast<MmaOp*>(expr)) {
         // On Hopper and Blackwell, we generate code like:
@@ -1231,7 +1237,8 @@ class AllocationInserter : public kir::ExprMutator {
         if (mma->isHopper() || mma->isBlackwell()) {
           NVF_ERROR(
               mma->init() == nullptr || mma->init()->isZero(),
-              "Hopper and Blackwell MMA should not have a non-zero initialization value.");
+              "Hopper and Blackwell MMA should not have a non-zero "
+              "initialization value.");
           init = nullptr;
         } else {
           // On Turing and Ampere, we manually initialize the accumulator
@@ -1240,7 +1247,8 @@ class AllocationInserter : public kir::ExprMutator {
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,
-            "Welford should not have a default initialization value for predicate elimination.");
+            "Welford should not have a default initialization value for "
+            "predicate elimination.");
         const auto welford = expr->as<WelfordOp>();
         if (out->name() == welford->outVar()->name()) {
           init = welford->initVar() == nullptr ? IrBuilder::create<Val>(0.0)
@@ -1255,7 +1263,8 @@ class AllocationInserter : public kir::ExprMutator {
       } else if (expr->isA<GroupedWelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,
-            "Welford should not have a default initialization value for predicate elimination.");
+            "Welford should not have a default initialization value for "
+            "predicate elimination.");
         init = expr->as<GroupedWelfordOp>()->getInitValOfOutput(out);
       } else if (out_tv->getMemoryType() != MemoryType::Tensor) {
         // TODO: TMem should not be initialized as ... = 0, because it must be
@@ -1268,7 +1277,8 @@ class AllocationInserter : public kir::ExprMutator {
       if (ir_utils::isCpAsyncOp(expr) || ir_utils::isCpAsyncBulk(expr)) {
         NVF_CHECK(
             init == nullptr || init->isZero(),
-            "cp.async and cp.async.bulk initialized with non-zero is not supported");
+            "cp.async and cp.async.bulk initialized with non-zero is not "
+            "supported");
         // cp.async will automatically fill zero when out of bound
         init = nullptr;
       }
@@ -1361,7 +1371,8 @@ class AllocationInserter : public kir::ExprMutator {
     // circular buffering pass.
     // * Assume that the tma load is in ComputeWarp if it is not circular
     // buffered.
-    if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
+    if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
+        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
@@ -1373,8 +1384,9 @@ class AllocationInserter : public kir::ExprMutator {
           mbarrier,
           simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
               DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
+              expr->isA<MmaOp>() ? expr->fusion()->oneVal()
+                                 : lower_utils::getNumThreadsInTensorView(
+                                       expr->output(0)->as<TensorView>()))));
       auto sync_init = IrBuilder::create<kir::BlockSync>(
           /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
@@ -1390,7 +1402,7 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertBefore(expr, sync_init, expr_scope);
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
       registerInsertAfter(expr, sync_inval, expr_scope);
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      GpuLower::current()->mbarrierMap()[expr] = mbarrier;
     }
   }
 
@@ -1498,7 +1510,7 @@ class AllocationInserter : public kir::ExprMutator {
           continue;
         }
         // Map LoadStoreOp expression to ir nodes created in this pass
-        GpuLower::current()->ldstMBarrierMap()[tv->definition()] = mbarrier;
+        GpuLower::current()->mbarrierMap()[tv->definition()] = mbarrier;
       }
     }
   }

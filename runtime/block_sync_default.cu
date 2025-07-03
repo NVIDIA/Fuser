@@ -25,15 +25,21 @@ namespace block_sync {
 __forceinline__ __device__ void init() {}
 
 // Thread-block synchronization
+// barrier 0 is reserved for the default block synchronization
 template <bool aligned, typename BlockDimT>
-__forceinline__ __device__ void sync(BlockDimT block_dim) {
+__forceinline__ __device__ void sync(
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   if constexpr (aligned) {
     __syncthreads();
   } else if constexpr (std::is_same_v<BlockDimT, DefaultBlockDim>) {
     __barrier_sync(0);
   } else {
     uint32_t num_threads = block_dim.x * block_dim.y * block_dim.z;
-    asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
+    asm volatile("bar.sync %0, %1;"
+                 :
+                 : "r"(barrier_id), "r"(num_threads)
+                 : "memory");
   }
 }
 

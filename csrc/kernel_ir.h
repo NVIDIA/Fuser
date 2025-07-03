@@ -42,6 +42,7 @@ class GridSync;
 class FenceAsyncProxy;
 class WgMmaFence;
 class SetMaxNReg;
+class Continue;
 class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
@@ -74,6 +75,12 @@ class Predicate final : public Val {
       const Expr* expr = nullptr,
       Val* thread_pred = nullptr);
 
+  explicit Predicate(
+      IrBuilderPasskey passkey,
+      PredicateType ptype,
+      const Expr* tma_1d_load_expr,
+      std::vector<ForLoop*> tma_1d_load_loops_);
+
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
   explicit Predicate(IrBuilderPasskey passkey, Val* value);
@@ -96,15 +103,22 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned ||
-        ptype_ == PredicateType::ReductionWrite ||
-        ptype_ == PredicateType::ElectSync);
+            ptype_ == PredicateType::Misaligned ||
+            ptype_ == PredicateType::ReductionWrite ||
+            ptype_ == PredicateType::ElectSync,
+        "Wrong predicate type. ",
+        toString());
     return thread_pred_;
   }
 
   ForLoop* unrolled_loop() const {
     NVF_ERROR(ptype_ == PredicateType::Unswitch);
     return unrolled_loop_;
+  }
+
+  const std::vector<ForLoop*>& tma1dLoadLoops() const {
+    NVF_ERROR(ptype_ == PredicateType::OneDimTmaLoadExpectArrive);
+    return tma_1d_load_loops_;
   }
 
   bool hasValue() const {
@@ -144,6 +158,9 @@ class Predicate final : public Val {
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
+
+  // For PredicateCompute::OneDimTmaLoadExpectArrive
+  std::vector<ForLoop*> tma_1d_load_loops_;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
@@ -390,7 +407,8 @@ class Allocate final : public Expr {
     NVF_CHECK(
         memoryType() == MemoryType::Shared ||
             memoryType() == MemoryType::Tensor,
-        "Allocation address may only be set for shared/tensor memory allocations. Memory type is ",
+        "Allocation address may only be set for shared/tensor memory "
+        "allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
@@ -404,7 +422,8 @@ class Allocate final : public Expr {
   void setLaneOffset(Val* lane_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     NVF_CHECK(
         laneOffset() == nullptr,
@@ -418,7 +437,8 @@ class Allocate final : public Expr {
   void setColOffset(Val* col_offset) {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     NVF_CHECK(
         colOffset() == nullptr,
@@ -434,7 +454,8 @@ class Allocate final : public Expr {
     NVF_CHECK(
         memoryType() == MemoryType::Shared ||
             memoryType() == MemoryType::Tensor,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        "Allocation address may only be set for shared memory allocations. "
+        "Memory type is ",
         memoryType());
     return attributeVal(5);
   }
@@ -442,7 +463,8 @@ class Allocate final : public Expr {
   Val* laneOffset() const {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     return attributeVal(6);
   }
@@ -450,7 +472,8 @@ class Allocate final : public Expr {
   Val* colOffset() const {
     NVF_CHECK(
         memoryType() == MemoryType::Tensor,
-        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
         memoryType());
     return attributeVal(7);
   }
@@ -515,7 +538,7 @@ class BlockSync final : public Expr {
     return attribute<std::optional<bool>>(1).value_or(false);
   }
 
-  bool isLoadWarpSync() const {
+  bool isAsyncWarpSync() const {
     auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
     return optional_compute_or_load_sync.has_value() &&
         !optional_compute_or_load_sync.value();
@@ -611,6 +634,22 @@ class SetMaxNReg final : public Expr {
   Val* numberOfRegisters() const {
     return input(0);
   }
+};
+
+class Continue final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Continue(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Continue";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class Return final : public Expr {

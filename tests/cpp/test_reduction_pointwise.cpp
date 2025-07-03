@@ -158,4 +158,106 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// https://github.com/NVIDIA/Fuser/issues/3811
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // tv0 [ b0, i1 ]
+  auto tv0 = makeContigConcreteTensor({1, -1});
+  fusion.addInput(tv0);
+  // tv1 [ i2, i1 ]
+  // current scheduler picks tv0 as the reference TV, transformations are
+  // propagated to other TVs.
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {0, 1});
+  fusion.addOutput(tv2);
+  auto tv3 = add(tv0, tv1);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 100}, options);
+  auto t1 = at::randn({5, 100}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // checking segmentation
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+}
+
+// https://github.com/NVIDIA/Fuser/issues/3811
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDInnerNormalization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(3);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {1, 2}, /*keep_dim=*/true);
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+  auto tv4 = add(tv0, tv1);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({100, 20, 1}, options);
+  auto t1 = at::randn({100, 20, 128}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // checking segmentation
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+}
+
+// https://github.com/NVIDIA/Fuser/issues/3811
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({1, -1, -1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(3);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {0, 1}, /*keep_dim=*/true);
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+  auto tv4 = add(tv0, tv1);
+  fusion.addOutput(tv4);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 20, 100}, options);
+  auto t1 = at::randn({128, 20, 100}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+
+  // checking segmentation
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

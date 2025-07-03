@@ -2,48 +2,12 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import pytest
 import torch
 import torch.distributed as dist
 import transformer_engine.pytorch as te
 from enum import auto, Enum
 from functools import partial
-from mpi4py import MPI
-
-
-class MpiTest:
-    def __init__(self):
-        self._communicator = MPI.COMM_WORLD
-        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
-        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
-
-    @property
-    def size(self):
-        return self._communicator.size
-
-    @property
-    def rank(self):
-        return self._communicator.rank
-
-    @property
-    def local_size(self):
-        return self._local_size
-
-    @property
-    def local_rank(self):
-        return self._local_rank
-
-    def barrier(self):
-        self._communicator.barrier()
-
-
-@pytest.fixture(scope="session")
-def mpi_test():
-    fixture = MpiTest()
-    yield fixture
-    # Sync all ranks after each test for isolation.
-    fixture.barrier()
 
 
 class ComputeType(Enum):
@@ -56,19 +20,6 @@ class Parallelism(Enum):
     TENSOR_PARALLEL = auto()
     # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
     SEQUENCE_PARALLEL = auto()
-
-
-@pytest.fixture(scope="module")
-def setup_process_group(mpi_test) -> None:
-    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
-    dist.init_process_group(
-        backend="nccl",
-        init_method="tcp://localhost:29500",
-        world_size=mpi_test.size,
-        rank=mpi_test.rank,
-    )
-    yield
-    dist.destroy_process_group()
 
 
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
@@ -94,7 +45,7 @@ def setup_process_group(mpi_test) -> None:
     ids=["nonoverlap", "overlap"],
 )
 def test_transformer_layer(
-    setup_process_group,
+    setup_default_process_group,
     monkeypatch,
     benchmark,
     compute_type: ComputeType,
@@ -113,9 +64,6 @@ def test_transformer_layer(
     dtype = torch.bfloat16
 
     size = dist.get_world_size()
-    rank = dist.get_rank()
-
-    torch.cuda.set_device(rank)
 
     transformer_layer = te.TransformerLayer(
         hidden_size,
@@ -179,9 +127,7 @@ def test_transformer_layer(
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:
-            # Due to
-            # https://github.com/Lightning-AI/lightning-thunder/issues/701, a
-            # limitation in TransformerEngine, we can't repeatedly call
+            # Due to https://github.com/NVIDIA/TransformerEngine/issues/990, we can't repeatedly call
             # torch.autograd.backward to benchmark just backprop. As a
             # workaround, the code below runs forward before each backprop but
             # only measure the backprop time.

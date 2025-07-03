@@ -297,7 +297,7 @@ void parallelizeAllLike(
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding,
-    bool parallelize_inputs) {
+    bool parallelize_inputs_on_did) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -323,24 +323,30 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput() && !parallelize_inputs) {
+    if (tv->isFusionInput() && !parallelize_inputs_on_did) {
       continue;
     }
+    bool is_fusion_input = tv->isFusionInput();
     for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto reference_id = concrete_to_reference_map.at(ca_id);
-        auto reference_parallel_type = reference_id->getParallelType();
-        if (selected_parallel_types.empty() ||
-            selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
-        }
-        if (propagate_padding) {
-          if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
-                reference_id->getMaybeSizeAfterPadding());
-          }
+      if (concrete_to_reference_map.count(ca_id) == 0) {
+        continue;
+      }
+      auto reference_id = concrete_to_reference_map.at(ca_id);
+      auto reference_parallel_type = reference_id->getParallelType();
+      if (is_fusion_input &&
+          !isParallelTypeDeviceDim(reference_parallel_type)) {
+        continue;
+      }
+      if (selected_parallel_types.empty() ||
+          selected_parallel_types.count(reference_parallel_type)) {
+        tv->axis(i)->parallelize(reference_parallel_type);
+      }
+      if (propagate_padding) {
+        if (reference_id->hasPaddingToMultipleOfWarp()) {
+          tv->axis(i)->padToMultipleOfWarp(
+              reference_id->getMaybeSizeAfterPadding());
         }
       }
     }
@@ -1011,10 +1017,10 @@ int64_t getPersistentBufferSizeOfTensor(
   // type before upcast.
   int64_t dtype_size = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSize(
+    dtype_size = dataTypeSizeByte(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
@@ -1154,7 +1160,8 @@ std::pair<bool, bool> canonicalDimReduction(
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
-          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+          "3D reduction with first two merged axes broadcast should be 2D "
+          "reduction.");
       tv->reorder({{0, 1}});
     }
     return {true, true};
@@ -1184,7 +1191,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
           [&seen_reduction_exprs](TensorView* tv) {
             NVF_ERROR(
                 tv->definition() != nullptr,
-                "Somehow a tensor view without a definition but a reduction snuck into the scheduler reduction list.");
+                "Somehow a tensor view without a definition but a reduction "
+                "snuck into the scheduler reduction list.");
             if (!seen_reduction_exprs.emplace(tv->definition()).second) {
               return true;
             }
@@ -1331,10 +1339,6 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
@@ -1380,9 +1384,9 @@ IterDomain* projectIdToRoot(
 }
 
 // Take the inner most root id from innerMostAllocDim and project it to the
-// logical domain if the provided domain is on the logical domain. If vectorize,
-// will not project if not following the inner most path.
-IterDomain* projectIdToRFactor(
+// allocation domain if the provided reference_id is on the allocation domain.
+// If vectorize, will not project if not following the inner most path.
+IterDomain* projectIdToAllocation(
     TensorView* tv,
     IterDomain* reference_id,
     bool inner_only,
@@ -1391,12 +1395,10 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo(
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()}, false);
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()},
+      false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1469,7 +1471,7 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToRFactor(
+  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
@@ -1481,7 +1483,11 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    mapped_logical_ids_[to] = p_it->second;
+    // Note, we want to project to allocation, since we could have
+    // transformation from logical to allocation. e.g. for multi-device, we
+    // could have DID related split between logical to allocation.
+    mapped_logical_ids_[to] =
+        projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1496,7 +1502,7 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
     mapped_logical_ids_[to] =
-        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
+        projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1818,7 +1824,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool rhs = false;
       bool lhs = false;
       auto dtype_size =
-          dataTypeSize(in_out_tv->getDataType().value(), index_type);
+          dataTypeSizeByte(in_out_tv->getDataType().value(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
@@ -1850,11 +1856,6 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
 
 namespace {
 
-//! Utility enum to signify which direction
-//! BoundedDirectionalTransformPropagator
-//!  passes will propagate the transforms.
-enum class PropagateDirection { Backward = 0, Forward };
-
 //! Returns true if the given tensorview is a fake boundary
 //!  TensorView, see Note [Fake Boundary Tensorview].
 //! This function assumes and would not check that tv is a boundary
@@ -1863,7 +1864,7 @@ bool isFakeBoundaryTensorview(
     TensorView* tv,
     const std::unordered_set<TensorView*>& selected_tv_set,
     PropagateDirection direction) {
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation,
     //  a boundary tv is a fake boundary if
     //  it has any consumer tv that's in the selected
@@ -1907,7 +1908,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
   std::unordered_set<TensorView*> boundary_tv_set(
       boundary_tvs.begin(), boundary_tvs.end());
 
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation, collect all tvs
     //  that are consumers of `from_tv` and producers of
     //  boundary tvs.
@@ -2015,7 +2016,7 @@ void BoundedDirectionalTransformPropagator::backward(
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Backward);
+      from, to, *options, PropagateDirection::kBackward);
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
 }
@@ -2035,7 +2036,7 @@ void BoundedDirectionalTransformPropagator::forward(
   // Collect all tvs to included on the forward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Forward);
+      from, to, *options, PropagateDirection::kForward);
 
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
@@ -2057,9 +2058,9 @@ void BoundedDirectionalTransformPropagator::bothWays(
   // Collect all tvs to included on the backward and forward path as specified
   //  by boundary and options.
   auto backward_included_tvs = getDirectionalPropagatePathSet(
-      from, backward_to, *options, PropagateDirection::Backward);
+      from, backward_to, *options, PropagateDirection::kBackward);
   auto forward_included_tvs = getDirectionalPropagatePathSet(
-      from, forward_to, *options, PropagateDirection::Forward);
+      from, forward_to, *options, PropagateDirection::kForward);
 
   // Combined the included tvs on both paths.
   auto included_tvs = backward_included_tvs;
@@ -2363,7 +2364,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         /*selected_tvs=*/{},
         /*selected_parallel_types=*/{ParallelType::DIDx},
         /*propagate_padding=*/false,
-        /*parallelize_inputs=*/true);
+        /*parallelize_inputs_on_did=*/true);
   }
 }
 
@@ -2650,7 +2651,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspace(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2661,7 +2662,8 @@ int64_t getSharedMemoryOverheadPerBlock(
   // (1) part-1, space for the reduction broadcast.
   int64_t dtype_size = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+    dtype_size =
+        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
@@ -2673,10 +2675,7 @@ int64_t getSharedMemoryOverheadPerBlock(
   int64_t reduction_broadcast_workspace =
       threads_per_block * dtype_size * welford_factor;
 
-  // (2) part-2, space reserved by the CUDA driver
-  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
-
-  return reduction_broadcast_workspace + smem_overhead_driver;
+  return reduction_broadcast_workspace;
 }
 
 bool isResharding(Fusion* fusion) {
@@ -2774,15 +2773,18 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-void reorderTensorLike(
-    TensorView* target_tv,
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain_to_reorder,
     const std::vector<IterDomain*>& ref) {
-  const auto& tv_loop_domain = target_tv->getLoopDomain();
+  if (domain_to_reorder.empty()) {
+    return {};
+  }
 
-  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  Fusion* fusion = domain_to_reorder.at(0)->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
-  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+  ValGroups target_groups = graph.toGroups(domain_to_reorder);
 
   ValGroups ref_groups = graph.toGroups(ref);
 
@@ -2820,31 +2822,52 @@ void reorderTensorLike(
     }
   }
 
-  std::unordered_map<int64_t, int64_t> old2new;
+  std::vector<int64_t> permutation(domain_to_reorder.size(), -1);
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      old2new.emplace((int64_t)i, new_id_pos);
+      permutation.at(i) = new_id_pos;
       ++new_id_pos;
     }
   }
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      old2new.emplace((int64_t)i, new_pos);
+      permutation.at(i) = new_pos;
     }
   }
 
-  target_tv->reorder(old2new);
+  // domain_to_reorder can be partial with respect to ref, that is,
+  // ordered_domain may contain IDs that do not appear in
+  // domain_to_reorder. In that case, at this point, the permutation
+  // vector may be sparse, e.g., {2, 0, 3}, which needs to be packed
+  // to {1, 0, 2}.
+  if (std::ranges::max(permutation) >= (int64_t)permutation.size()) {
+    auto permutation_copy = permutation;
+    std::ranges::sort(permutation_copy);
+    for (auto& pos : permutation) {
+      auto it = std::ranges::find(permutation_copy, pos);
+      NVF_ERROR(it != permutation_copy.end());
+      pos = static_cast<int64_t>(std::distance(permutation_copy.begin(), it));
+    }
+  }
+
+  NVF_ERROR(
+      std::ranges::is_permutation(
+          permutation, std::ranges::iota_view(0, (int64_t)permutation.size())),
+      "Invalid permutation: ",
+      toDelimitedString(permutation));
+
+  return permutation;
 }
 
 namespace {
@@ -3067,6 +3090,13 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
     tv = consumer;
   }
   return tv;
+}
+
+bool isSymbolicTensor(const TensorView* tv) {
+  return std::any_of(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
 } // namespace scheduler_utils

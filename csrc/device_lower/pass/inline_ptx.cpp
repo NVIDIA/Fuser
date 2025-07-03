@@ -100,8 +100,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
       return;
     } else if (ir_utils::isCpAsyncOp(ldst)) {
       auto out_tv = ldst->out()->as<kir::TensorIndex>()->view();
-      auto vec_size =
-          ir_utils::getVectorizeSize(out_tv) * dataTypeSize(out_tv->dtype());
+      auto vec_size = ir_utils::getVectorizeSize(out_tv) *
+          dataTypeSizeByte(out_tv->dtype());
       std::stringstream ss;
       ss << "cp.async.";
       if (ldst->cacheOp() == CacheOp::AllLevels) {
@@ -378,7 +378,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     Val* enable_input_d = getUseInputAcc(mma);
 
     // Do MMA
-    registerInsertBefore(
+    registerReplace(
         mma,
         IrBuilder::create<kir::Asm>(
             "tcgen05.mma.cta_group::1.kind::f16",
@@ -394,16 +394,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
-    // TODO: This is clearly a wrong way to sync, but as an intermediate step to
-    // enable incremental development, we use nanosleep to sync the mma. We
-    // should replace this with a correct sync method.
-    registerReplace(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "nanosleep.u32",
-            std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(100000, DataType::UInt32)},
-            kir::Asm::Options{/*volatile=*/true}));
   }
 
   void handle(MmaOp* mma) final {

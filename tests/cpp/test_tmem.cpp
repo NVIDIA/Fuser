@@ -169,7 +169,7 @@ TEST_F(TMemTest, dtypes) {
 
   int64_t expect_dtype_bytes = 1;
   for (auto dtype : data_types) {
-    EXPECT_EQ(dataTypeSize(dtype), expect_dtype_bytes);
+    EXPECT_EQ(dataTypeSizeByte(dtype), expect_dtype_bytes);
     for (int64_t vec : vec_factors) {
       int64_t vec_bytes = expect_dtype_bytes * vec;
       if (vec_bytes > 512) {
@@ -204,13 +204,10 @@ TEST_F(TMemTest, dtypes) {
       KernelExecutor ke;
 
       if (vec_bytes % 4 != 0) {
-        std::string message = vec_bytes == 1
-            ? "Tried to vectorize a dim resulting in a word size of 1 however, vector sizes only upto and including 512 bytes are supported."
-            : "Vectorize size is not a multiple of 4 bytes";
         EXPECT_THAT(
             [&]() { ke.compile(&fusion); },
-            ::testing::ThrowsMessage<nvfuser::nvfError>(
-                ::testing::HasSubstr(message)));
+            ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+                "Vectorize size is not a multiple of 4 bytes")));
         continue;
       }
 
@@ -290,7 +287,7 @@ TEST_F(TMemTestCompileOnly, SetTMemDimSepPosNonTMem) {
 // But in the TMem load/store's loop domain, Ix (the ID parallelized on TIDx)
 // have extent 32. Then we will generate code like:
 //   if (threadIdx.x < 32) {
-//     tmem::load
+//     tcgen05::load
 //   }
 // For threadIdx.y == 0, it is correct. But for threadIdx.y == 1, it is wrong
 // because we are using the thread id 33-65 for the load, which is not a warp.
@@ -342,7 +339,7 @@ TEST_F(TMemTestCompileOnly, WrongStride) {
 // map is [TIDy, TIDx] = [2, 33], but in the TMem load/store's loop domain,
 // we have Iy{1}, Ix{32}. the generated code will be like:
 //   if (threadIdx.x < 32 && threadIdx.y < 1) {
-//     tmem::load
+//     tcgen05::load
 //   }
 // This is valid because we are using a whole warp for the load.
 TEST_F(TMemTest, InexactParallelType) {

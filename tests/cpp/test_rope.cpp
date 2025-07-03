@@ -1615,6 +1615,36 @@ TEST_P(LitgptRopeTest, Bwd) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
+
+  // Make sure the cat is grouped together with the pad ops of its inputs
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  CatOp* cat = nullptr;
+  SegmentedGroup* cat_group = nullptr;
+  for (const auto& group : runtime->fusionSegments()->groups()) {
+    auto it = std::ranges::find_if(group->exprs(), [&](Expr* expr) {
+      return expr->isA<CatOp>() && expr->output(0)->name() == T245->name();
+    });
+    if (it == group->exprs().end()) {
+      continue;
+    }
+    cat = (*it)->as<CatOp>();
+    cat_group = group;
+    break;
+  }
+  EXPECT_NE(cat, nullptr)
+      << "Could not find the cat expr in the scheduled segmented fusion";
+
+  // Check if the inputs of `cat({T244, T237, T230}, 2)` are also
+  // produced in the same segment
+  for (const auto cat_input : cat->inputs()) {
+    auto pad = dynamic_cast<PadOp*>(cat_input->definition());
+    EXPECT_NE(pad, nullptr)
+        << "Unexpected cat input: " << cat_input->toString();
+    EXPECT_NE(
+        std::ranges::find(cat_group->exprs(), pad), cat_group->exprs().end())
+        << "Could not find the input pad in the same segment: "
+        << pad->toString();
+  }
 }
 
 // Testing the scheduling of an ending repeat pattern, which is
@@ -1631,7 +1661,8 @@ TEST_F(RopeTest, EndingRepeat) {
 
   auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
   auto tv2 = repeat(tv1, {2, 1});
-  fusion.addOutput(tv2);
+  auto tv3 = segment_set(tv2);
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
@@ -1693,6 +1724,73 @@ TEST_F(RopeTest, EndingRepeat) {
       EXPECT_EQ(tv_loop, ref_loop);
       EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition());
     }
+  }
+}
+
+// Similar to EndingRepeat but with a broadcast ID already found in an
+// input tensor. A similar Pattern appears in the LitGPT Llama RoPE
+// module.
+TEST_F(RopeTest, EndingRepeatWithNoBroadcastOp) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{3, 1, 200};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
+  auto tv2 = expand(
+      tv1,
+      {IrBuilder::create<Val>(-1),
+       IrBuilder::create<Val>(2),
+       IrBuilder::create<Val>(-1)});
+  auto tv3 =
+      reshape(tv2, {IrBuilder::create<Val>(6), IrBuilder::create<Val>(-1)});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+
+  // Similar to the EndingRepeat tensor, the repeat factor ID should
+  // be placed at the outermost position.
+  auto ref_tv = scheduled_fusion->outputs().at(0)->as<TensorView>();
+  // The outermost loop ID should be a Serial ID with an extent of 2.
+  EXPECT_EQ(
+      ref_tv->getLoopDomain().at(0)->getParallelType(), ParallelType::Serial);
+  EXPECT_TRUE(ref_tv->getLoopDomain().at(0)->extent()->isConstInt());
+  EXPECT_EQ(
+      ref_tv->getLoopDomain().at(0)->extent()->evaluate().as<int64_t>(), 2L);
+
+  IdModel id_model(scheduled_fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  const auto ref_loop = exact_graph.toGroups(ref_tv->getLoopDomain());
+
+  // All of the tensors have a mapped ID as the factor ID, so they
+  // should all have the same loop ID groups.
+  for (auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    EXPECT_EQ(exact_graph.toGroups(tv->getLoopDomain()), ref_loop);
+    EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition());
   }
 }
 

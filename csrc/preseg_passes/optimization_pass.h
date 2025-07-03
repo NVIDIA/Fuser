@@ -18,8 +18,6 @@
 
 namespace nvfuser::preseg_passes {
 
-using FusionPass = std::function<void(Fusion*)>;
-
 //! [experimental API]
 //! Base class to unify optimization pass APIs.
 //! OptimizationPass can be turned on/off programmatically with the `setEnabled`
@@ -70,8 +68,6 @@ class OptimizationPass {
         ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
   }
-
-  virtual ~OptimizationPass() = default;
 
  protected:
   static inline std::atomic<bool> flag_{true};

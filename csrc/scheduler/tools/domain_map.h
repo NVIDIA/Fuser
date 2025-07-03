@@ -34,7 +34,7 @@ class DomainMap {
   // Determine if a TensorView is a valid reference tensor for this fusion.
   // The reference tensor must map to all the iterDomains in each input and
   // output.
-  bool isValidReference(TensorView* tv) const;
+  bool isValidReference(TensorView* tv, bool check_inputs = true) const;
 
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs

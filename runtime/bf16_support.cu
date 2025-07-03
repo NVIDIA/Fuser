@@ -310,3 +310,5 @@ __device__ __inline__ __bfloat operator|(const __bfloat x, const __bfloat y) {
       : "h"(__NVFUSER_BFLOAT_TO_CUS(x)), "h"(__NVFUSER_BFLOAT_TO_CUS(y)));
   return val;
 }
+
+#define __NVFUSER_HAS_BFLOAT__

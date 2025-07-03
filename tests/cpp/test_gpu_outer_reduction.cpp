@@ -459,7 +459,8 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   }
 
   NVF_CHECK(
-      dataTypeSize(DataType::Half) * params.vec * reduction_tvs.size() <= 16,
+      dataTypeSizeByte(DataType::Half) * params.vec * reduction_tvs.size() <=
+          16,
       "Invalid vectorization");
 
   auto reduction_tv = reduction_tvs.at(0);
@@ -1330,8 +1331,8 @@ bool shouldBePersistent(
   }
 
   const int64_t vec_factor = 16 /
-      std::max(dataTypeSize(dtype),
-               (use_weights ? dataTypeSize(weights_dtype) : 1));
+      std::max(dataTypeSizeByte(dtype),
+               (use_weights ? dataTypeSizeByte(weights_dtype) : 1));
 
   const int64_t num_threads = 256;
   const int64_t min_bdimx = 8;
@@ -1339,8 +1340,8 @@ bool shouldBePersistent(
   const int64_t max_gdimy =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount / 2;
   const int64_t pb_factor = ceilDiv(ceilDiv(N * HW * HW, max_bdimy), max_gdimy);
-  const int64_t req_reg_count = pb_factor * vec_factor * dataTypeSize(dtype) /
-      sizeof(int) *
+  const int64_t req_reg_count = pb_factor * vec_factor *
+      dataTypeSizeByte(dtype) / sizeof(int) *
       (is_bwd ? 2 : 1); // Two tensors are cached in the backward batchnorm
 
   // The scheduler sets aside (pb_factor + 35) registers
@@ -2216,7 +2217,8 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
     bool is_grid_reduciton) {
   NVF_CHECK(
       is_grid_reduciton ^ (gdimy == 1),
-      "Grid reduction should have gdimy > 1, block reduction should have gdimy == 1.");
+      "Grid reduction should have gdimy > 1, block reduction should have gdimy "
+      "== 1.");
   int iter_dim = vect * bdimx * gdimx;
   int redu_dim = unroll * bdimy * gdimy * serial;
 
@@ -2559,7 +2561,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
 }
 
 // Repro of https://github.com/NVIDIA/Fuser/pull/2766
-TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
+TEST_F(OuterReductionTest, SmallOuterBlockReductionIssue2766) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(&fusion);
@@ -2593,6 +2595,50 @@ TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
   auto outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(executor_cache.fusion(), outputs, args, __LINE__, __FILE__);
+}
+
+TEST_F(OuterReductionTest, SimpleThreadLocalSerialReduction) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape{28, 8192, 128};
+
+  auto T0 = makeContigConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(T0);
+  auto T1 = castOp(DataType::Float, T0);
+  auto T2 = sum(T1, {0});
+  fusion.addOutput(T2);
+
+  auto fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto at_t0 = at::randn(shape, options);
+  KernelArgumentHolder args = {at_t0};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(args);
+
+  // If thread local reduction is used on the tested GPU, the reduction tv
+  // should be:  [..., rS{7}, iV{x}, rUS{1}, rUR{x}]
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  for (auto& params : runtime->schedulerHeuristics()->heuristicsList()) {
+    if (!params->isA<ReductionParams>()) {
+      continue;
+    }
+    if (!params->as<ReductionParams>()->cross_block_inner_reduction) {
+      Fusion* scheduled_fusion = runtime->executors()
+                                     .back()
+                                     ->as<KernelExecutor>()
+                                     ->compiledKernel()
+                                     ->kernel();
+      auto redu_tv = scheduler_utils::getReductionTvs(scheduled_fusion).at(0);
+      EXPECT_TRUE(redu_tv->axis(-4)->isReduction())
+          << "Expected redu tv is [..., rS{7}, iV{x}, rUS{1}, rUR{x}], got: "
+          << redu_tv->toString();
+    }
+  }
+
+  testValidate(&fusion_copy, outputs, {at_t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

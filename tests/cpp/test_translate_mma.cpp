@@ -491,8 +491,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   EnableOptionsGuard eog;
   if (enable_fusion) {
     if (A_dim != 2 && !cudaArchGuardShouldSkip(9, 0)) {
-      GTEST_SKIP()
-          << "Translating linear with batch dims is not yet supported on Hopper";
+      GTEST_SKIP() << "Translating linear with batch dims is not yet supported "
+                      "on Hopper";
     }
 
     EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);

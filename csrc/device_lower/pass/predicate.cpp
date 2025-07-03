@@ -38,6 +38,11 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
     traverseAndInsert(exprs);
+    // For each OneDimTmaLoadExpectArrive, expect a corresponding
+    // OneDimTmaWaitParity.
+    NVF_ERROR(
+        !one_dim_tma_predicate_info_.isSet(),
+        "Unpaired OneDimTmaLoadExpectArrive detected.");
   }
 
   using kir::ExprMutator::handle;
@@ -57,7 +62,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
           NVF_ERROR(
               ite->thenBody().size() == 1,
-              "Expecting predicated body to only have one vectorized expression.");
+              "Expecting predicated body to only have one vectorized "
+              "expression.");
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
@@ -65,7 +71,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
-              "Vectorize predicate exprs only supported on tensor view operations.");
+              "Vectorize predicate exprs only supported on tensor view "
+              "operations.");
           if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
@@ -196,6 +203,27 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       case PredicateType::ElectSync: {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
+      case PredicateType::OneDimTmaLoadExpectArrive: {
+        NVF_ERROR(
+            !one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive is NOT set before "
+            "OneDimTmaLoadExpectArrive.");
+        one_dim_tma_predicate_info_ =
+            PredicateCompute::OneDimTmaLoadExpectArrive(pred, for_loops_);
+        return one_dim_tma_predicate_info_.combined_pred_val;
+      }
+      case PredicateType::OneDimTmaWaitParity: {
+        // Ensure OneDimTmaPredicateInfo is set before use and reset it after
+        // use.
+        NVF_ERROR(
+            one_dim_tma_predicate_info_.isSet(),
+            "Expect OneDimTmaLoadExpectArrive to be set before "
+            "OneDimTmaWaitParity.");
+        auto pred_val = PredicateCompute::OneDimTmaWaitParity(
+            pred, for_loops_, one_dim_tma_predicate_info_);
+        one_dim_tma_predicate_info_.reset();
+        return pred_val;
+      }
       default:
         break;
     }
@@ -204,6 +232,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+  // Stores combined predicate value, inline predicate value and circular buffer
+  // loop index for one dim tma load.
+  OneDimTmaPredicateInfo one_dim_tma_predicate_info_;
 };
 
 } // namespace

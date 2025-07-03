@@ -97,6 +97,10 @@ def pytest_configure(config):
         "markers",
         "inner_persistent: mark tests using inner_persistent scheduler if not being segmented.",
     )
+    config.addinivalue_line(
+        "markers",
+        "resize: mark tests using resize scheduler if not being segmented.",
+    )
 
 
 def pytest_collection_modifyitems(session, config, items):

@@ -56,6 +56,23 @@ Predicate::Predicate(
   NVF_ERROR(ptype != PredicateType::Unswitch && ptype != PredicateType::Manual);
 }
 
+Predicate::Predicate(
+    IrBuilderPasskey passkey,
+    PredicateType ptype,
+    const Expr* tma_1d_load_expr,
+    std::vector<ForLoop*> tma_1d_load_loops)
+    : Val(passkey, ValType::Predicate, DataType::Bool),
+      ptype_(ptype),
+      expr_(tma_1d_load_expr),
+      tma_1d_load_loops_(std::move(tma_1d_load_loops)) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(ptype == PredicateType::OneDimTmaLoadExpectArrive);
+  NVF_ERROR(!tma_1d_load_loops_.empty());
+}
+
 Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
@@ -293,7 +310,7 @@ const char* getPTXConstraints(Val* value) {
   if (std::holds_alternative<ArrayType>(dt.type)) {
     dt = *std::get<ArrayType>(dt.type).type;
   }
-  auto size = dataTypeSize(dt);
+  auto size = dataTypeSizeByte(dt);
   switch (size) {
     case 2:
       return "h";
@@ -432,6 +449,8 @@ std::string Asm::utility() const {
        "tcgen05::relinquishAllocPermit"},
       {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
       {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
+      {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+       "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
@@ -457,7 +476,7 @@ std::string Asm::utility() const {
     std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, ld_pattern)) {
-      std::string result = "tmem::load";
+      std::string result = "tcgen05::load";
       result.append(match[1]);
       return result;
     }
@@ -466,7 +485,7 @@ std::string Asm::utility() const {
     std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, st_pattern)) {
-      std::string result = "tmem::store";
+      std::string result = "tcgen05::store";
       result.append(match[1]);
       return result;
     }
@@ -669,6 +688,25 @@ std::string SetMaxNReg::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Continue::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "continue\n";
+  return ss.str();
+}
+
+std::string Continue::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Continue can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
 
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -1062,8 +1100,10 @@ GridReduction::GridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == num_reduction_op_attr,
-      "The num_reduction_op_attr does not match the number of attributes ReductionOp has."
-      "If you changed ReductionOp, please change num_reduction_op_attr accordingly.");
+      "The num_reduction_op_attr does not match the number of attributes "
+      "ReductionOp has."
+      "If you changed ReductionOp, please change num_reduction_op_attr "
+      "accordingly.");
   addAttribute(reduction_buffer);
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
@@ -1143,8 +1183,10 @@ GroupedGridReduction::GroupedGridReduction(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedReductionOpAttr(),
-      "The numGroupedReductionOpAttr() does not match the number of attributes GroupedReductionOp has."
-      "If you changed GroupedReductionOp, please change numGroupedReductionOpAttr() accordingly.");
+      "The numGroupedReductionOpAttr() does not match the number of attributes "
+      "GroupedReductionOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedReductionOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
@@ -1346,8 +1388,10 @@ GroupedGridWelford::GroupedGridWelford(
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedWelfordOpAttr(),
-      "The numGroupedWelfordOpAttr() does not match the number of attributes GroupedWelfordOp has."
-      "If you changed GroupedReductionOp, please change numGroupedWelfordOpAttr() accordingly.");
+      "The numGroupedWelfordOpAttr() does not match the number of attributes "
+      "GroupedWelfordOp has."
+      "If you changed GroupedReductionOp, please change "
+      "numGroupedWelfordOpAttr() accordingly.");
   addAttribute(sync_buffer);
   addAttribute(entrance_index);
   addAttribute(entrances);
@@ -1374,10 +1418,10 @@ int64_t GroupedGridWelford::getSmemBufferSize(
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {
-    return bdimx * bdimy * bdimz * dataTypeSize(out_tv->getDataType().value()) *
-        2 +
+    return bdimx * bdimy * bdimz *
+        dataTypeSizeByte(out_tv->getDataType().value()) * 2 +
         bdimx * bdimy * bdimz *
-        dataTypeSize(DataType::Index, kernel->indexType());
+        dataTypeSizeByte(DataType::Index, kernel->indexType());
   }
 
   // In the outer-reduction version, the size is blockDim.x * NumberOfWarps *
@@ -1398,9 +1442,9 @@ int64_t GroupedGridWelford::getSmemBufferSize(
   NVF_ERROR((bdimx * bdimy) % 32 == 0);
 
   int64_t buf_size_for_avg_var = bdimx * num_warps * group_count *
-      dataTypeSize(out_tv->getDataType().value());
+      dataTypeSizeByte(out_tv->getDataType().value());
   int64_t buf_size_for_N =
-      num_warps * dataTypeSize(DataType::Index, kernel->indexType());
+      num_warps * dataTypeSizeByte(DataType::Index, kernel->indexType());
 
   return buf_size_for_avg_var * 2 + buf_size_for_N;
 }

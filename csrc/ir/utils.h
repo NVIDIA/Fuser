@@ -661,15 +661,16 @@ template <typename T>
 std::optional<std::vector<int64_t>> computePermutation(
     const std::vector<T>& in,
     const std::vector<T>& out) {
-  if (!std::is_permutation(in.begin(), in.end(), out.begin())) {
+  // Both std::is_permutation and the rest of this function are O(n^2). This is
+  // fine for the current use case of computing the root-to-rfactor
+  // permutation. If needed, this can be improved by requiring T to be hashable
+  // (leading to O(n)) and/or comparable (leading to O(nlogn)).
+  if (!std::is_permutation(in.begin(), in.end(), out.begin(), out.end())) {
     return std::nullopt;
   }
 
   std::vector<int64_t> permutation;
   permutation.reserve(out.size());
-  // O(n^2) is totally fine for the current use case of computing the
-  // root-to-rfactor permutation. If needed, this can be improved by making T
-  // hashable and/or comparable.
   for (const T& out_element : out) {
     permutation.push_back(std::distance(
         in.begin(), std::find(in.begin(), in.end(), out_element)));
@@ -805,5 +806,44 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
 // For example, tcgen05.st.sync.aligned.32x32b.x4.b32 could mean 1 complex
 // double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
+
+// Somtimes we want to temporarily view a tensorview with another tensordomain.
+// This isn't a permanent transformation, but in indexing we want to index
+// producers with a consumer set of indices, so we need to view the producer
+// transformed like consumer while we index. This will set the tv with td for
+// the life of this context guard.
+class TVDomainGuard {
+ private:
+  TensorView* tv_;
+  TensorDomain* prev_domain_;
+
+ public:
+  explicit TVDomainGuard(TensorView* tv, TensorDomain* td);
+  TVDomainGuard(const TVDomainGuard&) = delete;
+  NVF_API TVDomainGuard(TVDomainGuard&&);
+
+  //! An utility to access the tensordomain before the temporary
+  //!  view. This is used to retrieve information, like swizzle
+  //!  information that can only be reliably kept at the original domain.
+  const TensorDomain* prevDomain() const {
+    return prev_domain_;
+  }
+
+  NVF_API ~TVDomainGuard();
+};
+
+// Given a reshape output TV, return two subsets of the root and
+// logical IDs, respectively. The root ID subset only includes that
+// are used as inputs to the reshape IDs ops, whereas the logical ID
+// subset includes those that are produced by the reshape ID ops.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
+// Get reachable IDs from domain. Note that to reach to an ID through
+// its defining expression, all of the inputs need to be included in
+// the given domain or reachable from the domain.
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies);
 
 } // namespace nvfuser::ir_utils

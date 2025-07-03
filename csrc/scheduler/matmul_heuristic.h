@@ -272,7 +272,7 @@ class MatmulParams : public HeuristicParams {
               // contributions from each portion. Also called split-K.
     WarpTiles // All warp tiles in a K loop for each math warp group are
               // iterated over then the next math warp group's warp tile is
-              // processed. Also called ping-pong or alternating stratgy.
+              // processed. Also called ping-pong or alternating strategy.
   } buffering_loop_level = BufferingLoopLevel::CTATiles;
 
   //! Whether to do regular circular buffering (pipelined) or warp
@@ -296,12 +296,15 @@ class MatmulParams : public HeuristicParams {
   //!  will more likely be forming sub-tiles of the C matrix. This will increase
   //!  L2 hit rate/data reuse of A and B.
   //!
-  //! Eg for grid_swizzle_factor=2:
+  //! Eg for grid_traversal_factor = {2, 1}:
   //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
   //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
-  int grid_swizzle_factor = 1;
+  //!
+  //! Note that this is done at the CGA tile level in case cluster_dims is
+  //! something other than {1, 1, 1}
+  std::pair<int, int> grid_traversal_factor = {1, 1};
 
   //! Unswizzle MMA results in shared memory to get
   //!  coalesced write to global memory
@@ -323,6 +326,23 @@ class MatmulParams : public HeuristicParams {
 
   //! This is the CGA size on Hopper+ devices. This parameter is ignored on
   //! Ampere and Turing.
+  //! Note that this indicates the actual dimension of the cluster in XYZ grid
+  //! coordinates as opposed to MNK.
+  //!
+  //! When cta_order == ColumnMajor, M is parallelized BIDx and N is
+  //! parallelized BIDy. In that case, the cluster dimension X will apply to the
+  //! M dimension and Y will apply to N. If cluster_dims = {2, 4, 1} in that
+  //! case and the cta_tile is {128, 256, 64} then the "CGA tile" would be {256,
+  //! 1024, 64}.
+  //!
+  //! If however cta_order were RowMajor and cluster_dims = {2, 4, 1}, the
+  //! parallelization of M and N is swapped so the CGA tile would become {512,
+  //! 512, 64}. This example shows that it is important to manage the cluster
+  //! dims in conjunction with the CTA tile and CTA order. Also note that "grid
+  //! swizzling" via setting grid_traversal_factor is done at the CGA tile
+  //! level.
+  //!
+  //! The Z dimension must currently be 1.
   struct ClusterDims {
     int64_t x = 1;
     int64_t y = 1;
@@ -370,7 +390,7 @@ class MatmulParams : public HeuristicParams {
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"
-       << "Grid swizzle factor: " << grid_swizzle_factor << "\n";
+       << "Grid swizzle factor: " << grid_traversal_factor << "\n";
     ss << "Tiling strategy: ";
     switch (tiling_strategy) {
       case TilingStrategy::OneTilePerCTA:
@@ -408,6 +428,7 @@ class MatmulParams : public HeuristicParams {
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
+       << "Use ldmatrix/stmatrix in epilogue: " << use_ldst_matrix << "\n"
        << "Split-K factor: " << splitk_factor << "\n"
        << "====================================\n";
     return ss.str();
@@ -425,8 +446,9 @@ class MatmulParams : public HeuristicParams {
         (circular_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
-        (std::hash<size_t>{}(splitk_factor) << 6);
+        (std::hash<size_t>{}(grid_traversal_factor.first) << 5) ^
+        (std::hash<size_t>{}(grid_traversal_factor.second) << 6) ^
+        (std::hash<size_t>{}(splitk_factor) << 7);
     return attr_hash;
   }
 
@@ -442,9 +464,14 @@ class MatmulParams : public HeuristicParams {
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&
         other->cta_order == cta_order &&
-        other->grid_swizzle_factor == grid_swizzle_factor &&
+        other->tiling_strategy == tiling_strategy &&
+        other->buffering_loop_level == buffering_loop_level &&
+        other->circular_buffering_strategy == circular_buffering_strategy &&
+        other->use_ldst_matrix == use_ldst_matrix &&
+        other->grid_traversal_factor == grid_traversal_factor &&
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
+        other->cluster_dims == cluster_dims &&
         other->splitk_factor == splitk_factor;
   }
 

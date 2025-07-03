@@ -376,15 +376,18 @@ IterDomain* DomainMap::anyMapped(
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input and
 // output
-bool DomainMap::isValidReference(TensorView* tv) const {
-  for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
-    if (input_tv->uses().empty()) {
-      continue;
-    }
-    // TODO: Same backward traversal from tv is done for all input
-    // tvs. Consider doing the analysis one for all inputs
-    if (!areAllInputIdsMappedTo(input_tv, tv)) {
-      return false;
+bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
+  if (check_inputs) {
+    for (auto input_tv :
+         ir_utils::filterByType<TensorView>(fusion_->inputs())) {
+      if (input_tv->uses().empty()) {
+        continue;
+      }
+      // TODO: Same backward traversal from tv is done for all input
+      // tvs. Consider doing the analysis one for all inputs
+      if (!areAllInputIdsMappedTo(input_tv, tv)) {
+        return false;
+      }
     }
   }
   // The check on outputs are optional, transpose scheduler might propose a
@@ -514,7 +517,8 @@ int64_t TransposeDomainMap::getInnerLeafDim(
       // it and support with mapping it to out.
       NVF_ERROR(
           !merge->inner()->extent()->isOneInt(),
-          "merge with size-1 dimension is supposed to be translated to squeeze by reshape");
+          "merge with size-1 dimension is supposed to be translated to squeeze "
+          "by reshape");
       if (merge->inner() == mapped_id) {
         mapped_id = merge->out();
       }

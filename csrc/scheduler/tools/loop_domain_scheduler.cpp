@@ -434,7 +434,8 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
       }
     }
     NVF_THROW(
-        "Trying to update the current loop domain but could not find a valid path from the reference: ",
+        "Trying to update the current loop domain but could not find a valid "
+        "path from the reference: ",
         tv->toString(),
         ". ",
         ss.str());
@@ -485,8 +486,10 @@ void scheduleLoopDomainsLike(
   LoopDomainScheduler scheduler(ref_loop_dom, update_loop_domain_only);
 
   for (auto tv : tvs) {
-    // Loop domain of fusion inputs should have no meaning
-    if (tv->isFusionInput()) {
+    // Loop domain of fusion inputs should have no meaning,
+    // nor should the loop domain of a tensor that has no logical
+    // domain.
+    if (tv->isFusionInput() || tv->getLogicalDomain().empty()) {
       continue;
     }
     scheduler.schedule(tv);

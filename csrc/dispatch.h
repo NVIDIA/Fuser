@@ -84,6 +84,7 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
+  f(IndexPutAccumulateOp);        \
   f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
@@ -104,6 +105,9 @@ class Val;
   f(ScanOp);                      \
   f(SliceOp);                     \
   f(Split);                       \
+  f(ArgsortOp);                   \
+  f(GroupedMmaOp);                \
+  f(TopKOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \
@@ -125,6 +129,7 @@ class Val;
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
   f(SetMaxNReg);                      \
+  f(Continue);                        \
   f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
@@ -159,7 +164,9 @@ class Val;
   f(Synchronize);                     \
   f(StartCoalescing);                 \
   f(EndCoalescing);                   \
-  f(ShareMemHandles);
+  f(ShareMemHandles);                 \
+  f(HirAliasSelect);                  \
+  f(Deallocate);
 
 // Forward declarations for all Val and Expr types
 

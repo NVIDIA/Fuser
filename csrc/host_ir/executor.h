@@ -37,7 +37,7 @@ class HostIrExecutor : public ExecutorAbstract {
   bool isCompiled() const override;
 
   NVF_API KernelArgumentHolder
-  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+  run(const KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
     return host_ir_container_;
@@ -49,18 +49,6 @@ class HostIrExecutor : public ExecutorAbstract {
 };
 
 namespace hir {
-
-/*
-a HostIrEvaluator evaluates a host programs represented through a
-HostIrContainer It is instantiated with the desired HostIrContainer, and runs
-the Host program with concrete inputs by calling the method runWithInput.
-
-For now HostIrEvaluator is an interpreter; later we could rather compile host
-code.
-
-Note: most of the implementation is copy pasted for MultiDeviceExecutor. This
-duplication will be resolved in the future.
-*/
 
 // Set of parameters that control the behavior of HostIrEvaluator
 struct HostIrEvaluatorParams {
@@ -79,13 +67,26 @@ struct HostIrEvaluatorParams {
   int64_t number_of_streams = 4;
 };
 
+// A HostIrEvaluator evaluates a host programs represented through a
+// HostIrContainer It is instantiated with the desired HostIrContainer, and runs
+// the Host program with concrete inputs by calling the method runWithInput.
+//
+// For now HostIrEvaluator is an interpreter; later we could rather compile host
+// code.
+//
+// Note: most of the implementation is copy pasted for MultiDeviceExecutor. This
+// duplication will be resolved in the future.
 class HostIrEvaluator final : public OptOutDispatch {
  public:
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
-      Communicator* communicator = nullptr,
+      Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
+  // Used by FusionExecutor, the main stack.
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+
+  // Used by MultiDeviceExecutor.
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
@@ -95,6 +96,10 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   const std::vector<Val*>& outputs() {
     return container_->outputs();
+  }
+
+  auto* container() const {
+    return container_.get();
   }
 
   std::ostream& print(std::ostream& os) const {
@@ -134,12 +139,30 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
+  void handle(LoadStoreOp* load_store_op) override;
+  void handle(BinaryOp* binary_op) override;
+  void handle(ReductionOp* reduction_op) override;
   void handle(ShareMemHandles* share_mem_handles) override;
+  void handle(HirAliasSelect* hir_alias_select) override;
+  void handle(Deallocate* deallocate) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  KernelArgumentHolder dispatchAndCollectOutputs();
+  PolymorphicValue getKnownConcreteValue(Val* val) const {
+    NVF_ERROR(
+        expr_evaluator_.isKnown(val),
+        "value ",
+        val->toString(),
+        "must be precomputed before being retrieved");
+    return expr_evaluator_.evaluate(val);
+  }
+
+  at::Tensor getKnownTensorOrUndefined(Val* val) const {
+    return expr_evaluator_.isKnown(val)
+        ? expr_evaluator_.evaluate(val).as<at::Tensor>()
+        : at::Tensor();
+  }
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;

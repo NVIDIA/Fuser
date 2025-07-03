@@ -139,7 +139,11 @@ class TestNvFuserFrontend(NVFuserTest):
             self.assertEqual(eager_out, nvf_out[0])
 
         for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
-            for type1 in [torch.float8_e4m3fn, torch.float8_e5m2]:
+            for type1 in [
+                torch.float8_e4m3fn,
+                torch.float8_e5m2,
+                torch.float8_e8m0fnu,
+            ]:
                 fn(type0, type1)
                 fn(type1, type0)
 
@@ -4068,6 +4072,7 @@ class TestNvFuserFrontend(NVFuserTest):
 
         nvf_out, _ = self.exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
 
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4105,6 +4110,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
 
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler_user_schedule(self):
         inputs = [
             torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
@@ -4134,6 +4140,7 @@ class TestNvFuserFrontend(NVFuserTest):
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
 
+    @pytest.mark.skipif(reason="Temporarily disabled due to CUDA 13 compatibility.")
     def test_fusion_profiler_with_noncodegen_kernels(self):
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
@@ -4970,3 +4977,15 @@ fd.execute(inputs)
         assert len(nvf_out) == 1
         self.assertEqual(nvf_out[0], inputs[0])
         self.assertEqual(nvf_out[0], ref_inp.relu())
+
+    def test_import_conflict_nvfuser_then_direct(self):
+        try:
+            import nvfuser  # noqa: F401
+            import nvfuser_direct  # noqa: F401
+        except AssertionError as e:
+            expected_msg = (
+                "Cannot import nvfuser_direct if nvfuser module is already imported."
+            )
+            assert expected_msg in str(e)
+            return
+        raise AssertionError("Expected AssertionError from imports.")

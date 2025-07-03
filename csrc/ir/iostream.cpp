@@ -27,14 +27,16 @@ void checkInlineable(const Expr* expr) {
         input->isScalar() || input->isA<kir::TensorIndex>() ||
             (expr->isA<UnaryOp>() &&
              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Address),
-        "Printing inline computations involving values other than scalars is not currently supported.");
+        "Printing inline computations involving values other than scalars is "
+        "not currently supported.");
   }
   NVF_CHECK(
       expr->outputs().size() == 1,
       "Cannot print inline computations if there's more than one output.");
   NVF_CHECK(
       expr->output(0)->isScalar() || expr->output(0)->isA<NamedScalar>(),
-      "Printing inline computations involving values other than scalars is not currently supported.");
+      "Printing inline computations involving values other than scalars is not "
+      "currently supported.");
 }
 
 void IrPrinter::handle(Fusion* fusion) {
@@ -152,15 +154,10 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& from = tv->getLogicalDomain();
-  const auto& loop = tv->getLoopDomain();
-  const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {loop.begin(), loop.end()});
-
-  for (const auto exp : all_exp) {
+  for (const auto exp : tv->domain()->allExprs()) {
     os() << "  " << exp->toString();
   }
-  os() << " loop domain : (" << toDelimitedString(loop) << ")\n";
+  os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {

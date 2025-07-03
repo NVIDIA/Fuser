@@ -23,6 +23,12 @@ class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
+//! Utility enum to signify which direction
+//! transform propagation passes will propagate the transforms.
+//! For example, in sharding propagation or
+//! BoundedDirectionalTransformPropagator.
+enum class PropagateDirection { kBackward = 0, kForward };
+
 namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
@@ -99,6 +105,10 @@ constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
   return x % n == 0 ? x : x + (n - x % n);
 }
 
+constexpr int64_t roundDownToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x - x % n;
+}
+
 // Div x by y, but min at 1
 inline int64_t safeDiv(const int64_t x, const int64_t y) {
   return std::max(x / y, (int64_t)1);
@@ -153,32 +163,34 @@ int64_t mergeNonReduction(TensorView* tv);
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
 // `reference_tv`. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
-// `parallelize_inputs` is a boolean flag that determines whether to parallelize
-// the inputs of the fusion. This is generally not required except in some cases
-// for DID parallelization. For eg: propagateReshapeTransforms using
-// TransformPropagator will replay the transforms onto the inputs of the fusion
-// but not the DID parallelization.
+// Fusion inputs are generally ignored since parallel types (BID/TID) do not
+// mean anything on them. However, we have cases during scheduling where
+// propagating transforms can inadvertently remove DID parallelization from the
+// inputs of the fusion and needs to reapplied. `parallelize_inputs_on_did` is a
+// boolean flag that determines whether to additionally parallelize the inputs
+// of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
+// and scheduleTranspose.
 void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false);
+    bool parallelize_inputs_on_did = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 inline void parallelizeAllLike(
@@ -186,27 +198,27 @@ inline void parallelizeAllLike(
     std::initializer_list<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       std::vector<TensorView*>(selected_tvs),
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::vector<TensorView*>{},
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
@@ -218,11 +230,13 @@ struct SchedulerHyperParameters {
       int64_t vectorize_factor_,
       int64_t unroll_factor_,
       int64_t threads_per_block_min_,
-      int64_t threads_per_block_max_)
+      int64_t threads_per_block_max_,
+      bool is_warp_specialized_)
       : vectorize_factor(vectorize_factor_),
         unroll_factor(unroll_factor_),
         threads_per_block_min(threads_per_block_min_),
-        threads_per_block_max(threads_per_block_max_) {}
+        threads_per_block_max(threads_per_block_max_),
+        is_warp_specialized(is_warp_specialized_) {}
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
@@ -235,6 +249,9 @@ struct SchedulerHyperParameters {
 
   //! Maximum number of threads per block.
   int64_t threads_per_block_max = 1;
+
+  //! Use warp specialized version
+  bool is_warp_specialized = false;
 };
 
 struct PersistentBufferInfo {
@@ -741,15 +758,14 @@ int64_t getPersistentBufferSizeOfTensor(
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
 
-//! The required shared memory size for a block inclues two parts: (1) smem
-//! for persistent buffers and (2) overhead. The overhead includes space
-//! reserved by the CUDA driver and reduction workspace which depends on the
+//! The required shared memory size for a block includes two parts: (1) smem
+//! for persistent buffers and (2) reduction workspace which depends on the
 //! number of threads per block specified by the parameter threads_per_block.
 //! By default, the function uses the maximum allowed number of threads per
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspace(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
@@ -811,9 +827,12 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
-// Reorer the loop domain of a given tensor to align with a given list of
-// reference IDs. Non-matching loop IDs are placed outermost positions.
-void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+// Get a permutation vector to reorder a given domain to align with a
+// given list of reference IDs. Non-matching loop IDs are placed outermost
+// positions.
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& ref);
 
 // If buffer_tv's definition is an upcast and the input to the cast is not a
 // fusion input, return input to the cast. Otherwise, return nullptr. Used to
@@ -829,5 +848,8 @@ TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 //! See device_lower/analysis/tensor_producer_aliases.h
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
+// Returns true if any of the domains of the tensor is symbolic
+bool isSymbolicTensor(const TensorView* tv);
 } // namespace scheduler_utils
+
 } // namespace nvfuser

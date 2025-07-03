@@ -80,10 +80,12 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
 
   EXPECT_EQ(
       persistent_buffer_size.persistent_buffer_size,
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
+      static_cast<int64_t>(
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
   EXPECT_EQ(
       persistent_buffer_size.projected_persistent_buffer_size,
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
+      static_cast<int64_t>(
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
@@ -143,10 +145,11 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
 
   NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
+      static_cast<int64_t>(
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeByte(DataType::Half)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation3_CUDA) {
@@ -226,10 +229,11 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation3_CUDA) {
   NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
       static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSize(DataType::Float) * 2));
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Float) * 2));
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half) * 2));
+      static_cast<int64_t>(
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Half) * 2));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
@@ -302,11 +306,12 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
   // So, the actual buffer size is just the size to save T1.
   NVF_ERROR(
       persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Float)));
+      static_cast<int64_t>(
+          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
 
   NVF_ERROR(
       persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSize(DataType::Half)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeByte(DataType::Half)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
@@ -424,7 +429,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection2_CUDA) {
   // calculated as the sum of tv1, tv0 and tv1.
   auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
   auto expected_size =
-      static_cast<int64_t>(shape[1] * 2 * dataTypeSize(DataType::Half));
+      static_cast<int64_t>(shape[1] * 2 * dataTypeSizeByte(DataType::Half));
   NVF_CHECK(
       projected_size == expected_size,
       "Buffer projection failure. Expected size: ",
@@ -603,7 +608,7 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
       persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
   NVF_CHECK(
       persistent_buffer_size.persistent_buffer_size ==
-          hidden_size * dataTypeSize(dtype),
+          hidden_size * dataTypeSizeByte(dtype),
       "Persistent buffer size is not correct!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -738,7 +743,7 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
       persistentBufferSize(fusion, runtime_info, persistent_info);
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
   auto expected_size =
-      static_cast<int64_t>(hidden_size * 2 * dataTypeSize(input_dtype));
+      static_cast<int64_t>(hidden_size * 2 * dataTypeSizeByte(input_dtype));
   EXPECT_EQ(calculated_size, expected_size)
       << "Buffer size calculation failure";
   auto heuristic_params = SchedulerEntry::scheduleWith(
@@ -816,7 +821,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
       persistentBufferSize(fusion, runtime_info, persistent_info);
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
   auto expected_size =
-      static_cast<int64_t>(hidden_size * dataTypeSize(DataType::Float));
+      static_cast<int64_t>(hidden_size * dataTypeSizeByte(DataType::Float));
   NVF_CHECK(
       calculated_size == expected_size,
       "Buffer size calculation failure. Expected size: ",
@@ -882,7 +887,7 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
         ? 24 * 1024 * 4
         : 6 * 1024 * 4;
     bool should_project_to_input =
-        feature * dataTypeSize(DataType::Float) > buffer_threshold;
+        feature * dataTypeSizeByte(DataType::Float) > buffer_threshold;
     NVF_CHECK(
         rparams->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
@@ -1269,10 +1274,10 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   fusion->addOutput(tv7);
 
   // If device doesn't have enough shared memory, skip this test
-  int64_t smem_overhead = scheduler_utils::getSharedMemoryOverheadPerBlock(
+  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspace(
       fusion.get(), scheduler_utils::getReductionTvs(fusion.get()));
   const size_t required_smem_size =
-      smem_overhead + total_elements * dataTypeSize(input_dtype);
+      smem_overhead + total_elements * dataTypeSizeByte(input_dtype);
   REQUIRE_DEVICE_SMEM_SIZE(required_smem_size, 0);
 
   // Schedule through magic scheduler and test the use of smem persistent buffer
@@ -1397,7 +1402,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
-  int64_t logic_buffer_size = 80 * 1024 * dataTypeSize(DataType::Half);
+  int64_t logic_buffer_size = 80 * 1024 * dataTypeSizeByte(DataType::Half);
   EXPECT_EQ(
       persistent_buffer_size.projected_persistent_buffer_size,
       logic_buffer_size);
@@ -1408,7 +1413,7 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // split.
   bool is_segmented = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+  if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
     is_segmented = true;
   } else {
     int64_t available_buffer_size = normalization_scheduler_utils::
@@ -1484,7 +1489,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
   auto persistent_buffer_size =
       persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
-  int64_t logic_buffer_size = hidden_size * dataTypeSize(dtype);
+  int64_t logic_buffer_size = hidden_size * dataTypeSizeByte(dtype);
   EXPECT_EQ(
       persistent_buffer_size.projected_persistent_buffer_size,
       logic_buffer_size);
@@ -1493,7 +1498,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   bool has_enough_regs_smem = true;
   if (logic_buffer_size > scheduler_utils::register_file_size) {
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+    if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
       has_enough_regs_smem = false;
     } else {
       int64_t available_buffer_size = normalization_scheduler_utils::
@@ -1596,7 +1601,7 @@ TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
       &fusion, runtime_info, persistent_buffer_info);
   EXPECT_EQ(
       persistent_buffer_size.persistent_buffer_size,
-      dim1 * dataTypeSize(DataType::Bool));
+      dim1 * dataTypeSizeByte(DataType::Bool));
 
   // Check the compute position of the bool tensor, tv2, is at the top of the
   // kernel.

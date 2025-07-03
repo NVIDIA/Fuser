@@ -288,7 +288,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
     max_dtype_size_for_vectorization = std::max(
         max_dtype_size_for_vectorization,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+        dataTypeSizeByte(inp->getDataType().value(), index_type));
   }
 
   constexpr int64_t kSixteen = 16; // clang tidy
@@ -351,10 +351,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    dtype_sum += (int64_t)dataTypeSize(inp->getDataType().value(), index_type);
+    dtype_sum += dataTypeSizeByte(inp->getDataType().value(), index_type);
   }
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    dtype_sum += (int64_t)dataTypeSize(out->getDataType().value(), index_type);
+    dtype_sum += dataTypeSizeByte(out->getDataType().value(), index_type);
   }
 
   // Indicates whether the fusion is outer broadcast dominated or not.
@@ -698,7 +698,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         IrTransformPrinter printer(os);
         printer.printTransforms(reference_tv);
         NVF_THROW(
-            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are not disjoint. ",
+            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are "
+            "not disjoint. ",
             lhs_val->toString(),
             " belongs to both. device_aware_break_point = ",
             device_aware_break_point,
@@ -710,7 +711,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
     NVF_ERROR(
         !rhs_all_vals.empty(),
-        "Expecting at least one dimension in the RHS of the pointwise scheduler.");
+        "Expecting at least one dimension in the RHS of the pointwise "
+        "scheduler.");
 
     // Merge rhs, then lhs.
     IterDomain* rhs_id = nullptr;
@@ -1040,6 +1042,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     auto output = entry.second;
     inner_most_tensors.erase(output);
   }
+  // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler
+  // doesn't use ParallelType::Unroll, we need to exclude consumer of fusion
+  // inputs to be inlineMost. This allows us to aggregate the allocation of
+  // manual unroll ID and its inner ID.
+  for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
+    inner_most_tensors.erase(idx_sel->output(0)->as<TensorView>());
+  }
+
   inlineMost(inner_most_tensors);
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);

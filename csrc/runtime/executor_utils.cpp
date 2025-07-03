@@ -11,6 +11,7 @@
 
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>
@@ -107,8 +108,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         producer_tv,
         " in fusion inputs.");
     auto pos = std::distance(fusion->inputs().begin(), producer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(true, static_cast<int64_t>(pos)));
+    input_output.emplace_back(true, static_cast<int64_t>(pos));
   }
 
   if (consumer_tv->isFusionOutput()) {
@@ -120,8 +120,7 @@ std::vector<std::pair<bool, int64_t>> getVectorizedFusionInputOutput(
         consumer_tv,
         " in fusion outputs.");
     auto pos = std::distance(fusion->outputs().begin(), consumer_it);
-    input_output.push_back(
-        std::make_pair<bool, int64_t>(false, static_cast<int64_t>(pos)));
+    input_output.emplace_back(false, static_cast<int64_t>(pos));
   }
 
   return input_output;
@@ -302,11 +301,25 @@ void validateAlignedVectorizedFusionInputOutput(
   NVF_ERROR(sizes.size() == no_reduction_to_full.size());
   NVF_ERROR(strides.size() == no_reduction_to_full.size());
 
+  // aten_element_size_bit is the minimum unit (one element) of tv's
+  // corresponding at::Tensor it may or may not be the same as
+  // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+  // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+  // For example, for fp4 tensor, we use Byte as the corresponding ATen
+  // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bit.
+  const int64_t aten_element_size_byte =
+      c10::elementSize(data_type_to_aten(tv->dtype()));
+
+  int64_t vector_word_size_bit = word_size * dataTypeSizeBit(tv->dtype());
+  NVF_ERROR(
+      vector_word_size_bit % 8 == 0, "Vector word size is not divisible by 8");
+  int64_t vector_word_size_byte = vector_word_size_bit / 8;
+
   for (auto offset : offsets) {
     NVF_ERROR(
         (reinterpret_cast<size_t>(aten_tensor.data_ptr()) +
-         offset * aten_tensor.dtype().itemsize()) %
-                (word_size * aten_tensor.dtype().itemsize()) ==
+         offset * aten_element_size_byte) %
+                vector_word_size_byte ==
             0,
         "Vectorization of ",
         tv->toString(),
@@ -338,7 +351,8 @@ void validateAlignedVectorizedFusionInputOutput(
           stride == 0,
           "Dimension ",
           i,
-          " should be an expanded broadcasting, but it does not have stride zero.");
+          " should be an expanded broadcasting, but it does not have stride "
+          "zero.");
     }
 
     // If this domain is contiguous or size == 1, then not necessary to check
@@ -351,7 +365,7 @@ void validateAlignedVectorizedFusionInputOutput(
     NVF_ERROR(
         is_contiguous || size == 1 || is_expanded_broadcasting ||
             (still_rightmost && stride == 1) ||
-            (!still_rightmost && stride % word_size == 0),
+            ((stride * aten_element_size_byte) % vector_word_size_byte == 0),
         "Vectorization of ",
         tv->toString(),
         " with word size ",
@@ -430,6 +444,14 @@ void validateCircularBuffering(
     ExpressionEvaluator& expr_eval) {
   const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
   for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    // There is always a valid load and compute for loop with warp
+    // specialization.
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        cb_tv->circularBufferOptions().type);
+    if (use_warp_specialization) {
+      continue;
+    }
+
     IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
@@ -464,7 +486,7 @@ ExpressionEvaluator bindInputs(
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
   NVF_ERROR(
-      kernel->inputs().size() <= args.size(),
+      std::ssize(kernel->inputs()) <= args.size(),
       "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
@@ -521,7 +543,8 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
           "\nAliased to: ",
           aliased_to->toString());
       NVF_THROW(
-          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
+          "Kernel found with output to output aliasing, this is unsupported at "
+          "this moment.\n",
           "Output: ",
           fusion->outputs()[output_idx]->toString(),
           "\nAliased to: ",
@@ -656,7 +679,8 @@ void validateIndexCasts(
   NVF_ERROR(
       calc.castsFromIndexAreSafe(),
       "Found unsafe casts from DataType::Index. ",
-      "This is likely because one coordinate of a TMA instruction overflowed Int32");
+      "This is likely because one coordinate of a TMA instruction overflowed "
+      "Int32");
 }
 
 } // namespace executor_utils
