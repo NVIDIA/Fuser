@@ -2700,8 +2700,6 @@ TEST_F(NVFuserTest, Fp8CastOps) {
         t0 = t0.abs() + 1e-6;
       }
 
-      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
-
       KernelExecutor ke;
       bool unsupported_device = false;
       if (fp8_type == DataType::Float8_e8m0fnu) {
@@ -2725,6 +2723,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
             testing::ThrowsMessage<nvfuser::nvfError>(
                 testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
+        scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
 
