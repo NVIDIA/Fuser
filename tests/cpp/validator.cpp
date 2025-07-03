@@ -104,24 +104,6 @@ void testValidate(
     auto tolerance_values =
         getTolerance(out_tv->getDataType().value(), reduction_size, tolerances);
 
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
-    if (aten_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2 ||
-        fusion_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2) {
-    std::cout << "fp4" << std::endl;
-      NVF_ERROR(aten_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2 &&
-      fusion_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2,
-      "comparing fp4 with non-fp4 is not supported by testValidate yet");
-      NVF_ERROR(at::equal(aten_output_tensor.view(at::ScalarType::Byte),
-                fusion_output_tensor.view(at::ScalarType::Byte)),
-                "Validation error in output ",
-                i,
-                " on line ",
-                line_number,
-                " in file ",
-                file_name,
-                ".");
-    } else
-#endif
     if (aten_output_tensor.is_floating_point() ||
         aten_output_tensor.is_complex()) {
       auto common_dtype = aten_output_tensor.dtype();

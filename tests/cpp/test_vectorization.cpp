@@ -756,6 +756,11 @@ TEST_P(VectorizationCastTest, CastKernel) {
 
   auto cg_outputs = ke.run({t0});
 
+  if (dtype_from == DataType::Float4_e2m1fn || dtype_to == DataType::Float4_e2m1fn) {
+    // PyTorch does not have casting kernel for fp4, there is nothing we can use
+    // as reference.
+    return;
+  }
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
