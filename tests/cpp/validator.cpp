@@ -107,6 +107,7 @@ void testValidate(
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
     if (aten_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2 ||
         fusion_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2) {
+    std::cout << "fp4" << std::endl;
       NVF_ERROR(aten_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2 &&
       fusion_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2,
       "comparing fp4 with non-fp4 is not supported by testValidate yet");
