@@ -548,6 +548,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           rparams,
           inner_reduction_tvs,
           SchedulerType::InnerOuterPersistent);
+  
+  scheduler_utils::moveNonConcretizedBroadcastInnermost(
+      fusion, {inner_reference_tv});
 
   // schedule outer reduction, schedule all the outer reduction tvs since we
   // need to store the intermediate results.
@@ -563,6 +566,8 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       cached_gmem_reload,
       outer_reference_tvs,
       boundaryNodesSet);
+
+
 
   // Propagate inner reduction and outer reductions
   for (auto output : dummy_outputs) {
@@ -706,8 +711,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Example: 2D tensor, [BIDy, S, | Bulk]
   // Example: 1D tensor, [Bulk]
   constexpr int64_t tma_inline_pos = 2;
+
   for (auto tv : tma_load_tvs) {
-    tv->axis(-1)->parallelize(ParallelType::Bulk);
+    // ignore non-concrete dims
+    int64_t last_dim = ir_utils::getLastConcreteDim(tv);
+    std::cout << "last_dim: " << last_dim << std::endl;
+    tv->axis(last_dim)->parallelize(ParallelType::Bulk);
     // Change from TIDy to Serial to separate the TMA load for different
     // computation warp groups
     if (rparams->computation_warp_groups > 1 &&
@@ -852,6 +861,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
       }
     }
+
+    std::cout << "============== before inline ==============" << std::endl;
+    fusion->printMath();
 
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {

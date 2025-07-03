@@ -2757,6 +2757,8 @@ void moveNonConcretizedBroadcastInnermost(
     }
 
     tv->reorder(old2new);
+    std::cout << "moveNonConcretizedBroadcastInnermost: " << tv->toString()
+              << std::endl;
   }
 }
 

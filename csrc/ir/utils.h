@@ -807,6 +807,10 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
 // double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
 
+// Returns the index of the last concrete (non-broadcast) dimension in a TensorView.
+// Iterates from the last dimension backwards to find the rightmost concrete dimension.
+int64_t getLastConcreteDim(const TensorView* tv);
+
 // Somtimes we want to temporarily view a tensorview with another tensordomain.
 // This isn't a permanent transformation, but in indexing we want to index
 // producers with a consumer set of indices, so we need to view the producer

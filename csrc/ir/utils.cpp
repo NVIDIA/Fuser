@@ -1599,6 +1599,15 @@ int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
   return vec_size_in_bytes / tmem_unit_size_bytes;
 }
 
+int64_t getLastConcreteDim(const TensorView* tv) {
+  for (auto i = tv->nDims() - 1; i >= 0; i--) {
+    if (!tv->axis(i)->isBroadcast()) {
+      return i;
+    }
+  }
+  NVF_ERROR(false, "last_concrete_dim is not found.");
+}
+
 TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
     : tv_(tv), prev_domain_(tv_->domain()) {
   tv_->setDomain(td);

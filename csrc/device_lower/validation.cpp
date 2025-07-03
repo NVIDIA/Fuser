@@ -1303,17 +1303,19 @@ void validateReductions(Fusion* fusion) {
 //! Validate f split output domain is loaded with 1D TMA, the split must be
 //! divisible
 void validate1dTmaLoad(Fusion* fusion) {
+  // Non-concrete dims are moved to innermost positions  
   for (auto tv : fusion->allTvs()) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    int64_t last_dim = ir_utils::getLastConcreteDim(tv);
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        tv->axis(last_dim)->getParallelType() == ParallelType::Bulk,
         "Expect TMA load of inner-most dimension, but got: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(last_dim)});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
