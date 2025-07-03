@@ -793,6 +793,7 @@ auto all_vectorization_cast_params = ::testing::Values(
     VectorizationCastParams(DataType::Float8_e4m3fn, DataType::Half, 4),
     VectorizationCastParams(DataType::Float8_e5m2, DataType::Half, 4),
 
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
     // cvt.rn.satfinite{.relu}.f4x2type.f32
     VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 2),
     // Two cvt.rn.satfinite{.relu}.f4x2type.f32
@@ -802,6 +803,7 @@ auto all_vectorization_cast_params = ::testing::Values(
     VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 2),
     // Two cvt.rn{.relu}.f16x2.f4x2type
     VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 4),
+#endif
 
     // cvt.frnd3{.satfinite}.ue8m0x2.f32
     VectorizationCastParams(DataType::Float, DataType::Float8_e8m0fnu, 2),
