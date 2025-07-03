@@ -110,8 +110,8 @@ void testValidate(
       NVF_ERROR(aten_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2 &&
       fusion_output_tensor.dtype() == at::ScalarType::Float4_e2m1fn_x2,
       "comparing fp4 with non-fp4 is not supported by testValidate yet");
-      NVF_ERROR(at::view(aten_output_tensor, at::ScalarType::Byte) ==
-                at::view(fusion_output_tensor, at::ScalarType::Byte),
+      NVF_ERROR(at::equal(aten_output_tensor.view(at::ScalarType::Byte),
+                fusion_output_tensor.view(at::ScalarType::Byte)),
                 "Validation error in output ",
                 i,
                 " on line ",
