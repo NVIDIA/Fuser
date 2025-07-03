@@ -11,7 +11,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <tensor_metadata.h>
-
+#include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
@@ -88,13 +88,29 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   }
 }
 
+
+// with cuda-12.7, devices 8.9 and 10.0 support 256 bit vectorization,
+// otherwise, the max is 128 bit vectorization.
+size_t SchedulerRuntimeInfo::getMaxVectorizationSizeInByte() {
+  size_t max_vec_bits = 16;
+  int sw_major, sw_minor;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&sw_major, &sw_minor));
+  if ((sw_major >= 12 && sw_minor >= 9) || (sw_major >= 13)) {
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major >= 10) {
+      max_vec_bits = 32;
+    }
+  }
+  return max_vec_bits;
+}
+
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
 size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
     return input_ptrs_.at(tv);
   }
-  return max_alignment_size_in_byte;
+  return getMaxVectorizationSizeInByte();
 }
 
 std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
@@ -114,7 +130,7 @@ size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
   size_t alignment_size = 1;
   size_t next_alignment_size = 2;
 
-  while (next_alignment_size <= max_alignment_size_in_byte &&
+  while (next_alignment_size <= getMaxVectorizationSizeInByte() &&
          ptr_address % next_alignment_size == 0) {
     alignment_size = next_alignment_size;
     next_alignment_size *= 2;

@@ -997,19 +997,20 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t max_vec_size = SchedulerRuntimeInfo::getMaxVectorizationSizeInByte();
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
-
+  std::cout << "max_vec_size: " << max_vec_size << std::endl;
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size
     const auto dtype_size =
         dataTypeSizeByte(inp_or_out->dtype(), runtime_info.getIndexType());
     max_vec_size = std::min(
         max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+        (int64_t)SchedulerRuntimeInfo::getMaxVectorizationSizeInByte() / dtype_size);
 
     // factor <= alignment / dtype_size
     int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
+    std::cout << "alignment_size: " << alignment_size << std::endl;
     NVF_ERROR(alignment_size % dtype_size == 0);
     max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
 

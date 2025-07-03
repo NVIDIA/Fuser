@@ -33,8 +33,8 @@ class ExpressionEvaluator;
 class SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bytes,
-  //  currently set to 16B = 128b
-  static constexpr int64_t max_alignment_size_in_byte = 16;
+  //  currently set to 16B = 128b or 32B = 256b
+  static size_t getMaxVectorizationSizeInByte();
 
   //! Create runtime info for given fusion and input. Creating and binding
   //! evaluator is optional. The evaluator is used to manage intermediate
@@ -55,7 +55,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,
   //!  and for other intermediate/fuser-allocated tensors will
-  //!  return max_alignment_size_in_byte.
+  //!  return getMaxVectorizationSizeInByte().
   size_t getAlignmentSize(TensorView* tv);
 
   //! Returns sizes of tensor dimensions in same order as allocation domain,
