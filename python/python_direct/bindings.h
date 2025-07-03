@@ -30,4 +30,7 @@ void bindOperations(py::module& nvfuser);
 // Translate a CPP Fusion to a bindings python function
 std::string translateFusion(Fusion* f);
 
+// Add bindings for Cutlass GEMM Operations
+void bindCutlass(py::module& nvfuser);
+
 } // namespace nvfuser::python
