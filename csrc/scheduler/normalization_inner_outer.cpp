@@ -162,26 +162,31 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       preferWarpSpecialized(
           fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
     auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
-    auto rparams = makeRParams();
-    rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+    // Current implementation assumes persistent buffers are projected to
+    // inputs, making TMA loading beneficial. If not, shared memory persistent
+    // buffers cannot use TMA since their producers are not inputs.
+    if (buffer_params.project_to_input) {
+      auto rparams = makeRParams();
+      rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
 
-    inner_outer_tma_warp_specialized::getHeuristics(
-        rparams.get(),
-        properties.total_iteration_numel,
-        properties.total_reduction_numel,
-        buffer_params.regs_buffer_size,
-        buffer_params.circular_buffered_smem_size,
-        buffer_params.non_circular_buffered_smem_size,
-        max_outer_reduction_dtype_size,
-        hp.vectorize_factor,
-        hp.threads_per_block_min,
-        hp.threads_per_block_max,
-        buffer_params.project_to_input,
-        runtime_info.getIndexType());
+      inner_outer_tma_warp_specialized::getHeuristics(
+          rparams.get(),
+          properties.total_iteration_numel,
+          properties.total_reduction_numel,
+          buffer_params.regs_buffer_size,
+          buffer_params.circular_buffered_smem_size,
+          buffer_params.non_circular_buffered_smem_size,
+          max_outer_reduction_dtype_size,
+          hp.vectorize_factor,
+          hp.threads_per_block_min,
+          hp.threads_per_block_max,
+          buffer_params.project_to_input,
+          runtime_info.getIndexType());
 
-    // If warp specialized is enabled, or the heuristic is successful, return
-    if (hp.is_warp_specialized || rparams->is_good_ws_heuristic) {
-      return rparams;
+      // If warp specialized is enabled, or the heuristic is successful, return
+      if (hp.is_warp_specialized || rparams->is_good_ws_heuristic) {
+        return rparams;
+      }
     }
   }
 
