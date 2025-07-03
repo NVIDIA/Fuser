@@ -404,7 +404,10 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    DataType dtype = DataType::Null) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -452,7 +455,8 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(
+      td, dtype == DataType::Null ? tv_a->dtype() : dtype);
 }
 
 } // namespace
@@ -491,30 +495,24 @@ ScaledTensorView scaled_mm(
     TensorView* bias,
     TensorView* beta,
     DataType dtype,
-    int64_t out_block_scale_size,
-    DataType block_scaling_factor_dtype,
-    bool out_gamma) {
+    int64_t output_block_scale_size,
+    DataType output_block_scale_dtype,
+    bool output_gamma) {
   bool has_bias = bias != nullptr;
   NVF_CHECK(
-      has_bias == (beta != nullptr),
-      "bias and beta needs to be non-null or both null, got bias : ",
+      beta == nullptr || has_bias,
+      "beta argument requires bias to be present. Got bias : ",
       has_bias ? "true" : "false",
       " and beta : ",
       beta != nullptr ? "true" : "false");
+  // TODO: support scaled output
+  NVF_CHECK(
+      output_block_scale_size == 0, "output_block_scale is not yet supported");
+  NVF_CHECK(!output_gamma, "output_gamma is not yet supported");
 
-  // TODO: check for out dtype and block/gamma scale option
   ScaledTensorView scaled_out;
 
-  // TODO: check for out dtype and block/gamma scale option
-  scaled_out.tv = newForMatmul(mat1, mat2);
-  //     dtype,
-  //     out_block_scale_size,
-  //     block_scaling_factor_dtype,
-  //     out_gamma);
-
-  // NOTE: we don't sanity check on alpha, bias and beta for now, because the
-  // semantics of alpha, bias and beta are defined by fallback path and is
-  // subject to change.
+  scaled_out.tv = newForMatmul(mat1, mat2, dtype);
 
   IrBuilder::create<ScaledMmaOp>(
       scaled_out.tv,

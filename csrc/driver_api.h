@@ -50,6 +50,7 @@ namespace nvfuser {
   fn(cuLaunchCooperativeKernel, 11000); \
   fn(cuLaunchKernel, 11000);            \
   fn(cuModuleGetFunction, 11000);       \
+  fn(cuModuleLoadData, 11000);          \
   fn(cuModuleLoadDataEx, 11000);        \
   fn(cuModuleUnload, 11000);            \
   fn(cuMemGetAddressRange, 11000);      \

@@ -6137,30 +6137,28 @@ ScaledMmaOp::ScaledMmaOp(
 
 std::string ScaledMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "ScaledMmaOp(\n";
-  ++indent_size;
-  indent(ss, indent_size) << "out: " << out()->toString() << "\n";
+  indent(ss, indent_size) << out();
   if (outScale() != nullptr) {
-    indent(ss, indent_size) << "out_scale: " << outScale()->toString() << "\n";
+    ss << ", " << outScale();
   }
   if (outGamma() != nullptr) {
-    indent(ss, indent_size) << "out_gamma: " << outGamma()->toString() << "\n";
+    ss << ", " << outGamma();
   }
-  indent(ss, indent_size) << "mat1: " << matrix1()->toString() << "\n";
-  indent(ss, indent_size) << "mat2: " << matrix2()->toString() << "\n";
-  indent(ss, indent_size) << "scale1: " << scale1()->toString() << "\n";
-  indent(ss, indent_size) << "scale2: " << scale2()->toString() << "\n";
+  ss << " = ScaledMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << "";
   if (hasAlpha()) {
-    indent(ss, indent_size) << "alpha: " << alpha()->toString() << "\n";
+    ss << ", alpha=" << alpha();
   }
   if (hasBias()) {
-    indent(ss, indent_size) << "bias: " << bias()->toString() << "\n";
+    ss << ", bias=" << bias();
   }
   if (hasBeta()) {
-    indent(ss, indent_size) << "beta: " << beta()->toString() << "\n";
+    ss << ", beta=" << beta();
   }
-  --indent_size;
-  indent(ss, indent_size) << ")";
+  ss << ")\n";
   return ss.str();
 }
 
@@ -6186,7 +6184,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int alpha_offset = alphaOffset();
     NVF_ERROR(
         inputs[alpha_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor alpha at position ",
+        "ScaledMmaOp expects tensor alpha at position ",
         alpha_offset,
         " but got ",
         inputs[alpha_offset].type().name());
@@ -6196,7 +6194,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int bias_offset = biasOffset();
     NVF_ERROR(
         inputs[bias_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor bias at position ",
+        "ScaledMmaOp expects tensor bias at position ",
         bias_offset,
         " but got ",
         inputs[bias_offset].type().name());
@@ -6206,7 +6204,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     int beta_offset = betaOffset();
     NVF_ERROR(
         inputs[beta_offset].is<at::Tensor>(),
-        "GroupedMmaOp expects tensor beta at position ",
+        "ScaledMmaOp expects tensor beta at position ",
         beta_offset,
         " but got ",
         inputs[beta_offset].type().name());
@@ -6221,13 +6219,13 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   NVF_CHECK(
       outGamma() == nullptr,
       "output global scaling factor in ScaledMmaOp is not supported yet");
-  result = at::_scaled_mm(
+  auto result = at::_scaled_mm(
       mat1,
       mat2,
       scale1,
       scale2,
-      bias.defined() ? std::optional<at::Tenosr>(bias) : std::nullopt,
-      alpha.defined() ? std::optional<at::Tenosr>(alpha) : std::nullopt,
+      bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
+      alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
       data_type_to_aten(out()->dtype()));
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
@@ -6238,20 +6236,8 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   return {result};
 
 #else
-  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
 #endif
-}
-
-IterDomain* ScaledMmaOp::getKDimOfMatrix1() const {
-  const auto& logical_domain =
-      TensorDomain::noReductions(matrix1()->getLogicalDomain());
-  return logical_domain.at(logical_domain.size() - 1);
-}
-
-IterDomain* ScaledMmaOp::getKDimOfMatrix2() const {
-  const auto& logical_domain =
-      TensorDomain::noReductions(matrix2()->getLogicalDomain());
-  return logical_domain.at(logical_domain.size() - 2);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)

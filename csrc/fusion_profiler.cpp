@@ -16,11 +16,7 @@
 namespace nvfuser {
 
 namespace {
-
-//! The following CUPTI code is adapted from the CUTPI samples/common and
-//! sample/activity_trace_async examples shipped with CUPTI.
-//! \note The CUPTI usage should be isolated to this file!
-
+//! A local utility macro to call CUPTI functions with error checking
 #define NVFUSER_CUPTI_SAFE_CALL(x)                     \
   do {                                                 \
     CUptiResult _status = x;                           \
@@ -37,135 +33,6 @@ namespace {
       exit(EXIT_FAILURE);                              \
     }                                                  \
   } while (0)
-
-void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
-  CUpti_ActivityKind activityKind = pRecord->kind;
-
-  switch (activityKind) {
-    case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL: {
-      CUpti_ActivityKernel8* pKARecord = (CUpti_ActivityKernel8*)pRecord;
-
-      KernelProfile prof;
-      prof.name.assign(demangle(pKARecord->name));
-
-      size_t start = prof.name.find("nvfuser");
-      if (start != std::string::npos) {
-        size_t end = prof.name.find('(', start);
-        prof.name = prof.name.substr(start, end - start);
-      }
-      prof.device = (int)pKARecord->deviceId;
-      prof.stream = pKARecord->streamId;
-      prof.correlation_id = pKARecord->correlationId;
-      constexpr double ms_convert = 1.0 / 1000000.0;
-      prof.time_ms =
-          static_cast<double>(pKARecord->end - pKARecord->start) * ms_convert;
-      prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
-      prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
-      prof.cluster = {
-          pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
-      prof.shared_mem = {
-          pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
-      prof.registers = pKARecord->registersPerThread;
-
-      FusionProfiler::recordAsyncKernelActivity(std::move(prof));
-
-      break;
-    }
-    case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION: {
-      CUpti_ActivityExternalCorrelation* pExternalCorrelationRecord =
-          (CUpti_ActivityExternalCorrelation*)pRecord;
-      FusionProfiler::recordAsyncCorrIdActivity(
-          pExternalCorrelationRecord->externalId,
-          pExternalCorrelationRecord->correlationId);
-      break;
-    }
-    case CUPTI_ACTIVITY_KIND_RUNTIME:
-    case CUPTI_ACTIVITY_KIND_DRIVER:
-      // NOTE: Driver activity is enabled in order to capture ext correlation
-      // records but the driver activity records are not of interest to record.
-      // Therefore, we read and skip over them from the buffer.
-      break;
-    default:
-      fprintf(pFileHandle, "  <unknown>\n");
-      break;
-  }
-}
-
-// This is the function that reads and processes each CUPTI Activity Record
-// recorded in a buffer.  The specific types of records are uniquely processed
-// in a separate function called below: record_cupti_activity.
-void record_cupti_activity_buffer(
-    uint8_t* pBuffer,
-    size_t validBytes,
-    FILE* pFileHandle,
-    void* pUserData) {
-  CUpti_Activity* pRecord = nullptr;
-  CUptiResult status = CUPTI_SUCCESS;
-
-  // This is an arbitrary record limit to make sure we do not get into an
-  // infinite loop;
-  const size_t max_records = 10000;
-  bool found_max_limit = false;
-
-  for (size_t i = 0; i < max_records; ++i) {
-    status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
-    if (status == CUPTI_SUCCESS) {
-      // Processes a valid CUPTI Activty record and records it with the
-      // fusion profiling infrastructure if the record is of interest.
-      record_cupti_activity(pRecord, pFileHandle);
-    } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
-      // This case is hit every time an activity buffer is read and you reach
-      // the end of the buffer activity to consume. Therefore, it is the
-      // intended way to break out of the loop!  The name is miss leading as
-      // you aren't reaching a Max Limit, necessarily!
-      found_max_limit = true;
-      break;
-    } else {
-      NVFUSER_CUPTI_SAFE_CALL(status);
-    }
-  }
-  NVF_ERROR(
-      found_max_limit,
-      "The CUPTI buffer has more than ",
-      max_records,
-      " record! Is that expected?");
-}
-
-// The functions cupti_buffer_requested and cupti_buffer_completed are
-// registered with the CUPTI Activiy Record Callback API:
-// cuptiActivityRegisterCallbacks.  Each of the functions APIs is prescribed
-// by CUPTI and you can find their signatured definitions in the CUPT docs.
-
-void cupti_buffer_requested(
-    uint8_t** ppBuffer,
-    size_t* pSize,
-    size_t* pMaxNumRecords) {
-  uint8_t* pBuffer = FusionProfiler::cuptiBufferPtr();
-  NVF_ERROR(pBuffer, "CUPTI Activity Record buffer pointer is null!");
-  const size_t align_size = 8;
-  NVF_ERROR(
-      ((uintptr_t)pBuffer & (align_size - 1)) == 0,
-      "The CUPTI Activity Record buffer needs to be 8 byte aligned!");
-
-  *ppBuffer = pBuffer;
-  *pSize = FusionProfiler::cupti_activity_buffer_size;
-  // NOTE: The Max Number of records limits the number of records that can be
-  // recorded in the activity buffer.  When set to 0, it puts as many records
-  // as it can which effectively disables a max limit.
-  *pMaxNumRecords = 0;
-}
-
-void cupti_buffer_completed(
-    CUcontext context,
-    uint32_t streamId,
-    uint8_t* pBuffer,
-    size_t size,
-    size_t validSize) {
-  if (validSize > 0) {
-    record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr);
-  }
-}
-
 //! A local utility function to give ProfilerState enum state strings
 const char* profiler_state2string(const ProfilerState& pstate) {
   switch (pstate) {
@@ -595,6 +462,179 @@ std::ostream& operator<<(std::ostream& os, const FusionProfile& fp) {
   return os;
 }
 
+namespace {
+//! The following CUPTI code is adapted from the CUTPI samples/common and
+//! sample/activity_trace_async examples shipped with CUPTI.
+//! \note The CUPTI usage should be isolated to this file!
+
+void record_cupti_activity(CUpti_Activity* pRecord, FILE* pFileHandle) {
+  CUpti_ActivityKind activityKind = pRecord->kind;
+
+  switch (activityKind) {
+    case CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL: {
+      CUpti_ActivityKernel8* pKARecord = (CUpti_ActivityKernel8*)pRecord;
+
+      KernelProfile prof;
+      prof.name.assign(demangle(pKARecord->name));
+
+      size_t start = prof.name.find("nvfuser");
+      if (start != std::string::npos) {
+        size_t end = prof.name.find('(', start);
+        prof.name = prof.name.substr(start, end - start);
+      }
+      prof.device = (int)pKARecord->deviceId;
+      prof.stream = pKARecord->streamId;
+      prof.correlation_id = pKARecord->correlationId;
+      constexpr double ms_convert = 1.0 / 1000000.0;
+      prof.time_ms =
+          static_cast<double>(pKARecord->end - pKARecord->start) * ms_convert;
+      prof.grid = {pKARecord->gridX, pKARecord->gridY, pKARecord->gridZ};
+      prof.block = {pKARecord->blockX, pKARecord->blockY, pKARecord->blockZ};
+      prof.cluster = {
+          pKARecord->clusterX, pKARecord->clusterY, pKARecord->clusterZ};
+      prof.shared_mem = {
+          pKARecord->dynamicSharedMemory, pKARecord->staticSharedMemory};
+      prof.registers = pKARecord->registersPerThread;
+
+      FusionProfiler::recordAsyncKernelActivity(std::move(prof));
+
+      break;
+    }
+    case CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION: {
+      CUpti_ActivityExternalCorrelation* pExternalCorrelationRecord =
+          (CUpti_ActivityExternalCorrelation*)pRecord;
+      FusionProfiler::recordAsyncCorrIdActivity(
+          pExternalCorrelationRecord->externalId,
+          pExternalCorrelationRecord->correlationId);
+      break;
+    }
+    case CUPTI_ACTIVITY_KIND_RUNTIME:
+    case CUPTI_ACTIVITY_KIND_DRIVER:
+      // NOTE: Driver activity is enabled in order to capture ext correlation
+      // records but the driver activity records are not of interest to record.
+      // Therefore, we read and skip over them from the buffer.
+      break;
+    default:
+      fprintf(pFileHandle, "  <unknown>\n");
+      break;
+  }
+}
+
+// This is the function that reads and processes each CUPTI Activity Record
+// recorded in a buffer.  The specific types of records are uniquely processed
+// in a separate function called below: record_cupti_activity.
+void record_cupti_activity_buffer(
+    uint8_t* pBuffer,
+    size_t validBytes,
+    FILE* pFileHandle,
+    void* pUserData) {
+  CUpti_Activity* pRecord = nullptr;
+  CUptiResult status = CUPTI_SUCCESS;
+
+  // This is an arbitrary record limit to make sure we do not get into an
+  // infinite loop;
+  const size_t max_records = 10000;
+  bool found_max_limit = false;
+
+  for (size_t i = 0; i < max_records; ++i) {
+    status = cuptiActivityGetNextRecord(pBuffer, validBytes, &pRecord);
+    if (status == CUPTI_SUCCESS) {
+      // Processes a valid CUPTI Activty record and records it with the
+      // fusion profiling infrastructure if the record is of interest.
+      record_cupti_activity(pRecord, pFileHandle);
+    } else if (status == CUPTI_ERROR_MAX_LIMIT_REACHED) {
+      // This case is hit every time an activity buffer is read and you reach
+      // the end of the buffer activity to consume. Therefore, it is the
+      // intended way to break out of the loop!  The name is miss leading as
+      // you aren't reaching a Max Limit, necessarily!
+      found_max_limit = true;
+      break;
+    } else {
+      NVFUSER_CUPTI_SAFE_CALL(status);
+    }
+  }
+  NVF_ERROR(
+      found_max_limit,
+      "The CUPTI buffer has more than ",
+      max_records,
+      " record! Is that expected?");
+}
+
+// The functions cupti_buffer_requested and cupti_buffer_completed are
+// registered with the CUPTI Activiy Record Callback API:
+// cuptiActivityRegisterCallbacks.  Each of the functions APIs is prescribed
+// by CUPTI and you can find their signatured definitions in the CUPT docs.
+
+void cupti_buffer_requested(
+    uint8_t** ppBuffer,
+    size_t* pSize,
+    size_t* pMaxNumRecords) {
+  uint8_t* pBuffer = FusionProfiler::cuptiBufferPtr();
+  NVF_ERROR(pBuffer, "CUPTI Activity Record buffer pointer is null!");
+  const size_t align_size = 8;
+  NVF_ERROR(
+      ((uintptr_t)pBuffer & (align_size - 1)) == 0,
+      "The CUPTI Activity Record buffer needs to be 8 byte aligned!");
+
+  *ppBuffer = pBuffer;
+  *pSize = FusionProfiler::cupti_activity_buffer_size;
+  // NOTE: The Max Number of records limits the number of records that can be
+  // recorded in the activity buffer.  When set to 0, it puts as many records
+  // as it can which effectively disables a max limit.
+  *pMaxNumRecords = 0;
+}
+
+void cupti_buffer_completed(
+    CUcontext context,
+    uint32_t streamId,
+    uint8_t* pBuffer,
+    size_t size,
+    size_t validSize) {
+  if (validSize > 0) {
+    record_cupti_activity_buffer(pBuffer, validSize, stdout, nullptr);
+  }
+}
+
+// CUPT activities to enable/disable
+constexpr CUpti_ActivityKind cupti_activities[] = {
+    CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL,
+    CUPTI_ACTIVITY_KIND_DRIVER,
+    CUPTI_ACTIVITY_KIND_RUNTIME,
+    CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION};
+
+void enableCuptiActivities() {
+  for (const auto& activity : cupti_activities) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(activity));
+  }
+}
+
+void disableCuptiActivities() {
+  for (const auto& activity : cupti_activities) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(activity));
+  }
+}
+
+void initializeCupti(CUpti_SubscriberHandle subscriber_handle) {
+  NVFUSER_CUPTI_SAFE_CALL(cuptiSubscribe(
+      &subscriber_handle, /*callback=*/nullptr, /*userData=*/nullptr));
+  NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
+      cupti_buffer_requested, cupti_buffer_completed));
+}
+
+void teardownCupti(CUpti_SubscriberHandle subscriber_handle) {
+  // Unsubscribe if we have a valid handle, so no future callbacks will be
+  // associated with this handle.
+  if (subscriber_handle != nullptr) {
+    NVFUSER_CUPTI_SAFE_CALL(cuptiUnsubscribe(subscriber_handle));
+    subscriber_handle = nullptr;
+  }
+
+  // Detach CUPTI from the current process.
+  NVFUSER_CUPTI_SAFE_CALL(cuptiFinalize());
+}
+
+} // namespace
+
 FusionProfiler::FusionProfiler()
     : cupti_disabled_(false),
       cupti_buffer_(FusionProfiler::cupti_activity_buffer_size),
@@ -607,81 +647,70 @@ FusionProfiler::FusionProfiler()
       segments_(),
       device_descriptors_(),
       kernel_profiles_(),
-      corrid_2_segid_() {
-  if (!cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityRegisterCallbacks(
-        cupti_buffer_requested, cupti_buffer_completed));
-  }
+      corrid_2_segid_(),
+      subscriber_handle_(nullptr) {
+  initializeCupti(subscriber_handle_);
 }
 
-FusionProfiler* FusionProfiler::get() {
-  static std::mutex singleton_lock;
-  static FusionProfiler* singleton = nullptr;
-
-  std::lock_guard<std::mutex> guard(singleton_lock);
-  if (singleton == nullptr) {
-    singleton = new FusionProfiler();
-  }
+/*static*/ FusionProfiler& FusionProfiler::get() {
+  static FusionProfiler singleton;
   return singleton;
 }
 
 void FusionProfiler::reset() {
-  FusionProfiler* fp = get();
-  fp->state_ = ProfilerState::Ready;
-  ++(fp->fusion_id_);
+  FusionProfiler& fp = get();
+  fp.state_ = ProfilerState::Ready;
+  ++(fp.fusion_id_);
 
-  fp->profile_.reset();
-  fp->fusion_timer_.reset();
-  fp->host_timer_.reset();
-  fp->compile_timer_.reset();
-  fp->segments_.clear();
-  fp->kernel_profiles_.clear();
-  fp->corrid_2_segid_.clear();
+  fp.profile_.reset();
+  fp.fusion_timer_.reset();
+  fp.host_timer_.reset();
+  fp.compile_timer_.reset();
+  fp.segments_.clear();
+  fp.kernel_profiles_.clear();
+  fp.corrid_2_segid_.clear();
 }
 
 ProfilerState FusionProfiler::state() {
-  return get()->state_;
+  return get().state_;
 }
 
 void FusionProfiler::createSegments(size_t num) {
-  FusionProfiler* fp = get();
+  FusionProfiler& fp = get();
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  fp->segments_.reserve(num);
+  fp.segments_.reserve(num);
   for (uint32_t i = 0; i < num; ++i) {
-    fp->segments_.emplace_back(i, fp->cupti_disabled_);
+    fp.segments_.emplace_back(i, fp.cupti_disabled_);
   }
 }
+
 SegmentProfiler& FusionProfiler::segment(size_t idx) {
+  FusionProfiler& fp = get();
   NVF_CHECK(
-      get()->segments_.size() > idx,
+      fp.segments_.size() > idx,
       "FusionProfiler: You are attempting to access non-existent segments! "
       "Segments: ",
-      get()->segments_.size(),
+      fp.segments_.size(),
       " Idx: ",
       idx);
-  return get()->segments_.at(idx);
+  return fp.segments_.at(idx);
 }
 
 /*static*/ void FusionProfiler::start(bool cupti_disable) {
-  FusionProfiler* fp = get();
-  fp->cupti_disabled_ = cupti_disable;
+  FusionProfiler& fp = get();
+  fp.cupti_disabled_ = cupti_disable;
   NVF_CHECK(
-      fp->state_ != ProfilerState::Running,
+      fp.state_ != ProfilerState::Running,
       "FusionProfiler has already Started! Stop the profiler before starting "
       "again.");
   reset();
-  if (!fp->cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityEnable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_DRIVER));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityEnable(CUPTI_ACTIVITY_KIND_RUNTIME));
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityEnable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+  if (!fp.cupti_disabled_) {
+    enableCuptiActivities();
   }
   cudaDeviceSynchronize();
-  fp->fusion_timer_.start();
-  fp->host_timer_.start();
-  fp->state_ = ProfilerState::Running;
+  fp.fusion_timer_.start();
+  fp.host_timer_.start();
+  fp.state_ = ProfilerState::Running;
 }
 
 const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
@@ -700,45 +729,40 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
 }
 
 /*static*/ void FusionProfiler::stop() {
-  FusionProfiler* fp = get();
+  FusionProfiler& fp = get();
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  fp->host_timer_.stop();
-  fp->fusion_timer_.stop();
-  fp->state_ = ProfilerState::Finished;
-  FusionProfile& fprof = fp->profile_;
-  fprof.cuda_evt_time_ms = fp->fusion_timer_.time();
-  fprof.host_time_ms = fp->host_timer_.time();
-  fprof.fusion_id = fp->fusion_id_;
-  fprof.segments = (int64_t)fp->segments_.size();
+  fp.host_timer_.stop();
+  fp.fusion_timer_.stop();
+  fp.state_ = ProfilerState::Finished;
+  FusionProfile& fprof = fp.profile_;
+  fprof.cuda_evt_time_ms = fp.fusion_timer_.time();
+  fprof.host_time_ms = fp.host_timer_.time();
+  fprof.fusion_id = fp.fusion_id_;
+  fprof.segments = (int64_t)fp.segments_.size();
 
   double kernel_time_ms = 0.0;
   constexpr double mb_divider = 1.0 / 1.0e6;
-  if (!fp->cupti_disabled_) {
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityDisable(CUPTI_ACTIVITY_KIND_CONCURRENT_KERNEL));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_DRIVER));
-    NVFUSER_CUPTI_SAFE_CALL(cuptiActivityDisable(CUPTI_ACTIVITY_KIND_RUNTIME));
-    NVFUSER_CUPTI_SAFE_CALL(
-        cuptiActivityDisable(CUPTI_ACTIVITY_KIND_EXTERNAL_CORRELATION));
+  if (!fp.cupti_disabled_) {
+    disableCuptiActivities();
     // This will be populated by the following `cuptiActivityFlushAll` call.
-    fp->kernel_profiles_.reserve(fp->segments_.size());
+    fp.kernel_profiles_.reserve(fp.segments_.size());
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
-    fprof.kernel_profiles.resize(fp->segments_.size());
-    for (KernelProfile& kprof : fp->kernel_profiles_) {
+    fprof.kernel_profiles.resize(fp.segments_.size());
+    for (KernelProfile& kprof : fp.kernel_profiles_) {
       auto corr_id = kprof.correlation_id;
-      if (fp->corrid_2_segid_.count(corr_id) == 0) {
+      if (fp.corrid_2_segid_.count(corr_id) == 0) {
         continue;
       }
 
-      const DeviceDescriptor& device_desc = fp->deviceDescriptor(kprof.device);
+      const DeviceDescriptor& device_desc = fp.deviceDescriptor(kprof.device);
       kprof.device_name = device_desc.name;
       kprof.peak_bandwidth_gbs = device_desc.peak_bandwidth_gbs;
       NVF_CHECK(
-          fp->corrid_2_segid_.count(corr_id) > 0,
+          fp.corrid_2_segid_.count(corr_id) > 0,
           "Correlation Id is not found in corrid -> segid hashmap! ",
           corr_id);
-      auto kp_idx = fp->corrid_2_segid_[corr_id];
+      auto kp_idx = fp.corrid_2_segid_[corr_id];
       NVF_CHECK(
           kp_idx < fprof.kernel_profiles.size(),
           "Index is out of range of Kernel Profiles size! ",
@@ -746,7 +770,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
           " ",
           fprof.kernel_profiles.size());
       NVF_CHECK_EQ(
-          fp->segments_[kp_idx].state(),
+          fp.segments_[kp_idx].state(),
           ProfilerState::Finished,
           "SegmentProfiler ProfilerState is not Finished!");
       kprof.segment_id = static_cast<size_t>(kp_idx);
@@ -771,7 +795,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     }
 
     int common_device = -1;
-    for (const SegmentProfiler& seg : fp->segments_) {
+    for (const SegmentProfiler& seg : fp.segments_) {
       if (common_device == -1) {
         common_device = seg.device();
         continue;
@@ -790,39 +814,47 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     }
 
     fprof.kernel_time_ms = kernel_time_ms;
-    if (!fp->kernel_profiles_.empty()) {
+    if (!fp.kernel_profiles_.empty()) {
       fprof.effective_bandwidth_gbs =
           (double)(fprof.input_bytes + fprof.output_bytes) / kernel_time_ms *
           mb_divider;
     }
-    if (!fp->segments_.empty()) {
+    if (!fp.segments_.empty()) {
       fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-          fp->deviceDescriptor(common_device).peak_bandwidth_gbs * 100.0;
+          fp.deviceDescriptor(common_device).peak_bandwidth_gbs * 100.0;
     }
   }
-  fprof.compile_time_ms = fp->compile_timer_.time();
+  fprof.compile_time_ms = fp.compile_timer_.time();
 
-  fp->state_ = ProfilerState::Processed;
+  fp.state_ = ProfilerState::Processed;
+}
+
+FusionProfiler::~FusionProfiler() {
+  teardownCupti(subscriber_handle_);
 }
 
 void FusionProfiler::startCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  get()->compile_timer_.start();
+  FusionProfiler& fp = get();
+  fp.compile_timer_.start();
 }
 
 void FusionProfiler::stopCompile() {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  get()->compile_timer_.stop();
+  FusionProfiler& fp = get();
+  fp.compile_timer_.stop();
 }
 
 void FusionProfiler::inputBytesAccessed(int64_t bytes) {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  get()->profile_.input_bytes = bytes;
+  FusionProfiler& fp = get();
+  fp.profile_.input_bytes = bytes;
 }
 
 void FusionProfiler::outputBytesAccessed(int64_t bytes) {
   NVF_CHECK_EQ(state(), ProfilerState::Running);
-  get()->profile_.output_bytes = bytes;
+  FusionProfiler& fp = get();
+  fp.profile_.output_bytes = bytes;
 }
 
 const FusionProfile& FusionProfiler::profile() {
@@ -831,7 +863,8 @@ const FusionProfile& FusionProfiler::profile() {
       ProfilerState::Processed,
       "The FusionProfile struct data is not valid because it has not been "
       "processed!");
-  return get()->profile_;
+  FusionProfiler& fp = get();
+  return fp.profile_;
 }
 
 double FusionProfiler::lastKernelTime() {
@@ -844,21 +877,23 @@ double FusionProfiler::lastKernelTime() {
 void FusionProfiler::recordAsyncCorrIdActivity(
     uint32_t seg_id,
     uint32_t corr_id) {
-  FusionProfiler* fp = get();
+  FusionProfiler& fp = get();
   NVF_CHECK(
-      fp->corrid_2_segid_.count(corr_id) == 0,
+      fp.corrid_2_segid_.count(corr_id) == 0,
       "Segment Correlation Activity asociated with this correlation id already "
       "exists! ",
       corr_id);
-  fp->corrid_2_segid_[corr_id] = seg_id;
+  fp.corrid_2_segid_[corr_id] = seg_id;
 }
 
 void FusionProfiler::recordAsyncKernelActivity(KernelProfile prof) {
-  get()->kernel_profiles_.emplace_back(std::move(prof));
+  FusionProfiler& fp = get();
+  fp.kernel_profiles_.emplace_back(std::move(prof));
 }
 
 uint8_t* FusionProfiler::cuptiBufferPtr() {
-  return get()->cupti_buffer_.data();
+  FusionProfiler& fp = get();
+  return fp.cupti_buffer_.data();
 }
 
 } // namespace nvfuser

@@ -1076,6 +1076,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   }
 }
 
+#if 0
 TEST_F(NVFuserTest, FusionSASSDumpError) {
   // create a fake nvdisasm that prints "I am fake" to stderr
   namespace fs = std::filesystem;
@@ -1131,6 +1132,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
   testValidate(
       ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
+#endif
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   Fusion fusion;

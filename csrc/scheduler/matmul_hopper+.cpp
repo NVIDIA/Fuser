@@ -377,14 +377,9 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
   // params_->tile_sizes and infer cluster_dims from that
   bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
   if (has_cga) {
-    int64_t cm = params_->cluster_dims.x;
-    int64_t cn = params_->cluster_dims.y;
-    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      std::swap(cm, cn);
-    }
     GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * cm,
-        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.m * params_->cluster_dims.x,
+        params_->tile_sizes.cta_tile.n * params_->cluster_dims.y,
         params_->tile_sizes.cta_tile.k};
 
     merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
@@ -592,7 +587,9 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      tv->split(num_device_dims_, numCGAs());
+      const int64_t num_clusters =
+          matmul_utils::getMaxActiveClusters(params_->cluster_dims);
+      tv->split(num_device_dims_, num_clusters);
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -672,26 +669,16 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        // For persistent kernels, we parallelize BIDx, and if cluster_dims is
-        // non-trivial then we also bind BIDy and BIDz
         if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
+          // With CGAs, we only bind BIDz to indicate the cluster ID and
+          // BIDx/BIDy are the cluster dimensions
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
-          switch (params_->cta_order) {
-            // TODO: Should we instead check the roles of these dimensions to
-            // take the outermost two M or N axes?
-            case MatmulParams::TileRasterizationOrder::ColumnMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
-              break;
-            case MatmulParams::TileRasterizationOrder::RowMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
-              break;
-            default:
-              NVF_THROW(
-                  "Invalid TileRasterizationOrder passed to Matmul scheduler");
-          }
+          // BIDx and BIDy are the cluster dims and always correspond to M and
+          // N, regardless of cta_order
+          tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+          tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
         } else {
+          // Without CGAs, we only bind BIDx
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
         }
         break;

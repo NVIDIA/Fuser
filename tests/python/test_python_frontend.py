@@ -32,6 +32,7 @@ from nvfuser.testing.utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
+    is_pre_blackwell,
     debug_serde,
     NVFuserTest,
     verify_stride_order,
@@ -136,14 +137,23 @@ class TestNvFuserFrontend(NVFuserTest):
 
             nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
             eager_out = inputs[0].to(out_type)
-            self.assertEqual(eager_out, nvf_out[0])
+            if in_type == torch.float8_e8m0fnu or out_type == torch.float8_e8m0fnu:
+                # Eager mode uses manual bit manipulation, and nvFuser uses
+                # hardware instructions. Unfortunately, these implementations
+                # do not match exactly. e8m0 can only represent 2^x, so we are
+                # asserting that the x of the two results are off by at most 1.
+                nvf_out_fp32 = nvf_out[0].to(torch.float32)
+                eager_out_fp32 = eager_out.to(torch.float32)
+                rel_err = eager_out_fp32.div(nvf_out_fp32).max().item()
+                self.assertTrue(rel_err <= 2 and rel_err >= 0.5)
+            else:
+                self.assertEqual(eager_out, nvf_out[0])
 
         for type0 in [torch.double, torch.float32, torch.float16, torch.bfloat16]:
-            for type1 in [
-                torch.float8_e4m3fn,
-                torch.float8_e5m2,
-                torch.float8_e8m0fnu,
-            ]:
+            type1_list = [torch.float8_e4m3fn, torch.float8_e5m2]
+            if not is_pre_blackwell():
+                type1_list.append(torch.float8_e8m0fnu)
+            for type1 in type1_list:
                 fn(type0, type1)
                 fn(type1, type0)
 
