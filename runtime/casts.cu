@@ -1118,12 +1118,14 @@ __device__ __inline__ Array<__half, 2, 2> __e2m12half(
   const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&inputx2);
   Array<__half, 2, 2> result;
   uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
-  asm volatile( \
-    "{\n" \
-    ".reg .b8 byte0, byte1;\n" \
-    "mov.b16 {byte0, byte1}, %1;\n" \
-    "cvt.rn.f16x2.e2m1x2 %0, byte0;\n" \
-    "}\n" : "=r"(result_scalar) : "h"(input_scalar));
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0, byte1;\n"
+      "mov.b16 {byte0, byte1}, %1;\n"
+      "cvt.rn.f16x2.e2m1x2 %0, byte0;\n"
+      "}\n"
+      : "=r"(result_scalar)
+      : "h"(input_scalar));
   return result;
 }
 
@@ -1134,16 +1136,19 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
   // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
   const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   Array<__half, 4, align> result;
-  Array<Array<__half, 2, 1>, 2, 1> &resultx2 = reinterpret_cast<Array<Array<__half, 2, 1>, 2, 1> &>(result);
+  Array<Array<__half, 2, 1>, 2, 1>& resultx2 =
+      reinterpret_cast<Array<Array<__half, 2, 1>, 2, 1>&>(result);
   uint32_t& result_scalar0 = *reinterpret_cast<uint32_t*>(&resultx2[0]);
   uint32_t& result_scalar1 = *reinterpret_cast<uint32_t*>(&resultx2[1]);
-  asm volatile( \
-    "{\n" \
-    ".reg .b8 byte0, byte1;\n" \
-    "mov.b16 {byte0, byte1}, %2;\n" \
-    "cvt.rn.f16x2.e2m1x2 %0, byte0;\n" \
-    "cvt.rn.f16x2.e2m1x2 %1, byte1;\n" \
-    "}\n" : "=r"(result_scalar0), "=r"(result_scalar1) : "h"(input_scalar));
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0, byte1;\n"
+      "mov.b16 {byte0, byte1}, %2;\n"
+      "cvt.rn.f16x2.e2m1x2 %0, byte0;\n"
+      "cvt.rn.f16x2.e2m1x2 %1, byte1;\n"
+      "}\n"
+      : "=r"(result_scalar0), "=r"(result_scalar1)
+      : "h"(input_scalar));
   return result;
 }
 
