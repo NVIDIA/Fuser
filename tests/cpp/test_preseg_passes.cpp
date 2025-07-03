@@ -1340,10 +1340,7 @@ TEST_F(PresegTest, MoveGatherOverCast) {
       unary_ops.begin(),
       unary_ops.end(),
       std::back_inserter(all_cast_ops),
-      [](UnaryOp* op) {
-        std::cout << op->toString() << std::endl;
-        return op->getUnaryOpType() == UnaryOpType::Cast;
-      });
+      [](UnaryOp* op) { return op->getUnaryOpType() == UnaryOpType::Cast; });
   EXPECT_EQ(all_cast_ops.size(), 2);
 
   // The cast op after gather op should be a new cast op

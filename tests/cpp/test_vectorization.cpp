@@ -682,4 +682,149 @@ TEST_F(NVFuserTest, VectorizationStrideValidation) {
   ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t0));
 }
 
+// From dtype, to dtype, vectorization factor
+using VectorizationCastParams = std::tuple<DataType, DataType, int64_t>;
+
+class VectorizationCastTest
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<VectorizationCastParams> {
+ public:
+  void SetUp() override {
+    std::tie(dtype_from, dtype_to, vectorization_factor) = GetParam();
+  }
+
+ protected:
+  DataType dtype_from;
+  DataType dtype_to;
+  int64_t vectorization_factor;
+};
+
+TEST_P(VectorizationCastTest, CastKernel) {
+  if (dtype_from == DataType::Float8_e8m0fnu ||
+      dtype_to == DataType::Float8_e8m0fnu ||
+      dtype_from == DataType::Float4_e2m1fn ||
+      dtype_to == DataType::Float4_e2m1fn) {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  }
+  if (dtype_from == DataType::Float8_e4m3fn ||
+      dtype_from == DataType::Float8_e5m2 ||
+      dtype_to == DataType::Float8_e4m3fn ||
+      dtype_to == DataType::Float8_e5m2) {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
+  if (dtype_from == DataType::BFloat16 || dtype_to == DataType::BFloat16) {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+  }
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({vectorization_factor}, dtype_from);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(dtype_to, tv0);
+  fusion.addOutput(tv1);
+
+  auto tv0_cache = tv0->cacheAfter();
+  auto tv1_cache = tv1->cacheBefore();
+
+  for (auto tv : {tv0_cache, tv1_cache, tv1}) {
+    tv->axis(0)->parallelize(ParallelType::Vectorize);
+  }
+
+  at::Tensor t0;
+  if (dtype_from == DataType::Float8_e4m3fn ||
+      dtype_from == DataType::Float8_e5m2 ||
+      dtype_from == DataType::Float8_e8m0fnu) {
+    auto options =
+        at::TensorOptions().dtype(at::ScalarType::Byte).device(at::kCUDA, 0);
+    t0 = at::randint(0, 255, {vectorization_factor}, options)
+             .view(data_type_to_aten(dtype_from));
+  } else {
+    auto options = at::TensorOptions()
+                       .dtype(data_type_to_aten(dtype_from))
+                       .device(at::kCUDA, 0);
+    t0 = at::randn({vectorization_factor}, options);
+  }
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+
+  auto cg_outputs = ke.run({t0});
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#data-movement-and-conversion-instructions-cvt
+auto all_vectorization_cast_params = ::testing::Values(
+    // cvt.frnd2{.relu}{.satfinite}.f16x2.f32
+    VectorizationCastParams(DataType::Float, DataType::Half, 2),
+    // Two cvt.frnd2{.relu}{.satfinite}.f16x2.f32
+    VectorizationCastParams(DataType::Float, DataType::Half, 4),
+
+    // cvt.frnd2{.relu}{.satfinite}.bf16x2.f32
+    VectorizationCastParams(DataType::Float, DataType::BFloat16, 2),
+    // Two cvt.frnd2{.relu}{.satfinite}.bf16x2.f32
+    VectorizationCastParams(DataType::Float, DataType::BFloat16, 4),
+
+    // cvt.rn.satfinite{.relu}.f8x2type.f32
+    VectorizationCastParams(DataType::Float, DataType::Float8_e4m3fn, 2),
+    VectorizationCastParams(DataType::Float, DataType::Float8_e5m2, 2),
+    // Two cvt.rn.satfinite{.relu}.f8x2type.f32
+    VectorizationCastParams(DataType::Float, DataType::Float8_e4m3fn, 4),
+    VectorizationCastParams(DataType::Float, DataType::Float8_e5m2, 4),
+
+    // cvt.rn.satfinite{.relu}.f8x2type.f16x2
+    VectorizationCastParams(DataType::Half, DataType::Float8_e4m3fn, 2),
+    VectorizationCastParams(DataType::Half, DataType::Float8_e5m2, 2),
+    // Two cvt.rn.satfinite{.relu}.f8x2type.f16x2
+    VectorizationCastParams(DataType::Half, DataType::Float8_e4m3fn, 4),
+    VectorizationCastParams(DataType::Half, DataType::Float8_e5m2, 4),
+
+    // cvt.rn.{.relu}.f16x2.f8x2type
+    VectorizationCastParams(DataType::Float8_e4m3fn, DataType::Half, 2),
+    VectorizationCastParams(DataType::Float8_e5m2, DataType::Half, 2),
+    // Two cvt.rn.{.relu}.f16x2.f8x2type
+    VectorizationCastParams(DataType::Float8_e4m3fn, DataType::Half, 4),
+    VectorizationCastParams(DataType::Float8_e5m2, DataType::Half, 4),
+
+    // // cvt.rn.satfinite{.relu}.f4x2type.f32
+    // VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 2),
+    // // Two cvt.rn.satfinite{.relu}.f4x2type.f32
+    // VectorizationCastParams(DataType::Float, DataType::Float4_e2m1fn, 4),
+
+    // // cvt.rn{.relu}.f16x2.f4x2type
+    // VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 2),
+    // // Two cvt.rn{.relu}.f16x2.f4x2type
+    // VectorizationCastParams(DataType::Float4_e2m1fn, DataType::Half, 4),
+
+    // cvt.frnd3{.satfinite}.ue8m0x2.f32
+    VectorizationCastParams(DataType::Float, DataType::Float8_e8m0fnu, 2),
+    // Two cvt.frnd3{.satfinite}.ue8m0x2.f32
+    VectorizationCastParams(DataType::Float, DataType::Float8_e8m0fnu, 4),
+
+    // cvt.frnd3{.satfinite}.ue8m0x2.bf16x2
+    VectorizationCastParams(DataType::BFloat16, DataType::Float8_e8m0fnu, 2),
+    // Two cvt.frnd3{.satfinite}.ue8m0x2.bf16x2
+    VectorizationCastParams(DataType::BFloat16, DataType::Float8_e8m0fnu, 4),
+
+    // cvt.rn.bf16x2.ue8m0x2
+    VectorizationCastParams(DataType::Float8_e8m0fnu, DataType::BFloat16, 2),
+    // Two cvt.rn.bf16x2.ue8m0x2
+    VectorizationCastParams(DataType::Float8_e8m0fnu, DataType::BFloat16, 4));
+
+std::string vectorizeCastTestName(
+    testing::TestParamInfo<VectorizationCastParams> info) {
+  std::stringstream ss;
+  ss << "from_" << std::get<0>(info.param) << "_to_" << std::get<1>(info.param)
+     << "_Vectorize_" << std::get<2>(info.param);
+  return ss.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    VectorizationCastTest,
+    all_vectorization_cast_params,
+    vectorizeCastTestName);
+
 } // namespace nvfuser

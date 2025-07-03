@@ -293,6 +293,39 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
+cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
+
+
+message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
+
+if(NVFUSER_HOST_IR_JIT)
+  add_compile_definitions(NVFUSER_HOST_IR_JIT)
+  # Add LLVM JIT related dependencies
+  find_package(LLVM 18.1 REQUIRED CONFIG)
+  llvm_map_components_to_libnames(LLVM_LIBS
+    support
+    core
+    orcjit
+    executionengine
+    irreader
+    nativecodegen
+    Target
+    Analysis
+    JITLink
+    Demangle
+  )
+
+  add_library(LLVM_JIT INTERFACE)
+  target_include_directories(LLVM_JIT INTERFACE ${LLVM_INCLUDE_DIRS})
+  target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
+  target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
+
+  # Add LLVM JIT related sources
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  )
+endif()
+
 # We don't link CUPTI for MSVC
 if(NOT MSVC)
   list(APPEND NVFUSER_SRCS
@@ -380,6 +413,9 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
+if(NVFUSER_HOST_IR_JIT)
+  target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
+endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
@@ -895,6 +931,17 @@ if(BUILD_TEST)
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
 
+  if(NVFUSER_HOST_IR_JIT)
+    set(LLVM_COMPILE_TEST_SRCS)
+    list(APPEND LLVM_COMPILE_TEST_SRCS
+      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
+    )
+    add_test(test_host_ir_jit "${LLVM_COMPILE_TEST_SRCS}" "")
+    target_link_libraries(test_host_ir_jit PUBLIC LLVM_JIT)
+    list(APPEND TEST_BINARIES test_host_ir_jit)
+  endif()
+
+
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
     list(APPEND PY_FRONTEND_TEST_SRCS
@@ -1105,6 +1152,7 @@ message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
+message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
