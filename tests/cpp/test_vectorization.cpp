@@ -734,7 +734,8 @@ TEST_P(VectorizationCastTest, CastKernel) {
   at::Tensor t0;
   if (dtype_from == DataType::Float8_e4m3fn ||
       dtype_from == DataType::Float8_e5m2 ||
-      dtype_from == DataType::Float8_e8m0fnu) {
+      dtype_from == DataType::Float8_e8m0fnu ||
+      dtype_from == DataType::Float4_e2m1fn) {
     auto options =
         at::TensorOptions().dtype(at::ScalarType::Byte).device(at::kCUDA, 0);
     t0 = at::randint(0, 255, {vectorization_factor}, options)
