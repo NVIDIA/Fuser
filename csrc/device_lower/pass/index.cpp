@@ -383,6 +383,22 @@ void IndexLowering::handle(const ArgsortOp* aop) {
   GpuLower::current()->propagateExprInfo(aop, back());
 }
 
+void IndexLowering::handle(const TopKOp* top) {
+  const auto in = lowerSrcIndex(top->in(), top->outValues());
+  const auto out_values = lowerDstIndex(top->outValues());
+  const auto out_indices = lowerDstIndex(top->outIndices());
+  const auto k = top->k();
+  pushBack(IrBuilder::create<TopKOp>(
+      out_values,
+      out_indices,
+      in,
+      k,
+      top->dim(),
+      top->isLargest(),
+      top->isSorted()));
+  GpuLower::current()->propagateExprInfo(top, back());
+}
+
 void IndexLowering::handle(const SelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;
@@ -2767,7 +2783,8 @@ void IndexLowering::handle(const CatOp* cat) {
 
   DataType dt = out->dtype();
   bool use_bitwise_or = dt == DataType::Half || dt == DataType::BFloat16 ||
-      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2;
+      dt == DataType::Float8_e4m3fn || dt == DataType::Float8_e5m2 ||
+      dt == DataType::Float8_e8m0fnu;
   BinaryOpType op_type =
       use_bitwise_or ? BinaryOpType::BitwiseOr : BinaryOpType::Add;
 
