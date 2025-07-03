@@ -189,6 +189,10 @@ class IterDomain : public Val {
     return getIterType() == IterType::Symbolic;
   }
 
+  bool isScan() const {
+    return getIterType() == IterType::Scan;
+  }
+
   bool isGatherScatter() const {
     return getIterType() == IterType::GatherScatter;
   }
@@ -724,6 +728,7 @@ class TensorDomain : public Val {
       const std::unordered_map<int64_t, int64_t>& old2new);
 
   static std::vector<IterDomain*> noReductions(const std::vector<IterDomain*>&);
+  static std::vector<IterDomain*> noScans(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noBroadcasts(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noDevices(const std::vector<IterDomain*>&);
 

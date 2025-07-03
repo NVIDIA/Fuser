@@ -2812,4 +2812,86 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
+void IndexLowering::handle(const ScanOp* scop) {
+  const auto in = lowerSrcIndex(scop->in(), scop->out());
+  const auto out = lowerDstIndex(scop->out());
+
+  // Find index for the scanDim IterDomain loop, so that we can modify the index
+  // by subtracting one.
+  IterDomain* scan_id =
+      TensorDomain::noReductions(scop->in()->getLogicalDomain())
+          .at((size_t)scop->scanDim());
+  int scan_id_alloc_pos = -1;
+  const std::vector<IterDomain*>& alloc_dom =
+      scop->in()->getMaybeAllocationDomain();
+  for (size_t alloc_pos : arange(alloc_dom.size())) {
+    if (alloc_dom.at(alloc_pos) == scan_id) {
+      scan_id_alloc_pos = alloc_pos;
+      break;
+    }
+  }
+  NVF_ERROR(
+      scan_id_alloc_pos != -1,
+      "Could not find scanned ID in allocation domain. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  const ValGroup& scan_group = id_graph.toGroup(scan_id);
+  ForLoop* scan_loop = nullptr;
+  for (ForLoop* loop : for_loops_) {
+    if (id_graph.toGroup(loop->iter_domain()) == scan_group) {
+      scan_loop = loop;
+      break;
+    }
+  }
+  NVF_ERROR(
+      scan_loop != nullptr,
+      "Could not find for loop with scanned ID. ",
+      "Scan dimensions must not be merged or split during scheduling");
+  Val* scan_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+      scan_loop->iter_domain(), for_loops_);
+  Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
+  // This gives us the previously computed value along the scanned dimension
+  Val* prev_sum_tensor = lowerDstIndex(
+      scop->out(), /*override_index=*/{{scan_id_alloc_pos, lagged_index}});
+
+  // Cache the tensors to scalars, to make building the where expression simpler
+  Val* next_val = IrBuilder::create<Val>(scop->in()->dtype());
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, next_val, in);
+
+  // Convert prev_sum to a scalar Val so that we don't need to allocate a new
+  // TensorView for it.
+  Val* prev_sum = IrBuilder::create<Val>(scop->out()->dtype());
+  IrBuilder::create<LoadStoreOp>(
+      LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
+
+  prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
+
+  if (TensorView* exc = scop->outExclusive()) {
+    const auto exc_ti = lowerDstIndex(exc);
+    auto* save_exc_op =
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, exc_ti, prev_sum);
+    pushBack(save_exc_op);
+    prev_sum = exc_ti;
+  }
+
+  if (Val* f = scop->discountFactor()) {
+    Val* f_scalar = f;
+    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
+      Val* f_ti = lowerSrcIndex(f_tv, scop->out());
+      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+      IrBuilder::create<BinaryOp>(
+          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+      prev_sum = prev_sum_mul;
+    } else {
+      prev_sum = mul(f_scalar, prev_sum);
+    }
+  }
+
+  Expr* expr =
+      IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, next_val);
+
+  pushBack(expr);
+  GpuLower::current()->propagateExprInfo(scop, expr);
+}
+
 } // namespace nvfuser
