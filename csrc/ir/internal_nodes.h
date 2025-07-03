@@ -3105,7 +3105,7 @@ class GroupedMmaOp : public Expr {
 
 //! NOTE -- [ Scaled Matrix Multiplication semantics ]
 //!
-//! This operation performs a grouped matrix multiplication.
+//! This operation performs a matrix multiplication.
 //!
 //! Parameters:
 //! - out_mat: [output] tensor matrix

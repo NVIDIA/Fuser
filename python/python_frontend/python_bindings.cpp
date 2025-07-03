@@ -3823,7 +3823,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               Otherwise, None will be returned.
 
       Returns:
-          Tensor: Result of grouped matrix multiplication
+          Tensor: Result of matrix multiplication
           Tensor: Output block scale tensor [optional]
           Tensor: Output gamma tensor [optional]
       )",
