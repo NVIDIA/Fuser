@@ -37,15 +37,15 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
 template <int size, int align_size>
 struct alignas(align_size) Array<__e2m1, size, align_size> {
   static_assert(size % 2 == 0, "There must be an even number of fp4 elements");
-  uint8_t array[size / 2];
+  __e2m1 array[size / 2];
 
-  __device__ uint8_t& operator[](const unsigned int i) {
+  __device__ __e2m1& operator[](const unsigned int i) {
     // For performance reason, we do not check the index is even, but we assume
     // it. assert(index % 2 == 0);
     return array[i / 2];
   }
 
-  __device__ const uint8_t& operator[](const unsigned int i) const {
+  __device__ const __e2m1& operator[](const unsigned int i) const {
     // For performance reason, we do not check the index is even, but we assume
     // it. assert(index % 2 == 0);
     return array[i / 2];
