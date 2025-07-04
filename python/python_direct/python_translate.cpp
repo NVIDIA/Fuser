@@ -514,6 +514,20 @@ class PythonTranslator : public OptInConstDispatch {
         {rop->out()});
   }
 
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    NVF_ERROR(bcast_op != nullptr);
+    visited_vals_.insert(bcast_op->out());
+    static const std::vector<std::string> broadcast_argument_names = {
+        "is_broadcast_dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.broadcast",
+        std::make_tuple(bcast_op->in()),
+        broadcast_argument_names,
+        std::make_tuple(bcast_op->getBroadcastDimFlags()),
+        {bcast_op->out()});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
