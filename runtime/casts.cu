@@ -1026,21 +1026,15 @@ __device__ __inline__ Array<__half, n, align> __e8m02half(
   __device__ __inline__ Array<to_type, n, align> name(                  \
       const Array<from_type, n, align>& input) {                        \
     using InputX2 = Array<from_type, 2, 2>;                             \
-    static_assert(                                                      \
-        sizeof(InputX2) == sizeof(from_type) * 2,                       \
-        "sizeof(InputX2) must be " #from_type " * 2");                  \
     using InputX4 = Array<from_type, 4, 2>;                             \
     static_assert(                                                      \
-        sizeof(InputX4) == sizeof(from_type) * 4,                       \
-        "sizeof(InputX4) must be " #from_type " * 4");                  \
+        sizeof(InputX4) == sizeof(InputX2) * 2,                         \
+        "sizeof(InputX4) must be InputX2 * 2");                         \
     using ResultX2 = Array<to_type, 2, 2>;                              \
-    static_assert(                                                      \
-        sizeof(ResultX2) == sizeof(to_type) * 2,                        \
-        "sizeof(ResultX2) must be " #to_type " * 2");                   \
     using ResultX4 = Array<to_type, 4, 2>;                              \
     static_assert(                                                      \
-        sizeof(ResultX4) == sizeof(to_type) * 4,                        \
-        "sizeof(ResultX4) must be " #to_type " * 4");                   \
+        sizeof(ResultX4) == sizeof(ResultX2) * 2,                       \
+        "sizeof(ResultX4) must be ResultX2 * 2");                       \
     using InputArrayX2 = Array<InputX2, n / 2, align / 2>;              \
     static_assert(                                                      \
         sizeof(InputArrayX2) == sizeof(input),                          \
