@@ -169,4 +169,12 @@ void propagateDIDTransform(
     int64_t did_pos,
     PropagateDirection direction);
 
+// Internal helper (anonymous namespace in .cpp):
+namespace {
+int64_t getShardedLogicalAxisInDomain(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<IterDomain*>& domain,
+    ParallelType parallel_type);
+}
+
 } // namespace nvfuser

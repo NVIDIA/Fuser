@@ -116,27 +116,28 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-} // namespace
-
-int64_t getShardedLogicalAxis(
+int64_t getShardedLogicalAxisInDomain(
     const TensorView* tv,
+    const std::vector<IterDomain*>& domain,
     const ParallelType parallel_type) {
+  // Find the IterDomain that is parallelized on the given parallel type.
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
-  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
+      mapDeviceAndStreamParallelTypeToId(domain);
+  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+  if (parallel_id == nullptr) {
     return -1;
   }
 
+  // Find the tensor axis that is sharded.
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = alloc_id;
+  IterDomain* id = parallel_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        alloc_id);
+        id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -196,6 +197,15 @@ int64_t getShardedLogicalAxis(
   return logical_id_to_axis.at(id);
 }
 
+} // namespace
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  return getShardedLogicalAxisInDomain(
+      tv, tv->getMaybeAllocationDomain(), parallel_type);
+}
+
 int64_t getShardedLoopAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
@@ -234,13 +244,33 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
-  for (ParallelType parallel_type : kParallelTypeDIDs) {
-    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
+
+  // Ideally, the unsharded sizes should be inferred from the
+  // allocation domain. The allocation domain for multidevice
+  // tensorviews is set during presegmentation, which is after concretization.
+  // This exposes a issue: allocation domain is not set for fusion inputs
+  // before presegmentation and can cause errors during binding.
+
+  // For DID parallelization, allocation domain and loop domain have the same
+  // parallelization.
+  // Conceptually, fusion inputs should not be stream parallelized, however, we
+  // may require it to facilitate forward propagation. Regardless, fusion inputs
+  // will still be fully allocated on the stream parallelized dimension, and
+  // hence we can always use the getMaybeAllocationDomain for obtaining the
+  // unsharded sizes.
+  for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
+    std::vector<IterDomain*> domain = tv->getMaybeAllocationDomain();
+    if (tv->isFusionInput() && parallel_type != ParallelType::Stream) {
+      domain = tv->getLoopDomain();
+    }
+    const int64_t sharded_axis =
+        getShardedLogicalAxisInDomain(tv, domain, parallel_type);
     if (sharded_axis == -1) {
       continue;
     }
     unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
   }
+
   return unsharded_sizes;
 }
 

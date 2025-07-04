@@ -220,61 +220,33 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
-            self.attn, self.log_sumexp, self.seed, self.offset = self.ops.sdpfa_fwd(
+            attn, log_sumexp, seed, offset = self.ops.sdpfa_fwd(
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
 
-            self.q_grad, self.k_grad, self.v_grad = self.ops.sdpfa_bwd(
+            q_grad, k_grad, v_grad = self.ops.sdpfa_bwd(
                 self.out_grad,
                 self.q,
                 self.k,
                 self.v,
-                self.attn,
-                self.log_sumexp,
+                attn,
+                log_sumexp,
                 dropout_p,
                 is_causal,
-                self.seed,
-                self.offset,
+                seed,
+                offset,
                 scale=None,
             )
 
-            self.add_output(self.attn)
-            for grad in [self.q_grad, self.k_grad, self.v_grad]:
+            self.add_output(attn)
+            for grad in [q_grad, k_grad, v_grad]:
                 self.add_output(grad)
 
         def multidevice_schedule(self) -> None:
-            input_tvs = [self.q, self.k, self.v, self.out_grad]
-            output_tvs = [
-                self.attn,
-                self.log_sumexp,
-                self.q_grad,
-                self.k_grad,
-                self.v_grad,
-            ]
-            non_sharded_tvs = [self.seed, self.offset]
-
-            for t in input_tvs + output_tvs + non_sharded_tvs:
+            for t in [self.q, self.k, self.v, self.out_grad]:
                 self.sched._set_device_mesh(t, mesh)
-
-            # Shard input tensorviews
-            for t in input_tvs:
                 self.sched.split(t, 1, d, False)
                 self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
-                if self._qkv_format == QkvFormat.BSHE:
-                    # The loop domain is: {i{B}, i{DIDx}, i{H//D}, i{S}, i{E//H}}
-                    # Reorder i{S} in the allocation domain for BHSE: {i{DIDx}, i{B}, i{S}, i{H//D}, i{E//H}}
-                    self.sched.reorder(t, {2: 3, 3: 2})
-                self.sched.set_allocation_as_loop(t)
-
-            # Propagate sharding to output tvs
-            self.sched.transform_like(self.q, output_tvs)
-            self.sched.parallelize_like(
-                self.q, -1, output_tvs, {nvfuser.ParallelType.mesh_x}
-            )
-
-            # Set allocation as loop for output tvs
-            for t in output_tvs:
-                self.sched.set_allocation_as_loop(t)
 
     b, s = 2, 1024
 
