@@ -66,6 +66,10 @@ static_assert(sizeof(Array<__e2m1, 4, 4>) == 2, "sizeof(Array<__e2m1, 4, 4>) mus
 static_assert(sizeof(Array<__e2m1, 8, 2>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
 static_assert(sizeof(Array<__e2m1, 8, 4>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
 static_assert(sizeof(Array<__e2m1, 8, 8>) == 4, "sizeof(Array<__e2m1, 8, 8>) must be 4");
+static_assert(sizeof(Array<__e2m1, 16, 2>) == 8, "sizeof(Array<__e2m1, 16, 2>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 4>) == 8, "sizeof(Array<__e2m1, 16, 4>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 8>) == 8, "sizeof(Array<__e2m1, 16, 8>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 16>) == 8, "sizeof(Array<__e2m1, 16, 16>) must be 8");
 
 // Used for vectorized allocations that are not in registers
 template <typename scalar_t, int vec_size>
