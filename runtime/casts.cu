@@ -1171,8 +1171,8 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
       "{\n"
       ".reg .b8 byte0, byte1;\n"
       "mov.b16 {byte0, byte1}, %2;\n"
-      "cvt.rn.f16x2.e2m1x2 %0, byte1;\n"
-      "cvt.rn.f16x2.e2m1x2 %1, byte0;\n"
+      "cvt.rn.f16x2.e2m1x2 %0, byte0;\n"
+      "cvt.rn.f16x2.e2m1x2 %1, byte1;\n"
       "}\n"
       : "=r"(result_scalar0), "=r"(result_scalar1)
       : "h"(input_scalar));
