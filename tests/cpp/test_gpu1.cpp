@@ -2753,6 +2753,9 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 // FP4 reference values
 namespace fp4ref {
 
+// Reference:
+// https://nvidia.glean.com/go/fp4-values
+
 std::array<uint8_t, 8> fp4_values = {
   0b00000001,
   0b00100011,
