@@ -1153,7 +1153,7 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
   // Note: Inline PTX can not pass 8-bit register as parameter
   // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
   uint16_t input_scalar;
-  __builtin_memcpy(&input_scalar, &input, sizeof(input_scalar));
+  memcpy(&input_scalar, &input, sizeof(input_scalar));
   Array<__half, 4, align> result;
   using HalfX2 = Array<__half, 2, 1>;
   static_assert(sizeof(HalfX2) == 4, "sizeof(HalfX2) must be 4");
