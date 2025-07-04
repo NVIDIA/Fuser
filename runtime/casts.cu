@@ -1021,35 +1021,53 @@ __device__ __inline__ Array<__half, n, align> __e8m02half(
 // clang-format off
 // Disable clang-format because it tries to put the _Pragma("unroll")
 // and the for loop on the same line, which doesn't make sense.
-#define DEFINE_CAST_VECN_WITH_VEC4(name, from_type, to_type)              \
-  template <int n, int align>                                             \
-  __device__ __inline__ Array<to_type, n, align> name(                    \
-      const Array<from_type, n, align>& input) {                          \
-    using InputX2 = Array<from_type, 2, 2>;                               \
-    using InputX4 = Array<from_type, 4, 2>;                               \
-    using ResultX2 = Array<to_type, 2, 2>;                                \
-    using ResultX4 = Array<to_type, 4, 2>;                                \
-    using InputArrayX2 = Array<InputX2, n / 2, align / 2>;                \
-    using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;              \
-    const InputArrayX2& inputx2 =                                         \
-        reinterpret_cast<const InputArrayX2&>(input);                     \
-    Array<to_type, n, align> result;                                      \
-    ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result);   \
-    _Pragma("unroll")                                                     \
-    for (int i = 0; i < n / 2; i += 2) {                                  \
-      if (i + 1 < n / 2) {                                                \
-        Array<InputX2, 2, 1> pair = {inputx2[i], inputx2[i + 1]};         \
-        InputX4& quad = reinterpret_cast<InputX4&>(pair);                 \
-        ResultX4 res_quad = name(quad);                                   \
-        const Array<ResultX2, 2, 1>& res_pair =                           \
-            reinterpret_cast<const Array<ResultX2, 2, 1>&>(res_quad);     \
-        resultx2[i] = res_pair[0];                                        \
-        resultx2[i + 1] = res_pair[1];                                    \
-      } else {                                                            \
-        resultx2[i] = name(inputx2[i]);                                   \
-      }                                                                   \
-    }                                                                     \
-    return result;                                                        \
+#define DEFINE_CAST_VECN_WITH_VEC4(name, from_type, to_type)            \
+  template <int n, int align>                                           \
+  __device__ __inline__ Array<to_type, n, align> name(                  \
+      const Array<from_type, n, align>& input) {                        \
+    using InputX2 = Array<from_type, 2, 2>;                             \
+    using InputX4 = Array<from_type, 4, 2>;                             \
+    static_assert(                                                      \
+        sizeof(InputX4) == sizeof(InputX2) * 2,                         \
+        "sizeof(InputX4) must be InputX2 * 2");                         \
+    using ResultX2 = Array<to_type, 2, 2>;                              \
+    using ResultX4 = Array<to_type, 4, 2>;                              \
+    static_assert(                                                      \
+        sizeof(ResultX4) == sizeof(ResultX2) * 2,                       \
+        "sizeof(ResultX4) must be ResultX2 * 2");                       \
+    using InputArrayX2 = Array<InputX2, n / 2, align / 2>;              \
+    static_assert(                                                      \
+        sizeof(InputArrayX2) == sizeof(input),                          \
+        "sizeof(InputArrayX2) must be input size");                     \
+    using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;            \
+    const InputArrayX2& inputx2 =                                       \
+        reinterpret_cast<const InputArrayX2&>(input);                   \
+    Array<to_type, n, align> result;                                    \
+    static_assert(                                                      \
+        sizeof(ResultArrayX2) == sizeof(result),                        \
+        "sizeof(ResultArrayX2) must be result size");                   \
+    ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result); \
+    _Pragma("unroll")                                                   \
+    for (int i = 0; i < n / 2; i += 2) {                                \
+      if (i + 1 < n / 2) {                                              \
+        Array<InputX2, 2, 1> pair = {inputx2[i], inputx2[i + 1]};       \
+        static_assert(                                                  \
+            sizeof(pair) == sizeof(InputX4),                            \
+            "sizeof(pair) must be InputX4 size");                       \
+        InputX4& quad = reinterpret_cast<InputX4&>(pair);               \
+        ResultX4 res_quad = name(quad);                                 \
+        const Array<ResultX2, 2, 1>& res_pair =                         \
+            reinterpret_cast<const Array<ResultX2, 2, 1>&>(res_quad);   \
+        static_assert(                                                  \
+            sizeof(Array<ResultX2, 2, 1>) == sizeof(ResultX4),          \
+            "sizeof(Array<ResultX2, 2, 1>) must be ResultX4 size");     \
+        resultx2[i] = res_pair[0];                                      \
+        resultx2[i + 1] = res_pair[1];                                  \
+      } else {                                                          \
+        resultx2[i] = name(inputx2[i]);                                 \
+      }                                                                 \
+    }                                                                   \
+    return result;                                                      \
   }
 // clang-format on
 
@@ -1131,15 +1149,14 @@ __device__ __inline__ Array<__half, 2, 2> __e2m12half(
 
 template <int align>
 __device__ __inline__ Array<__half, 4, align> __e2m12half(
-    const Array<__e2m1, 4, align>& input) {
+    Array<__e2m1, 4, align> input) {
   // Note: Inline PTX can not pass 8-bit register as parameter
   // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
-  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
+  uint16_t input_scalar;
+  memcpy(&input_scalar, &input, sizeof(input_scalar));
   Array<__half, 4, align> result;
-  Array<Array<__half, 2, 1>, 2, 1>& resultx2 =
-      reinterpret_cast<Array<Array<__half, 2, 1>, 2, 1>&>(result);
-  uint32_t& result_scalar0 = *reinterpret_cast<uint32_t*>(&resultx2[0]);
-  uint32_t& result_scalar1 = *reinterpret_cast<uint32_t*>(&resultx2[1]);
+  uint32_t result_scalar0;
+  uint32_t result_scalar1;
   asm volatile(
       "{\n"
       ".reg .b8 byte0, byte1;\n"
@@ -1149,6 +1166,8 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
       "}\n"
       : "=r"(result_scalar0), "=r"(result_scalar1)
       : "h"(input_scalar));
+  memcpy(&result[0], &result_scalar0, sizeof(result_scalar0));
+  memcpy(&result[2], &result_scalar1, sizeof(result_scalar1));
   return result;
 }
 
