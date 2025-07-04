@@ -35,7 +35,7 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
 };
 
 template <int size, int align_size>
-struct alignas(align_size) Array<__e2m1, size, align_size> {
+struct alignas(align_size / 2) Array<__e2m1, size, align_size> {
   static_assert(size % 2 == 0, "There must be an even number of fp4 elements");
   __e2m1 array[size / 2];
 
