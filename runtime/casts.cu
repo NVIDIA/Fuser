@@ -1149,7 +1149,7 @@ __device__ __inline__ Array<__half, 2, 2> __e2m12half(
 
 template <int align>
 __device__ __inline__ Array<__half, 4, align> __e2m12half(
-    const Array<__e2m1, 4, align>& input) {
+    Array<__e2m1, 4, align> input) {
   // Note: Inline PTX can not pass 8-bit register as parameter
   // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
   uint16_t input_scalar;
