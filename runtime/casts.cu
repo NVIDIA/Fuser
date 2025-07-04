@@ -1136,8 +1136,11 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
   // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
   const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&input);
   Array<__half, 4, align> result;
-  Array<Array<__half, 2, 1>, 2, 1>& resultx2 =
-      reinterpret_cast<Array<Array<__half, 2, 1>, 2, 1>&>(result);
+  using HalfX2 = Array<__half, 2, 1>;
+  static_assert(sizeof(HalfX2) == 4, "sizeof(HalfX2) must be 4");
+  using HalfX2X2 = Array<HalfX2, 2, 1>;
+  static_assert(sizeof(HalfX2X2) == 8, "sizeof(HalfX2X2) must be 8");
+  HalfX2X2& resultx2 = reinterpret_cast<HalfX2X2&>(result);
   uint32_t& result_scalar0 = *reinterpret_cast<uint32_t*>(&resultx2[0]);
   uint32_t& result_scalar1 = *reinterpret_cast<uint32_t*>(&resultx2[1]);
   asm volatile(
