@@ -2861,6 +2861,22 @@ TEST_P(Fp4CastTest, HighPrecisionToFp4) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().view(torch::kUInt8).equal(expect));
 }
 
+std::string fp4CastTestName(
+    const testing::TestParamInfo<Fp4CastParams>& info) {
+  const auto& [dtype_highp, vectorization_factor] = info.param;
+  std::stringstream ss;
+  ss << dtype_highp << "_Vectorize_" << vectorization_factor;
+  return ss.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  ,
+  Fp4CastTest,
+  testing::Combine(
+      testing::Values(DataType::Float, DataType::Double, DataType::BFloat16, DataType::Half),
+      testing::Values(1, 2, 4, 8, 16)),
+  fp4CastTestName);
+
 #endif
 
 TEST_F(NVFuserTest, BitCeilKernel) {
