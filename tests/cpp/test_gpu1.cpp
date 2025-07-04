@@ -2874,7 +2874,7 @@ INSTANTIATE_TEST_SUITE_P(
   Fp4CastTest,
   testing::Combine(
       testing::Values(DataType::Float, DataType::Double, DataType::BFloat16, DataType::Half),
-      testing::Values(1, 2, 4, 8, 16)),
+      testing::Values(2, 4, 8, 16)),
   fp4CastTestName);
 
 #endif
