@@ -91,7 +91,7 @@ def test_softmax_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = torch.randn(size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
 
     benchmark_fn = with_executor(executor, softmax)
     run_benchmark(
