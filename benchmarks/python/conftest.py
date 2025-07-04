@@ -61,6 +61,13 @@ def pytest_addoption(parser):
         help="Number of inputs to randomly sample for each benchmark.",
     )
 
+    parser.addoption(
+        "--with-nsys",
+        action="store_true",
+        default=False,
+        help="Run benchmark scripts with nsys. Disable all other profilers.",
+    )
+
 
 @pytest.fixture
 def disable_validation(request):
@@ -87,6 +94,8 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
+    BENCHMARK_CONFIG["with_nsys"] = config.getoption("--with-nsys")
+
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
     config.addinivalue_line(
