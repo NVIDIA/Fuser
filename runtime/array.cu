@@ -41,13 +41,13 @@ struct alignas(align_size) Array<__e2m1, size, align_size> {
 
   __device__ __e2m1& operator[](const unsigned int i) {
     // For performance reason, we do not check the index is even, but we assume
-    // it. assert(index % 2 == 0);
+    // it. assert(i % 2 == 0);
     return array[i / 2];
   }
 
   __device__ const __e2m1& operator[](const unsigned int i) const {
     // For performance reason, we do not check the index is even, but we assume
-    // it. assert(index % 2 == 0);
+    // it. assert(i % 2 == 0);
     return array[i / 2];
   }
 
@@ -59,6 +59,13 @@ struct alignas(align_size) Array<__e2m1, size, align_size> {
     return *this;
   }
 };
+
+static_assert(sizeof(Array<__e2m1, 2, 2>) == 1, "sizeof(Array<__e2m1, 2, 2>) must be 1");
+static_assert(sizeof(Array<__e2m1, 4, 2>) == 2, "sizeof(Array<__e2m1, 4, 2>) must be 2");
+static_assert(sizeof(Array<__e2m1, 4, 4>) == 2, "sizeof(Array<__e2m1, 4, 4>) must be 2");
+static_assert(sizeof(Array<__e2m1, 8, 2>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(sizeof(Array<__e2m1, 8, 4>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(sizeof(Array<__e2m1, 8, 8>) == 4, "sizeof(Array<__e2m1, 8, 8>) must be 4");
 
 // Used for vectorized allocations that are not in registers
 template <typename scalar_t, int vec_size>
