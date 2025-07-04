@@ -15,15 +15,32 @@
 #include <ops/all_ops.h>
 #include <type.h>
 #include <utils.h>
+
 #include <ranges>
+#include <type_traits>
 
 namespace nvfuser::python {
 
 namespace {
 
+// Check if a type is an optional via type_traits
+template <typename T>
+struct is_optional : std::false_type {};
+
+template <typename T>
+struct is_optional<std::optional<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
+
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
 
   // Generate a python string for a boolean value.
   std::string toString(bool b) {
@@ -32,6 +49,11 @@ class PythonPrinter {
 
   // Generate a python string for an int64_t value.
   std::string toString(int64_t i) {
+    return std::to_string(i);
+  }
+
+  // Generate a python string for an size_t value.
+  std::string toString(size_t i) {
     return std::to_string(i);
   }
 
@@ -75,6 +97,8 @@ class PythonPrinter {
       return toString(pv.as<std::complex<double>>());
     } else if (pv.is<double>()) {
       return toString(pv.as<double>());
+    } else if (pv.is<std::monostate>()) {
+      return "None";
     } else {
       NVF_THROW("Unsupported PolymorphicValue type");
     }
@@ -124,7 +148,11 @@ class PythonPrinter {
       ss << "[";
     }
     for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val);
+      if constexpr (is_optional_v<T>) {
+        ss << toString(val, /*skip_none=*/false);
+      } else {
+        ss << toString(val);
+      }
       if (i < vec.size() - 1) {
         ss << ", ";
       }
