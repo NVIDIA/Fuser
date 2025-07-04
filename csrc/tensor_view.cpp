@@ -786,7 +786,8 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
                MmaOp,
                MatmulOp,
                LinearOp,
-               GroupedMmaOp>()),
+               GroupedMmaOp,
+               ScaledMmaOp>()),
       "Error rfactoring ",
       this,
       " because its definition is not a reduction.");
@@ -863,6 +864,27 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         grouped_mma->alpha(),
         grouped_mma->bias(),
         grouped_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto scaled_mma = dynamic_cast<ScaledMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        scaled_mma->outScale() == nullptr && scaled_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<ScaledMmaOp>(
+        producer,
+        scaled_mma->outScale(),
+        scaled_mma->outGamma(),
+        scaled_mma->matrix1(),
+        scaled_mma->matrix2(),
+        scaled_mma->scale1(),
+        scaled_mma->scale2(),
+        scaled_mma->alpha(),
+        scaled_mma->bias(),
+        scaled_mma->beta());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add,
         IrBuilder::create<Val>(0.0, producer->dtype()),
