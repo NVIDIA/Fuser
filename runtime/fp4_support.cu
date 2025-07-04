@@ -9,7 +9,9 @@
 // __e2m1 is just a placeholder for the fp4 type.
 // Because its size can not be represented as a whole byte, we can not really
 // implement a single fp4 number.
-struct __e2m1 {};
+struct __e2m1 {
+  uint8_t data;
+};
 
 static_assert(sizeof(__e2m1) == 1, "__e2m1 must be 1 byte");
 
