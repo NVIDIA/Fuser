@@ -2750,6 +2750,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
   }
 }
 
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+
 // FP4 reference values
 namespace fp4ref {
 
@@ -2757,38 +2759,36 @@ namespace fp4ref {
 // https://nvidia.glean.com/go/fp4-values
 
 std::array<uint8_t, 8> fp4_values = {
-  0b00000001,
-  0b00100011,
-  0b01000101,
-  0b01100111,
-  0b10001001,
-  0b10101011,
-  0b11001101,
-  0b11101111,
+    0b00000001,
+    0b00100011,
+    0b01000101,
+    0b01100111,
+    0b10001001,
+    0b10101011,
+    0b11001101,
+    0b11101111,
 };
 
 std::array<float, 16> float_values = {
-  0.5,
-  0.0,
-  1.5,
-  1.0,
-  3.0,
-  2.0,
-  6.0,
-  4.0,
-  -0.5,
-  -0.0,
-  -1.5,
-  -1.0,
-  -3.0,
-  -2.0,
-  -6.0,
-  -4.0,
+    0.5,
+    0.0,
+    1.5,
+    1.0,
+    3.0,
+    2.0,
+    6.0,
+    4.0,
+    -0.5,
+    -0.0,
+    -1.5,
+    -1.0,
+    -3.0,
+    -2.0,
+    -6.0,
+    -4.0,
 };
 
 } // namespace fp4ref
-
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
 
 // High precision type, vectorization factor of castOp
 using Fp4CastParams = std::tuple<DataType, int64_t>;
