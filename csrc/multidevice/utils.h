@@ -31,8 +31,8 @@ bool isSharded(const TensorView*);
 // Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(const TensorView*);
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
+std::unordered_set<IterDomain*> getInputsInTargetDomain(
+    const std::vector<IterDomain*>& loop_ids,
     const std::vector<IterDomain*>& target_domain);
 
 // Returns the subset of tvs which elements have the different multi-device
@@ -160,13 +160,5 @@ std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView*);
 std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes);
-
-// Propagates the DID transform of `ref` to `tvs` upto the `did_pos` axis in
-// the direction specified by `direction`.
-void propagateDIDTransform(
-    const TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    int64_t did_pos,
-    PropagateDirection direction);
 
 } // namespace nvfuser

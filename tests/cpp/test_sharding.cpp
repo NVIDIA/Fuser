@@ -444,6 +444,40 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
 }
 
+TEST_F(ShardingTest, PropagationDoesNotOverwrite) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+  auto d = mesh.size();
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = add(tv0, tv2);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, d);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+  tv1->outer_split(0, d);
+  tv1->axis(0)->parallelize(ParallelType::DIDy);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv3);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+
+  // Verify tv3 is sharded like tv0, and tv2 like tv1.
+  // Backpropagation should not overwrite tv2's sharding.
+  EXPECT_EQ(getShardedLoopAxis(tv0, ParallelType::DIDx), 0);
+  EXPECT_EQ(getShardedLoopAxis(tv1, ParallelType::DIDy), 0);
+  EXPECT_EQ(getShardedLoopAxis(tv2, ParallelType::DIDy), 0);
+  EXPECT_EQ(getShardedLoopAxis(tv3, ParallelType::DIDx), 0);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     ShardingTest,

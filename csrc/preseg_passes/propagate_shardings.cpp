@@ -11,39 +11,21 @@
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <linked_hash_map.h>
 #include <multidevice/utils.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <scheduler/utils.h>
-#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
 namespace {
-std::unordered_set<IterDomain*> getReshapedIds(
-    ViewOp* view_op,
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p) {
-  std::unordered_set<IterDomain*>
-      p_reshaped_ids; // Reshaped producer logical IDs
-
-  TensorView* consumer = view_op->out();
-  std::vector<IterDomain*> c_root_domain = consumer->getMaybeRootDomain();
-
-  for (auto id : consumer->getLogicalDomain()) {
-    if (id->isRFactorProduct() && id->definition() &&
-        !id->definition()->isA<Resize>()) {
-      auto root_ids = getInputsInTargetDomain(id, c_root_domain);
-      for (auto root_id : root_ids) {
-        p_reshaped_ids.insert(c2p.at(root_id));
-      }
-    }
+// Returns true if the reference split is divisible and the given id is
+// divisible by the split factor.
+bool isSplitDivisible(IterDomain* id, Split* ref_split) {
+  if (!ref_split->isDivisible()) {
+    return false;
   }
 
-  return p_reshaped_ids;
-}
-
-// Returns true if the given iterdomain is divisible by the split factor of the
-// reference split.
-bool isSplitDivisible(IterDomain* id, Split* ref_split) {
   if (!ref_split->factor()->isConstInt()) {
     return false;
   }
@@ -57,136 +39,6 @@ bool isSplitDivisible(IterDomain* id, Split* ref_split) {
   }
   auto id_extent = id->extent()->evaluate().as<int64_t>();
   return id_extent % split_factor == 0;
-}
-
-void splitLike(TensorView* tv, int64_t axis, Split* ref_split) {
-  NVF_ERROR(
-      isSplitDivisible(tv->axis(axis), ref_split),
-      "Require the sharded ID to be divisible by the split factor. Got: ",
-      tv->axis(axis),
-      " and split factor: ",
-      ref_split->factor());
-  tv->outer_split(axis, ref_split->factor());
-}
-
-int64_t getLoopAxis(TensorView* tv, IterDomain* id) {
-  auto it =
-      std::find(tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
-  NVF_ERROR(
-      it != tv->getLoopDomain().end(),
-      "Expected the id ",
-      id,
-      " to be in the loop domain: ",
-      tv->getLoopDomain());
-  return std::distance(tv->getLoopDomain().begin(), it);
-}
-
-// did_pos is the original number of device dimensions present
-// in the producer loop domain and reordered to the front.
-// Returns the new did_pos, the number of DID axis that were not propagated
-// since they were not on reshaped ids.
-int64_t shardViewOp(ViewOp* view_op, int64_t did_pos) {
-  // This implementation asserts that only one sharding is applied on the
-  // reshaped ids. Inner split is not supported. The cases are:
-  // 1. Split reshape: [h] -> [a, h/a]. Sharding on h is applied to a in
-  // consumer.
-  // 2. Merge reshape: [a, h/a] -> [h]. Sharding on a is applied to h in
-  // consumer.
-  // 3. Multiple splits or merge reshapes: [x, y, z] -> [xyz]. Sharding on x and
-  // xyz. Similarly for the corresponding split reshape.
-  // 4. Independent splits or merge reshapes: [w, x, y, z] -> [wx, yz]. Sharding
-  // is on w and y. In the consumer, it is applied to wx and yz.
-  // An improvement is to support multi-levels of sharding (not a real case yet)
-  // if they are all outer splits. For example: For the reshape [h] -> [a, h/a]
-  // where the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
-  // This is currently blocked by `getShardedLogicalAxis` which does not allow
-  // device dimensions to be on the inner of a split.
-
-  // A more general approach maybe to "undo" the reshape (reverse transforms
-  // from root to logical domain), followed by simplification of the consumer
-  // loop domain to move DID upwards.
-
-  TensorView* producer = view_op->in();
-  TensorView* consumer = view_op->out();
-
-  const auto pairwise_map = PairwiseLogicalDomainMap(producer, consumer);
-  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-      pairwise_map.mapConsumerToProducer();
-  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
-      pairwise_map.mapProducerToConsumer();
-  auto p_logical_reshaped_ids = getReshapedIds(view_op, c2p);
-
-  auto p_loop_domain = producer->getLoopDomain();
-
-  // Track number of DID axis on reshaped ids that were propagated to the
-  // consumer. These will not be included later in TransformReplay.
-  int64_t num_reshape_shardings = 0;
-
-  for (IterDomain* p_logical_reshaped_id : p_logical_reshaped_ids) {
-    // Find all transforms between the producer reshaped logical id and the
-    // device ids.
-    auto p_transforms = DependencyCheck::getAllExprsBetween(
-        {p_logical_reshaped_id},
-        {p_loop_domain.begin(), p_loop_domain.begin() + did_pos});
-
-    if (p_transforms.empty()) {
-      continue;
-    }
-
-    NVF_ERROR(
-        p_transforms.size() == 1 && p_transforms.front()->isA<Split>(),
-        "Expected a split transform producing the device id.");
-
-    // Get the reshape transforms corresponding to this root id.
-    IterDomain* c_root_reshaped_id = p2c.at(p_logical_reshaped_id);
-    auto reshape_transforms = DependencyCheck::getAllExprsBetween(
-        {c_root_reshaped_id},
-        {consumer->getLoopDomain().begin(), consumer->getLoopDomain().end()});
-
-    // Obtain the loop axis to be sharded in the consumer following the
-    // outermost path.
-    IterDomain* c_sharded_id = c_root_reshaped_id;
-    for (auto transform : reshape_transforms) {
-      if (transform->isA<Split>()) {
-        c_sharded_id = transform->as<Split>()->outer();
-      }
-      if (transform->isA<Merge>()) {
-        NVF_ERROR(
-            c_sharded_id == transform->as<Merge>()->outer(),
-            "Expected the sharding to be on the outer reshaped id.");
-        c_sharded_id = transform->as<Merge>()->out();
-      }
-    }
-
-    auto p_did_split = p_transforms.front()->as<Split>();
-    IterDomain* p_did = p_did_split->outer();
-    int64_t p_did_pos = getLoopAxis(producer, p_did);
-
-    // Replaying the DID split on the outermost producer reshaped id is
-    // equivalent to the DID split on the outermost consumer reshaped id if:
-    // 1. The extent of sharded id is divisible by split_factor (num_devices)
-    // 2. The producer reshaped id is outer split by num_devices to produce the
-    // device dimension.
-    NVF_ERROR(
-        isSplitDivisible(p_did_split->in(), p_did_split),
-        "Expected the split to be divisble. Got: ",
-        p_did_split->in(),
-        " and split factor: ",
-        p_did_split->factor());
-    NVF_ERROR(
-        !p_did_split->innerSplit() && p_did_split->outer()->isDeviceDim(),
-        "Expected an outer-split producing a device dimension.");
-
-    int64_t c_did_pos = getLoopAxis(consumer, c_sharded_id);
-    splitLike(consumer, c_did_pos, p_did_split);
-    consumer->axis(c_did_pos)->parallelize(p_did->getParallelType());
-
-    // Move this did_pos back to avoid using TransformReplay on it.
-    producer->reorder({{p_did_pos, -1}});
-    num_reshape_shardings++;
-  }
-
-  return did_pos - num_reshape_shardings;
 }
 
 template <typename Range>
@@ -259,28 +111,8 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
   return outputs_without_mesh;
 }
 
-// Reorder the DID axis with the given parallel types to the front.
-// Returns the number of device dimensions that were reordered to the front.
-// This allows us to limit propagation to only the relevant DID axis.
-int64_t selectiveReorderDIDToFront(
-    TensorView* tv,
-    const std::unordered_set<ParallelType>& selected_parallel_types) {
-  std::unordered_map<int64_t, int64_t> old2new;
-  int64_t current_pos = 0;
-
-  for (auto&& [pos, id] : enumerate(tv->getLoopDomain())) {
-    if (id->isDeviceDim() &&
-        selected_parallel_types.count(id->getParallelType())) {
-      old2new[pos] = current_pos;
-      current_pos++;
-    }
-  }
-
-  tv->reorder(old2new);
-  return current_pos;
-}
-
-// Returns the set of parallel types seen on the loop domain of the given tvs.
+// Returns the set of parallel types not seen on the loop domain of the given
+// tvs and hence, can be propagated.
 std::unordered_set<ParallelType> getParallelTypesToPropagate(
     std::vector<TensorView*> tvs) {
   // Get the set of parallel types seen on the loop domain of the given tvs.
@@ -301,27 +133,255 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
+// Returns true if the given id has a root-to-logical transform
+// if traversed from loop domain to root domain.
+bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
+  auto logical_ids = IterVisitor::getInputsTo(
+      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+  return std::any_of(
+      logical_ids.begin(), logical_ids.end(), [&](Val* logical_val) {
+        return logical_val->definition() != nullptr;
+      });
+}
+
+// Applies the given transforms on ref to target using the ref2target map.
+void transformLoopDomain(
+    TensorView* target,
+    const TensorView* ref,
+    std::unordered_map<IterDomain*, IterDomain*>& ref2target,
+    const std::unordered_set<IterDomain*>& device_ids,
+    PropagateDirection direction) {
+  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+      {device_ids.begin(), device_ids.end()});
+
+  // Start with the original loop domain.
+  LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
+  for (IterDomain* id : target->getLoopDomain()) {
+    transformed_loop.pushBack(id, std::monostate());
+  }
+
+  auto validate_split = [](Split* split, IterDomain* id) -> void {
+    NVF_ERROR(
+        !split->innerSplit() && split->outer()->isDeviceDim(),
+        "Expected the outer id of the split to be a device dimension. Got: ",
+        split->outer());
+    NVF_ERROR(
+        split->isDivisible(),
+        "Expected the split to be divisible. Got: ",
+        split);
+    NVF_ERROR(
+        isSplitDivisible(id, split),
+        "Require the sharded ID to be divisible by the split factor. Got: ",
+        id,
+        " and split factor: ",
+        split->factor());
+  };
+
+  for (Expr* transform : transforms) {
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(
+        split != nullptr,
+        "Expected a split transform producing the device id. Got: ",
+        transform);
+
+    IterDomain* ref_id = split->in();
+    NVF_ERROR(
+        ref2target.find(ref_id) != ref2target.end(),
+        "Expected the ref to be in the ref2target map. Got: ",
+        ref_id);
+
+    IterDomain* target_id = ref2target.at(ref_id);
+    NVF_ERROR(
+        transformed_loop.contains(target_id),
+        "Expected the input to be in the loop domain. Got: ",
+        target_id);
+
+    // Sharding on producer logical id is equivalent to sharding on the
+    // outermost consumer reshaped id iff:
+    // 1. The reference is outer split by num_devices.
+    // 2. The extent of sharded id in producer / consumer is divisible by
+    // split_factor. NOTE: We can only check if DID(d) is on the outer of the
+    // split regardless of the split_factor. However, when applying the split to
+    // the target, the split_factor will need to be num_devices. For e.g.: A[h]
+    // -> reshape -> B[a, h/a] If A is inner split `h/d`, then directly
+    // replaying the split on `a` will produce `a/(h/d), h/d` instead of `d,
+    // a/d`. So we should instead outer split by num_devices.
+
+    // Find the consumer between the reference and target.
+    std::pair<IterDomain*, const TensorView*> consumer =
+        direction == PropagateDirection::kForward
+        ? std::make_pair(target_id, target)
+        : std::make_pair(ref_id, ref);
+
+    if (hasRootToLogicalTransform(consumer.first, consumer.second)) {
+      validate_split(split, target_id);
+    }
+
+    auto it = transformed_loop.erase(target_id).second;
+    auto [outer, inner] =
+        IterDomain::split(target_id, split->factor(), split->innerSplit());
+
+    transformed_loop.insert(it, outer, std::monostate());
+    transformed_loop.insert(it, inner, std::monostate());
+
+    // Update the ref2target map.
+    ref2target[split->outer()] = outer;
+    ref2target[split->inner()] = inner;
+  }
+
+  // Parallelize based on the ref2target map.
+  for (IterDomain* device_id : device_ids) {
+    NVF_ERROR(
+        ref2target.find(device_id) != ref2target.end(),
+        "Failed to propagate ",
+        device_id,
+        " to ",
+        target);
+    IterDomain* target_id = ref2target.at(device_id);
+    target_id->parallelize(device_id->getParallelType());
+  }
+
+  auto new_loop = std::views::keys(transformed_loop);
+  target->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+// Traverses root-to-logical transforms to find the outermost logical ID.
+IterDomain* getOutermostLogicalId(IterDomain* id, const TensorView* tv) {
+  auto transforms = DependencyCheck::getAllExprsBetween(
+      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+
+  for (auto transform : transforms) {
+    if (transform->isA<Split>()) {
+      id = transform->as<Split>()->outer();
+    } else if (transform->isA<Merge>()) {
+      NVF_ERROR(
+          id == transform->as<Merge>()->outer(),
+          "Expected the sharding to be on the outer reshaped id.");
+      id = transform->as<Merge>()->out();
+    }
+  }
+  return id;
+}
+
+void propagateDIDTransform(
+    const TensorView* ref,
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
+    PropagateDirection direction) {
+  tv->setDeviceMesh(ref->getDeviceMesh());
+
+  std::unordered_set<IterDomain*> device_ids;
+  std::copy_if(
+      ref->getLoopDomain().begin(),
+      ref->getLoopDomain().end(),
+      std::inserter(device_ids, device_ids.end()),
+      [&selected_parallel_types](IterDomain* id) {
+        return id->isDeviceDim() &&
+            selected_parallel_types.count(id->getParallelType());
+      });
+
+  if (device_ids.empty()) {
+    return;
+  }
+
+  std::unordered_set<IterDomain*> ignored_device_ids;
+  std::unordered_map<IterDomain*, IterDomain*> ref2target;
+  std::unordered_set<IterDomain*> input_ids;
+
+  // Finds all device IDs that are dependent on the given id
+  // and adds them to the ignored_device_ids set.
+  auto add_ignored_device_ids = [&ignored_device_ids,
+                                 &device_ids](IterDomain* id) {
+    for (auto device_id : device_ids) {
+      if (DependencyCheck::isDependencyOf(id, device_id)) {
+        ignored_device_ids.insert(device_id);
+      }
+    }
+  };
+
+  auto is_in_domain = [](IterDomain* id,
+                         const std::vector<IterDomain*>& domain) -> bool {
+    return std::find(domain.begin(), domain.end(), id) != domain.end();
+  };
+
+  if (direction == PropagateDirection::kForward) {
+    input_ids = getInputsInTargetDomain(
+        {device_ids.begin(), device_ids.end()},
+        {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()});
+    ref2target =
+        PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
+  }
+
+  if (direction == PropagateDirection::kBackward) {
+    input_ids = getInputsInTargetDomain(
+        {device_ids.begin(), device_ids.end()},
+        {ref->getMaybeRootDomain().begin(), ref->getMaybeRootDomain().end()});
+    ref2target =
+        PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
+  }
+
+  for (IterDomain* ref_id : ir_utils::filterByType<IterDomain>(input_ids)) {
+    if (ref2target.find(ref_id) == ref2target.end()) {
+      add_ignored_device_ids(ref_id);
+      continue;
+    }
+
+    IterDomain* target_id = ref2target.at(ref_id);
+
+    // For forward: target_id may not be logical.
+    // For backward: ref_id may not be logical.
+    IterDomain* outermost_ref_id = getOutermostLogicalId(ref_id, ref);
+    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
+
+    if (outermost_target_id->isParallelized() ||
+        !is_in_domain(outermost_target_id, tv->getLoopDomain())) {
+      // Target ID is further transformed or is already parallelized.
+      add_ignored_device_ids(ref_id);
+      ref2target.erase(ref_id);
+      continue;
+    }
+
+    // Update the ref2target map mapping to/from the outermost logical ID.
+    // instead of the root ID.
+    ref2target.erase(ref_id);
+    ref2target[outermost_ref_id] = outermost_target_id;
+  }
+
+  // Remove device IDs that are not mapped to any target ID,
+  // or map to target IDs that are further transformed.
+  for (IterDomain* device_id : ignored_device_ids) {
+    device_ids.erase(device_id);
+  }
+
+  transformLoopDomain(tv, ref, ref2target, device_ids, direction);
+}
+
+void propagateDIDTransform(
+    const TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
+    PropagateDirection direction) {
+  for (auto tv : tvs) {
+    propagateDIDTransform(ref, tv, selected_parallel_types, direction);
+  }
+}
+
 } // namespace
 
 // This presegmentation pass propagates shardings from fusion inputs to
 // downstream tensorviews.
 // 1. Forward propagating DID loop splits and parallelization from inputs to
 // outputs that don't have a mesh using TransformReplay
-// 2. Reshape is handled manually since the DID loop split transforms conflict
-// with the reshape root-to-logical transforms if using TransformReplay
-// 3. Back-propagating device meshes to ensure all TensorViews have consistent
+// 2. Back-propagating device meshes to ensure all TensorViews have consistent
 // meshes. This also splits and parallelizes unsharded inputs based on outputs.
 // See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
-// 4. Reorders the loop domain as the allocation order. Ideally, loop domain
-// should follow logical domain and allocation domain should follow any stride
-// order specified/inferred. However, we currently require loop domain to be the
-// same as allocation domain.
 void PropagateShardingsPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
 
   for (Expr* expr : exprs) {
-    // Note: Tvs without a mesh are assumed to have no manual sharding
-    // annotation and are sharded like the first producer Tv.
+    // TensorViews without a mesh are assumed to have no user-specified sharding
+    // and are sharded like the producers.
     const auto& outputs_without_mesh = getOutputsWithoutMesh(expr);
     if (outputs_without_mesh.empty()) {
       continue;
@@ -341,10 +401,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           ref_input,
           " has no device mesh.");
 
-      // Reorder the DID axis to the front only if it does not have a parallel
-      // type already seen on the outputs. This avoids propagating the same
-      // parallel type on multiple axis of the output when using multiple
-      // reference inputs. Consider out [M, N] = linear (inp [M, K], weight (N,
+      // Consider out [M, N] = linear (inp [M, K], weight (N,
       // K)) with inp sharded on M ([DIDx(d), M/d, K]) and weight sharded on N
       // ([DIDy(d), N/d, K]). We propagate from weights first, so the output
       // will be [M, DIDx(d), N/d]. When we propagate from inp next, we should
@@ -353,25 +410,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate(outputs_without_mesh);
 
-      // This restricts the transform propagation to only the relevant DID axis.
-      int64_t did_pos =
-          selectiveReorderDIDToFront(ref_input, selected_parallel_types);
-
-      if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
-        // Propagation of reshape will return how many DID axis were propagated.
-        // They are reordered behind non-propagated DID axis
-        did_pos = shardViewOp(view_op, did_pos);
-      }
-
-      // Propagate the DID loop split to the outputs without mesh.
       propagateDIDTransform(
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
-          /*did_pos=*/did_pos,
+          selected_parallel_types,
           PropagateDirection::kForward);
-
-      // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
     }
   }
 
@@ -424,17 +467,12 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     std::unordered_set<ParallelType> selected_parallel_types =
         getParallelTypesToPropagate(sharding_candidates);
-    int64_t did_pos =
-        selectiveReorderDIDToFront(ref_output, selected_parallel_types);
-    // Note: We do not have to manually shard for reshape here.
-    // TransformReplay can handle reshapes when going from consumer to
-    // producer.
+
     propagateDIDTransform(
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
-        /*did_pos=*/did_pos,
+        selected_parallel_types,
         PropagateDirection::kBackward);
-    shardAllLike(ref_output, sharding_candidates, selected_parallel_types);
   }
 }
 
