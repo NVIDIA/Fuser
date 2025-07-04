@@ -1155,13 +1155,8 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
   uint16_t input_scalar;
   memcpy(&input_scalar, &input, sizeof(input_scalar));
   Array<__half, 4, align> result;
-  using HalfX2 = Array<__half, 2, 1>;
-  static_assert(sizeof(HalfX2) == 4, "sizeof(HalfX2) must be 4");
-  using HalfX2X2 = Array<HalfX2, 2, 1>;
-  static_assert(sizeof(HalfX2X2) == 8, "sizeof(HalfX2X2) must be 8");
-  HalfX2X2& resultx2 = reinterpret_cast<HalfX2X2&>(result);
-  uint32_t& result_scalar0 = *reinterpret_cast<uint32_t*>(&resultx2[0]);
-  uint32_t& result_scalar1 = *reinterpret_cast<uint32_t*>(&resultx2[1]);
+  uint32_t result_scalar0;
+  uint32_t result_scalar1;
   asm volatile(
       "{\n"
       ".reg .b8 byte0, byte1;\n"
@@ -1171,6 +1166,8 @@ __device__ __inline__ Array<__half, 4, align> __e2m12half(
       "}\n"
       : "=r"(result_scalar0), "=r"(result_scalar1)
       : "h"(input_scalar));
+  memcpy(&result[0], &result_scalar0, sizeof(result_scalar0));
+  memcpy(&result[2], &result_scalar1, sizeof(result_scalar1));
   return result;
 }
 
