@@ -54,7 +54,7 @@ struct alignas(align_size) Array<__e2m1, size, align_size> {
   Array& operator=(const Array& a) {
 #pragma unroll
     for (int i = 0; i < size / 2; ++i) {
-      array[i] = a[i];
+      array[i] = a.array[i];
     }
     return *this;
   }
