@@ -11,10 +11,8 @@ from nvfuser_direct import (
     DataType,
 )
 
-from utils import (
-    is_pre_volta,
-    NVFuserTest,
-)
+from nvfuser_direct.testing.utils import is_pre_volta
+from utils import NVFuserTest
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
