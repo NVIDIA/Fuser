@@ -2821,7 +2821,7 @@ TEST_P(Fp4CastTest, Fp4ToHighPrecision) {
   tv1_cache->split(0, vectorization_factor);
   tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
 
-  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kUInt8)
+  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
                          .to(at::kCUDA)
                          .view(torch::kFloat4_e2m1fn_x2);
   at::Tensor expect = at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
@@ -2852,13 +2852,13 @@ TEST_P(Fp4CastTest, HighPrecisionToFp4) {
 
   at::Tensor input = at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
                          .to(at::kCUDA).to(data_type_to_aten(dtype_highp));
-  at::Tensor expect = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kUInt8)
+  at::Tensor expect = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
                          .to(at::kCUDA);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(torch::kUInt8).equal(expect));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(at::kByte).equal(expect));
 }
 
 std::string fp4CastTestName(
