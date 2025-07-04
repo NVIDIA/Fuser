@@ -1040,12 +1040,12 @@ __device__ __inline__ Array<__half, n, align> __e8m02half(
         sizeof(InputArrayX2) == sizeof(input),                          \
         "sizeof(InputArrayX2) must be input size");                     \
     using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;            \
-    static_assert(                                                      \
-        sizeof(ResultArrayX2) == sizeof(result),                        \
-        "sizeof(ResultArrayX2) must be result size");                   \
     const InputArrayX2& inputx2 =                                       \
         reinterpret_cast<const InputArrayX2&>(input);                   \
     Array<to_type, n, align> result;                                    \
+    static_assert(                                                      \
+        sizeof(ResultArrayX2) == sizeof(result),                        \
+        "sizeof(ResultArrayX2) must be result size");                   \
     ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result); \
     _Pragma("unroll")                                                   \
     for (int i = 0; i < n / 2; i += 2) {                                \
