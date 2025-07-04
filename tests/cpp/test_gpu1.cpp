@@ -2843,7 +2843,7 @@ TEST_P(Fp4CastTest, HighPrecisionToFp4) {
   fusion.addInput(tv0);
   fusion.addOutput(tv1);
 
-  TensorView* tv0_cache = tv0->cacheAfter();
+  tv0->cacheAfter();
   TensorView* tv1_cache = tv1->cacheBefore();
 
   tv1->axis(0)->parallelize(ParallelType::Vectorize);
