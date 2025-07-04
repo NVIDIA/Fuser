@@ -1021,35 +1021,59 @@ __device__ __inline__ Array<__half, n, align> __e8m02half(
 // clang-format off
 // Disable clang-format because it tries to put the _Pragma("unroll")
 // and the for loop on the same line, which doesn't make sense.
-#define DEFINE_CAST_VECN_WITH_VEC4(name, from_type, to_type)              \
-  template <int n, int align>                                             \
-  __device__ __inline__ Array<to_type, n, align> name(                    \
-      const Array<from_type, n, align>& input) {                          \
-    using InputX2 = Array<from_type, 2, 2>;                               \
-    using InputX4 = Array<from_type, 4, 2>;                               \
-    using ResultX2 = Array<to_type, 2, 2>;                                \
-    using ResultX4 = Array<to_type, 4, 2>;                                \
-    using InputArrayX2 = Array<InputX2, n / 2, align / 2>;                \
-    using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;              \
-    const InputArrayX2& inputx2 =                                         \
-        reinterpret_cast<const InputArrayX2&>(input);                     \
-    Array<to_type, n, align> result;                                      \
-    ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result);   \
-    _Pragma("unroll")                                                     \
-    for (int i = 0; i < n / 2; i += 2) {                                  \
-      if (i + 1 < n / 2) {                                                \
-        Array<InputX2, 2, 1> pair = {inputx2[i], inputx2[i + 1]};         \
-        InputX4& quad = reinterpret_cast<InputX4&>(pair);                 \
-        ResultX4 res_quad = name(quad);                                   \
-        const Array<ResultX2, 2, 1>& res_pair =                           \
-            reinterpret_cast<const Array<ResultX2, 2, 1>&>(res_quad);     \
-        resultx2[i] = res_pair[0];                                        \
-        resultx2[i + 1] = res_pair[1];                                    \
-      } else {                                                            \
-        resultx2[i] = name(inputx2[i]);                                   \
-      }                                                                   \
-    }                                                                     \
-    return result;                                                        \
+#define DEFINE_CAST_VECN_WITH_VEC4(name, from_type, to_type)            \
+  template <int n, int align>                                           \
+  __device__ __inline__ Array<to_type, n, align> name(                  \
+      const Array<from_type, n, align>& input) {                        \
+    using InputX2 = Array<from_type, 2, 2>;                             \
+    static_assert(                                                      \
+        sizeof(InputX2) == sizeof(from_type) * 2,                       \
+        "sizeof(InputX2) must be " #from_type " * 2");                  \
+    using InputX4 = Array<from_type, 4, 2>;                             \
+    static_assert(                                                      \
+        sizeof(InputX4) == sizeof(from_type) * 4,                       \
+        "sizeof(InputX4) must be " #from_type " * 4");                  \
+    using ResultX2 = Array<to_type, 2, 2>;                              \
+    static_assert(                                                      \
+        sizeof(ResultX2) == sizeof(to_type) * 2,                        \
+        "sizeof(ResultX2) must be " #to_type " * 2");                   \
+    using ResultX4 = Array<to_type, 4, 2>;                              \
+    static_assert(                                                      \
+        sizeof(ResultX4) == sizeof(to_type) * 4,                        \
+        "sizeof(ResultX4) must be " #to_type " * 4");                   \
+    using InputArrayX2 = Array<InputX2, n / 2, align / 2>;              \
+    static_assert(                                                      \
+        sizeof(InputArrayX2) == sizeof(input),                          \
+        "sizeof(InputArrayX2) must be input size");                     \
+    using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;            \
+    static_assert(                                                      \
+        sizeof(ResultArrayX2) == sizeof(result),                        \
+        "sizeof(ResultArrayX2) must be result size");                   \
+    const InputArrayX2& inputx2 =                                       \
+        reinterpret_cast<const InputArrayX2&>(input);                   \
+    Array<to_type, n, align> result;                                    \
+    ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result); \
+    _Pragma("unroll")                                                   \
+    for (int i = 0; i < n / 2; i += 2) {                                \
+      if (i + 1 < n / 2) {                                              \
+        Array<InputX2, 2, 1> pair = {inputx2[i], inputx2[i + 1]};       \
+        static_assert(                                                  \
+            sizeof(pair) == sizeof(InputX4),                            \
+            "sizeof(pair) must be InputX4 size");                       \
+        InputX4& quad = reinterpret_cast<InputX4&>(pair);               \
+        ResultX4 res_quad = name(quad);                                 \
+        const Array<ResultX2, 2, 1>& res_pair =                         \
+            reinterpret_cast<const Array<ResultX2, 2, 1>&>(res_quad);   \
+        static_assert(                                                  \
+            sizeof(Array<ResultX2, 2, 1>) == sizeof(ResultX4),          \
+            "sizeof(Array<ResultX2, 2, 1>) must be ResultX4 size");     \
+        resultx2[i] = res_pair[0];                                      \
+        resultx2[i + 1] = res_pair[1];                                  \
+      } else {                                                          \
+        resultx2[i] = name(inputx2[i]);                                 \
+      }                                                                 \
+    }                                                                   \
+    return result;                                                      \
   }
 // clang-format on
 
