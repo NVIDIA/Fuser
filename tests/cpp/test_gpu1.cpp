@@ -2785,8 +2785,7 @@ std::array<float, 16> float_values = {
 
 } // namespace fp4ref
 
-#if 1 
-// NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
 
 // High precision type, vectorization factor of castOp
 using Fp4CastParams = std::tuple<DataType, int64_t>;
@@ -2824,8 +2823,9 @@ TEST_P(Fp4CastTest, Fp4ToHighPrecision) {
   at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
                          .to(at::kCUDA)
                          .view(torch::kFloat4_e2m1fn_x2);
-  at::Tensor expect = at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
-                         .to(at::kCUDA);
+  at::Tensor expect =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -2850,10 +2850,12 @@ TEST_P(Fp4CastTest, HighPrecisionToFp4) {
   tv1_cache->split(0, vectorization_factor);
   tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
 
-  at::Tensor input = at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
-                         .to(at::kCUDA).to(data_type_to_aten(dtype_highp));
-  at::Tensor expect = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
-                         .to(at::kCUDA);
+  at::Tensor input =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA)
+          .to(data_type_to_aten(dtype_highp));
+  at::Tensor expect =
+      at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte).to(at::kCUDA);
 
   KernelExecutor ke;
   ke.compile(&fusion, {input});
@@ -2861,8 +2863,7 @@ TEST_P(Fp4CastTest, HighPrecisionToFp4) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().view(at::kByte).equal(expect));
 }
 
-std::string fp4CastTestName(
-    const testing::TestParamInfo<Fp4CastParams>& info) {
+std::string fp4CastTestName(const testing::TestParamInfo<Fp4CastParams>& info) {
   const auto& [dtype_highp, vectorization_factor] = info.param;
   std::stringstream ss;
   ss << dtype_highp << "_Vectorize_" << vectorization_factor;
@@ -2870,12 +2871,16 @@ std::string fp4CastTestName(
 }
 
 INSTANTIATE_TEST_SUITE_P(
-  ,
-  Fp4CastTest,
-  testing::Combine(
-      testing::Values(DataType::Float, DataType::Double, DataType::BFloat16, DataType::Half),
-      testing::Values(2, 4, 8, 16)),
-  fp4CastTestName);
+    ,
+    Fp4CastTest,
+    testing::Combine(
+        testing::Values(
+            DataType::Float,
+            DataType::Double,
+            DataType::BFloat16,
+            DataType::Half),
+        testing::Values(2, 4, 8, 16)),
+    fp4CastTestName);
 
 #endif
 
