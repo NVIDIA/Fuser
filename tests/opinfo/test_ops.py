@@ -12,10 +12,12 @@ from opinfo_fusion_definitions import default_fd_fn, parse_inputs_fusion_definit
 from opinfo_framework import create_op_test, atexit_serde_create_op_test
 from opinfo_core import ReferenceType, OpInfo, SampleInput
 from opinfos import opinfos
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     ArgumentType,
     is_tensor,
     requiresJAX,
+)
+from nvfuser.testing.utils import (
     check_captured_python_definition,
     check_cpp_translation,
     debug_serde,
