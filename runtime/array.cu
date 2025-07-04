@@ -35,30 +35,41 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
 };
 
 template <int size, int align_size>
-struct alignas(align_size) Array<__e2m1, size, align_size> {
+struct alignas(align_size / 2) Array<__e2m1, size, align_size> {
   static_assert(size % 2 == 0, "There must be an even number of fp4 elements");
   __e2m1 array[size / 2];
 
   __device__ __e2m1& operator[](const unsigned int i) {
     // For performance reason, we do not check the index is even, but we assume
-    // it. assert(index % 2 == 0);
+    // it. assert(i % 2 == 0);
     return array[i / 2];
   }
 
   __device__ const __e2m1& operator[](const unsigned int i) const {
     // For performance reason, we do not check the index is even, but we assume
-    // it. assert(index % 2 == 0);
+    // it. assert(i % 2 == 0);
     return array[i / 2];
   }
 
   Array& operator=(const Array& a) {
 #pragma unroll
     for (int i = 0; i < size / 2; ++i) {
-      array[i] = a[i];
+      array[i] = a.array[i];
     }
     return *this;
   }
 };
+
+static_assert(sizeof(Array<__e2m1, 2, 2>) == 1, "sizeof(Array<__e2m1, 2, 2>) must be 1");
+static_assert(sizeof(Array<__e2m1, 4, 2>) == 2, "sizeof(Array<__e2m1, 4, 2>) must be 2");
+static_assert(sizeof(Array<__e2m1, 4, 4>) == 2, "sizeof(Array<__e2m1, 4, 4>) must be 2");
+static_assert(sizeof(Array<__e2m1, 8, 2>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(sizeof(Array<__e2m1, 8, 4>) == 4, "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(sizeof(Array<__e2m1, 8, 8>) == 4, "sizeof(Array<__e2m1, 8, 8>) must be 4");
+static_assert(sizeof(Array<__e2m1, 16, 2>) == 8, "sizeof(Array<__e2m1, 16, 2>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 4>) == 8, "sizeof(Array<__e2m1, 16, 4>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 8>) == 8, "sizeof(Array<__e2m1, 16, 8>) must be 8");
+static_assert(sizeof(Array<__e2m1, 16, 16>) == 8, "sizeof(Array<__e2m1, 16, 16>) must be 8");
 
 // Used for vectorized allocations that are not in registers
 template <typename scalar_t, int vec_size>
