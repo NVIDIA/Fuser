@@ -13,7 +13,7 @@ import random
 from numbers import Number
 
 from opinfo_core import OpInfo, SampleInput, ErrorSample, Domain
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     make_number,
     find_nonmatching_dtype,
     is_floating_dtype,

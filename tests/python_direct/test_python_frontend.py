@@ -5,16 +5,16 @@
 
 import pytest
 import torch
+import torch._refs as refs
+import torch._prims as prims
 
 from nvfuser_direct import (
     FusionDefinition,
     DataType,
 )
 
-from utils import (
-    is_pre_volta,
-    NVFuserTest,
-)
+from nvfuser_direct.testing.utils import is_pre_volta
+from utils import NVFuserTest
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -298,3 +298,24 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T5)
 
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+    def test_broadcast(self):
+        inputs = [
+            torch.randn(3, device="cuda"),
+            torch.randn(2, 3, 4, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.from_pytorch(inputs[1])
+
+            t0_b = fd.ops.broadcast(t0, [True, False, True])
+            t2 = fd.ops.add(t0_b, t1)
+
+            fd.add_output(t2)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        eager_out = refs.add(
+            prims.broadcast_in_dim(inputs[0], inputs[1].size(), [1]), inputs[1]
+        )
+        self.assertEqual(eager_out, nvf_out[0])

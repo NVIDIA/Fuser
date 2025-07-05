@@ -12,6 +12,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/container.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <type.h>
 #include <utils.h>
@@ -36,6 +37,11 @@ inline constexpr bool is_optional_v = is_optional<T>::value;
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
+
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
 
   // Generate a python string for a boolean value.
   std::string toString(bool b) {
@@ -75,11 +81,6 @@ class PythonPrinter {
       ss << std::showpoint << d;
       return ss.str();
     }
-  }
-
-  // Generate a python string for a string value.
-  std::string toString(const std::string& s) {
-    return s;
   }
 
   // Generate a python string for a Datatype.
@@ -769,7 +770,7 @@ class PythonTranslator : public OptInConstDispatch {
     // TODO short-circuit: lsop is a permutation.
     if (lsop->out()->isA<TensorView>() &&
         lsop->out()->as<TensorView>()->hasRoot()) {
-      NVF_ERROR(false, "Permutation is not implemented");
+      return handlePermute(lsop);
     }
 
     // If input and output values share the same type, a LoadStoreOp aka set
@@ -782,6 +783,37 @@ class PythonTranslator : public OptInConstDispatch {
         argument_names,
         std::make_tuple(lsop->out()->dtype()),
         {lsop->out()});
+  }
+
+  void handlePermute(const LoadStoreOp* lsop) {
+    TensorView* out_tv = lsop->out()->as<TensorView>();
+
+    std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old.has_value(), "Expected permutation");
+
+    visited_vals_.insert(lsop->out());
+    static const std::vector<std::string> argument_names = {"dims"};
+    printer_.generateKwargsOperation(
+        "fd.ops.permute",
+        std::make_tuple(lsop->in()),
+        argument_names,
+        std::make_tuple(new2old.value()),
+        {lsop->out()});
+  }
+
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    NVF_ERROR(bcast_op != nullptr);
+    visited_vals_.insert(bcast_op->out());
+    static const std::vector<std::string> broadcast_argument_names = {
+        "is_broadcast_dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.broadcast",
+        std::make_tuple(bcast_op->in()),
+        broadcast_argument_names,
+        std::make_tuple(bcast_op->getBroadcastDimFlags()),
+        {bcast_op->out()});
   }
 
  private:

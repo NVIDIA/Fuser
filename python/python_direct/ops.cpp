@@ -1585,6 +1585,54 @@ TensorView
     The reshaped tensor.
       )",
       py::return_value_policy::reference);
+  ops.def(
+      "permute",
+      [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == (int64_t)dims.size(),
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
+        return permute(arg, dims);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Permute a tensor.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to permute.
+
+Returns
+-------
+TensorView
+    The permuted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "broadcast",
+      [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
+        return broadcast(arg, is_broadcast_dim);
+      },
+      py::arg("arg"),
+      py::arg("is_broadcast_dim"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindTensorUtilityOps(py::module_& ops) {
