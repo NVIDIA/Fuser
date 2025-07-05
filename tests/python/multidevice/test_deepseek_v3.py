@@ -2,6 +2,10 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+
+# Run command:
+# mpirun -np 1 pytest tests/python/multidevice/test_deepseek_v3.py --only-mpi -s
+
 import pytest
 import transformers
 import torch
@@ -9,7 +13,7 @@ import torch.distributed as dist
 from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
-from linear import TensorParallelLinear
+from linear_direct import TensorParallelLinear
 from nvfuser.testing.benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
