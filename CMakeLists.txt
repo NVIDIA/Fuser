@@ -335,7 +335,6 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/distributed_tensor.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
@@ -343,6 +342,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
+    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
     ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
@@ -608,6 +608,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/bindings.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp

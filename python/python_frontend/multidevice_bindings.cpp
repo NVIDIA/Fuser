@@ -51,7 +51,7 @@ void bindCommunicator(py::module& nvfuser) {
 }
 
 void bindDeviceMesh(py::module& nvfuser) {
-  py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh");
+  py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
   device_mesh.def(py::init<std::vector<int64_t>>());
   device_mesh.def("__repr__", [](const DeviceMesh& self) {
     std::stringstream ss;
@@ -76,7 +76,8 @@ void bindDeviceMesh(py::module& nvfuser) {
 }
 
 void bindDistributedTensor(py::module& nvfuser) {
-  py::class_<Sharding> distributed_tensor(nvfuser, "Sharding");
+  py::class_<Sharding> distributed_tensor(
+      nvfuser, "Sharding", py::module_local());
   distributed_tensor.def_property_readonly(
       "mesh",
       &Sharding::mesh,
