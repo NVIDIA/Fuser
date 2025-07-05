@@ -8,6 +8,10 @@
 #include <bindings.h>
 #include <python_utils.h>
 
+// size and shape operations are a part of TensorView bindings but not a
+// part of TensorView IR node.
+#include <ops/arith.h>
+
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -112,6 +116,36 @@ Returns
 -------
 int
     The number of dimensions.
+)")
+      .def(
+          "size",
+          [](TensorView* self, int64_t dim) { return size(self, dim); },
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Get the size of this tensor.
+
+Parameters
+----------
+dim : int
+    The dimension in the tensor.
+
+Returns
+-------
+int
+    The size of the dimension.
+)")
+      .def(
+          "shape",
+          [](TensorView* self) { return shape(self); },
+          py::return_value_policy::reference,
+          R"(
+Get the shape of this tensor.
+
+Returns
+-------
+list of Val
+    The shape of this tensor.
 )")
       .def(
           "domain",
@@ -342,7 +376,7 @@ void bindDefineTensor(py::module& nvfuser) {
           py::return_value_policy::reference);
 }
 
-void bindScalar(py::module& nvfuser) {
+void bindDefineScalar(py::module& nvfuser) {
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -375,7 +409,7 @@ void bindFusionIr(py::module& nvfuser) {
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);
   bindDefineTensor(nvfuser);
-  bindScalar(nvfuser);
+  bindDefineScalar(nvfuser);
 }
 
 } // namespace nvfuser::python
