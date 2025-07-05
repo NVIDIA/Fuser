@@ -38,6 +38,11 @@ class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
 
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
+
   // Generate a python string for a boolean value.
   std::string toString(bool b) {
     return b ? "True" : "False";
@@ -76,11 +81,6 @@ class PythonPrinter {
       ss << std::showpoint << d;
       return ss.str();
     }
-  }
-
-  // Generate a python string for a string value.
-  std::string toString(const std::string& s) {
-    return s;
   }
 
   // Generate a python string for a Datatype.
@@ -800,6 +800,20 @@ class PythonTranslator : public OptInConstDispatch {
         argument_names,
         std::make_tuple(new2old.value()),
         {lsop->out()});
+  }
+
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    NVF_ERROR(bcast_op != nullptr);
+    visited_vals_.insert(bcast_op->out());
+    static const std::vector<std::string> broadcast_argument_names = {
+        "is_broadcast_dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.broadcast",
+        std::make_tuple(bcast_op->in()),
+        broadcast_argument_names,
+        std::make_tuple(bcast_op->getBroadcastDimFlags()),
+        {bcast_op->out()});
   }
 
  private:

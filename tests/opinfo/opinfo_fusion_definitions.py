@@ -6,16 +6,20 @@
 import torch
 
 from opinfo_core import OpInfo
-from nvfuser.testing.utils import ArgumentType, is_tensor
+from opinfo_utils import ArgumentType, is_tensor
 
-from nvfuser import FusionDefinition
+from nvfuser import FusionDefinition as LegacyFusionDefinition
+from nvfuser_direct import FusionDefinition as DirectFusionDefinition
+
 from nvfuser.pytorch_utils import (
     python_scalar_to_nvfuser_dtype,
     torch_dtype_to_nvfuser_dtype,
 )
 
 
-def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
+def parse_inputs_fusion_definition(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args
+):
     if len(args) == 0:
         return []
 
@@ -59,12 +63,16 @@ def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):
 # This function will purposely not generate a functional FusionDefintion as
 # it lacks defining an output.  It is only meant to test the error checking
 # of an operation.
-def api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+def api_test_fd_fn(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args, **kwargs
+):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     this_inputs = opinfo.op(fd)(**kwargs)
 
 
-def default_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+def default_fd_fn(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args, **kwargs
+):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     result = opinfo.op(fd)(*nvf_inputs, **kwargs)
     if isinstance(result, tuple):
@@ -75,19 +83,25 @@ def default_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
         fd.add_output(result)
 
 
-def tensor_input_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+def tensor_input_fd_fn(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args, **kwargs
+):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     this_inputs = opinfo.op(fd)(**kwargs)
     t1 = fd.ops.add(nvf_inputs[0], this_inputs)
     fd.add_output(t1)
 
 
-def tensor_api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+def tensor_api_test_fd_fn(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args, **kwargs
+):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     out = opinfo.op(fd)(nvf_inputs[0], **kwargs)
 
 
-def vector_api_test_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
+def vector_api_test_fd_fn(
+    fd: LegacyFusionDefinition | DirectFusionDefinition, opinfo: OpInfo, *args, **kwargs
+):
     nvf_inputs = parse_inputs_fusion_definition(fd, opinfo, *args)
     v0 = nvf_inputs[0].shape()
     out = opinfo.op(fd)(v0, **kwargs)
