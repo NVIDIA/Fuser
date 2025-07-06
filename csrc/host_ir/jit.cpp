@@ -654,11 +654,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
     llvm::IRBuilder<>& builder) {
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, val2llvmMap, context, builder);
-  if (!tv->hasAllocation()) {
+  // if (!tv->hasAllocation()) {
     return {allocation_size_stride.first, allocation_size_stride.second};
-  }
+  // }
   // otherwise we want return the reordered size and stride
-  return {allocation_size_stride.first, inferTensorStrides(tv, val2llvmMap, context, builder)};
+  // return {allocation_size_stride.first, inferTensorStrides(tv, val2llvmMap, context, builder)};
 }
 
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> compileOutputTensorView(
