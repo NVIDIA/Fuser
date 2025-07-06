@@ -228,13 +228,22 @@ class FusionDefinition:
         list of torch.Tensor
             Output tensors from the fusion
         """
+
+        if not isinstance(device, int) and device is not None:
+            if not isinstance(device, torch.device):
+                device = torch.device(device)
+            assert (
+                device.type == "cuda"
+            ), "If device argument is passed it must be a CUDA device"
+            device = device.index
+
         if auto_schedule:
             if not hasattr(self, "fec"):
                 self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
                 # A copy of fusion is created after construction FusionExecutorCache
                 # Delete the _fusion and reference the fusion inside FusionExecutorCache
                 del self._fusion
-            return self.fec.execute(inputs)
+            return self.fec.execute(inputs, device=device)
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
 

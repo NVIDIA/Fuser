@@ -5,6 +5,7 @@
 
 from nvfuser_direct import FusionDefinition, DataType
 import torch
+import pytest
 
 
 def test_fusion_definition_print():
@@ -169,3 +170,29 @@ def test_define_tensor():
     ]
     outputs = fd.execute(inputs)
     assert torch.allclose(outputs[0], inputs[0] + inputs[1])
+
+
+@pytest.mark.skipif(
+    torch.cuda.device_count() < 2,
+    reason="test_selected_device requires multiple GPUs",
+)
+def test_execute_with_different_device():
+    inputs = [
+        torch.ones(2, 4, 8, device="cuda:1"),
+        torch.ones(2, 4, 8, device="cuda:1"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
+
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.mul(t2, c0)
+        t4 = fd.ops.sum(t3, [1], False, DataType.Float)
+
+        fd.add_output(t4)
+
+    o = fd.execute(inputs, device="cuda:1")
+    assert len(o) == 1
+    assert o[0].device.index == 1
