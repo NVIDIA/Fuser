@@ -44,44 +44,15 @@
 
 namespace nvfuser {
 
-using allocate_fn = std::function<
-    void(const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>;
+using main_func_fn = std::function<void()>;
 
-/*
-input: cache id
-output: KernelArgumentHolder
-*/ 
-struct KernelArgumentHolderPair {
-  void* args;      // KernelArgumentHolder* for inputs
-  void* outputs;   // KernelArgumentHolder* for outputs
-};
-
-using launch_kernel_fn = std::function<KernelArgumentHolderPair(int64_t, at::Tensor**, at::Tensor**)>;
-
-class HostIrJitParams {
- private:
-  Communicator* communicator_;
-
- public:
-  HostIrJitParams(hir::HostIrContainer* container)
-      : communicator_(&Communicator::getInstance()) {}
-
-  Communicator* getCommunicator() const {
-    return communicator_;
-  }
-};
-
-using main_func_fn = std::function<void(at::Tensor**, int64_t, at::Tensor**)>;
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
-  std::unordered_map<const kir::Allocate*, allocate_fn> allocate_funcs_;
-  std::unordered_map<const hir::LaunchKernel*, launch_kernel_fn> launch_kernel_funcs_;
   main_func_fn main_func_;
-  std::unique_ptr<HostIrJitParams> host_ir_jit_params_;
-  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
-  std::unordered_map<const kir::Allocate*, at::Tensor> allocate_tensors_;
+  std::unordered_map<const TensorView*, at::Tensor> tensor_map;
+  std::unique_ptr<hir::HostIrContainer> container_;
   LlvmJitImpl() = default;
   ~LlvmJitImpl() = default;
 };
@@ -654,11 +625,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
     llvm::IRBuilder<>& builder) {
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, val2llvmMap, context, builder);
-  // if (!tv->hasAllocation()) {
+  if (!tv->hasAllocation()) {
     return {allocation_size_stride.first, allocation_size_stride.second};
-  // }
+  }
   // otherwise we want return the reordered size and stride
-  // return {allocation_size_stride.first, inferTensorStrides(tv, val2llvmMap, context, builder)};
+  return {allocation_size_stride.first, inferTensorStrides(tv, val2llvmMap, context, builder)};
 }
 
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> compileOutputTensorView(
@@ -782,11 +753,8 @@ void processTensorViewsLLVM(
     const hir::HostIrContainer* container,
     llvm::Module* mod,
     llvm::Function* func,
-    std::unordered_map<const kir::Allocate*, std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>>>& tensorShapeMap,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    const HostIrJitParams& host_ir_jit_params,
-    llvm::IRBuilder<>& builder,
-    size_t num_inputs) {
+    llvm::IRBuilder<>& builder) {
   llvm::LLVMContext& context = mod->getContext();
   
   // Get function parameters
@@ -911,27 +879,10 @@ void processTensorViewsLLVM(
 
 void generateMainFunc(
     const hir::HostIrContainer* container,
-    llvm::Module* mod,  
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    const HostIrJitParams& host_ir_jit_params) {
-  std::unordered_map<const kir::Allocate*, std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>>> tensorShapeMap;
-  llvm::LLVMContext& context = mod->getContext();
-
-  // Count input and output tensors
-  size_t num_inputs = 0;
-  size_t num_outputs = 0;
-  
-  for (auto* input : container->inputs()) {
-    if (dynamic_cast<const TensorView*>(input)) {
-      num_inputs++;
-    }
-  }
-  
-  for (auto* output : container->topLevelExprs()) {
-    if (dynamic_cast<const kir::Allocate*>(output)) {
-      num_outputs++;
-    }
-  }
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  llvm::LLVMContext& context = builder.getContext();
+  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
 
   // Create function signature with input tensor array, count, and output tensor array parameters
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
@@ -941,22 +892,16 @@ void generateMainFunc(
   std::vector<llvm::Type*> param_types = {
     tensor_array_type, // at::Tensor** input_tensors
     int64_type,        // int64_t num_inputs
-    tensor_array_type  // at::Tensor** output_tensors
+    tensor_array_type,  // at::Tensor** output_tensors,
+    int64_type,        // int64_t num_outputs
   };
   
   llvm::FunctionType* func_type = llvm::FunctionType::get(llvm::Type::getVoidTy(context), param_types, false);
   llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "full_graph_induction", mod);
   
-  // Set parameter names
-  func->getArg(0)->setName("input_tensors");
-  func->getArg(1)->setName("num_inputs");
-  func->getArg(2)->setName("output_tensors");
-
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
-  llvm::IRBuilder<> builder(entry);
-
-  processTensorViewsLLVM(container, mod, func, tensorShapeMap, val2llvmMap, host_ir_jit_params, builder, num_inputs);
-
+  builder.SetInsertPoint(entry);
+  processTensorViewsLLVM(container, mod, func, val2llvmMap, builder);
   builder.CreateRetVoid();
 
   // Verify the module
@@ -1100,67 +1045,51 @@ void generateAllocateFunc(
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
-    std::unordered_map<const kir::Allocate*, allocate_fn>& allocate_funcs_,
-    std::unordered_map<const hir::LaunchKernel*, launch_kernel_fn>& launch_kernel_funcs_,
-    main_func_fn& main_func_,
-    const HostIrJitParams& host_ir_jit_params) {
+    main_func_fn& main_func_) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
-  // If the JIT is already compiled, return
-  if (allocate_funcs_.size() > 0) {
-    return;
-  }
   NVF_ERROR(
       container != nullptr,
       "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
-
-  // Generate the allocate functions
-  std::vector<kir::Allocate*> allocate_exprs;
-  std::vector<hir::LaunchKernel*> launch_kernel_exprs;
-  for (auto* expr : container->topLevelExprs()) {
-    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
-      allocate_exprs.push_back(allocate);
-    } else if (auto* for_loop = dynamic_cast<ForLoop*>(expr)) {
-      for (auto* expr : for_loop->body().exprs()) {
-        if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-          generateAllocateFunc(allocate, host_ir_jit_params, mod.get());
-          allocate_exprs.push_back(allocate);
-        }
-      }
-    } else if (auto* launch_kernel = dynamic_cast<hir::LaunchKernel*>(expr)) {
-      generateLaunchKernelFunc(launch_kernel, mod.get());
-      launch_kernel_exprs.push_back(launch_kernel);
+  llvm::IRBuilder<> builder(*ctx);
+  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
+  // bind the constants
+  generateMainFunc(container, builder, val2llvmMap);
+  // Generate the top level functions
+  for(auto* input : container->topLevelExprs()) {
+    if(auto* allocate = dynamic_cast<const kir::Allocate*>(input)) {
+      generateAllocateFunc(allocate, builder, val2llvmMap);
+    }
+    else if(auto* deallocate = dynamic_cast<const kir::Deallocate*>(input)) {
+      generateDeallocateFunc(deallocate, builder, val2llvmMap);
+    }
+    else if(auto* launch_kernel = dynamic_cast<const hir::LaunchKernel*>(input)) {
+      generateLaunchKernelFunc(launch_kernel, builder, val2llvmMap);
+    }
+    else if(auto* for_loop = dynamic_cast<const ForLoop*>(input)) {
+      generateForLoopFunc(for_loop, builder, val2llvmMap);
+    }
+    else if(auto* if_then_else = dynamic_cast<const kir::IfThenElse*>(input)) {
+      generateIfThenElseFunc(if_then_else, builder, val2llvmMap);
+    }
+    else if(auto* matmul = dynamic_cast<const MatmulOp*>(input)) {
+      generateMatmulFunc(matmul, builder, val2llvmMap);
+    }
+    else if(auto* linear_op = dynamic_cast<const LinearOp*>(input)) {
+      generateLinearFunc(linear_op, builder, val2llvmMap);
+    }
+    else{
+      NVF_THROW("Unsupported input type: ", input);
     }
   }
-
-  // Generate the main function that processes all tensor views and outputs
-  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
-  generateMainFunc(container, mod.get(), val2llvmMap, host_ir_jit_params);
-
   // Add the module to the JIT
   throwIfError(jit->addIRModule(
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
-
-  // Look up all functions and store their pointers
-  for (auto* allocate : allocate_exprs) {
-    auto func_name = ir_utils::varName(allocate->buffer()->as<Val>());
-    auto func_addr = throwIfError(jit->lookup(func_name));
-    allocate_funcs_[allocate] = reinterpret_cast<void (*)(
-        const int64_t*, int64_t, const int64_t*, int64_t, at::Tensor&)>(
-        func_addr.getValue());
-  }
-  for (auto* launch_kernel : launch_kernel_exprs) {
-    auto func_name = launch_kernel->toString();
-    auto func_addr = throwIfError(jit->lookup(func_name));
-    launch_kernel_funcs_[launch_kernel] = reinterpret_cast<KernelArgumentHolderPair(*)(int64_t, at::Tensor**, at::Tensor**)>(
-        func_addr.getValue());
-  }
-  
+ 
   // Look up the main function
   auto main_func_addr = throwIfError(jit->lookup("full_graph_induction"));
-  main_func_ = reinterpret_cast<void(*)(at::Tensor**, int64_t, at::Tensor**)>(main_func_addr.getValue());
+  main_func_ = reinterpret_cast<void(*)()>(main_func_addr.getValue());
 }
 
 HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
@@ -1180,8 +1109,28 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
-  // Create wrapper function for at::native::empty_strided_cuda
-  // TODO: Remove this wrapper in the future
+
+  // tensor memory management functions
+  // raw tensor allocation and deallocation
+  void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](TensorView* tv) -> at::Tensor* {
+        NVF_ERROR(pimpl_->tensor_map.find(tv) == pimpl_->tensor_map.end(), "tensor_ptr is already allocated");
+        pimpl_->tensor_map[tv] = {};
+        return &pimpl_->tensor_map[tv];
+      });
+
+  void* deallocate_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](TensorView* tv) -> void {
+        NVF_ERROR(pimpl_->tensor_map.find(tv) != pimpl_->tensor_map.end(), "tensor_ptr is not found");
+        pimpl_->tensor_map.erase(tv);
+      });
+
+  void* get_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](TensorView* tv) -> at::Tensor* {
+        return &pimpl_->tensor_map[tv];
+      });
+
+  // at::native::empty_strided_cuda function
   void* empty_strided_cuda_func_ptr =
       reinterpret_cast<void*>(+[](const int64_t* sizes,
                                   int64_t ndim,
@@ -1204,53 +1153,41 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
             c10::nullopt);
       });
 
-  // Register KernelArgumentHolder functions
-  void* kernel_argument_holder_constructor_func_ptr = reinterpret_cast<void*>(
-      +[]() -> KernelArgumentHolder* {
-        return new KernelArgumentHolder();
-      });
-
-  void* kernel_argument_holder_set_cache_id_func_ptr = reinterpret_cast<void*>(
-      +[](KernelArgumentHolder* self, size_t id) {
-        self->setCacheId(id);
-      });
-
-  void* kernel_argument_holder_set_device_index_func_ptr = reinterpret_cast<void*>(
-      +[](KernelArgumentHolder* self) {
-        self->setDeviceIndex();
-      });
-
-   void* kernel_argument_holder_push_func_ptr = reinterpret_cast<void*>(
-      +[](KernelArgumentHolder* self, at::Tensor* tensor_ptr) {
-        // std::cout << "Wrapper function called with tensor_ptr: " << tensor_ptr << std::endl;
-        if (tensor_ptr == nullptr) {
-          // std::cout << "ERROR: tensor_ptr is null!" << std::endl;
-          return;
+  // launch kernel function
+  void* launch_kernel_func_ptr = reinterpret_cast<void*>(
+      +[](size_t id, 
+      at::Tensor** input_tensors, int64_t num_inputs, 
+      at::Tensor** output_tensors, int64_t num_outputs,
+      void* launch_kernel_ptr) {
+        auto launch_kernel = reinterpret_cast<hir::LaunchKernel*>(launch_kernel_ptr);
+        KernelArgumentHolder input_args, output_args;
+        input_args.setCacheId(id);
+        for (int64_t i = 0; i < num_inputs; i++) {
+          input_args.push(input_tensors[i]);
         }
-        // std::cout << "About to call self->push(*tensor_ptr)" << std::endl;
-        self->push(*tensor_ptr);
-        // std::cout << "Successfully called push" << std::endl;
+        for (int64_t i = 0; i < num_outputs; i++) {
+          output_args.push(output_tensors[i]);
+        }
+        input_args.setDeviceIndex();
+        pimpl_->container_->getKernelExecutor(launch_kernel->groupId())
+            ->run(
+                input_args,
+                output_args,
+                launch_kernel->launchParams(),
+                launch_kernel->compileParams());
       });
 
-  // Register tensor size and stride extraction functions
-  void* tensor_size_func_ptr = reinterpret_cast<void*>(
+  // tensor size and stride extraction functions
+  void* extract_tensor_size_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        // std::cout << "tensor_size_func_ptr called with tensor_ptr: " 
-        // << tensor_ptr << ", dim: " << dim 
-        // << " tensor_ptr->size(dim): " << tensor_ptr->size(dim)
-        // << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
         return tensor_ptr->size(dim);
       });
 
-  void* tensor_stride_func_ptr = reinterpret_cast<void*>(
+  void* extract_tensor_stride_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        // std::cout << "tensor_stride_func_ptr called with tensor_ptr: " 
-        // << tensor_ptr << ", dim: " << dim 
-        // << " tensor_ptr->stride(dim): " << tensor_ptr->stride(dim)
-        // << std::endl;
         if (tensor_ptr == nullptr) {
           return 0;
         }
@@ -1259,30 +1196,30 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 
   // Register wrapper functions in JIT
   auto empty_strided_cuda_addr = llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
-  auto kernel_argument_holder_constructor_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_constructor_func_ptr);
-  auto kernel_argument_holder_set_cache_id_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_cache_id_func_ptr);
-  auto kernel_argument_holder_set_device_index_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_set_device_index_func_ptr);
-  auto kernel_argument_holder_push_addr = llvm::orc::ExecutorAddr::fromPtr(kernel_argument_holder_push_func_ptr); 
-  auto tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(tensor_size_func_ptr);
-  auto tensor_stride_addr = llvm::orc::ExecutorAddr::fromPtr(tensor_stride_func_ptr);
+  auto launch_kernel_addr = llvm::orc::ExecutorAddr::fromPtr(launch_kernel_func_ptr);
+  auto tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
+  auto tensor_stride_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_stride_func_ptr);
+  auto allocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(allocate_tensor_func_ptr);
+  auto deallocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(deallocate_tensor_func_ptr);
+  auto get_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(get_tensor_func_ptr);
 
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
       llvm::orc::ExecutorSymbolDef(
           empty_strided_cuda_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("KernelArgumentHolder::KernelArgumentHolder")] = 
-      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_constructor_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("KernelArgumentHolder::setCacheId")] = 
-      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_set_cache_id_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("KernelArgumentHolder::setDeviceIndex")] = 
-      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_set_device_index_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("KernelArgumentHolder::push")] = 
-      llvm::orc::ExecutorSymbolDef(kernel_argument_holder_push_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("launch_kernel")] = 
+      llvm::orc::ExecutorSymbolDef(launch_kernel_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("tensor_size")] = 
       llvm::orc::ExecutorSymbolDef(tensor_size_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("tensor_stride")] = 
       llvm::orc::ExecutorSymbolDef(tensor_stride_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("allocate_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("deallocate_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(deallocate_tensor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("get_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(get_tensor_addr, llvm::JITSymbolFlags::Exported);
 
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
@@ -1290,152 +1227,18 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   compile(
       container,
       pimpl_->jit.get(),
-      pimpl_->allocate_funcs_,
-      pimpl_->launch_kernel_funcs_,
-      pimpl_->main_func_,
-      *pimpl_->host_ir_jit_params_);
+      pimpl_->main_func_);
 }
 
 HostIrJit::~HostIrJit() = default;
 
-at::Tensor HostIrJit::allocate(
-    const kir::Allocate* allocate,
-    const std::vector<int64_t>& input_sizes,
-    const std::vector<int64_t>& input_strides) {
-  FUSER_PERF_SCOPE("HostIrJit::allocate");
-  auto allocate_func_iter = pimpl_->allocate_funcs_.find(allocate);
-  NVF_ERROR(
-      allocate_func_iter != pimpl_->allocate_funcs_.end(),
-      "allocate function not found for ",
-      allocate);
-  auto& func_ptr = allocate_func_iter->second;
-
-  at::Tensor tensor;
-  func_ptr(
-      input_sizes.data(),
-      input_sizes.size(),
-      input_strides.data(),
-      input_strides.size(),
-      tensor);
-
-  return tensor;
-}
-
-
-// Allocate with fullgraph mode
-at::Tensor HostIrJit::allocate(
-    const kir::Allocate* allocate) {
-  FUSER_PERF_SCOPE("HostIrJit::allocate");
-  auto allocate_tensor_iter = pimpl_->allocate_tensors_.find(allocate);
-  if (allocate_tensor_iter != pimpl_->allocate_tensors_.end()) {
-    at::Tensor tensor = allocate_tensor_iter->second;
-    // Remove from map to prevent memory leak
-    pimpl_->allocate_tensors_.erase(allocate_tensor_iter);
-    return tensor;
-  }
-  return at::empty({0}, at::kFloat);
-}
 
 std::vector<at::Tensor> HostIrJit::runFullGraph(
-    const hir::HostIrContainer* container,
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::runFullGraph");
-  std::vector<at::Tensor> inputs;
-  // process input values, converting IValue to PolymorphicValue
-  for(auto* input : container->inputs()) {
-    if (input->isA<TensorView>()) {
-      auto tensor = val_to_PValue.at(input).as<at::Tensor>();
-      inputs.push_back(tensor);
-    }
-  }
-  // Count the number of output tensors
-  size_t num_outputs = 0;
-  for (auto* output : container->topLevelExprs()) {
-    if (dynamic_cast<const kir::Allocate*>(output)) {
-      num_outputs++;
-    }
-  }
-  
-  // Create array to hold output tensor pointers - use properly initialized empty tensors
-  std::vector<at::Tensor> result_tensors;
-  result_tensors.reserve(num_outputs);
-  for (size_t i = 0; i < num_outputs; ++i) {
-    // Create a properly initialized empty tensor instead of default-constructed
-    result_tensors.emplace_back(at::empty({0}, at::kCUDA));
-  }
-  
-  std::vector<at::Tensor*> output_ptrs;
-  output_ptrs.reserve(num_outputs);
-  for (auto& tensor : result_tensors) {
-    output_ptrs.push_back(&tensor);
-  }
-  
-  // Convert input tensors to pointers
-  std::vector<at::Tensor*> input_ptrs;
-  input_ptrs.reserve(inputs.size());
-  for (const auto& tensor : inputs) {
-    input_ptrs.push_back(const_cast<at::Tensor*>(&tensor));
-  }
-  
-  // Call the main function with input array, count, and outputs
-  pimpl_->main_func_(input_ptrs.data(), static_cast<int64_t>(inputs.size()), output_ptrs.data());
-  
-  size_t i = 0;
-  for (auto* expr : container->topLevelExprs()) {
-    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      pimpl_->allocate_tensors_[allocate] = result_tensors[i];
-      i++; 
-    }
-  }
-  
-  return result_tensors;
+  pimpl_->main_func_();
 }
 
-HostIrJit::LaunchKernelResult HostIrJit::launchKernel(
-    const hir::LaunchKernel* launch_kernel,
-    int64_t cache_id,
-    const std::vector<at::Tensor>& inputs,
-    const std::vector<at::Tensor>& outputs) {
-  FUSER_PERF_SCOPE("HostIrJit::launchKernel");
-  if (pimpl_->launch_kernel_funcs_.find(launch_kernel) == pimpl_->launch_kernel_funcs_.end()) {
-    NVF_ERROR(false, "launch kernel function not found for ", launch_kernel);
-  }
-  
-  auto func_ptr = pimpl_->launch_kernel_funcs_[launch_kernel];
-  
-  // std::cout << "Calling LLVM function with:" << std::endl;
-  // std::cout << "  cache_id: " << cache_id << std::endl;
-  // std::cout << "  inputs.size(): " << inputs.size() << std::endl;
-  // std::cout << "  outputs.size(): " << outputs.size() << std::endl;
-  
-  // Convert const std::vector<at::Tensor>& to at::Tensor** arrays
-  std::vector<at::Tensor*> input_ptrs;
-  input_ptrs.reserve(inputs.size());
-  for (const auto& tensor : inputs) {
-    input_ptrs.push_back(const_cast<at::Tensor*>(&tensor));
-  }
-  
-  std::vector<at::Tensor*> output_ptrs;
-  output_ptrs.reserve(outputs.size());
-  for (const auto& tensor : outputs) {
-    output_ptrs.push_back(const_cast<at::Tensor*>(&tensor));
-  }
-  
-  // Get raw pointer arrays
-  at::Tensor** input_array = input_ptrs.data();
-  at::Tensor** output_array = output_ptrs.data();
-  
-  KernelArgumentHolderPair result = func_ptr(cache_id, input_array, output_array);
-  
-  // Use unique_ptr to manage memory automatically
-  std::unique_ptr<KernelArgumentHolder> args_ptr(reinterpret_cast<KernelArgumentHolder*>(result.args));
-  std::unique_ptr<KernelArgumentHolder> outputs_ptr(reinterpret_cast<KernelArgumentHolder*>(result.outputs));
-  
-  // Move the objects out of the unique_ptrs to return by value
-  KernelArgumentHolder args = std::move(*args_ptr);
-  KernelArgumentHolder outputs_holder = std::move(*outputs_ptr);
-  
-  return LaunchKernelResult{std::move(args), std::move(outputs_holder)};
-}
+
 
 } // namespace nvfuser
