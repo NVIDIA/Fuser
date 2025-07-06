@@ -266,6 +266,76 @@ class FusionDefinition:
         assert len(out_tensors) == len(out_shardings)
         return out_tensors, out_shardings
 
+    def repro_script_for(self, inputs: list | None = None) -> str:
+        """
+        Generate a repro script for the fusion.
+
+        Parameters
+        ----------
+        inputs : list of torch.Tensor
+            The list of torch.Tensor inputs to the fusion
+
+        Returns
+        -------
+        str
+            The repro script for the fusion
+        """
+
+        msg = "# CUDA devices:\n"
+        for i in range(torch.cuda.device_count()):
+            msg += f"#  {i}: {torch.cuda.get_device_name(i)}\n"
+        msg += (
+            f"# torch version: {torch.__version__}\n"
+            f"# cuda version: {torch.version.cuda}\n"
+            f"import torch\n"
+            "from nvfuser_direct import FusionDefinition, DataType\n"
+            f"{self}"
+            "with FusionDefinition() as fd:\n"
+            f"    nvfuser_fusion(fd)\n"
+        )
+        if inputs is not None:
+            msg += "\ninputs = [\n"
+            for i in inputs:
+                if isinstance(i, torch.Tensor):
+                    if i.is_contiguous():
+                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
+                    else:
+                        # max linear index determines number of elements to generate
+                        sz = 1
+                        for szi, stri in zip(i.size(), i.stride()):
+                            if szi == 0:
+                                sz = 0
+                                break
+                            sz += (szi - 1) * stri
+                        if i.dtype.is_floating_point:
+                            msg += (
+                                f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                        else:
+                            upper_bound = 2 if i.dtype == torch.bool else 10
+                            msg += (
+                                f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
+                            )
+                else:
+                    input_as_string = str(i)
+                    # `nan` and `inf` are stringified as is, which are not
+                    # defined in Python. So we replace them with `float("nan")`
+                    # and `float("inf")`. `-inf` is replaced with
+                    # `-float("inf")`, which equals `float("-inf")`.
+                    input_as_string = re.sub(
+                        r"\binf\b", 'float("inf")', input_as_string
+                    )
+                    input_as_string = re.sub(
+                        r"\bnan\b", 'float("nan")', input_as_string
+                    )
+                    msg += f"    {input_as_string},\n"
+            msg += "]"
+            msg += "\nfd.execute(inputs)\n"
+
+        return msg
+
     def from_pytorch(self, tensor, static_sizes=False):
         """
         Define an nvFuser input tensor from a PyTorch tensor.
