@@ -157,7 +157,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     return std::make_unique<ReductionParams>(
         InnerOuterPersistentKernelScheduler::schedulerType());
   };
-
   if (hp.is_warp_specialized ||
       preferWarpSpecialized(
           fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
