@@ -12,7 +12,6 @@
 #include <visibility.h>
 
 #include <c10/core/ScalarType.h>
-// #include <c10/util/Float4_e2m1fn_x2.h>
 
 #include <polymorphic_value.h>
 
@@ -27,6 +26,16 @@
 #include <typeinfo>
 #include <unordered_set>
 #include <variant>
+
+#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+
+#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
 
 namespace nvfuser {
 
@@ -385,8 +394,11 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::BFloat16, at::BFloat16);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e4m3fn, at::Float8_e4m3fn);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e5m2, at::Float8_e5m2);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e8m0fnu, at::Float8_e8m0fnu);
-// DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float4_e2m1fn_x2,
-// at::Float4_e2m1fn_x2);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Float4_e2m1fn_x2,
+    at::Float4_e2m1fn_x2);
+#endif
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Char, int8_t);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Short, int16_t);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);

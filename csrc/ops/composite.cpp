@@ -404,7 +404,10 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    DataType dtype = DataType::Null) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -452,7 +455,8 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   TensorDomain* td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
-  return IrBuilder::create<TensorView>(td, tv_a->dtype());
+  return IrBuilder::create<TensorView>(
+      td, dtype == DataType::Null ? tv_a->dtype() : dtype);
 }
 
 } // namespace
@@ -480,6 +484,48 @@ TensorView* matmul(TensorView* tv_a, TensorView* tv_b) {
   TensorView* out = newForMatmul(tv_a, tv_b);
   IrBuilder::create<MatmulOp>(out, tv_a, tv_b);
   return out;
+}
+
+ScaledTensorView scaled_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* bias,
+    TensorView* beta,
+    DataType dtype,
+    int64_t output_block_scale_size,
+    DataType output_block_scale_dtype,
+    bool output_gamma) {
+  bool has_bias = bias != nullptr;
+  NVF_CHECK(
+      beta == nullptr || has_bias,
+      "beta argument requires bias to be present. Got bias : ",
+      has_bias ? "true" : "false",
+      " and beta : ",
+      beta != nullptr ? "true" : "false");
+  // TODO: support scaled output
+  NVF_CHECK(
+      output_block_scale_size == 0, "output_block_scale is not yet supported");
+  NVF_CHECK(!output_gamma, "output_gamma is not yet supported");
+
+  ScaledTensorView scaled_out;
+
+  scaled_out.tv = newForMatmul(mat1, mat2, dtype);
+
+  IrBuilder::create<ScaledMmaOp>(
+      scaled_out.tv,
+      scaled_out.block_scaling_factor,
+      scaled_out.global_scaling_factor,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      bias,
+      beta);
+  return scaled_out;
 }
 
 SdpfaFwdResult sdpfa_fwd(
