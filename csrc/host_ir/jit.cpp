@@ -655,56 +655,15 @@ void compileNamedScalar(
     llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
   return;
-}
-
-void compileInputTensorView(
-    const TensorView* tv,
-    const std::vector<llvm::Value*>& logical_sizes,
-    const std::vector<llvm::Value*>& logical_strides,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  
-  NVF_ERROR(
-      logical_sizes.size() == logical_domain.size(),
-      "Size mismatch: logical_sizes has ",
-      logical_sizes.size(),
-      " elements but logical_domain has ",
-      logical_domain.size(),
-      " elements");
-  
-  NVF_ERROR(
-      logical_strides.size() == logical_domain.size(),
-      "Size mismatch: logical_strides has ",
-      logical_strides.size(),
-      " elements but logical_domain has ",
-      logical_domain.size(),
-      " elements");
-  
-  for (auto i : arange(logical_domain.size())) {
-    auto id = logical_domain[i];
-    
-    // Map dimension extents to runtime LLVM values
-    if (id->isBroadcast()) {
-      val2llvmMap[id->extent()] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
-      if (id->hasExpandedExtent()) {
-        val2llvmMap[id->expandedExtent()] = logical_sizes[i];
-      }
-    } else {
-      val2llvmMap[id->extent()] = logical_sizes[i];
-    }
-  }
-}
+}  
 
 // Helper function to generate LLVM IR that extracts tensor size for a given dimension
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
-    llvm::Module* mod,
     llvm::IRBuilder<>& builder) {
-  llvm::LLVMContext& context = mod->getContext();
-  
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
   // Look up the tensor_size wrapper function
   llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
   if (!tensor_size_func) {
@@ -727,10 +686,9 @@ llvm::Value* generateTensorSizeExtraction(
 llvm::Value* generateTensorStrideExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
-    llvm::Module* mod,
     llvm::IRBuilder<>& builder) {
-  llvm::LLVMContext& context = mod->getContext();
-  
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
   // Look up the tensor_stride wrapper function
   llvm::Function* tensor_stride_func = mod->getFunction("tensor_stride");
   if (!tensor_stride_func) {
@@ -751,46 +709,15 @@ llvm::Value* generateTensorStrideExtraction(
 
 void processTensorViewsLLVM(
     const hir::HostIrContainer* container,
-    llvm::Module* mod,
     llvm::Function* func,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::IRBuilder<>& builder) {
-  llvm::LLVMContext& context = mod->getContext();
-  
-  // Get function parameters
-  llvm::Value* input_tensor_array = func->getArg(0);
-  // llvm::Value* num_inputs_val = func->getArg(1);
-  llvm::Value* output_tensor_array = func->getArg(2);
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
+
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  // std::cout << "num_inputs val: " << num_inputs_val << std::endl;
-  // setup input tensor views
-  size_t tensor_idx = 0;
-  for(auto* input : container->inputs()) {
-    if(auto* tv = dynamic_cast<const TensorView*>(input)) {
-      // Get tensor from input array
-      llvm::Value* tensor_slot = builder.CreateGEP(
-          void_ptr_type, 
-          input_tensor_array, 
-          llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tensor_idx)
-      );
-      llvm::Value* tensor_ptr = builder.CreateLoad(void_ptr_type, tensor_slot);
-      
-      auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-      
-      // Extract sizes and strides as LLVM values
-      std::vector<llvm::Value*> logical_sizes;
-      std::vector<llvm::Value*> logical_strides;
-      
-      for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
-        logical_sizes.push_back(generateTensorSizeExtraction(tensor_ptr, dim, mod, builder));
-        logical_strides.push_back(generateTensorStrideExtraction(tensor_ptr, dim, mod, builder));
-      }
-      
-      compileInputTensorView(tv, logical_sizes, logical_strides, val2llvmMap, context, builder);
-      tensor_idx++;
-    }
-  }
-  
+  llvm::PointerType* tensor_array_type = llvm::PointerType::getUnqual(void_ptr_type);
+    
   // resolve each output tensor shape and allocate tensors
   size_t output_idx = 0;
   for(auto* output : container->topLevelExprs()) {
@@ -901,15 +828,39 @@ void generateMainFunc(
   
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
   builder.SetInsertPoint(entry);
-  processTensorViewsLLVM(container, mod, func, val2llvmMap, builder);
-  builder.CreateRetVoid();
+  for(auto* input : container->inputs()) {
+    if(auto* tv = dynamic_cast<const TensorView*>(input)) {
+      uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(tv);
+       // Create LLVM constant from the pointer value
+      llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(
+          llvm::Type::getInt64Ty(context), 
+          tv_ptr
+      );
+      
+      // Cast to void pointer type in LLVM
+      llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+      llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_ptr_constant, void_ptr_type);
+      
+      // Call get_tensor function with the void pointer
+      llvm::Value* tensor_ptr = builder.CreateCall(
+          mod->getFunction("get_tensor"),
+          {tv_void_ptr}
+      );
+      // bind input aten tensor sizes to val2llvmMap
+      auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
 
-  // Verify the module
-  std::string error;
-  llvm::raw_string_ostream error_stream(error);
-  NVF_ERROR(
-      !llvm::verifyModule(*mod, &error_stream),
-      "LLVM module verification failed: " + error);
+      for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
+        if (logical_domain[dim]->isBroadcast()) {
+          val2llvmMap[logical_domain[dim]->extent()] = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+          if (logical_domain[dim]->hasExpandedExtent()) {
+            val2llvmMap[logical_domain[dim]->expandedExtent()] = generateTensorSizeExtraction(tensor_ptr, dim, builder);
+          }
+        } else {
+          val2llvmMap[logical_domain[dim]->extent()] = generateTensorSizeExtraction(tensor_ptr, dim, builder);
+        }
+      }
+    }
+  }
 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
