@@ -169,3 +169,21 @@ def test_define_tensor():
     ]
     outputs = fd.execute(inputs)
     assert torch.allclose(outputs[0], inputs[0] + inputs[1])
+
+
+def test_execute_with_different_device():
+    with FusionDefinition() as fd:
+        S0 = fd.define_scalar(1, dtype=DataType.Int)
+        S1 = fd.define_scalar(0, dtype=DataType.Int)
+        S2 = fd.define_scalar(1, dtype=DataType.Int)
+        T3 = fd.ops.iota(S0, S1, S2, dtype=DataType.Int)
+        T7 = fd.ops.reshape(T3, new_shape=[1, 1])
+        T11 = fd.ops.broadcast_in_dim(T7, shape=[128, 1], broadcast_dims=[0, 1])
+        T15 = fd.ops.reshape(T11, new_shape=[128, 1])
+        T19 = fd.ops.broadcast_in_dim(T15, shape=[128, 5120], broadcast_dims=[0, 1])
+        fd.add_output(T19)
+
+    inputs = []
+    o = fd.execute(inputs, device="cuda:1")
+    assert len(o) == 1
+    assert o[0].device.index == 1
