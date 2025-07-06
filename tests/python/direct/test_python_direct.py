@@ -144,6 +144,49 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<float, 3, 3> T0, Tensor<flo
     assert fd.fec.get_cuda_kernel(inputs) == cuda_kernel
 
 
+def test_repro_script_for():
+    inputs = [
+        torch.ones(2, 4, 8, device="cuda:1"),
+        torch.ones(2, 4, 8, device="cuda:1"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
+
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.mul(t2, c0)
+        t4 = fd.ops.sum(t3, [1], False, DataType.Float)
+
+        fd.add_output(t4)
+
+    expected_repro = """# CUDA devices:
+#  0: NVIDIA GH200 96GB HBM3
+#  1: NVIDIA GH200 96GB HBM3
+# torch version: 2.8.0a0+34c6371d24.nvInternal
+# cuda version: 13.0
+import torch
+from nvfuser_direct import FusionDefinition, DataType
+def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv2 = fd.ops.add(tv0, tv1)
+    c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    tv3 = fd.ops.mul(tv2, c7)
+    tv4 = fd.ops.sum(tv3, dims=[1], keep_dim=False, dtype=DataType.Float)
+    fd.add_output(tv4)
+with FusionDefinition() as fd:
+    nvfuser_fusion(fd)
+
+inputs = [
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:1'),
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:1'),
+]
+fd.execute(inputs)\n"""
+    assert fd.repro_script_for(inputs) == expected_repro
+
+
 def test_define_tensor():
     with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
