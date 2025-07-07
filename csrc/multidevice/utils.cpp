@@ -69,8 +69,9 @@ bool isSharded(const TensorView* tv) {
 
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
-  std::unordered_set<ParallelType> parallel_types =
+  const std::unordered_set<ParallelType>& parallel_types =
       deviceAndStreamParallelTypes();
+
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
   parallel_type_to_id.reserve(parallel_types.size());
 
@@ -191,7 +192,7 @@ int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
   // Find the IterDomain that is parallelized on the given parallel type.
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
   IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
   return getShardedLogicalAxis(tv, parallel_id);
@@ -245,7 +246,7 @@ std::vector<int64_t> unshardedSizes(
   // We use the loop domain, since allocation and loop domain will have the
   // same DID parallelization.
 
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(tv->getLoopDomain());
 
   for (ParallelType parallel_type : kParallelTypeDIDs) {
@@ -256,7 +257,6 @@ std::vector<int64_t> unshardedSizes(
     }
     unsharded_sizes.at(sharded_axis) *= tv->getDeviceMesh().size(parallel_type);
   }
-
   return unsharded_sizes;
 }
 
