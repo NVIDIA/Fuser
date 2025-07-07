@@ -341,6 +341,25 @@ void compileLaunchKernelFunc(
   }
 }
 
+void compileDeallocateFunc(
+    const kir::Deallocate* deallocate,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
+  // Call wrapper function to erase tensor from at::TensorMap
+  auto tv = deallocate->buffer()->as<TensorView>();
+  auto tv_ptr = reinterpret_cast<uintptr_t>(tv);
+  llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
+  llvm::Function* erase_tensor_func = mod->getFunction("erase_tensor");
+  builder.CreateCall(erase_tensor_func, {tv_ptr_constant}, "erase_tensor"); 
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
+    llvm::outs() << "=== LLVM IR Generation for Deallocate Function ===\n";
+    mod->print(llvm::outs(), nullptr);
+  }
+}
+
 // Allocate tensor and bind to val2llvmMap
 void compileAllocateFunc(
     const kir::Allocate* allocate,
