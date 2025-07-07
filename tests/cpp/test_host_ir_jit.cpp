@@ -69,6 +69,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
 
   HostIrJit jit(std::move(hic));
   KernelArgumentHolder args;
+  args.setCacheId(1);
   args.push(t0);
 
   auto outputs = jit.runWithInputs(args);
