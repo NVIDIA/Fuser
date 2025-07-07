@@ -533,8 +533,10 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
       continue;
     }
     if (alloc->alias() != nullptr) {
-      std::cerr << "Aliased from: " << alloc->buffer()->toString() << " -> "
-                << alloc->alias()->buffer()->toString() << "\n";
+      // When aliased, no tensor argment is passed to the
+      // kernel. Inside the kernel, the aliasing tensor is defined as
+      // an alias of the aliasee, e.g., "auto& T2 = T4". The validity
+      // of the aliasing should be confirmed at the time of lowering.
       continue;
     }
     GlobalBufferInfo info;

@@ -639,7 +639,10 @@ class TensorDomain : public Val {
     return additional_ids_;
   }
 
-  // Set the loop domain of this TensorDomain.
+  // Set the loop domain of this TensorDomain. If skip_validation is
+  // not true, the new loop domain is enforced to cover all the
+  // logical IDs. Skipping the validation should be done only when it
+  // is absolutely necessary.
   void setLoopDomain(
       std::vector<IterDomain*> new_loop_domain,
       bool skip_validation = false);

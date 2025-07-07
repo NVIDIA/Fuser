@@ -2350,7 +2350,10 @@ kir::TensorIndex* Index::getConsumerIndex(
           IrBuilder::baseAddressExpr(consumer), address_offset);
     }
   } else {
-    // Overriding of consumer indexing is not supported
+    NVF_ERROR(
+        override_index.empty(),
+        "Overriding of consumer indexing with the legacy indexer is not "
+        "supported");
     index = getConsumerStridedIndices(
         consumer, loops, rotated_loops, {}, generate_pointer);
   }

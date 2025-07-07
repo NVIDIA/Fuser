@@ -198,7 +198,9 @@ TensorView* scatterOp(
       self->getDataType().value());
 
   // Set the loop domain same as the logical domain of the index
-  // tensor
+  // tensor.
+  // Note: the loop IDs are disconnected from the logical IDs. Revisit
+  // if they should be connected with some IterDomain exprs.
   std::vector<IterDomain*> out_loop;
   out_loop.reserve(idx_dom.size());
   std::ranges::transform(
