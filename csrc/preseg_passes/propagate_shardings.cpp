@@ -144,6 +144,28 @@ bool hasRootToLogicalTransform(IterDomain* id, const TensorView* tv) {
       });
 }
 
+bool isInDomain(IterDomain* id, const std::vector<IterDomain*>& domain) {
+  return std::find(domain.begin(), domain.end(), id) != domain.end();
+}
+
+// Traverses root-to-logical transforms to find the outermost logical ID.
+IterDomain* getOutermostLogicalId(IterDomain* id, const TensorView* tv) {
+  auto transforms = DependencyCheck::getAllExprsBetween(
+      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+
+  for (auto transform : transforms) {
+    if (transform->isA<Split>()) {
+      id = transform->as<Split>()->outer();
+    } else if (transform->isA<Merge>()) {
+      NVF_ERROR(
+          id == transform->as<Merge>()->outer(),
+          "Expected the sharding to be on the outer reshaped id.");
+      id = transform->as<Merge>()->out();
+    }
+  }
+  return id;
+}
+
 // Applies the given transforms on ref to target using the ref2target map.
 void transformLoopDomain(
     TensorView* target,
@@ -160,6 +182,37 @@ void transformLoopDomain(
   for (IterDomain* id : target->getLoopDomain()) {
     transformed_loop.pushBack(id, std::monostate());
   }
+
+  auto getTargetId = [&](IterDomain* ref_id) -> IterDomain* {
+    // Finds the target id to be sharded corresponding to the ref_id.
+    // This handles any root-to-logical transforms present on ref_id
+    // or the mapped target_id.
+    // For e.g., if ref [h] -> target [a, h/a], returns `a` for ref_id `h`.
+    // Similarly, if target [h] -> ref [a, h/a], returns `h` for ref_id `a`.
+    if (!ref2target.contains(ref_id)) {
+      // Find the root domain id.
+      std::unordered_set<IterDomain*> inputs =
+          getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
+      NVF_ERROR(
+          inputs.size() == 1,
+          "Expected one input for ",
+          ref_id,
+          " in the root domain. Got ",
+          inputs.size(),
+          " inputs.");
+      ref_id = *inputs.begin();
+    }
+
+    NVF_ERROR(
+        ref2target.contains(ref_id),
+        "Expected the ref to be in the ref2target map.");
+
+    IterDomain* target_id = ref2target.at(ref_id);
+    if (isInDomain(target_id, target->getLoopDomain())) {
+      return target_id;
+    }
+    return getOutermostLogicalId(target_id, target);
+  };
 
   auto validate_split = [](Split* split, IterDomain* id) -> void {
     NVF_ERROR(
@@ -186,16 +239,12 @@ void transformLoopDomain(
         transform);
 
     IterDomain* ref_id = split->in();
-    NVF_ERROR(
-        ref2target.find(ref_id) != ref2target.end(),
-        "Expected the ref to be in the ref2target map. Got: ",
-        ref_id);
-
-    IterDomain* target_id = ref2target.at(ref_id);
+    IterDomain* target_id = getTargetId(ref_id);
     NVF_ERROR(
         transformed_loop.contains(target_id),
-        "Expected the input to be in the loop domain. Got: ",
-        target_id);
+        "Expected the target ID, ",
+        target_id,
+        ", to be in the loop domain.");
 
     // Sharding on producer logical id is equivalent to sharding on the
     // outermost consumer reshaped id iff:
@@ -224,7 +273,8 @@ void transformLoopDomain(
     transformed_loop.insert(it, outer, std::monostate());
     transformed_loop.insert(it, inner, std::monostate());
 
-    // Update the ref2target map.
+    // Add mapping between ref and target for the propagated DID split.
+    // This is used to propagate 2D sharding and parallelization.
     ref2target[split->outer()] = outer;
     ref2target[split->inner()] = inner;
   }
@@ -243,24 +293,6 @@ void transformLoopDomain(
 
   auto new_loop = std::views::keys(transformed_loop);
   target->setLoopDomain({new_loop.begin(), new_loop.end()});
-}
-
-// Traverses root-to-logical transforms to find the outermost logical ID.
-IterDomain* getOutermostLogicalId(IterDomain* id, const TensorView* tv) {
-  auto transforms = DependencyCheck::getAllExprsBetween(
-      {id}, {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
-
-  for (auto transform : transforms) {
-    if (transform->isA<Split>()) {
-      id = transform->as<Split>()->outer();
-    } else if (transform->isA<Merge>()) {
-      NVF_ERROR(
-          id == transform->as<Merge>()->outer(),
-          "Expected the sharding to be on the outer reshaped id.");
-      id = transform->as<Merge>()->out();
-    }
-  }
-  return id;
 }
 
 void propagateDIDTransform(
@@ -319,14 +351,6 @@ void propagateDIDTransform(
       continue;
     }
     device_ids.insert(maybe_did);
-
-    // Add the mapping between outermost logical ref and target ID.
-    // This is the ID pair between which the sharding will be propagated
-    // when the consumer has a root-to-logical transform, such as reshape.
-    // For e.g., if ref [h] -> target [a, h/a], then the mapping is [h] -> [a].
-    // Similarly, in the backward direction, if ref [a, h/a] -> target [h],
-    // then the mapping is [a] -> [h].
-    ref2target[getOutermostLogicalId(ref_id, ref)] = outermost_target_id;
   }
 
   transformLoopDomain(tv, ref, ref2target, device_ids, direction);
