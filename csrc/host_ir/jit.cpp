@@ -60,7 +60,7 @@ llvm::Value* generateTensorStrideExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
     llvm::IRBuilder<>& builder);
-void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
+void livenessAnalysis(const std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit - moved to public scope
 struct LlvmJitImpl {
@@ -102,7 +102,57 @@ void compileIfThenElseFunc(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::Value* pimpl_void_ptr) {
-  return;
+  
+  llvm::LLVMContext& context = builder.getContext();
+  
+  // Get the predicate value from the if-then-else construct
+  Val* predicate_val = ifthenelse->predicate()->value();
+  
+  // Convert the predicate value to an LLVM value
+  llvm::Value* predicate_llvm = nullptr;
+  if (val2llvmMap.find(predicate_val) != val2llvmMap.end()) {
+    predicate_llvm = val2llvmMap[predicate_val];
+  } else {
+    // If not found, traverse and evaluate the predicate
+    predicate_llvm = traverseExtentDFS(predicate_val, val2llvmMap, builder);
+  }
+  
+  // Ensure we have a valid predicate value
+  NVF_ERROR(predicate_llvm != nullptr, "Failed to generate predicate value for IfThenElse");
+  
+  // Convert to boolean if needed (assuming it's an integer that needs to be compared to 0)
+  if (predicate_llvm->getType()->isIntegerTy() && !predicate_llvm->getType()->isIntegerTy(1)) {
+    llvm::Value* zero = llvm::ConstantInt::get(predicate_llvm->getType(), 0);
+    predicate_llvm = builder.CreateICmpNE(predicate_llvm, zero, "predicate_bool");
+  }
+  
+  // Create basic blocks
+  llvm::BasicBlock* current_block = builder.GetInsertBlock();
+  llvm::Function* parent_func = current_block->getParent();
+  
+  llvm::BasicBlock* then_block = llvm::BasicBlock::Create(context, "then", parent_func);
+  llvm::BasicBlock* else_block = llvm::BasicBlock::Create(context, "else", parent_func);
+  llvm::BasicBlock* merge_block = llvm::BasicBlock::Create(context, "merge", parent_func);
+
+  // Create conditional branch
+  builder.CreateCondBr(predicate_llvm, then_block, else_block);
+
+  // Handle then block
+  builder.SetInsertPoint(then_block);
+  for (Expr* expr : ifthenelse->thenBody().exprs()) {
+    compileFunc(expr, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  builder.CreateBr(merge_block);
+
+  // Handle else block
+  builder.SetInsertPoint(else_block);
+  for (Expr* expr : ifthenelse->elseBody().exprs()) {
+    compileFunc(expr, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  builder.CreateBr(merge_block);
+
+  // Set insertion point to merge block for subsequent code
+  builder.SetInsertPoint(merge_block);
 }
 
 // Generate a function for LinearOp runtime
@@ -483,6 +533,33 @@ void compileMainFuncInputs(
   }
 }
 
+void compileFunc(Expr* top_level_expr, llvm::IRBuilder<>& builder, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::Value* pimpl_void_ptr){
+  if(auto* allocate = dynamic_cast<const kir::Allocate*>(top_level_expr)) {
+    compileAllocateFunc(allocate, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* deallocate = dynamic_cast<const hir::Deallocate*>(top_level_expr)) {
+    compileDeallocateFunc(deallocate, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* launch_kernel = dynamic_cast<const hir::LaunchKernel*>(top_level_expr)) {
+    compileLaunchKernelFunc(launch_kernel, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* for_loop = dynamic_cast<const ForLoop*>(top_level_expr)) {
+    compileForLoopFunc(for_loop, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* if_then_else = dynamic_cast<const kir::IfThenElse*>(top_level_expr)) {
+    compileIfThenElseFunc(if_then_else, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* matmul = dynamic_cast<const MatmulOp*>(top_level_expr)) {
+    compileMatmulFunc(matmul, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else if(auto* linear_op = dynamic_cast<const LinearOp*>(top_level_expr)) {
+    compileLinearFunc(linear_op, builder, val2llvmMap, pimpl_void_ptr);
+  }
+  else{
+    NVF_THROW("Unsupported input type: ", top_level_expr);
+  }
+}
+
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
@@ -502,34 +579,15 @@ void compile(
   
   // bind the constants
   compileMainFuncInputs(container, builder, val2llvmMap, pimpl_void_ptr);
-  std::vector<Expr*> top_level_exprs = container->topLevelExprs();
+  std::deque<Expr*> top_level_exprs = container->topLevelExprs();
   livenessAnalysis(top_level_exprs, val2llvmMap);
   // Generate the top level functions
-  for(auto* input : top_level_exprs) {
-    if(auto* allocate = dynamic_cast<const kir::Allocate*>(input)) {
-      compileAllocateFunc(allocate, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* deallocate = dynamic_cast<const hir::Deallocate*>(input)) {
-      compileDeallocateFunc(deallocate, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* launch_kernel = dynamic_cast<const hir::LaunchKernel*>(input)) {
-      compileLaunchKernelFunc(launch_kernel, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* for_loop = dynamic_cast<const ForLoop*>(input)) {
-      compileForLoopFunc(for_loop, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* if_then_else = dynamic_cast<const kir::IfThenElse*>(input)) {
-      compileIfThenElseFunc(if_then_else, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* matmul = dynamic_cast<const MatmulOp*>(input)) {
-      compileMatmulFunc(matmul, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else if(auto* linear_op = dynamic_cast<const LinearOp*>(input)) {
-      compileLinearFunc(linear_op, builder, val2llvmMap, pimpl_void_ptr);
-    }
-    else{
-      NVF_THROW("Unsupported input type: ", input);
-    }
+  int64_t pos = 0;
+  while(!top_level_exprs.empty()) {
+    auto* top_level_expr = top_level_exprs.front();
+    top_level_exprs.pop_front();
+    compileFunc(top_level_expr, builder, val2llvmMap, pimpl_void_ptr);
+    pos++;
   }
   // Collect output tensors and garbage collect intermediate tensors
   compileMainFuncOutputs(container, builder, val2llvmMap, pimpl_void_ptr);
@@ -562,7 +620,7 @@ llvm::Value* compileJitImpl(
     return pimpl_void_ptr;
 }
 
-void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+void livenessAnalysis(const std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   // TODO: for other types of aten ops, we want to insert proper deallocate calls to intermediate tensors
   return;
 }
@@ -1179,11 +1237,11 @@ HostIrJit::~HostIrJit() = default;
 KernelArgumentHolder HostIrJit::runWithInputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("HostIrJit::runWithInputs");
-  // Bind cache id to llvm global variable
+  // Bind cache id to llvm global variable or align with main function inputs
   NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
   NVF_ERROR_EQ(std::ssize(pimpl_->container_->inputs()), args.size());
-  // Bind the inputs to the tensor map
 
+  // Bind the inputs to the tensor map
   for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), args)) {
     if (arg.is<at::Tensor>()) {
       pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
@@ -1192,8 +1250,10 @@ KernelArgumentHolder HostIrJit::runWithInputs(
       // TODO: handle other primitive types so we can just align them to input of main function
     }
   }
+
   // Run the main function
   pimpl_->main_func_();
+
   // Collect the outputs
   KernelArgumentHolder outputs;
   for(auto* output : pimpl_->container_->outputs()) {
