@@ -20,7 +20,6 @@
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
-#include <chrono>
 #include <queue>
 #include <unordered_map>
 #include "llvm/IR/IRBuilder.h"
@@ -72,7 +71,23 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
+// Generate a function for ForLoop runtime
+void compileForLoopFunc(
+    const hir::ForLoop* for_loop,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  return;
+}
 
+// Generate a function for IfThenElse runtime
+void compileIfThenElseFunc(
+    const hir::IfThenElse* ifthenelse,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  return;
+}
+
+// Generate a function for LinearOp runtime
 void compileLinearFunc(
     const hir::LinearOp* linear,
     llvm::IRBuilder<>& builder,
@@ -167,176 +182,77 @@ void compileLaunchKernelFunc(
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
-  std::string func_name = launch_kernel->toString();
-  
-  // Since we registered the wrapper functions with these exact names,
-  // we can look them up directly without mangling
-  std::string constructor_name = "KernelArgumentHolder::KernelArgumentHolder";
-  std::string set_cache_name = "KernelArgumentHolder::setCacheId";
-  std::string set_device_name = "KernelArgumentHolder::setDeviceIndex";
-  std::string push_name = "KernelArgumentHolder::push";
-  
-  // Look up functions using the registered names
-  llvm::Function* constructor_func = mod->getFunction(constructor_name);
-  if (!constructor_func) {
-    // Create function declaration for constructor
-    llvm::FunctionType* ctor_type = llvm::FunctionType::get(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // return KernelArgumentHolder*
-      {}, // no parameters for default constructor
-      false
-    );
-    constructor_func = llvm::Function::Create(
-      ctor_type, llvm::Function::ExternalLinkage, constructor_name, mod
-    );
-  }
+  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 
-  llvm::Function* push_func = mod->getFunction(push_name);
-  if (!push_func) {
-    // Create function declaration for member function
-    std::vector<llvm::Type*> param_types = {
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // this pointer
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))    // at::Tensor object (passed as pointer for simplicity)
-    };
-    llvm::FunctionType* push_type = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(context), param_types, false
-    );
-    push_func = llvm::Function::Create(
-      push_type, llvm::Function::ExternalLinkage, push_name, mod
-    );
-  }
-  
-  llvm::Function* set_cache_func = mod->getFunction(set_cache_name);
-  if (!set_cache_func) {
-    // Create function declaration for member function
-    std::vector<llvm::Type*> param_types = {
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // this pointer
-      llvm::Type::getInt64Ty(context)    // size_t parameter
-    };
-    llvm::FunctionType* set_cache_type = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(context), param_types, false
-    );
-    set_cache_func = llvm::Function::Create(
-      set_cache_type, llvm::Function::ExternalLinkage, set_cache_name, mod
-    );
-  }
-  
-  llvm::Function* set_device_func = mod->getFunction(set_device_name);
-  if (!set_device_func) {
-    // Create function declaration for setDeviceIndex
-    std::vector<llvm::Type*> param_types = {
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)) // this pointer only
-    };
-    llvm::FunctionType* set_device_type = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(context), param_types, false
-    );
-    set_device_func = llvm::Function::Create(
-      set_device_type, llvm::Function::ExternalLinkage, set_device_name, mod
-    );
-  }
-  
-  // Create the main function
-  // Parameters: cache_id, input_tensors_ptr, output_tensors_ptr
-  std::vector<llvm::Type*> param_types = {
-    llvm::Type::getInt64Ty(context),  // cache_id
-    llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))), // input_tensors_ptr (at::Tensor**)
-    llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)))  // output_tensors_ptr (at::Tensor**)
-  };
-  
-  // Create struct type for return value
-  std::vector<llvm::Type*> struct_elements = {
-    llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), // args pointer
-    llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context))  // outputs pointer
-  };
-  llvm::StructType* return_struct_type = llvm::StructType::create(context, struct_elements, "KernelArgumentHolderPair");
-  
-  llvm::FunctionType* main_func_type = llvm::FunctionType::get(
-    return_struct_type, // return KernelArgumentHolderPair
-    param_types,
-    false
-  );
-  
-  llvm::Function* main_func = llvm::Function::Create(
-    main_func_type, llvm::Function::ExternalLinkage, func_name, mod
-  );
-  
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", main_func);
-  builder.SetInsertPoint(entry);
-  
-  // Get function arguments
-  llvm::Value* cache_id_arg = main_func->getArg(0);
-  llvm::Value* input_tensors_ptr = main_func->getArg(1);
-  llvm::Value* output_tensors_ptr = main_func->getArg(2);
-  
-  // Create KernelArgumentHolder args (for inputs)
-  llvm::Value* args_ptr = builder.CreateCall(constructor_func, {});
-  
-  // Set cache ID if not monostate (cache_id != -1)
-  llvm::Value* monostate_check = builder.CreateICmpNE(cache_id_arg, llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), -1));
-  llvm::BasicBlock* set_cache_block = llvm::BasicBlock::Create(context, "set_cache", main_func);
-  llvm::BasicBlock* skip_cache_block = llvm::BasicBlock::Create(context, "skip_cache", main_func);
-  builder.CreateCondBr(monostate_check, set_cache_block, skip_cache_block);
-  
-  builder.SetInsertPoint(set_cache_block);
-  builder.CreateCall(set_cache_func, {args_ptr, cache_id_arg});
-  builder.CreateBr(skip_cache_block);
-  
-  builder.SetInsertPoint(skip_cache_block);
-  
-  // Push all input tensors to args
-  for (size_t i = 0; i < launch_kernel->inputs().size(); ++i) {
-    llvm::Value* tensor_ptr = builder.CreateGEP(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
-      input_tensors_ptr, 
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), i)
-    );
-    llvm::Value* input_tensor = builder.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
-      tensor_ptr
-    );
+  // Convert input TensorViews to void pointers and get tensor pointers
+  llvm::SmallVector<llvm::Value*,16> input_tensors;
+  for (const auto& input : launch_kernel->inputs()) {
+    // Convert TensorView pointer to void pointer
+    uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(input);
+    llvm::Value* tv_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
+    llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
-    // Push tensor to args - pass the tensor pointer to our wrapper
-    builder.CreateCall(push_func, {args_ptr, input_tensor});
+    // Call get_tensor function to get at::Tensor* pointer
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "input_tensor");
+    input_tensors.push_back(tensor_ptr);
   }
-  
-  // Create KernelArgumentHolder outputs (for outputs)
-  llvm::Value* outputs_ptr = builder.CreateCall(constructor_func, {});
-  
-  // Push all output tensors to outputs
-  for (size_t i = 0; i < launch_kernel->outputs().size(); ++i) {
-    llvm::Value* tensor_ptr = builder.CreateGEP(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
-      output_tensors_ptr, 
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), i)
-    );
-    llvm::Value* output_tensor = builder.CreateLoad(
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), 
-      tensor_ptr
-    );
+
+  // Convert output TensorViews to void pointers and get tensor pointers
+  llvm::SmallVector<llvm::Value*,16> output_tensors;
+  for (const auto& output : launch_kernel->outputs()) {
+    // Convert TensorView pointer to void pointer
+    uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(output);
+    llvm::Value* tv_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
+    llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
-    // Push tensor to outputs - pass the tensor pointer to our wrapper
-    builder.CreateCall(push_func, {outputs_ptr, output_tensor});
+    // Call get_tensor function to get at::Tensor* pointer
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "output_tensor");
+    output_tensors.push_back(tensor_ptr);
   }
   
-  // Set device index on args
-  builder.CreateCall(set_device_func, {args_ptr});
+  // Get cache ID from val2llvmMap
+  llvm::Value* cache_id_arg = val2llvmMap[launch_kernel->cacheId()];
   
-  // Create the return struct
-  llvm::Value* return_struct = llvm::UndefValue::get(return_struct_type);
-  return_struct = builder.CreateInsertValue(return_struct, args_ptr, 0);
-  return_struct = builder.CreateInsertValue(return_struct, outputs_ptr, 1);
+  // Create arrays to hold tensor pointers
+  llvm::ArrayType* input_array_type = llvm::ArrayType::get(void_ptr_type, input_tensors.size());
+  llvm::ArrayType* output_array_type = llvm::ArrayType::get(void_ptr_type, output_tensors.size());
   
-  // Return the struct containing both args and outputs
-  builder.CreateRet(return_struct);
-
-  // Verify the module
-  std::string error;
-  llvm::raw_string_ostream error_stream(error);
-  NVF_ERROR(!llvm::verifyModule(*mod, &error_stream), "LLVM module verification failed: " + error);
-
+  llvm::Value* input_array = builder.CreateAlloca(input_array_type, nullptr, "input_array");
+  llvm::Value* output_array = builder.CreateAlloca(output_array_type, nullptr, "output_array");
+  
+  // Populate input array
+  for (size_t i = 0; i < input_tensors.size(); ++i) {
+    llvm::Value* gep = builder.CreateInBoundsGEP(input_array_type, input_array, {builder.getInt32(0), builder.getInt32(i)});
+    builder.CreateStore(input_tensors[i], gep);
+  }
+  
+  // Populate output array
+  for (size_t i = 0; i < output_tensors.size(); ++i) {
+    llvm::Value* gep = builder.CreateInBoundsGEP(output_array_type, output_array, {builder.getInt32(0), builder.getInt32(i)});
+    builder.CreateStore(output_tensors[i], gep);
+  }
+  
+  // Convert arrays to pointers
+  llvm::Value* input_ptr = builder.CreateBitCast(input_array, llvm::PointerType::getUnqual(void_ptr_type));
+  llvm::Value* output_ptr = builder.CreateBitCast(output_array, llvm::PointerType::getUnqual(void_ptr_type));
+  
+  // Create constants for array sizes
+  llvm::Value* num_inputs = builder.getInt64(input_tensors.size());
+  llvm::Value* num_outputs = builder.getInt64(output_tensors.size());
+  
+  // Convert LaunchKernel pointer to void pointer
+  uintptr_t launch_kernel_ptr = reinterpret_cast<uintptr_t>(launch_kernel);
+  llvm::Value* launch_kernel_void_ptr = builder.CreateIntToPtr(
+      builder.getInt64(launch_kernel_ptr), void_ptr_type);
+  
+  // Call launch_kernel function with correct signature
+  builder.CreateCall(mod->getFunction("launch_kernel"), 
+                     {cache_id_arg, input_ptr, num_inputs, output_ptr, num_outputs, launch_kernel_void_ptr}, 
+                     "launch_kernel");
+  
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    // Print the LLVM IR module
-    llvm::outs() << "=== LLVM IR ===\n";
+    llvm::outs() << "=== LLVM IR Generation for LaunchKernel Function ===\n";
     mod->print(llvm::outs(), nullptr);
   }
 }
