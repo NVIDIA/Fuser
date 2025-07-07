@@ -6217,7 +6217,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   int n = mat2.sizes().at(mat2.dim() - 1);
   const auto options =
       at::TensorOptions().device(mat1.device()).dtype(data_type_to_aten(out()->dtype()));
-  result = at::empty({m, n}, options);
+  auto result = at::empty({m, n}, options);
   cutlass_kernels::nvfp4_scaled_mm(result, mat1, mat2.t(), scale1, scale2, alpha);
   return {result};
 
