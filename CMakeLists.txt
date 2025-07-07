@@ -661,14 +661,18 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
-  target_link_libraries(nvf_py_internal PRIVATE
-    codegen_internal
-    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-    pybind11::pybind11 pybind11::headers
-  )
   if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
     target_link_libraries(nvf_py_internal PRIVATE
+      codegen_internal
       nvf_cutlass
+      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+      pybind11::pybind11 pybind11::headers
+    )
+  else()
+    target_link_libraries(nvf_py_internal PRIVATE
+      codegen_internal
+      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+      pybind11::pybind11 pybind11::headers
     )
   endif()
 
