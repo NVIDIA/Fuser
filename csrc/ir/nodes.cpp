@@ -6210,21 +6210,25 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
         inputs[beta_offset].type().name());
     beta = inputs[beta_offset].as<at::Tensor>();
   }
+
+  at::Tensor result;
+  at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
-  // TODO: only opt-in supported cases.
+  // TODO: refactor this to use `canExecute` util from the kernel.
+  if (cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1, mat2.t(), scale1, scale2, alpha)) {
+    // nvfp4_scaled_mm seems to have some restriction as well.
+    // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
+    int m = mat1.sizes().at(0);
+    int n = mat2.sizes().at(mat2.dim() - 1);
+    const auto options =
+        at::TensorOptions().device(mat1.device()).dtype(out_scalar_type);
+    result = at::empty({m, n}, options);
+    cutlass_kernels::nvfp4_scaled_mm(result, mat1, mat2.t(), scale1, scale2, alpha);
+    return {result};
+  }
+#endif
 
-  // nvfp4_scaled_mm seems to have some restriction as well.
-  at::Tensor output;
-  // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
-  int m = mat1.sizes().at(0);
-  int n = mat2.sizes().at(mat2.dim() - 1);
-  const auto options =
-      at::TensorOptions().device(mat1.device()).dtype(data_type_to_aten(out()->dtype()));
-  auto result = at::empty({m, n}, options);
-  cutlass_kernels::nvfp4_scaled_mm(result, mat1, mat2.t(), scale1, scale2, alpha);
-  return {result};
-
-#elif NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
   // we'll fallback with aten kernels
   // at::_scaled_mm has implementation limitations:
@@ -6235,7 +6239,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   NVF_CHECK(
       outGamma() == nullptr,
       "output global scaling factor in ScaledMmaOp is not supported yet");
-  auto result = at::_scaled_mm(
+  result = at::_scaled_mm(
       mat1,
       mat2,
       scale1,
@@ -6250,10 +6254,9 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   return {result};
-
-#else
-  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
 #endif
+
+  NVF_THROW("Couldn't find fallback kernel for scaled_mm");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)

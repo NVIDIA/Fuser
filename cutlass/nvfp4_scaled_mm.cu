@@ -255,8 +255,8 @@ void runGemm(
 constexpr auto FLOAT4_E2M1X2 = at::ScalarType::Byte;
 constexpr auto SF_DTYPE = at::ScalarType::Float8_e4m3fn;
 
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
+void nvfp4_scaled_mm_assert(
+    const at::ScalarType& out_dtype,
     torch::Tensor const& a,
     torch::Tensor const& b,
     torch::Tensor const& scales_a,
@@ -309,6 +309,38 @@ void nvfp4_scaled_mm(
       "x",
       b.sizes()[1],
       ").");
+
+  NVF_CHECK(out_dtype == at::ScalarType::Half ||
+ out_dtype == at::ScalarType::BFloat16 ||
+ out_dtype == at::ScalarType::Float, "unsupported dtype on output: ", out_dtype)
+}
+
+bool nvfp4_scaled_mm_check(
+    const at::ScalarType& out_dtype,
+    torch::Tensor const& a,
+    torch::Tensor const& b,
+    torch::Tensor const& scales_a,
+    torch::Tensor const& scales_b,
+    torch::Tensor const& alpha) {
+  try {
+    nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+void nvfp4_scaled_mm(
+    torch::Tensor& output,
+    torch::Tensor const& a,
+    torch::Tensor const& b,
+    torch::Tensor const& scales_a,
+    torch::Tensor const& scales_b,
+    torch::Tensor const& alpha) {
+  nvfp4_scaled_mm_assert(output.dtype(), a, b, scales_a, scales_b, alpha);
+
+  auto const m = a.sizes()[0];
+  auto const n = b.sizes()[0];
+  auto const k = a.sizes()[1] * 2;
 
   auto round_up = [](int x, int y) { return (x + y - 1) / y * y; };
   int rounded_m = round_up(m, 128);
