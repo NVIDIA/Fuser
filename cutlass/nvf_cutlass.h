@@ -12,6 +12,7 @@
 namespace nvfuser::cutlass_kernels {
 
 bool nvfp4_scaled_mm_check(
+    at::ScalarType output,
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
