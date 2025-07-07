@@ -850,6 +850,29 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
 // Returns true if any of the domains of the tensor is symbolic
 bool isSymbolicTensor(const TensorView* tv);
+
+class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
+ public:
+  void propagateC2P(TensorView* from, TensorView* to) override;
+  void propagateP2C(TensorView* from, TensorView* to) override;
+  void propagateSibling(TensorView* from, TensorView* to) override {
+    // Siblings require no special consideration in this check
+  }
+
+  bool checkIterDomainIsScheduled(IterDomain* id) const;
+
+  bool hasUnscheduledConcreteIDs() const;
+
+ private:
+  void check(
+      const std::vector<IterDomain*>& from_domain,
+      const std::vector<IterDomain*>& to_domain,
+      const std::unordered_map<IterDomain*, IterDomain*>& f2t);
+
+ private:
+  std::unordered_set<IterDomain*> unscheduled_ids_;
+};
+
 } // namespace scheduler_utils
 
 } // namespace nvfuser

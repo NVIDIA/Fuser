@@ -541,114 +541,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
-namespace {
-
-class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
- public:
-  void propagateC2P(TensorView* from, TensorView* to) override {
-    if (to->isFusionInput()) {
-      // We are not concerned with scheduling fusion inputs during transform
-      // propagation
-      return;
-    }
-    std::unordered_map<IterDomain*, IterDomain*> c2p =
-        PairwiseLogicalDomainMap(to, from)
-            .mapBroadcast(true)
-            .mapDifferentExtents(true)
-            .mapIndexedDomains(true)
-            .mapConsumerToProducer();
-    check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
-    if (to->hasRoot()) {
-      // propagate untracked property through root->logical transforms
-      for (Expr* e : std::ranges::views::reverse(StmtSort::getExprsBetween(
-               {to->getMaybeRootDomain().begin(),
-                to->getMaybeRootDomain().end()},
-               {to->getLogicalDomain().begin(),
-                to->getLogicalDomain().end()}))) {
-        bool has_unscheduled_output = std::any_of(
-            e->outputs().begin(), e->outputs().end(), [&](Val* out_val) {
-              auto* id = dynamic_cast<IterDomain*>(out_val);
-              return id && unscheduled_ids_.count(id);
-            });
-        if (has_unscheduled_output) {
-          for (Val* in_val : e->inputs()) {
-            unscheduled_ids_.insert(in_val->as<IterDomain>());
-          }
-        }
-      }
-    }
-  }
-  void propagateP2C(TensorView* from, TensorView* to) override {
-    std::unordered_map<IterDomain*, IterDomain*> p2c =
-        PairwiseLogicalDomainMap(from, to)
-            .mapBroadcast(true)
-            .mapDifferentExtents(true)
-            .mapIndexedDomains(true)
-            .mapProducerToConsumer();
-    check(from->getLogicalDomain(), to->getMaybeRootDomain(), p2c);
-    if (to->hasRoot()) {
-      // propagate untracked property through root->logical transforms
-      for (Expr* e : StmtSort::getExprsBetween(
-               {to->getLogicalDomain().begin(), to->getLogicalDomain().end()},
-               {to->getMaybeRootDomain().begin(),
-                to->getMaybeRootDomain().end()})) {
-        // TODO: should we exclude ID exprs other than Merge/Split here?
-        bool has_unscheduled_input = std::any_of(
-            e->inputs().begin(), e->inputs().end(), [&](Val* in_val) {
-              auto* id = dynamic_cast<IterDomain*>(in_val);
-              return id && unscheduled_ids_.count(id);
-            });
-        if (has_unscheduled_input) {
-          for (Val* out_val : e->outputs()) {
-            unscheduled_ids_.insert(out_val->as<IterDomain>());
-          }
-        }
-      }
-    }
-  }
-  void propagateSibling(TensorView* from, TensorView* to) override {
-    // Siblings require no special consideration in this check
-  }
-
-  bool hasUnscheduledConcreteIDs() const {
-    for (IterDomain* id : unscheduled_ids_) {
-      if (!id->isBroadcast()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
- private:
-  void check(
-      const std::vector<IterDomain*>& from_domain,
-      const std::vector<IterDomain*>& to_domain,
-      const std::unordered_map<IterDomain*, IterDomain*>& f2t) {
-    std::unordered_set<IterDomain*> seen_to;
-    for (IterDomain* from_id : from_domain) {
-      auto it = f2t.find(from_id);
-      if (it != f2t.end()) {
-        IterDomain* to_id = it->second;
-        if (unscheduled_ids_.count(from_id)) {
-          unscheduled_ids_.insert(to_id);
-        }
-        seen_to.insert(to_id);
-      }
-    }
-    for (IterDomain* to_id : to_domain) {
-      if (!seen_to.count(to_id)) {
-        // This is a new ID introduced along the propagation path
-        unscheduled_ids_.insert(to_id);
-      }
-    }
-  }
-
- private:
-  std::unordered_set<IterDomain*> unscheduled_ids_;
-};
-
-} // namespace
-
 //! Utility for canSchedule interface to check if this fusion has
 //!  a fully broadcasted reference tensor, which is necessary for
 //!  the pointwise scheduler.
@@ -664,7 +556,7 @@ bool hasReferenceTensorView(Fusion* fusion) {
       reference,
       /*selector=*/nullptr,
       /*propagate_through_resize=*/true);
-  CoveredDomainPropagator propagator;
+  scheduler_utils::CoveredDomainPropagator propagator;
   tree.traverse(&propagator);
   return !propagator.hasUnscheduledConcreteIDs();
 }
