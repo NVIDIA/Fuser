@@ -6223,8 +6223,8 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
     // nvfp4_scaled_mm expected Byte input dtype for fp4
     if (in_dtype == DataType::Float4_e2m1fn || in_dtype == DataType::Float4_e2m1fn_x2) {
-      mat1_view = at::view(mat1, at::ScalarType::Byte);
-      mat2_view = at::view(mat2, at::ScalarType::Byte);
+      mat1_view = mat1.view(at::ScalarType::Byte);
+      mat2_view = mat2.view(at::ScalarType::Byte);
     }
 
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
