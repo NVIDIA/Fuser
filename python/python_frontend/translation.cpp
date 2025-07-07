@@ -11,6 +11,7 @@
 #include <ops/all_ops.h>
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
+#include <translation_names.h>
 #include <utils.h>
 
 #include <vector>
@@ -511,7 +512,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new OpRecord<ResultType, ArgTypes...>(
         argument_states,
         {fd_->recordingState(map_val_to_fd_index_.at(result))},
-        "ops." + getString(e->as<ExprType>()),
+        "ops." + python::toString(e->as<ExprType>()),
         record_type,
         getFunction<ResultType, ArgTypes...>(e->as<ExprType>())));
   }
@@ -718,7 +719,7 @@ class FusionTranslator : public OptInConstDispatch {
     fd_->defineRecord(new ReductionOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(rop->in()))},
         {fd_->recordingState(output())},
-        "ops." + getString(rop),
+        "ops." + python::toString(rop),
         getSerdeType(rop),
         getFunction<
             TensorView*,
@@ -1115,6 +1116,205 @@ class FusionTranslator : public OptInConstDispatch {
          fd_->recordingState(map_val_to_fd_index_.at(sop->input(1)))},
         {fd_->recordingState(output())},
         sop->dim()));
+  }
+
+  // Map ScatterOp to python frontend
+  void handle(const ScatterOp* sop) final {
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ScatterOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->selfTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->indexTv())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->srcTv()))},
+        {fd_->recordingState(output())},
+        sop->dim()));
+  }
+
+  // Map ArgsortOp to python frontend
+  void handle(const ArgsortOp* argsortop) final {
+    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ArgsortOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(argsortop->in()))},
+        {fd_->recordingState(output())},
+        argsortop->dim(),
+        argsortop->isDescending(),
+        argsortop->isStable()));
+  }
+
+  // Map GroupedMmaOp to python frontend
+  void handle(const GroupedMmaOp* gmm_op) final {
+    TensorView* out_tv = gmm_op->out();
+    Tensor output = fd_->defineTensor(
+        TensorDomain::noReductions(out_tv->getLogicalDomain()).size());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    int64_t out_block_scale_size = 0;
+    PrimDataType out_block_scale_dtype = DataType::BFloat16;
+    bool out_gamma = false;
+
+    TensorView* out_block_scale_tv = gmm_op->outScale();
+    if (out_block_scale_tv != nullptr) {
+      Tensor output_block_scale = fd_->defineTensor(
+          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain())
+              .size());
+      map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
+      auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+    }
+    TensorView* out_gamma_tv = gmm_op->outGamma();
+    if (out_gamma_tv != nullptr) {
+      Tensor output_gamma = fd_->defineTensor(
+          TensorDomain::noReductions(out_gamma_tv->getLogicalDomain()).size());
+      map_val_to_fd_index_.emplace(out_gamma_tv, output_gamma());
+      out_gamma = true;
+    }
+
+    if (gmm_op->inputs().size() == 3) {
+      fd_->defineRecord(
+          new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+              {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+               fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
+               fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets()))},
+              {fd_->recordingState(output())},
+              ("ops.grouped_mm"),
+              serde::RecordType::Ternary_TV,
+              static_cast<
+                  TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                  [](TensorView* matrix1,
+                     TensorView* matrix2,
+                     TensorView* offsets) {
+                    ScaledTensorView scaled_out =
+                        grouped_mm(matrix1, matrix2, offsets);
+                    return scaled_out.tv;
+                  })));
+    } else {
+      fd_->defineRecord(new ScaledGroupedMmaOpRecord(
+          {fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix1())),
+           fd_->recordingState(map_val_to_fd_index_.at(gmm_op->matrix2())),
+           fd_->recordingState(map_val_to_fd_index_.at(gmm_op->offsets())),
+           gmm_op->hasScale()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->scale1()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasScale()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->scale2()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasAlpha()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->alpha()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasBias()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->bias()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           gmm_op->hasBeta()
+               ? fd_->recordingState(map_val_to_fd_index_.at(gmm_op->beta()))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+          {fd_->recordingState(output()),
+           out_block_scale_tv != nullptr
+               ? fd_->recordingState(
+                     map_val_to_fd_index_.at(out_block_scale_tv))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+           out_gamma_tv != nullptr
+               ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
+               : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+          std::get<PrimDataType>(out_tv->dtype().type),
+          out_block_scale_size,
+          out_block_scale_dtype,
+          out_gamma));
+    }
+  }
+
+  // Map ScaledMmaOp to python frontend
+  void handle(const ScaledMmaOp* smm_op) final {
+    int64_t out_block_scale_size = 0;
+    PrimDataType out_block_scale_dtype = DataType::BFloat16;
+    bool out_gamma = false;
+
+    TensorView* out_tv = smm_op->out();
+    TensorView* out_block_scale_tv = smm_op->outScale();
+    if (out_block_scale_tv != nullptr) {
+      Tensor output_block_scale = fd_->defineTensor(
+          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain())
+              .size());
+      map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
+      auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+    }
+
+    TensorView* out_gamma_tv = smm_op->outGamma();
+    if (out_gamma_tv != nullptr) {
+      Tensor output_gamma = fd_->defineTensor(
+          TensorDomain::noReductions(out_gamma_tv->getLogicalDomain()).size());
+      map_val_to_fd_index_.emplace(out_gamma_tv, output_gamma());
+      out_gamma = true;
+    }
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ScaledMmaOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(smm_op->matrix1())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->matrix2())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2())),
+         smm_op->hasAlpha()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->alpha()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         smm_op->hasBias()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->bias()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         smm_op->hasBeta()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->beta()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+        {fd_->recordingState(output()),
+         out_block_scale_tv != nullptr
+             ? fd_->recordingState(map_val_to_fd_index_.at(out_block_scale_tv))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         out_gamma_tv != nullptr
+             ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+        std::get<PrimDataType>(out_tv->dtype().type),
+        out_block_scale_size,
+        out_block_scale_dtype,
+        out_gamma));
+  }
+
+  // Map TopKOp to python frontend
+  void handle(const TopKOp* topkop) final {
+    // Create outputs for this RecordFunctor
+    std::vector<State> fd_outputs;
+    fd_outputs.reserve(topkop->outputs().size());
+    std::transform(
+        topkop->outputs().begin(),
+        topkop->outputs().end(),
+        std::back_inserter(fd_outputs),
+        [&](Val* v) {
+          NVF_ERROR(v->isA<TensorView>());
+          Tensor output = fd_->defineTensor(v->as<TensorView>()->nDims());
+          map_val_to_fd_index_.emplace(v, output());
+          return fd_->recordingState(output());
+        });
+
+    fd_->defineRecord(new TopKOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(topkop->in())),
+         fd_->recordingState(map_val_to_fd_index_.at(topkop->k()))},
+        fd_outputs,
+        topkop->dim(),
+        topkop->isLargest(),
+        topkop->isSorted()));
   }
 
   // Map GatherOp to python frontend

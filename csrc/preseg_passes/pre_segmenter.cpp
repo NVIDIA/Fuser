@@ -18,6 +18,7 @@
 #include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/move_gather.h>
 #include <preseg_passes/move_pad.h>
 #include <preseg_passes/move_repeat_forward.h>
 #include <preseg_passes/move_split_cat.h>
@@ -51,7 +52,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
-  //    avoid moving pad operatoins around, which could disturb the analysis
+  //    avoid moving pad operations around, which could disturb the analysis
   //    from MarkAliasPrepare
   // 2. after MoveSplitCat
   //    to avoid this pass moving PadOp around to break the
@@ -77,6 +78,12 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
 
+  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
+  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
+  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
+  OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
+  OptimizationPass<MoveGatherPass>::runPass(fusion);
+
   // All the multidevice passes are moved after allocation related passes:
   // MarkAliasesPreparePass, and AllocationDomainPass Multidevice passes will
   // try to set the allocation domain for tvs with device mesh which will
@@ -84,12 +91,12 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
-  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 
-  OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
-  OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
-  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
-  OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
+  // This pass should be the last presegmentation pass.
+  // It transforms the allocation domains of tvs with device mesh to
+  // inherit DID splits. Before this pass, the allocation domains are
+  // permutations of the logical domains.
+  OptimizationPass<FinalizeMultideviceDomainsPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

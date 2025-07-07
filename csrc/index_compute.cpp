@@ -1092,7 +1092,8 @@ bool isParallelLoopIndexSubstitutedAsZero(
     NVF_ERROR(
         (loop_id->isBlockDim() && !producer_id->isBlockDim()) ||
             (loop_id->isThreadDim() && !producer_id->isThread()),
-        "Found invalid parallelization that should have been detected by the parallel validation: loop ID: ",
+        "Found invalid parallelization that should have been detected by the "
+        "parallel validation: loop ID: ",
         loop_id->toString(),
         ", producer: ",
         producer_tv->toString());
@@ -2130,7 +2131,8 @@ Val* Index::getProducerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSize(*producer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*producer->getDataType()),
+              *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), index_bytes);
     } else {
@@ -2177,11 +2179,13 @@ bool shouldUseTensorIndexer(
     if (assert) {
       NVF_ERROR(
           !is_producer_ldmatrix_op,
-          "TensorIndexer required but not supported as the producer is produced by ldmatrix: ",
+          "TensorIndexer required but not supported as the producer is "
+          "produced by ldmatrix: ",
           producer->definition()->toString());
       NVF_ERROR(
           !is_producer_stmatrix_op_with_no_alloc_domain,
-          "TensorIndexer required but not supported as the producer is produced by stmatrix and it does not have allocation domain: ",
+          "TensorIndexer required but not supported as the producer is "
+          "produced by stmatrix and it does not have allocation domain: ",
           producer->definition()->toString());
       NVF_ERROR(
           rotated_loops.empty(),
@@ -2233,7 +2237,7 @@ kir::TensorIndex* Index::getProducerIndex(
         NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             address_offset,
-            IrBuilder::create<Val>(dataTypeSize(*producer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(*producer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(producer), address_offset);
@@ -2264,7 +2268,8 @@ kir::TensorIndex* Index::getProducerIndex(
         op = UnaryOpType::AdjustPartialLdMatrixAddrInTuring16;
       } else {
         NVF_THROW(
-            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, get ",
+            "Unexpected output vectorizaiton for ldmatrix, expect 2, 4, or 8, "
+            "get ",
             items_per_thread);
       }
       IrBuilder::create<UnaryOp>(op, index, orig_index);
@@ -2304,7 +2309,8 @@ Val* Index::getConsumerStridedIndices(
       auto index_bytes = IrBuilder::mulExpr(
           index,
           IrBuilder::create<Val>(
-              dataTypeSize(*consumer->getDataType()), *index->getDataType()));
+              dataTypeSizeByte(*consumer->getDataType()),
+              *index->getDataType()));
       return IrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index_bytes);
     } else {
@@ -2338,7 +2344,7 @@ kir::TensorIndex* Index::getConsumerIndex(
         NVF_ERROR(index_dt.has_value());
         address_offset = SimplifyingIrBuilder::mulExpr(
             index,
-            IrBuilder::create<Val>(dataTypeSize(*consumer_dt), *index_dt));
+            IrBuilder::create<Val>(dataTypeSizeByte(*consumer_dt), *index_dt));
       }
       index = SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), address_offset);

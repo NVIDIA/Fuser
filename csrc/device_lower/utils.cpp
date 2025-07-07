@@ -86,6 +86,10 @@ bool isTV(const Val* val) {
 bool isTvOp(const Expr* expr) {
   if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
@@ -119,6 +123,7 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
+          ScanOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
@@ -728,6 +733,35 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -750,21 +784,27 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
     return false;
   }
 
-  if (!(ir_utils::isReductionOp(expr) || expr->isA<BroadcastOp>() ||
-        expr->isA<kir::GridBroadcast>())) {
-    return false;
-  }
-
   // GroupedReductionOp can have multiple output TVs, but they must be
   // parallelized in the same way, so just checking one of them is enough.
   auto tv = ir_utils::getTvOutput(expr);
 
-  if (tv->hasBlockReduction() || tv->hasGridReduction()) {
+  if (ir_utils::isReductionOp(expr) &&
+      (tv->hasBlockReduction() || tv->hasGridReduction())) {
     return true;
-  } else if (expr->isA<BroadcastOp>()) {
-    const ParallelTypeBitmap pt_map =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(tv);
-    return pt_map.any();
+  }
+
+  if ((expr->isA<BroadcastOp>() &&
+       GpuLower::current()
+           ->threadPredMap()
+           .getParallelBroadcastDomains(tv)
+           .any()) ||
+      expr->isA<kir::GridBroadcast>()) {
+    return true;
+  }
+
+  // These ops currently use CUB, which uses syncthreads internally
+  if (expr->isOneOf<ArgsortOp, TopKOp>()) {
+    return true;
   }
 
   return false;
@@ -801,8 +841,13 @@ AllocPosInfo getAllocPosInfo(
 
   bool outer_alloc_found = false;
 
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -813,7 +858,8 @@ AllocPosInfo getAllocPosInfo(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -2093,6 +2139,24 @@ bool isWarpSpecializedLoop(ForLoop* loop) {
           .getCircularBufferOptionsFor(loop->iter_domain())
           .type);
 }
+
+bool isCopyOnly(Expr* expr) {
+  return expr
+      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
+  }
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

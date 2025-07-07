@@ -27,44 +27,6 @@
 
 namespace nvfuser {
 
-bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
-  if (!isResharding(expr)) {
-    return true;
-  }
-  if (!ir_utils::isTvOp(expr)) {
-    return false;
-  }
-  if (auto* reduction = dynamic_cast<ReductionOp*>(expr)) {
-    if (!ignore_inner_resharding && isInnerResharding(expr)) {
-      return false;
-    }
-    auto in = reduction->in()->as<TensorView>();
-    auto out = reduction->out()->as<TensorView>();
-    // get the reduced axis
-    std::vector<IterDomain*> reduction_axis;
-    std::copy_if(
-        out->getLogicalDomain().begin(),
-        out->getLogicalDomain().end(),
-        std::back_inserter(reduction_axis),
-        [](IterDomain* id) { return id->isReduction(); });
-    // check whether the reduction involves only one axis
-    if (reduction_axis.size() != 1) {
-      return false;
-    }
-    // We check whether the reduced axis is sharded on the input
-    const auto c2p_map =
-        PairwiseLogicalDomainMap(in, out).mapConsumerToProducer();
-    auto c2p_map_it = c2p_map.find(reduction_axis.at(0));
-    return c2p_map_it != c2p_map.end() && c2p_map_it->second->isDeviceDim();
-  } else if (auto* ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-    if (!ignore_inner_resharding && isInnerResharding(expr)) {
-      return false;
-    }
-    return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
-  }
-  return false;
-}
-
 bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
   if (expr->isOneOf<
           MatmulOp,

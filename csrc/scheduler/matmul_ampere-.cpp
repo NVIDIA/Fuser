@@ -48,7 +48,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
       (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      "At least 2D input (excluding consecutive reduction domains starting "
+      "from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
   mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
   mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
@@ -62,7 +63,8 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -446,20 +448,16 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 namespace schedule_matmul {
 void AmpereMinus::validate() const {
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  const int cc = device_prop->major * 10 + device_prop->minor;
-  NVF_ERROR(
-      cc >= 75 && cc < 90,
-      "This matmul scheduler is restricted to Ampere and Turing.");
-
   NVF_CHECK(
       params_->tiling_strategy == MatmulParams::TilingStrategy::OneTilePerCTA,
-      "Ampere & Turing matmul scheduler does not support scheduling persistent CTAs");
+      "Ampere & Turing matmul scheduler does not support scheduling persistent "
+      "CTAs");
 
   NVF_CHECK(
       params_->buffering_loop_level ==
           MatmulParams::BufferingLoopLevel::CTATiles,
-      "Ampere & Turing matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+      "Ampere & Turing matmul scheduler only supports cooperatively buffering "
+      "at the CTA level (no ping-pong)");
 
   NVF_CHECK(
       params_->circular_buffering_strategy ==
@@ -1034,13 +1032,15 @@ void AmpereMinus::scheduleOutputTensor(TensorView* c) {
   const int64_t tile_size_n = c->axis(-1)->extent()->evaluate().as<int64_t>();
   NVF_ERROR(
       tile_size_m == gemm_tile.cta_tile.m,
-      "Actual tile size at axis(-2) in output tensor is different from CTA tile size! Expected: ",
+      "Actual tile size at axis(-2) in output tensor is different from CTA "
+      "tile size! Expected: ",
       gemm_tile.cta_tile.m,
       ", actual: ",
       tile_size_m);
   NVF_ERROR(
       tile_size_n == gemm_tile.cta_tile.n,
-      "Actual tile size at axis(-1) in output tensor is different from CTA tile size! Expected: ",
+      "Actual tile size at axis(-1) in output tensor is different from CTA "
+      "tile size! Expected: ",
       gemm_tile.cta_tile.n,
       ", actual: ",
       tile_size_n);
@@ -1210,7 +1210,7 @@ void AmpereMinus::scheduleSplitKSum() {
       int64_t vec_ext_int = vec_ext->evaluate().as<int64_t>();
       splitk_sum->axis(-1)->parallelize(ParallelType::BIDz);
       splitk_sum->axis(-3)->parallelize(ParallelType::TIDx);
-      if (vec_ext_int * dataTypeSize(splitk_sum->dtype()) > 16) {
+      if (vec_ext_int * dataTypeSizeByte(splitk_sum->dtype()) > 16) {
         // NOTE: We might encounter an illegal vectorization size if we are
         // using Float for this reduction and Half for output. So here we
         // first check whether the vectorize size is at most 16 bytes. If not,
@@ -1218,7 +1218,9 @@ void AmpereMinus::scheduleSplitKSum() {
         // vectorized reads/writes instead. Note that we reorder such that the
         // axes are in order UR TIDx V.
         splitk_sum->split(
-            -2, 16 / dataTypeSize(splitk_sum->dtype()), /*inner_split=*/true);
+            -2,
+            16 / dataTypeSizeByte(splitk_sum->dtype()),
+            /*inner_split=*/true);
         splitk_sum->axis(-3)->parallelize(ParallelType::Unroll);
         splitk_sum->reorder({{-4, -3}});
         // In this case, we have [... iUR iTx rBz iS]
@@ -1317,7 +1319,7 @@ void AmpereMinus::setUpCircularBuffering() {
 void AmpereMinus::setOperandSmemLoadAndCacheOps(
     TensorView* operand,
     int64_t vec_size) {
-  int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+  int64_t vec_bytes = vec_size * dataTypeSizeByte(operand->dtype());
   CacheOp cache_op = CacheOp::Unspecified;
   if (params_->async_gmem_load_operands) {
     NVF_CHECK(
@@ -1331,7 +1333,8 @@ void AmpereMinus::setOperandSmemLoadAndCacheOps(
         " which has data type ",
         operand->dtype(),
         ". Size must be 4, 8, or 16 bytes. ",
-        "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+        "MatmulParams::async_gmem_load_operands should be set to false in this "
+        "case.");
     cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
   }
 

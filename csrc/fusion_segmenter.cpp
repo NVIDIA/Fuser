@@ -26,6 +26,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -397,7 +398,8 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   auto fusion = fusion_ptr.get();
   NVF_ERROR(
       !SegmentCandidateFinder::hasSegmentHints(fusion),
-      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with segment hints!");
+      "SegmentedFusion::fromCompleteFusion cannot be called on a fusion with "
+      "segment hints!");
 
   // convert Welford to two-pass if option is enabled and the original heuristic
   // is persistent
@@ -623,7 +625,8 @@ nvfuser::SegmentedEdge SegmentedFusion::deserialize(
   NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
   NVF_ERROR(
       !groups_.empty(),
-      "Expected SegmentedGroup to be populated before deserializing SegmentedEdge.");
+      "Expected SegmentedGroup to be populated before deserializing "
+      "SegmentedEdge.");
   return {
       groups_.at(buffer->from_segmented_group()),
       groups_.at(buffer->to_segmented_group()),
@@ -1424,7 +1427,8 @@ class GroupDependencyAnalysis : public NonCopyable, public SegmenterAnalysis {
     auto& all_producers_of_consumer = known_producers_of_.at(consumer);
     NVF_ERROR(
         all_producers_of_consumer->has(producer),
-        "Fusion segment: Trying to compute path between two nodes that are not producer-consumer pairs");
+        "Fusion segment: Trying to compute path between two nodes that are not "
+        "producer-consumer pairs");
 
     for (auto producer_of_consumer : *all_producers_of_consumer) {
       if (known_producers_of_.at(producer_of_consumer)->has(producer)) {
@@ -4085,7 +4089,8 @@ SegmentCandidateFinder::SegmentCandidateFinder(
 SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
   NVF_ERROR(
       runtime_info_.has_value(),
-      "runtime_info_ is not available. This function should not be called in multi-device segmentation.");
+      "runtime_info_ is not available. This function should not be called in "
+      "multi-device segmentation.");
   return *runtime_info_;
 }
 
@@ -4383,8 +4388,11 @@ void SegmentCandidateFinder::privatizeUpcast() {
         continue;
       }
 
-      auto upcast_out_tv_clone =
-          castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      TensorView* upcast_out_tv_clone = castOp(
+          maybe_upcast_out_tv->dtype(),
+          maybe_upcast_op->input(0)->as<TensorView>());
+      TransformReplay::selfReplay(
+          maybe_upcast_out_tv->domain(), upcast_out_tv_clone->domain());
       expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_out_tv, upcast_out_tv_clone);
 
@@ -5100,7 +5108,8 @@ class ForceHalfAnnotation : public IterVisitor {
           if (cast_to_type) {
             NVF_ERROR(
                 other_half_type != dtype,
-                "Mix of BFloat16 and Float16 in the same graph is not supported.");
+                "Mix of BFloat16 and Float16 in the same graph is not "
+                "supported.");
           }
           return val->template isA<TensorView>() &&
               val->getDataType().has_value() &&

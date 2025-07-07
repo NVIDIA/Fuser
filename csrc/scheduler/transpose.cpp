@@ -41,7 +41,8 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
           "SelectOp on inner dim is not supported by transpose scheduler yet."
-          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+          "In transpose scheduler, we want to leave the select dim alone, "
+          "instead of creating a tile for it.");
       return false;
     }
   }
@@ -51,8 +52,10 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
     if (idx_sel->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
-          "IndexSelectOp on inner dim is not supported by transpose scheduler yet."
-          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+          "IndexSelectOp on inner dim is not supported by transpose scheduler "
+          "yet."
+          "In transpose scheduler, we want to leave the select dim alone, "
+          "instead of creating a tile for it.");
       return false;
     }
   }
@@ -63,7 +66,8 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
           "GatherOp on inner dim is not supported by transpose scheduler yet."
-          "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
+          "In transpose scheduler, we want to leave the select dim alone, "
+          "instead of creating a tile for it.");
       return false;
     }
   }
@@ -356,7 +360,8 @@ getInputsOutputsGroups(
 
   NVF_ERROR(
       grouped_inputs_outputs.size() >= 2,
-      "Can not find mismatched inner most dim, should use pointwise scheduler.");
+      "Can not find mismatched inner most dim, should use pointwise "
+      "scheduler.");
 
   return grouped_inputs_outputs_entry;
 }
@@ -458,7 +463,8 @@ std::string getTransposeRuntimeRejectReason(
   auto inner_most_pos1_in_ref1 = innermost_info[0];
   auto inner_most_pos2_in_ref1 = innermost_info[1];
   if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
-    return "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.";
+    return "Transpose scheduler requires exact mapping on inner most dimension "
+           "on reference tensor.";
   }
 
   constexpr size_t default_tile_elements =
@@ -506,8 +512,10 @@ std::string getTransposeRuntimeRejectReason(
 #if !SUPPORT_SPLITTING_INNERMOST_DIM
   if (n_elems / inner_size1 < (int64_t)TransposeParams::getDefaultTileSize() ||
       n_elems / inner_size2 < (int64_t)TransposeParams::getDefaultTileSize()) {
-    return "Splitting of inner most dim for the creation of virtual inner most dim "
-           "is disabled due to indexing bug, skipping this case at runtime for now"
+    return "Splitting of inner most dim for the creation of virtual inner most "
+           "dim "
+           "is disabled due to indexing bug, skipping this case at runtime for "
+           "now"
            "See: https://github.com/csarofeen/pytorch/issues/1964";
   }
 #endif
@@ -532,7 +540,9 @@ std::string getTransposeRuntimeRejectReason(
     // 2. small transpose transformation
     // See note [Supporting small transpose dimensions]
     if (hasSmallTransposeDimensions(params)) {
-      return "Small transpose dimensions and view op cannot be currently be handled by transpose scheduler. See: https://github.com/NVIDIA/Fuser/pull/592";
+      return "Small transpose dimensions and view op cannot be currently be "
+             "handled by transpose scheduler. See: "
+             "https://github.com/NVIDIA/Fuser/pull/592";
     }
 
     // mimic transform propagation
@@ -558,7 +568,8 @@ std::string getTransposeRuntimeRejectReason(
     MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
     entire_dag.traverse(&propagator);
     if (propagator.shouldReject()) {
-      return "transpose scheduler could potentially trigger incoherent transform propagation";
+      return "transpose scheduler could potentially trigger incoherent "
+             "transform propagation";
     }
   }
 
@@ -606,7 +617,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   // No exact innermost loop dimension mapping on referenc1. cannot schedule
   if (inner_most_pos1_in_ref1 < 0 || inner_most_pos2_in_ref1 < 0) {
     NVF_THROW(
-        "Transpose scheduler requires exact mapping on inner most dimension on reference tensor.");
+        "Transpose scheduler requires exact mapping on inner most dimension on "
+        "reference tensor.");
   }
 
   auto tparams = std::make_unique<TransposeParams>();
@@ -627,7 +639,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   NVF_ERROR(
       !hasSmallTransposeDimensions(tparams) ||
           scheduler_utils::getViewTVs(fusion).empty(),
-      "combination of view op with small transpose dimensions are not supported by transpose scheduler");
+      "combination of view op with small transpose dimensions are not "
+      "supported by transpose scheduler");
 
   // Note [vectorization and unroll of input and output]
   //
@@ -662,7 +675,7 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
     for (auto inp : ir_utils::filterByType<TensorView>(vals)) {
       max_io_dtype_size = std::max(
           max_io_dtype_size,
-          dataTypeSize(inp->getDataType().value(), index_type));
+          dataTypeSizeByte(inp->getDataType().value(), index_type));
       n_io_tensors++;
     }
   };
@@ -888,11 +901,13 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   NVF_ERROR(
       reference1 != nullptr,
-      "Could not find a fully broadcasted tensor to reference schedule on the first group.");
+      "Could not find a fully broadcasted tensor to reference schedule on the "
+      "first group.");
 
   NVF_ERROR(
       reference2 != nullptr,
-      "Could not find a fully broadcasted tensor to reference schedule on the second group.");
+      "Could not find a fully broadcasted tensor to reference schedule on the "
+      "second group.");
 
   auto inner_most_id1 = scheduler_utils::innerMostAllocDim(reference1);
   auto inner_most_id2 = scheduler_utils::innerMostAllocDim(reference2);

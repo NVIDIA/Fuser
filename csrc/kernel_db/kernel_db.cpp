@@ -68,7 +68,8 @@ KernelDb& KernelDb::get(
       success = singleton.open(kernel_db_dir, kernel_db_file, use_temp_dir);
     } catch (const std::exception& e) {
       TORCH_WARN(
-          "nvFuser's kernel_db had an unexpected exception while opening. Exception: ",
+          "nvFuser's kernel_db had an unexpected exception while opening. "
+          "Exception: ",
           e.what());
     }
     if (!success) {
@@ -136,7 +137,8 @@ bool KernelDb::open(
             } else {
               // Header is corrupted or badly formed
               TORCH_WARN(
-                  "Kernel DB: CSV file header is corrupted or badly formed - Resetting!: ",
+                  "Kernel DB: CSV file header is corrupted or badly formed - "
+                  "Resetting!: ",
                   line);
               read_db_file = false;
               break;

@@ -153,7 +153,8 @@ class KernelExecutor : public ExecutorAbstract {
   float getKernelOccupancy() const {
     NVF_ERROR(
         kernel_occupancy_ > 0,
-        "Occupancy unknown, should run with dump occupancy or perf_debug_verbose");
+        "Occupancy unknown, should run with dump occupancy or "
+        "perf_debug_verbose");
     return kernel_occupancy_;
   }
 
@@ -201,6 +202,9 @@ class KernelExecutor : public ExecutorAbstract {
   const std::unique_ptr<CompiledKernel>& compiledKernel() const {
     return compiled_kernel_;
   }
+
+  //! Get the static shared memory size of the current compiled kernel
+  int64_t getStaticSmemSize();
 
  private:
   LaunchParams computeLaunchParams(
@@ -271,9 +275,6 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Get the current dynamic shared memory size
   int64_t getAvailableDynamicSmemSize();
-
-  //! Get the static shared memory size of the current compiled kernel
-  int64_t getStaticSmemSize();
 
   //! Check if the shared memory size can be expandable to accommodate
   //! the given dynamic size. The total shared memory size consumed

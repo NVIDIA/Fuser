@@ -98,7 +98,7 @@ int64_t computeSharedMemory(
 
       const auto first_byte = smem_offset + address_val.as<int64_t>();
       const auto data_size =
-          dataTypeSize(smem_alloc->buffer()->dtype(), index_type);
+          dataTypeSizeByte(smem_alloc->buffer()->dtype(), index_type);
       const int64_t size_bytes = size_val.as<int64_t>() * data_size;
       const auto last_byte = first_byte + size_bytes;
 
@@ -167,13 +167,26 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
         inferred_val.hasValue(),
         "Could not launch kernel as program could not infer ",
         symbolic_size->toInlineString(),
-        "(",
+        " (",
         symbolic_size->toString(),
         ") for the buffer ",
         tv->toString());
 
     auto concrete_size = inferred_val.as<int64_t>();
     concrete_sizes.at(i) = concrete_size;
+  }
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!concrete_sizes.empty()) {
+    auto& last_dim = concrete_sizes.back();
+    last_dim = adjust_last_dim.fromNVFToATen(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
   }
 
   auto strides = getContiguousStrides(concrete_sizes, expand_flags);
@@ -227,8 +240,14 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::BFloat16:
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
+    case at::ScalarType::Float8_e8m0fnu:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(torch::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:
@@ -284,7 +303,8 @@ KernelArgumentHolder allocateOutputs(
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(
-          "Unexpected allocation path, internal logic around allocations must be incorrect.");
+          "Unexpected allocation path, internal logic around allocations must "
+          "be incorrect.");
     }
   }
   return out_tensors;

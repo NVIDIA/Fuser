@@ -684,11 +684,45 @@ int64_t partialReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                  runtime_info.getIndexType());
+            dataTypeSizeByte(buffer->getDataType().value(),
+                             runtime_info.getIndexType());
     partial_reduction_buffer_size += buffer_size;
   }
   return partial_reduction_buffer_size;
+}
+
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : arange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
 }
 
 // Get the appropriate scheduler based on reduction type
@@ -717,7 +751,8 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
           fusion->inputs().begin(),
           fusion->inputs().end(),
           [](Val* inp) { return inp->isA<TensorView>(); }),
-      "Tried to schedule a fusion with no tensor inputs, currently not supported.");
+      "Tried to schedule a fusion with no tensor inputs, currently not "
+      "supported.");
 }
 
 namespace {
@@ -768,7 +803,7 @@ int64_t sharedMemoryRoundUpOverhead(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+        logical_buffer_size, dataTypeSizeByte(buffer->getDataType().value()));
     // The difference is counted as roundup overhead
     total_smem_overhead += (buffer_size_smem - logical_buffer_size);
   }
@@ -1006,7 +1041,8 @@ PersistentKernelProperties getPersistentKernelProperties(
     }
     max_dtype_size = std::max(
         max_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
+        dataTypeSizeByte(
+            tv->getDataType().value(), runtime_info.getIndexType()));
     n_tensor_inputs++;
   }
   // To prevent division by zero, ensure that n_tensor_inputs is not equal to
@@ -1304,7 +1340,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
-        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+        dataTypeSizeByte(smem_tv->getDataType().value()) * vect_factor;
     bool is_supported_bytes =
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
@@ -1330,6 +1366,22 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
+    }
+    // For warp specialized, may direct load non-circular buffered tv to regs
+    // Non-circular buffered tvs are those have broadcast dimensions that mapped
+    // with reduction dimensions.
+    if (rparams->tma_warp_specialized &&
+        rparams->is_non_circular_buffer_gmem_to_regs) {
+      const auto& outer_broadcast_tvs = getOuterBroadcastTvs(
+          fusion, scheduler_utils::getReductionTvs(fusion));
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&tv](TensorView* bcast_tv) {
+                return DependencyCheck::isDependencyOf(tv, bcast_tv);
+              })) {
+        use_smem = false;
+      }
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
@@ -1364,7 +1416,8 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // load right after the copy from shared memory to register cache.
       // Otherwise, it needs to wait all the computations to finish before
       // issuing the next TMA.
-      if (!rparams->tma_warp_specialized) {
+      if (!rparams->tma_warp_specialized ||
+          !rparams->is_circular_buffer_regs_cached) {
         const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
         for (auto i = 1; i < (int)consumers.size(); i++) {
           auto consumer = consumers.at(i);
@@ -1492,7 +1545,8 @@ TensorView* scheduleReductionGeneral(
   if (!has_iter_axis) {
     NVF_ERROR(
         rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim scheduler.");
+        "If all dims are reduction, should be sending it to fastest dim "
+        "scheduler.");
   }
 
   return reduction_scheduler_utils::scheduleReductionTV(

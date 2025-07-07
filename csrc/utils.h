@@ -36,16 +36,6 @@
 #include <unordered_map>
 #include <vector>
 
-#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
-
-#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
-
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
@@ -762,7 +752,7 @@ class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
         std::forward_iterator_tag>;
 
     base_iterator current_;
-    std::size_t index_;
+    int64_t index_;
 
     iterator_base() = default;
     iterator_base(base_iterator current, std::size_t index)

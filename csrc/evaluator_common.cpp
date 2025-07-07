@@ -334,7 +334,8 @@ void PrecomputedValues::validate() {
     NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and execution.\n",
+        "\nSomething unexpected changed between the compilation and "
+        "execution.\n",
         values_[it.first],
         " != ",
         it.second);
@@ -352,6 +353,20 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!logical_sizes.empty()) {
+    auto& last_dim = logical_sizes.back();
+    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
+  }
+
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
     const auto dim_size = logical_sizes.at(dim);

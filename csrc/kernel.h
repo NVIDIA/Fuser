@@ -134,6 +134,15 @@ struct KernelSummary {
 
   //! adjusted register usage for tma load and computation warp groups
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! has mma op in fusion
+  bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
 };
 
 class KernelPerformanceProfile {

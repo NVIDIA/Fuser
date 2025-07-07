@@ -85,7 +85,8 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       mutation->toString(),
       " (",
       mutation->toInlineString(),
-      "), which is not allowed as it would result in a recursive definition of ",
+      "), which is not allowed as it would result in a recursive definition "
+      "of ",
       mutation->toString());
 
   mutations_[val] = mutation;
@@ -157,6 +158,11 @@ void OptOutMutator::mutate(TensorDomain* td) {
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
   std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
 
+  std::optional<std::vector<IterDomain*>> alternate_domain = std::nullopt;
+  if (td->alternateLoop().has_value()) {
+    alternate_domain = updateIdVec(td->alternateLoop().value());
+  }
+
   if (!mutated) {
     return;
   }
@@ -167,6 +173,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
       logical_dom,
       allocation_dom,
       domain,
+      alternate_domain,
       td->contiguity(),
       additional_ids);
   registerMutation(td, mutated_val);

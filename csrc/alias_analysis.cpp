@@ -17,7 +17,6 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
-#include <logical_domain_map.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser {
@@ -56,80 +55,6 @@ class AliasFinder : public OptOutConstDispatch {
   AliasAnalysisResult& analysis_;
 };
 
-// A helper function used to compute the perferred output layout. It computes
-// the mapping from `in_logical` to `out_root` and applies that mapping to
-// `preferred_in_layout`. For many ops, this function returns a good initial
-// preferred output layout for aliasing because it tries to preserve the input
-// layout. An op (e.g. ViewOp and SliceOp) that transforms root to logical
-// using expressions will have to modify this initial layout so its allocation
-// domain will be a function of its logical domain.
-//
-// Returns `nullopt` if computation fails, so the caller can handle things
-// conservatively.
-std::optional<Layout> mapInLayoutToOutRoot(
-    const std::optional<Layout>& preferred_in_layout,
-    TensorView* in,
-    TensorView* out) {
-  if (!preferred_in_layout.has_value()) {
-    return std::nullopt;
-  }
-
-  if (!ir_utils::computePermutation(
-           in->getLogicalDomain(), preferred_in_layout->allocation_domain)
-           .has_value()) {
-    // Give up when `in`'s allocation domain is not an logical permutation. As
-    // an extension, we could map in_alloc to in_logical and apply the inverse
-    // mapping to out_root.
-    return std::nullopt;
-  }
-
-  std::unordered_map<IterDomain*, IterDomain*> in_logical_to_out_root =
-      PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
-
-  Layout preferred_out_layout;
-  for (auto&& [in_alloc_id, contiguity] :
-       zip(preferred_in_layout->allocation_domain,
-           preferred_in_layout->contiguity)) {
-    IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
-    if (out_root_id == nullptr) {
-      // This can happen when in_alloc_id is of type reduction or squeezed out.
-      continue;
-    }
-    preferred_out_layout.allocation_domain.push_back(out_root_id);
-    preferred_out_layout.contiguity.push_back(contiguity);
-  }
-  return preferred_out_layout;
-}
-
-namespace {
-
-bool contiguityIsCompliant(
-    const std::optional<bool>& actual,
-    const std::optional<bool>& required) {
-  if (actual == true && required == false) {
-    return true;
-  }
-  return actual == required;
-}
-
-// Returns whether `layout` is compliant with `required`. This is
-// uni-directional. For example, `contiguity=[t,t]` is compliant with
-// `contiguity=[f,f]` but not vice versa.
-bool isCompliantWith(const Layout& layout, const Layout& required) {
-  if (layout.allocation_domain != required.allocation_domain) {
-    // This can be relaxed by allowing broadcast dimensions to be ordered
-    // differently.
-    return false;
-  }
-
-  for (const auto i : arange(layout.size())) {
-    if (!contiguityIsCompliant(layout.contiguity[i], required.contiguity[i])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
@@ -145,7 +70,6 @@ bool okToRelayout(
   }
   return isCompliantWith(new_layout, *old_layout);
 }
-} // namespace
 
 bool AliasFinder::aliasIfCompliant(
     const TensorView* alias,
@@ -172,8 +96,8 @@ void AliasFinder::handle(const ViewOp* view) {
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto i : arange(out_root_layout->size())) {
-    if (!out_root_layout->contiguity[i].has_value() &&
-        !out_root_layout->allocation_domain[i]->isBroadcast()) {
+    if (!out_root_layout->contiguity(i).has_value() &&
+        !out_root_layout->allocation_domain(i)->isBroadcast()) {
       // TODO(#1126): Due to #1126, `out_root` materializes an expanded
       // broadcast IterDomain from `in_logical` when `view` splits or merges
       // that IterDomain. We return no alias when this happen; otherwise
@@ -181,7 +105,7 @@ void AliasFinder::handle(const ViewOp* view) {
       return;
     }
     allocation_to_contiguity.pushBack(
-        out_root_layout->allocation_domain[i], out_root_layout->contiguity[i]);
+        out_root_layout->allocation_domain(i), out_root_layout->contiguity(i));
   }
 
   // Replay `Expr`s from `out_root` to `out_logical` on
@@ -225,12 +149,17 @@ void AliasFinder::handle(const ViewOp* view) {
     }
   }
 
-  Layout out_logical_layout;
+  std::vector<IterDomain*> out_allocation;
+  out_allocation.reserve(allocation_to_contiguity.size());
+  std::vector<std::optional<bool>> out_contiguity;
+  out_contiguity.reserve(allocation_to_contiguity.size());
   for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
-    out_logical_layout.allocation_domain.push_back(alloc_id);
-    out_logical_layout.contiguity.push_back(contiguity);
+    out_allocation.push_back(alloc_id);
+    out_contiguity.push_back(contiguity);
   }
-  aliasIfCompliant(out, in, std::move(out_logical_layout));
+
+  aliasIfCompliant(
+      out, in, Layout(std::move(out_allocation), std::move(out_contiguity)));
 }
 
 void AliasFinder::handle(const LoadStoreOp* set) {
@@ -297,10 +226,12 @@ void AliasFinder::handle(const SliceOp* slice) {
   //   out = slice(in, {0, 0, 0}, {16, 128, 1024});
   //
   // For `out` to alias `in`, its contiguity has to be updated to [t, f, t].
+  std::vector<IterDomain*> out_allocation = out_layout->allocation_domain();
+  std::vector<std::optional<bool>> out_contiguity = out_layout->contiguity();
   bool next_non_broadcast_is_non_contiguous = false;
-  for (int64_t i = out_layout->size() - 1; i >= 0; i--) {
-    IterDomain*& alloc_id = out_layout->allocation_domain[i];
-    std::optional<bool>& contiguity = out_layout->contiguity[i];
+  for (const auto i : arange(out_layout->size()) | std::views::reverse) {
+    IterDomain*& alloc_id = out_allocation[i];
+    std::optional<bool>& contiguity = out_contiguity[i];
 
     alloc_id = out_root_to_logical.at(alloc_id);
 
@@ -325,7 +256,8 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
   }
 
-  aliasIfCompliant(out, in, std::move(*out_layout));
+  aliasIfCompliant(
+      out, in, Layout(std::move(out_allocation), std::move(out_contiguity)));
 }
 
 void AliasFinder::handle(const BroadcastOp* bcast) {
@@ -342,15 +274,18 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   }
 
   // Put new, broadcast dimensions to the end.
+  std::vector<IterDomain*> out_allocation = out_layout->allocation_domain();
+  std::vector<std::optional<bool>> out_contiguity = out_layout->contiguity();
   const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
   for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
-      out_layout->allocation_domain.push_back(out_logical[i]);
-      out_layout->contiguity.emplace_back(std::nullopt);
+      out_allocation.push_back(out_logical[i]);
+      out_contiguity.emplace_back(std::nullopt);
     }
   }
 
-  aliasIfCompliant(out, in, std::move(*out_layout));
+  aliasIfCompliant(
+      out, in, Layout(std::move(out_allocation), std::move(out_contiguity)));
 }
 
 void AliasFinder::handle(const SqueezeOp* squeeze) {

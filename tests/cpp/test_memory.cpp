@@ -417,7 +417,7 @@ class TMASimpleLdstTest
   std::vector<int64_t> tile;
 
   int64_t innerDimSize() const {
-    return getBytesFromSwizzle(swizzle) / dataTypeSize(dtype);
+    return getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype);
   }
 
   void SetUp() override {
@@ -575,8 +575,8 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   tv1->split(-2, 8);
   tv2->split(-2, 8);
   // [B, KO, K8, N] ->  [B, KO, K8, NO, NI ]
-  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
-  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+  tv1->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
+  tv2->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
   // [B, KO, K8, NO, NI ] -> [B, KO, NO, K8, NI ] (Box: K8, NI)
   tv1->reorder({{-2, -3}});
   tv2->reorder({{-2, -3}});
@@ -1202,7 +1202,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain1) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_32_bytes = 32 / dataTypeSize(dtype);
+  const int64_t items_of_32_bytes = 32 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(3, dtype);
   fusion.addInput(tv0);
@@ -1813,7 +1813,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -1853,8 +1853,10 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalAddress) {
         ke.run({t0_misaligned});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "globalAddress, which specifies the starting address of the memory region described, "
-          "must be 32 byte aligned when interleave is CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.")));
+          "globalAddress, which specifies the starting address of the memory "
+          "region described, "
+          "must be 32 byte aligned when interleave is "
+          "CU_TENSOR_MAP_INTERLEAVE_32B and 16 byte aligned otherwise.")));
 }
 
 TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
@@ -1865,7 +1867,7 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeSymbolicTensor(2, dtype);
   tv0->setContiguity({false, true});
@@ -1910,7 +1912,8 @@ TEST_F(TMARuntimeInvalidTest, MisalignedGlobalStride) {
         ke.run({t0_misaligned});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "globalStrides array, which specifies tensor stride of each of the lower tensorRank - 1 dimensions in bytes, "
+          "globalStrides array, which specifies tensor stride of each of the "
+          "lower tensorRank - 1 dimensions in bytes, "
           "must be a multiple of 16 and less than 2^40.")));
 }
 
@@ -1922,7 +1925,7 @@ TEST_F(TMACompileTimeInvalidTest, SizeOfTransfer) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -1961,7 +1964,7 @@ TEST_F(TMARuntimeInvalidTest, SizeOfTransfer) {
   FusionGuard fg(&fusion);
 
   const DataType dtype = DataType::Float;
-  const int64_t items_of_16_bytes = 16 / dataTypeSize(dtype);
+  const int64_t items_of_16_bytes = 16 / dataTypeSizeByte(dtype);
 
   auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
@@ -2209,8 +2212,9 @@ TEST_F(TMACompileTimeInvalidTest, SwizzleBulkWithNonBulk) {
         KernelExecutor ke;
         ke.compile(&fusion, {t0}, {}, matmul_cparams);
       },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "TMA domain must be a view of the allocation domain of the gmem tensor")));
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("TMA domain must be a view of the allocation "
+                               "domain of the gmem tensor")));
 }
 
 // Tests for the examples in doc/dev/tma.md
@@ -2936,6 +2940,9 @@ TEST_P(StMatrixTest, Regular) {
   tv0->merge(0);
   tv0->split(0, 32);
   tv0->axis(1)->parallelize(ParallelType::TIDx);
+
+  // TODO Set alternate loop domain here once idModel support
+  // MmaInputSmemSwizzle::None
 
   for (auto tv : {tv1, tv2}) {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(

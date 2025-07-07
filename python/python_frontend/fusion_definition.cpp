@@ -28,41 +28,6 @@ using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
 
-const char* dtypeToPyString(PrimDataType t) {
-  switch (t) {
-    case DataType::Bool:
-      return "DataType.Bool";
-    case DataType::Double:
-      return "DataType.Double";
-    case DataType::Float:
-      return "DataType.Float";
-    case DataType::Half:
-      return "DataType.Half";
-    case DataType::BFloat16:
-      return "DataType.BFloat16";
-    case DataType::Float8_e4m3fn:
-      return "DataType.Float8_e4m3fn";
-    case DataType::Float8_e5m2:
-      return "DataType.Float8_e5m2";
-    case DataType::Int:
-      return "DataType.Int";
-    case DataType::Int32:
-      return "DataType.Int32";
-    case DataType::ComplexFloat:
-      return "DataType.ComplexFloat";
-    case DataType::ComplexDouble:
-      return "DataType.ComplexDouble";
-    case DataType::Null:
-      return "DataType.Null";
-    case DataType::UInt64:
-      return "DataType.UInt64";
-    default:
-      break;
-  }
-  NVF_THROW("No string found for data type.");
-  return nullptr;
-}
-
 FusionDefinition::FusionDefinition(
     std::optional<size_t> id,
     size_t max_length,
@@ -160,7 +125,8 @@ void FusionDefinition::finalizeDefinition() {
 
   NVF_ERROR(
       num_recording_states_presched_ == 0,
-      "Expected number of recording states for prescheduled fusion to be uninitialized.");
+      "Expected number of recording states for prescheduled fusion to be "
+      "uninitialized.");
   num_recording_states_presched_ = (int64_t)recording_state_.size();
 }
 
@@ -236,7 +202,8 @@ void FusionDefinition::verifyTensorDimensions() {
     const int64_t tv_ndims = v->as<TensorView>()->nDims();
     NVF_ERROR(
         tv_ndims == (int64_t)t.dims,
-        "Expected TensorView to have same number of dimensions as Tensor but got: ",
+        "Expected TensorView to have same number of dimensions as Tensor but "
+        "got: ",
         tv_ndims,
         " and ",
         t.dims);
@@ -685,7 +652,8 @@ Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_scalar() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_scalar() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
@@ -695,7 +663,8 @@ Tensor FusionDefinition::addTensor(TensorView* tv) {
   FUSER_PERF_SCOPE("FusionDefinition::addTensor");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "addTensor() must be called from an initialized definition via a python "
+      "context manager or a child class' definition() method.");
   Tensor output = defineTensor(tv->nDims());
   NVF_CHECK(
       output.index == numFusionStates(),
@@ -708,7 +677,8 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_tensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_tensor() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType::Tensor);
   return out;
@@ -718,7 +688,8 @@ Vector FusionDefinition::defineVector(size_t size) {
   FUSER_PERF_SCOPE("FusionDefinition::defineVector");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_vector() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_vector() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Vector out(recording_state_.size(), size, this);
   recording_state_.emplace_back(out(), serde::StateType::Vector);
   return out;
@@ -728,7 +699,8 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineRecord() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "defineRecord() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   NVF_CHECK(
       (recording_.size() + 1) <= max_length_,
       "The fusion definition has exceeded ",

@@ -128,7 +128,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   auto validate_columns = [](Val* num_columns) {
     constexpr int64_t max_columns = 512;
     Val* max_columns_val = IrBuilder::create<Val>(max_columns);
-    GpuLower::current()->validate(
+    NVFUSER_LOWER_VALIDATE(
         SimplifyingIrBuilder::leExpr(num_columns, max_columns_val),
         "Not enough tensor memory columns: tried to allocate ",
         num_columns->toInlineString(),
@@ -165,7 +165,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
       Val* num_columns = SimplifyingIrBuilder::ceilDivExpr(
           SimplifyingIrBuilder::mulExpr(
               productOfExtents(covered_tensor.column_allocation),
-              IrBuilder::create<Val>(dataTypeSize(tv->dtype()))),
+              IrBuilder::create<Val>(dataTypeSizeByte(tv->dtype()))),
           IrBuilder::create<Val>(4));
       covered_tensor.lane_offset = tv->fusion()->zeroVal(DataType::UInt16);
       covered_tensor.column_offset =
@@ -177,7 +177,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
       Val* num_lanes = productOfExtents(covered_tensor.lane_allocation);
       constexpr int64_t max_lanes = 128;
       Val* max_lanes_val = IrBuilder::create<Val>(max_lanes);
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           SimplifyingIrBuilder::leExpr(num_lanes, max_lanes_val),
           "Not enough tensor memory lanes: tried to allocate ",
           num_lanes->toInlineString(),
@@ -458,10 +458,11 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
         SimplifyingIrBuilder::modExpr(
             inner_extent, IrBuilder::create<Val>(32, DataType::Index)),
         fusion->zeroVal());
-    GpuLower::current()->validate(
+    NVFUSER_LOWER_VALIDATE(
         inner_extent_is_multiple_of_32,
         "Invalid data access pattern in TMem load/store: ",
-        "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
+        "TMem load/store must be warp-collective, but the innermost extent is "
+        "not a multiple of 32.");
 
     // For each outer parallel type that has extent > 1, its stride must be a
     // multiple of 32.
@@ -477,7 +478,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
           SimplifyingIrBuilder::modExpr(
               stride, IrBuilder::create<Val>(32, DataType::Index)),
           fusion->zeroVal());
-      GpuLower::current()->validate(
+      NVFUSER_LOWER_VALIDATE(
           SimplifyingIrBuilder::logicalOrExpr(
               pdim_extent_is_one, stride_is_multiple_of_32),
           "Invalid data access pattern in TMem load/store: ",
@@ -499,10 +500,11 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
           id_graph, warp, lane_allocation_valgroups);
       if (stride == nullptr) {
         reason_32x32b =
-            "Not 32x32b because warps are not linearly accessing the lane allocation.";
+            "Not 32x32b because warps are not linearly accessing the lane "
+            "allocation.";
         fail_reasons.push_back(std::move(reason_32x32b));
       } else {
-        GpuLower::current()->validate(
+        NVFUSER_LOWER_VALIDATE(
             SimplifyingIrBuilder::eqExpr(stride, fusion->oneVal()),
             "Invalid data access pattern in TMem load/store: ",
             "Warp linearly accessing lanes, but not with stride 1.");
@@ -559,7 +561,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
         "Warps are not accessing the correct sub-partition.");
     // The stride must be either 0 or 32, 32 is the most common case.
     // 0 is a special value indicating that there is only one warp.
-    GpuLower::current()->validate(
+    NVFUSER_LOWER_VALIDATE(
         SimplifyingIrBuilder::logicalOrExpr(
             SimplifyingIrBuilder::eqExpr(
                 warp_group_stride, IrBuilder::create<Val>(32)),

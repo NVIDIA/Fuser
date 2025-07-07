@@ -14,11 +14,54 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
 namespace {
+
+// Prioritize warp specialized approach if possible
+bool preferWarpSpecialized(
+    Fusion* fusion,
+    int64_t total_iteration_numel,
+    int64_t n_inner_reduction_tvs) {
+  // Temporary disable warp specialized approach
+  // It can only be involed by NVFUSER_ENABLE=WarpSpecializedNormalization
+  return false;
+
+  // False, for pre-Blackwell GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 10) {
+    return false;
+  }
+  // False, if any of the inputs is dynamically shaped
+  // TODO: extend to support dynamic inputs, warp specialization requires
+  // static CTA size
+  auto inp_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  if (std::any_of(inp_tvs.begin(), inp_tvs.end(), [](TensorView* tv) {
+        return scheduler_utils::isSymbolicTensor(tv);
+      })) {
+    return false;
+  }
+
+  // False, when iteration dimension is too small.
+  // (1) Benefit from amortizing weight tensor loading overhead is minimal.
+  // (2) Can't create deep circular buffering.
+  // (3) Empirically determined thresholds on B200:
+  // - RMS Norm Bwd: ≤16 rows per SM, Layer Norm Bwd: ≤4 rows per SM
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  int64_t rows_per_sm = ceilDiv(total_iteration_numel, sm_count);
+  bool is_layer_norm = n_inner_reduction_tvs > 1;
+  int64_t prefered_rows_per_sm = is_layer_norm ? 16 : 4;
+  if (rows_per_sm <= prefered_rows_per_sm) {
+    return false;
+  }
+  // Try to use warp specialized, but if the heuristic fails, fall back to
+  // multi-wave
+  return true;
+}
+
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -39,14 +82,16 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
   int64_t max_outer_reduction_dtype_size = 1;
+  int64_t n_inner_reduction_tvs = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(tv)) {
       first_inner_reduction_tv = tv;
+      n_inner_reduction_tvs++;
     } else {
       max_outer_reduction_dtype_size = std::max(
           max_outer_reduction_dtype_size,
-          dataTypeSize(tv->getDataType().value()));
+          dataTypeSizeByte(tv->getDataType().value()));
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;
@@ -99,28 +144,31 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
-  auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
-      fusion,
-      runtime_info,
-      data_cache,
-      reduction_tvs,
-      hp.vectorize_factor,
-      hp.threads_per_block_min,
-      hp.threads_per_block_max,
-      hp.is_warp_specialized);
 
-  auto rparams = std::make_unique<ReductionParams>(
-      InnerOuterPersistentKernelScheduler::schedulerType());
+  auto getBufferParams = [&](bool warp_specialized) {
+    return inner_outer_utils::getPersistentBufferStorageParams(
+        fusion,
+        runtime_info,
+        data_cache,
+        reduction_tvs,
+        hp.vectorize_factor,
+        hp.threads_per_block_min,
+        hp.threads_per_block_max,
+        warp_specialized);
+  };
 
-  // save persistent tvs should use shared memory, to avoid calling
-  // getPersistentBufferStorageParams again during the scheduling.
-  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+  auto makeRParams = [&]() {
+    return std::make_unique<ReductionParams>(
+        InnerOuterPersistentKernelScheduler::schedulerType());
+  };
 
-  // Ultimately, we want the heuristic to decide between using the
-  // warp-specialized version or the multi-wave version. The enable option is a
-  // temporary configuration to facilitate testing during development without
-  // disrupting existing behavior.
-  if (hp.is_warp_specialized) {
+  if (hp.is_warp_specialized ||
+      preferWarpSpecialized(
+          fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
+    auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
+    auto rparams = makeRParams();
+    rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+
     inner_outer_tma_warp_specialized::getHeuristics(
         rparams.get(),
         properties.total_iteration_numel,
@@ -134,21 +182,31 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         hp.threads_per_block_max,
         buffer_params.project_to_input,
         runtime_info.getIndexType());
-  } else {
-    inner_outer_multi_wave::getHeuristics(
-        rparams.get(),
-        properties.total_iteration_numel,
-        properties.total_reduction_numel,
-        buffer_params.regs_buffer_size,
-        buffer_params.smem_buffer_size,
-        buffer_params.smem_overhead,
-        max_outer_reduction_dtype_size,
-        hp.vectorize_factor,
-        hp.threads_per_block_min,
-        hp.threads_per_block_max,
-        buffer_params.project_to_input,
-        runtime_info.getIndexType());
+
+    // If warp specialized is enabled, or the heuristic is successful, return
+    if (hp.is_warp_specialized || rparams->is_good_ws_heuristic) {
+      return rparams;
+    }
   }
+
+  // Fallback to multi-wave
+  auto buffer_params = getBufferParams(/*is_warp_specialized=*/false);
+  auto rparams = makeRParams();
+  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+
+  inner_outer_multi_wave::getHeuristics(
+      rparams.get(),
+      properties.total_iteration_numel,
+      properties.total_reduction_numel,
+      buffer_params.regs_buffer_size,
+      buffer_params.smem_buffer_size,
+      buffer_params.smem_overhead,
+      max_outer_reduction_dtype_size,
+      hp.vectorize_factor,
+      hp.threads_per_block_min,
+      hp.threads_per_block_max,
+      buffer_params.project_to_input,
+      runtime_info.getIndexType());
 
   return rparams;
 }
@@ -199,7 +257,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction tensor should be [I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
+        "to use combined reduction, inner reduction tensor should be "
+        "[I,I,...,R,R] and outer reduction tensor should be [R,R,...,I,I]");
     return false;
   }
 
@@ -207,7 +266,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should have shared input.");
+        "to use combined reduction, inner reduction and outer reduction should "
+        "have shared input.");
     return false;
   }
 
@@ -215,7 +275,9 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, inner reduction and outer reduction should not have shared consumer, their consumers should not have shared non-outer-reduction producer.");
+        "to use combined reduction, inner reduction and outer reduction should "
+        "not have shared consumer, their consumers should not have shared "
+        "non-outer-reduction producer.");
     return false;
   }
 
@@ -275,7 +337,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
           inner_reduction_tvs, outer_reduction_tvs)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "to use combined reduction, every iteration axis in inner reduction tv should match to a reduction domain in outer reduction tv.");
+        "to use combined reduction, every iteration axis in inner reduction tv "
+        "should match to a reduction domain in outer reduction tv.");
     return false;
   }
 
@@ -436,7 +499,8 @@ void InnerOuterPersistentKernelScheduler::schedule(
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
-      "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
+      "Incorrect parameters sent to "
+      "InnerOuterPersistentKernelScheduler::schedule",
       params);
   if (rparams->tma_warp_specialized) {
     inner_outer_tma_warp_specialized::scheduleFusion(fusion, rparams);

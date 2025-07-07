@@ -17,7 +17,6 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
-#include <preseg_passes/segment_inplace_update.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -410,10 +409,10 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
           num_stores++;
         }
       }
-      EXPECT_EQ(num_stores, 1)
-          << "The generated CUDA kernel is expected to store data to one output:"
-          << std::endl
-          << ke->compiledKernel()->kernelString();
+      EXPECT_EQ(num_stores, 1) << "The generated CUDA kernel is expected to "
+                                  "store data to one output:"
+                               << std::endl
+                               << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -488,10 +487,10 @@ TEST_F(AliasTest, Issue1452) {
           num_stores++;
         }
       }
-      EXPECT_EQ(num_stores, 1)
-          << "The generated CUDA kernel is expected to store data to one output:"
-          << std::endl
-          << ke->compiledKernel()->kernelString();
+      EXPECT_EQ(num_stores, 1) << "The generated CUDA kernel is expected to "
+                                  "store data to one output:"
+                               << std::endl
+                               << ke->compiledKernel()->kernelString();
     }
   }
 }
@@ -1057,8 +1056,8 @@ TEST_F(AliasTest, ReuseBuffer_AliasAcrossSegments) {
 
 TEST_F(AliasTest, AliasOnlyKernelsAreNotLaunched) {
   if (detectComputeSanitizer()) {
-    GTEST_SKIP()
-        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+    GTEST_SKIP() << "Skipped because compute-sanitizer is detected, which "
+                    "conflicts with FusionProfiler";
   }
 
   ProfilerOptionsGuard options_guard;
@@ -1132,8 +1131,8 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
 
 TEST_F(AliasTest, NoKernelsAreLaunched) {
   if (detectComputeSanitizer()) {
-    GTEST_SKIP()
-        << "Skipped because compute-sanitizer is detected, which conflicts with FusionProfiler";
+    GTEST_SKIP() << "Skipped because compute-sanitizer is detected, which "
+                    "conflicts with FusionProfiler";
   }
 
   ProfilerOptionsGuard option_guard;

@@ -122,6 +122,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
       {"host_ir_lowering_logging", DebugDumpOption::HostIrLoweringLogging},
       {"host_ir", DebugDumpOption::HostIr},
+      {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
       {"kernel_args", DebugDumpOption::KernelArgs},
@@ -147,7 +148,8 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"dynamic_shared_memory", DebugDumpOption::DynamicSharedMemory},
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
-      {"transform_propagator", DebugDumpOption::TransformPropagator}};
+      {"transform_propagator", DebugDumpOption::TransformPropagator},
+      {"communication", DebugDumpOption::Communication}};
 
   return parseEnvOptions("DUMP", available_options);
 }
@@ -206,6 +208,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
+          {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
           {"parallel_serde", DisableOption::ParallelSerde},
@@ -229,7 +232,9 @@ std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
   if (options.count(DisableOption::Fma)) {
     TORCH_WARN(
-        "fmad is disabled for nvrtc, which could negatively affect performance. Try removing `fma` from env variable NVFUSER_DISABLE for optimal performance.");
+        "fmad is disabled for nvrtc, which could negatively affect "
+        "performance. Try removing `fma` from env variable NVFUSER_DISABLE for "
+        "optimal performance.");
   }
 
   return options;

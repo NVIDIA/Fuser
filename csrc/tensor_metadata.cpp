@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <expr_evaluator.h>
+#include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -111,6 +112,7 @@ class ForwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("ForwardTraverseFromLogicalToAlloc::run");
     auto forward_exprs = StmtSort::getExprsBetween(
         {logical.begin(), logical.end()}, {alloc.begin(), alloc.end()});
     for (auto expr : forward_exprs) {
@@ -143,7 +145,8 @@ class BackwardTraverseFromLogicalToAlloc {
         inner_stride * inner_size == outer_stride,
         "The logical domain and allocation domain of fusion input/output ",
         "tensors must be a one-to-one map, therefore, ",
-        "splitting one dimension into discontiguous dimensions is not allowed in allocation domain");
+        "splitting one dimension into discontiguous dimensions is not allowed "
+        "in allocation domain");
     NVF_ERROR(active_ids_.erase(inner) == 1);
     NVF_ERROR(active_ids_.erase(outer) == 1);
     NVF_ERROR(active_ids_
@@ -204,6 +207,7 @@ class BackwardTraverseFromLogicalToAlloc {
       TensorView* tv,
       const std::vector<IterDomain*>& logical,
       const std::vector<IterDomain*>& alloc) {
+    FUSER_PERF_SCOPE("BackwardTraverseFromLogicalToAlloc::run");
     auto backward_exprs = StmtSort::getExprsBetween(
         {alloc.begin(), alloc.end()}, {logical.begin(), logical.end()});
     std::reverse(backward_exprs.begin(), backward_exprs.end());

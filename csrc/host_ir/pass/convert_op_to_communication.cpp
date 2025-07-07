@@ -32,7 +32,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
     for (auto* expr : nvfuser::convertSingleOpToCommunication(
-             top_level_expr, my_device_index, params_)) {
+             top_level_expr, my_device_index, params_.communicator_backend)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();

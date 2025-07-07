@@ -119,13 +119,14 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
   if (rparams->tma_warp_specialized) {
+    auto option = rparams->circular_buffer_options;
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
     // Reduction: [Persistent, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
-    auto outer_i = inner_reduce_axis;
-    reduction_tv->split(
-        outer_i++, rparams->batches_per_block_inner_reduction, false);
-    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
-    reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+
+    // static bdimx is required for TMA warp specialization
+    int64_t compute_bdimx = getComputeBdimx(option, rparams->lparams.bdimx());
+    inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
 
     // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
     if (rparams->unroll_factor_iter_dom > 1) {
@@ -133,6 +134,13 @@ TensorView* scheduleReductionTV(
     }
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+    if (rparams->computation_warp_groups > 1) {
+      NVF_ERROR(
+          ws_pt == ParallelType::TIDy,
+          "Warp specialization only supports TIDy, got ",
+          ws_pt);
+      inner_parallel_static(iter_axis, ws_pt, rparams->computation_warp_groups);
+    }
   } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
@@ -339,7 +347,13 @@ TensorView* scheduleReductionTV(
     NVF_ERROR(vec_id_cur_pos != -1, "Vectorized ID not found");
     reduction_rf_tv->reorder(vec_reorder_map);
   }
-
+  // [BIDy, TIDy, CircularLoop, Unroll, ...] to
+  // [BIDy, CircularLoop, TIDy, Unroll, ...]
+  // TIDy represents different computation warp groups and
+  // will be changed to serial for TMA loads.
+  if (rparams->computation_warp_groups > 1) {
+    reduction_rf_tv->reorder({{1, 2}});
+  }
   return reduction_rf_tv;
 }
 
@@ -547,7 +561,8 @@ void propagateParallelization(
     const bool use_grouped_reduction,
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
-    const std::vector<TensorView*>& selected_tvs) {
+    const std::vector<TensorView*>& selected_tvs,
+    const bool skip_input_output_unroll) {
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
       reference_tv,
@@ -557,13 +572,17 @@ void propagateParallelization(
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
+      std::unordered_set<ParallelType> selected_pts{ParallelType::Vectorize};
+      if (!skip_input_output_unroll) {
+        selected_pts.insert(ParallelType::Unroll);
+      }
       // Propagate vectorization/unrolling to those tensors that need it
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll, ParallelType::Vectorize});
+          selected_pts);
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.
@@ -1067,17 +1086,19 @@ void sharedMemoryConsumerVectorization(
     // vectorization factor set for io tvs.
     NVF_ERROR(
         tv->axis(vect_axis_pos)->extent()->isConst(),
-        "Extent of the innermost axis of smem consumers should be constant. Got: ",
+        "Extent of the innermost axis of smem consumers should be constant. "
+        "Got: ",
         tv->toString());
     auto innermost_extent =
         tv->axis(vect_axis_pos)->extent()->evaluate().as<int64_t>();
     NVF_ERROR(
         innermost_extent == io_vectorization_factor,
-        "Extent of the innermost axis of smem consumers should be equal to the vectorization factor of fuion inputs and outputs. Got: ",
+        "Extent of the innermost axis of smem consumers should be equal to the "
+        "vectorization factor of fuion inputs and outputs. Got: ",
         innermost_extent,
         ", expected: ",
         io_vectorization_factor);
-    auto dtype_bytes = dataTypeSize(tv->getDataType().value());
+    auto dtype_bytes = dataTypeSizeByte(tv->getDataType().value());
     auto max_vect_factor =
         SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_bytes;
     // additional split is added if the innermost extent is greater than max
@@ -1089,5 +1110,21 @@ void sharedMemoryConsumerVectorization(
   }
 }
 
+int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx) {
+  return warp_specialized_on == ParallelType::TIDx
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
+
+int64_t getComputeBdimx(
+    const CircularBufferOptions& circular_buffer_opt,
+    int64_t bdimx) {
+  return (circular_buffer_opt.isEnable() &&
+          std::holds_alternative<WarpSpecialized>(circular_buffer_opt.type) &&
+          std::get<WarpSpecialized>(circular_buffer_opt.type).on ==
+              ParallelType::TIDx)
+      ? bdimx - kWarpSpecializationPaddedThreads
+      : bdimx;
+}
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

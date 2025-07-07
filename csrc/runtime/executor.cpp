@@ -215,7 +215,8 @@ void KernelExecutor::compile(
     NVF_ERROR(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
-        "Compilation with int32 is requested but int64 is required for the arguments");
+        "Compilation with int32 is requested but int64 is required for the "
+        "arguments");
   } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
@@ -390,7 +391,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
           if (!useFallback() && !valid) {
             TORCH_WARN_ONCE(
                 "Cannot validate parallelization scheme, "
-                "this may be due to mixed broadcast axes that are parallelized.");
+                "this may be due to mixed broadcast axes that are "
+                "parallelized.");
           }
         } else if (!expr_eval.precomputedValues()) {
           expr_eval.bind(extent, launch_constraints.getDim(p_type));
@@ -456,7 +458,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     NVF_CHECK(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
-        "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
+        "can't have welford and iter grouped reductions at the same time! "
+        "Should be handled by grouped welford!");
 
     // For block reduction, each thread has a smem slot per reduction
     // When warp specialization is used, remove padded threads
@@ -470,8 +473,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
 
     reduction_broadcast_workspace =
-        (int64_t)dataTypeSize(
-            kernel_summary.largest_smem_data_type, index_type) *
+        dataTypeSizeByte(kernel_summary.largest_smem_data_type, index_type) *
         grouped_iter_factor * welford_factor * n_compute_threads_or_warps;
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
@@ -593,7 +595,8 @@ void validateCooperativeLaunch(
           ->multiProcessorCount;
   NVF_ERROR(
       (int64_t)(max_active_blocks) >= grid_size,
-      "Wanted to launch a cooperative kernel, however the number of blocks is greater than ",
+      "Wanted to launch a cooperative kernel, however the number of blocks is "
+      "greater than ",
       "what can be resident on the GPU at once. Need: ",
       grid_size,
       " (",
@@ -852,6 +855,7 @@ void KernelExecutor::computeArgs(
               ? buffer_info.shape_info.logical_strides
               : buffer_info.shape_info.allocation_strides,
           idx_type,
+          getLastDimAdjustment(buffer_info.tv->dtype()),
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
@@ -908,7 +912,7 @@ void KernelExecutor::validateDynamicSmemSize(int64_t dynamic_smem_size) {
         expected_dynamic_smem_size);
   }
   NVF_ERROR(
-      getStaticSmemSize() + dynamic_smem_size < device_smem_limit_,
+      getStaticSmemSize() + dynamic_smem_size <= device_smem_limit_,
       "The total shared memory allocation is larger than available memory.",
       " Dynamic size: ",
       dynamic_smem_size,
@@ -1004,7 +1008,7 @@ KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  FUSER_PERF_SCOPE("KernelExecutor::runFusion");
+  FUSER_PERF_SCOPE("KernelExecutor::run");
 
   if (isProfilerEnabled()) {
     NVF_CHECK(
@@ -1182,7 +1186,8 @@ KernelArgumentHolder KernelExecutor::run(
   if (args.size() != std::ssize(compiled_kernel_->kernel()->parameters())) {
     NVF_ERROR(
         has_tma_ || has_rng_,
-        "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+        "No TMA or RNG found in the kernel, but detected an argument size "
+        "mismatch.");
     // If args don't match one of two things is happening. We need to add TMA
     // related args or RNG related args. Resolve these scenarios.
     if (has_tma_) {
