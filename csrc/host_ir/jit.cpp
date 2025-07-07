@@ -680,7 +680,33 @@ llvm::Value* compileJitImpl(
 }
 
 void livenessAnalysis(const std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
-  // TODO: for other types of aten ops, we want to insert proper deallocate calls to intermediate tensors
+  std::unordered_set<TensorView*> allocatedTvs;
+  std::unordered_set<TensorView*> deallocatedTvs;
+  std::unordered_map<TensorView*, int64_t> posMap;
+  for(auto it = top_level_exprs.begin(); it != top_level_exprs.end(); ++it) {
+    auto* top_level_expr = *it;
+    if(auto* allocate = top_level_expr->as<Allocate>()) {
+      auto* tv = allocate->buffer()->as<TensorView>();
+      allocatedTvs.insert(tv);
+    }
+    else if(auto* matmul = top_level_expr->as<Matmul>()) {
+      auto* out = matmul->out()->as<TensorView>();
+      if(allocatedTvs.find(out) == allocatedTvs.end()) {
+        auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+        auto* deallocate = IrBuilder::create<Deallocate>(out);
+        it = top_level_exprs.insert(it, allocate);  // Insert allocate before current position
+        
+      }
+    }
+    else if(auto* linear = top_level_expr->as<Linear>()) {
+      auto* out = linear->out()->as<TensorView>();
+      if(allocatedTvs.find(out) == allocatedTvs.end()) {
+        auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+        auto* deallocate = IrBuilder::create<Deallocate>(out);
+      }
+    }
+  }
+
   return;
 }
 
@@ -1162,6 +1188,8 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   void* get_tensor_func_ptr = reinterpret_cast<void*>(
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
         auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) != host_ir_jit_impl->tensor_map.end(), "tensor_ptr is not found");
+        // TODO: liveness analysis to manually insert allocate and deallocate node for intermediate tensors
         return &host_ir_jit_impl->tensor_map[tv];
       });
 
@@ -1214,6 +1242,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
         auto launch_kernel = reinterpret_cast<hir::LaunchKernel*>(launch_kernel_ptr);
         KernelArgumentHolder input_args, output_args;
         input_args.setCacheId(id);
+        
         for (int64_t i = 0; i < num_inputs; i++) {
           input_args.push(*input_tensors[i]);  // Dereference pointer to get actual tensor
         }
@@ -1326,6 +1355,32 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   return outputs;
 }
 
+KernelArgumentHolder HostIrJit::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  FUSER_PERF_SCOPE("HostIrJit::runWithInput");
+  // Bind the inputs to the tensor map
+  for (auto&& [in_val, arg] : val_to_PValue) {
+    if (arg.is<at::Tensor>()) {
+      pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
+    }
+  }
+
+  // Run the main function
+  pimpl_->main_func_();
+
+  // Collect the outputs
+  KernelArgumentHolder outputs;
+  for(auto* output : pimpl_->container_->outputs()) {
+    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+      outputs.push(pimpl_->tensor_map[tv]);
+    }
+  }
+
+  // Clear the entire tensor map after collecting outputs, garbage collect intermediate tensors
+  pimpl_->tensor_map.clear();
+  
+  return outputs;
+}
 
 
 } // namespace nvfuser

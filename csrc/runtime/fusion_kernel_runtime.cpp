@@ -298,7 +298,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
       debug() << "=================RUNNING HOSTIR EVALUATOR================="
               << std::endl;
     }
-
+    
     auto outputs = hie_->runWithInputs(args);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
