@@ -2254,6 +2254,23 @@ list of Val
 )");
 }
 
+template <class ShapeType>
+TensorView* pad_fn(
+    TensorView* arg,
+    ShapeType generic_pad_widths,
+    std::optional<Val*> value) {
+  std::vector<Val*> pad_widths =
+      SequenceAsVector(generic_pad_widths, /*shape_check=*/false);
+  NVF_CHECK(
+      (int64_t)pad_widths.size() <= 2 * arg->nDims(),
+      "Number of pad widths must be at most twice the input dimension");
+  if (value.has_value()) {
+    return pad(arg, pad_widths, value.value());
+  } else {
+    return pad(arg, pad_widths);
+  }
+}
+
 void bindIndexingOps(py::module_& ops) {
   ops.def(
       "index_select",
@@ -2399,6 +2416,37 @@ TensorView
     A TensorView of same dtype as `arg` and of shape `(C_i..., J, C_k...)` where
     the element at position `(i...,j,k...)` is equal to
     `arg[i,...,index[i,...,j,k,...],k,...]`.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::list>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      py::return_value_policy::reference);
+  ops.def(
+      "pad",
+      pad_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("pad_widths"),
+      py::arg("value") = py::none(),
+      R"(
+Pad a tensor.
+
+Parameters
+----------
+arg : TensorView
+pad_widths : list or tuple
+    The widths of the padding.
+value : Val, optional
+    The value to pad with. The python default value is None, which is translated
+    to zero or False internally.
+
+Returns
+-------
+TensorView
+    The padded tensor.
 )",
       py::return_value_policy::reference);
 }
