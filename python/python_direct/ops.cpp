@@ -2256,15 +2256,15 @@ list of Val
 
 void bindIndexingOps(py::module_& ops) {
   ops.def(
-         "index_select",
-         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
-           return indexSelect(arg, dim, index);
-         },
-         py::arg("arg"),
-         py::arg("index"),
-         py::arg("dim"),
-         py::return_value_policy::reference,
-         R"(
+      "index_select",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        return indexSelect(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2278,17 +2278,17 @@ Returns
 -------
 TensorView
     The selected tensor.
-)")
-      .def(
-          "select",
-          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
-            return select(arg, dim, index);
-          },
-          py::arg("arg"),
-          py::arg("index"),
-          py::arg("dim"),
-          py::return_value_policy::reference,
-          R"(
+)");
+  ops.def(
+      "select",
+      [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+        return select(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2303,6 +2303,55 @@ Returns
 TensorView
     The selected tensor.
 )");
+  ops.def(
+      "scatter",
+      [](TensorView* arg1, TensorView* index, TensorView* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            arg1->nDims() == index->nDims() && arg1->nDims() == src->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg1->nDims(),
+            ", ",
+            index->nDims(),
+            " and ",
+            src->nDims());
+        auto num_dims = (int64_t)arg1->nDims();
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        return scatter(arg1, dim, index, src);
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg1 : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : TensorView
+    The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
