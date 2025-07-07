@@ -914,3 +914,69 @@ class TestNvFuserFrontend(NVFuserTest):
 
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             self.assertEqual(eager_out, nvf_out[0])
+
+    def test_pad(self):
+        inputs = [
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+
+            t1 = fd.ops.pad(t0, [1, 1, 1, 1])
+            fd.add_output(t1)
+
+            # zero padding in some dims
+            t2 = fd.ops.pad(t0, [0, 0, 2, 3])
+            fd.add_output(t2)
+
+            # zero padding in all dims
+            t3 = fd.ops.pad(t0, [0, 0, 0, 0])
+            fd.add_output(t3)
+
+            # no padding provided in first dim
+            t4 = fd.ops.pad(t0, [2, 3])
+            fd.add_output(t4)
+
+            # test padding with a value other than 0
+            fill_val = fd.define_scalar(2.0)
+            t5 = fd.ops.pad(t0, [2, 3], fill_val)
+            fd.add_output(t5)
+
+            # pad a broadcast dimension with a value other than 0
+            t6 = fd.ops.pad(t0, [2, 3, 0, 0, 0, 0])
+            fd.add_output(t6)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(torch.nn.functional.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
+        self.assertEqual(torch.nn.functional.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
+        self.assertEqual(torch.nn.functional.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
+        self.assertEqual(torch.nn.functional.pad(inputs[0], [2, 3]), nvf_out[3])
+        self.assertEqual(
+            torch.nn.functional.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4]
+        )
+        self.assertEqual(
+            torch.nn.functional.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5]
+        )
+
+    def test_pad_dynamic(self):
+        inputs = [
+            torch.testing.make_tensor((1, 2, 3), dtype=torch.float32, device="cuda"),
+        ]
+
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+
+            S10 = fd.define_scalar(2.5, dtype=DataType.Float)
+            S13 = fd.define_scalar(7, dtype=DataType.Int)
+            S15 = fd.ops.mul(S10, S13)
+            S16 = fd.ops.cast(S15, dtype=DataType.Int)
+            t1 = fd.ops.pad(t0, [S16, S16, S16, S16])
+            fd.add_output(t1)
+
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+        self.assertEqual(
+            torch.nn.functional.pad(inputs[0], [17, 17, 17, 17]), nvf_out[0]
+        )
