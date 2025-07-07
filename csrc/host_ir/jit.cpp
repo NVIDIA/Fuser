@@ -73,6 +73,53 @@ T throwIfError(llvm::Expected<T>&& E) {
 }
 
 
+void compileLinearFunc(
+    const hir::LinearOp* linear,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
+
+  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+  
+  // Convert tv_in to void pointer
+  uintptr_t tv_in_ptr = reinterpret_cast<uintptr_t>(linear->inA());
+  llvm::Value* tv_in_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_in_ptr);
+  llvm::Value* tv_in_void_ptr = builder.CreateIntToPtr(tv_in_constant, void_ptr_type);
+  
+  // Convert tv_weight to void pointer
+  uintptr_t tv_weight_ptr = reinterpret_cast<uintptr_t>(linear->inB());
+  llvm::Value* tv_weight_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_weight_ptr);
+  llvm::Value* tv_weight_void_ptr = builder.CreateIntToPtr(tv_weight_constant, void_ptr_type);
+  
+  // Convert tv_out to void pointer
+  uintptr_t tv_out_ptr = reinterpret_cast<uintptr_t>(linear->out());
+  llvm::Value* tv_out_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_out_ptr);
+  llvm::Value* tv_out_void_ptr = builder.CreateIntToPtr(tv_out_constant, void_ptr_type);
+
+  // Handle optional bias
+  llvm::Value* tv_bias_void_ptr = nullptr;
+  llvm::Value* has_bias_val = nullptr;
+  
+  // Call get_tensor function to get at::Tensor* pointers
+  llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr}, "t_in");
+  llvm::Value* t_weight = builder.CreateCall(mod->getFunction("get_tensor"), {tv_weight_void_ptr}, "t_weight");
+  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr}, "t_out");
+
+  if (linear->hasBias()) {
+    llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr}, "t_bias");
+    builder.CreateCall(mod->getFunction("linear_out_with_bias"), {t_out, t_in, t_weight, t_bias}, "linear_out_with_bias");
+  } else {
+    builder.CreateCall(mod->getFunction("linear_out_without_bias"), {t_out, t_in, t_weight}, "linear_out_without_bias");
+  }
+
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
+    llvm::outs() << "=== LLVM IR ===\n";
+    mod->print(llvm::outs(), nullptr);
+  }
+}
+
 // Generate a function for Matmul runtime
 void compileMatmulFunc(
     const hir::Matmul* matmul,
@@ -1044,6 +1091,16 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
         at::matmul_out(*t_out, *t_a, *t_b);
       });
 
+  // linear function
+  void* linear_out_func_ptr_with_bias = reinterpret_cast<void*>(
+      +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight, at::Tensor* t_bias) {
+        at::linear_out(*t_out, *t_in, t_weight->squeeze(), t_bias->squeeze());
+      });
+  void* linear_out_func_ptr_without_bias = reinterpret_cast<void*>(
+      +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight) {
+        at::linear_out(*t_out, *t_in, t_weight->squeeze());
+      });
+
   // launch kernel function
   void* launch_kernel_func_ptr = reinterpret_cast<void*>(
       +[](size_t id, 
@@ -1094,6 +1151,7 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
   auto deallocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(deallocate_tensor_func_ptr);
   auto get_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(get_tensor_func_ptr);
   auto matmul_out_addr = llvm::orc::ExecutorAddr::fromPtr(matmul_out_func_ptr);
+  auto linear_out_addr = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
@@ -1113,6 +1171,8 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
       llvm::orc::ExecutorSymbolDef(get_tensor_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("matmul_out")] = 
       llvm::orc::ExecutorSymbolDef(matmul_out_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("linear_out")] = 
+      llvm::orc::ExecutorSymbolDef(linear_out_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
