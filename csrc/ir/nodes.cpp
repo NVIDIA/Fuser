@@ -6214,20 +6214,31 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   at::Tensor result;
   at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
-  // nvfp4_scaled_mm expected Byte input dtype. We shouldn't need to do this.
-  at::Tensor mat1_view = at::view(mat1, at::ScalarType::Byte);
-  at::Tensor mat2_view = at::view(mat2, at::ScalarType::Byte);
-  // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
-  if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
-    cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1_view, mat2_view.t(), scale1, scale2, alpha)) {
-    // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
-    int m = mat1_view.sizes().at(0);
-    int n = mat2_view.sizes().at(mat2_view.dim() - 1);
-    const auto options =
-        at::TensorOptions().device(mat1_view.device()).dtype(out_scalar_type);
-    result = at::empty({m, n}, options);
-    cutlass_kernels::nvfp4_scaled_mm(result, mat1_view, mat2_view.t(), scale1, scale2, alpha);
-    return {result};
+  {
+    at::Tensor mat1_view = mat1;
+    // nvfp4_scaled_mm expected layout
+    at::Tensor mat2_view = mat2.t();
+
+    DataType in_dtype = matrix1()->dtype();
+
+    // nvfp4_scaled_mm expected Byte input dtype for fp4
+    if (in_dtype == DataType::Float4_e2m1fn || in_dtype == DataType::Float4_e2m1fn_x2) {
+      mat1_view = at::view(mat1, at::ScalarType::Byte);
+      mat2_view = at::view(mat2, at::ScalarType::Byte);
+    }
+
+    // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
+    if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
+      cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1_view, mat2_view, scale1, scale2, alpha)) {
+      // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
+      int m = mat1_view.sizes().at(0);
+      int n = mat2_view.sizes().at(0);
+      const auto options =
+          at::TensorOptions().device(mat1_view.device()).dtype(out_scalar_type);
+      result = at::empty({m, n}, options);
+      cutlass_kernels::nvfp4_scaled_mm(result, mat1_view, mat2_view, scale1, scale2, alpha);
+      return {result};
+    }
   }
 #endif
 
