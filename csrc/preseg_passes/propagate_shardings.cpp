@@ -166,22 +166,25 @@ IterDomain* getOutermostLogicalId(IterDomain* id, const TensorView* tv) {
   return id;
 }
 
-// Applies the given transforms on ref to target using the ref2target map.
+std::unordered_map<IterDomain*, IterDomain*> getRef2TargetMap(
+    const TensorView* ref,
+    const TensorView* target,
+    PropagateDirection direction) {
+  if (direction == PropagateDirection::kForward) {
+    return PairwiseLogicalDomainMap(ref, target).mapProducerToConsumer();
+  }
+  return PairwiseLogicalDomainMap(target, ref).mapConsumerToProducer();
+}
+
+// Propagates the given device ids from ref to target.
+// This includes loop domain transformations and parallelization.
 void transformLoopDomain(
     TensorView* target,
     const TensorView* ref,
-    std::unordered_map<IterDomain*, IterDomain*>& ref2target,
     const std::unordered_set<IterDomain*>& device_ids,
     PropagateDirection direction) {
-  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
-      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
-      {device_ids.begin(), device_ids.end()});
-
-  // Start with the original loop domain.
-  LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
-  for (IterDomain* id : target->getLoopDomain()) {
-    transformed_loop.pushBack(id, std::monostate());
-  }
+  std::unordered_map<IterDomain*, IterDomain*>& ref2target =
+      getRef2TargetMap(ref, target, direction);
 
   auto getTargetId = [&](IterDomain* ref_id) -> IterDomain* {
     // Finds the target id to be sharded corresponding to the ref_id.
@@ -230,6 +233,16 @@ void transformLoopDomain(
         " and split factor: ",
         split->factor());
   };
+
+  // Start with the original loop domain.
+  LinkedHashMap<IterDomain*, std::monostate> transformed_loop;
+  for (IterDomain* id : target->getLoopDomain()) {
+    transformed_loop.pushBack(id, std::monostate());
+  }
+
+  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+      {device_ids.begin(), device_ids.end()});
 
   for (Expr* transform : transforms) {
     auto* split = dynamic_cast<Split*>(transform);
@@ -303,18 +316,8 @@ void propagateDIDTransform(
   tv->setDeviceMesh(ref->getDeviceMesh());
 
   std::unordered_set<IterDomain*> device_ids;
-  std::unordered_map<IterDomain*, IterDomain*> ref2target;
-
-  auto is_in_domain = [](IterDomain* id,
-                         const std::vector<IterDomain*>& domain) -> bool {
-    return std::find(domain.begin(), domain.end(), id) != domain.end();
-  };
-
-  if (direction == PropagateDirection::kForward) {
-    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer();
-  } else {
-    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer();
-  }
+  const std::unordered_map<IterDomain*, IterDomain*>& ref2target =
+      getRef2TargetMap(ref, tv, direction);
 
   for (IterDomain* maybe_did : ref->getLoopDomain()) {
     if (selected_parallel_types.count(maybe_did->getParallelType()) == 0) {
@@ -347,13 +350,13 @@ void propagateDIDTransform(
     // Skip if the target is parallelized or not in the loop domain (i.e.
     // further transformed).
     if (outermost_target_id->isParallelized() ||
-        !is_in_domain(outermost_target_id, tv->getLoopDomain())) {
+        !isInDomain(outermost_target_id, tv->getLoopDomain())) {
       continue;
     }
     device_ids.insert(maybe_did);
   }
 
-  transformLoopDomain(tv, ref, ref2target, device_ids, direction);
+  transformLoopDomain(tv, ref, device_ids, direction);
 }
 
 void propagateDIDTransform(
