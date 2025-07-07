@@ -209,12 +209,11 @@ void transformLoopDomain(
     // a/d`. So we should instead outer split by num_devices.
 
     // Find the consumer between the reference and target.
-    std::pair<IterDomain*, const TensorView*> consumer =
-        direction == PropagateDirection::kForward
+    auto [consumer_id, consumer_tv] = direction == PropagateDirection::kForward
         ? std::make_pair(target_id, target)
         : std::make_pair(ref_id, ref);
 
-    if (hasRootToLogicalTransform(consumer.first, consumer.second)) {
+    if (hasRootToLogicalTransform(consumer_id, consumer_tv)) {
       validate_split(split, target_id);
     }
 
@@ -272,33 +271,7 @@ void propagateDIDTransform(
   tv->setDeviceMesh(ref->getDeviceMesh());
 
   std::unordered_set<IterDomain*> device_ids;
-  std::copy_if(
-      ref->getLoopDomain().begin(),
-      ref->getLoopDomain().end(),
-      std::inserter(device_ids, device_ids.end()),
-      [&selected_parallel_types](IterDomain* id) {
-        return id->isDeviceDim() &&
-            selected_parallel_types.count(id->getParallelType());
-      });
-
-  if (device_ids.empty()) {
-    return;
-  }
-
-  std::unordered_set<IterDomain*> ignored_device_ids;
   std::unordered_map<IterDomain*, IterDomain*> ref2target;
-  std::unordered_set<IterDomain*> input_ids;
-
-  // Finds all device IDs that are dependent on the given id
-  // and adds them to the ignored_device_ids set.
-  auto add_ignored_device_ids = [&ignored_device_ids,
-                                 &device_ids](IterDomain* id) {
-    for (auto device_id : device_ids) {
-      if (DependencyCheck::isDependencyOf(id, device_id)) {
-        ignored_device_ids.insert(device_id);
-      }
-    }
-  };
 
   auto is_in_domain = [](IterDomain* id,
                          const std::vector<IterDomain*>& domain) -> bool {
@@ -306,52 +279,54 @@ void propagateDIDTransform(
   };
 
   if (direction == PropagateDirection::kForward) {
-    input_ids = getInputsInTargetDomain(
-        {device_ids.begin(), device_ids.end()},
-        {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()});
-    ref2target =
-        PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer(&input_ids);
+    ref2target = PairwiseLogicalDomainMap(ref, tv).mapProducerToConsumer();
+  } else {
+    ref2target = PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer();
   }
 
-  if (direction == PropagateDirection::kBackward) {
-    input_ids = getInputsInTargetDomain(
-        {device_ids.begin(), device_ids.end()},
-        {ref->getMaybeRootDomain().begin(), ref->getMaybeRootDomain().end()});
-    ref2target =
-        PairwiseLogicalDomainMap(tv, ref).mapConsumerToProducer(&input_ids);
-  }
-
-  for (IterDomain* ref_id : ir_utils::filterByType<IterDomain>(input_ids)) {
-    if (ref2target.find(ref_id) == ref2target.end()) {
-      add_ignored_device_ids(ref_id);
+  for (IterDomain* maybe_did : ref->getLoopDomain()) {
+    if (selected_parallel_types.count(maybe_did->getParallelType()) == 0) {
+      continue;
+    }
+    // Get input of maybe_did in the root / logical domain
+    // that will be present in ref2target mapping.
+    std::unordered_set<IterDomain*> inputs =
+        direction == PropagateDirection::kForward
+        ? getInputsInTargetDomain({maybe_did}, ref->getLogicalDomain())
+        : getInputsInTargetDomain({maybe_did}, ref->getMaybeRootDomain());
+    NVF_ERROR(
+        inputs.size() == 1,
+        "Expected one input for ",
+        maybe_did,
+        " in the root / logical domain. Got ",
+        inputs.size(),
+        " inputs.");
+    IterDomain* ref_id = *inputs.begin();
+    IterDomain* target_id = getOrDefault(ref2target, ref_id);
+    if (target_id == nullptr) {
       continue;
     }
 
-    IterDomain* target_id = ref2target.at(ref_id);
-
-    // For forward: target_id may not be logical.
-    // For backward: ref_id may not be logical.
-    IterDomain* outermost_ref_id = getOutermostLogicalId(ref_id, ref);
+    // Get the outermost logical ID corresponding to the target ID.
+    // This is the ID to which the sharding will be propagated.
+    // For e.g., if ref [h] -> target [a, h/a], then the outermost logical ID
+    // is `a`.
     IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
-
+    // Skip if the target is parallelized or not in the loop domain (i.e.
+    // further transformed).
     if (outermost_target_id->isParallelized() ||
         !is_in_domain(outermost_target_id, tv->getLoopDomain())) {
-      // Target ID is further transformed or is already parallelized.
-      add_ignored_device_ids(ref_id);
-      ref2target.erase(ref_id);
       continue;
     }
+    device_ids.insert(maybe_did);
 
-    // Update the ref2target map mapping to/from the outermost logical ID.
-    // instead of the root ID.
-    ref2target.erase(ref_id);
-    ref2target[outermost_ref_id] = outermost_target_id;
-  }
-
-  // Remove device IDs that are not mapped to any target ID,
-  // or map to target IDs that are further transformed.
-  for (IterDomain* device_id : ignored_device_ids) {
-    device_ids.erase(device_id);
+    // Add the mapping between outermost logical ref and target ID.
+    // This is the ID pair between which the sharding will be propagated
+    // when the consumer has a root-to-logical transform, such as reshape.
+    // For e.g., if ref [h] -> target [a, h/a], then the mapping is [h] -> [a].
+    // Similarly, in the backward direction, if ref [a, h/a] -> target [h],
+    // then the mapping is [a] -> [h].
+    ref2target[getOutermostLogicalId(ref_id, ref)] = outermost_target_id;
   }
 
   transformLoopDomain(tv, ref, ref2target, device_ids, direction);
