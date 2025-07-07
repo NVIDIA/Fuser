@@ -286,6 +286,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
 
     const bool k_bcast = op->inA()->getLogicalDomain().back()->isBroadcast();
+    // const bool k_bcast = op->inA()->axis(-1)->isBroadcast();
+
     // LinearOp:
     // inputs (0) = {*, in_features}
     // weight (1) = {out_features, in_features} / {in_features}
