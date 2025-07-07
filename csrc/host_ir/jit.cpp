@@ -49,8 +49,8 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStr
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
 std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
 void generate_stride_llvm_ir(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
-void generateTensorSizeExtraction(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
-void generateTensorStrideExtraction(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
+void generateTensorSizeExtraction(llvm::Value* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
+void generateTensorStrideExtraction(llvm::Value* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit
@@ -98,7 +98,8 @@ void compileIfThenElseFunc(
 void compileLinearFunc(
     const LinearOp* linear,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
@@ -123,12 +124,12 @@ void compileLinearFunc(
   llvm::Value* tv_bias_void_ptr = nullptr;
   
   // Call get_tensor function to get at::Tensor* pointers
-  llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr}, "t_in");
-  llvm::Value* t_weight = builder.CreateCall(mod->getFunction("get_tensor"), {tv_weight_void_ptr}, "t_weight");
-  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr}, "t_out");
+  llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr, pimpl_void_ptr}, "t_in");
+  llvm::Value* t_weight = builder.CreateCall(mod->getFunction("get_tensor"), {tv_weight_void_ptr, pimpl_void_ptr}, "t_weight");
+  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "t_out");
 
   if (linear->hasBias()) {
-    llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr}, "t_bias");
+    llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr, pimpl_void_ptr}, "t_bias");
     builder.CreateCall(mod->getFunction("linear_out_with_bias"), {t_out, t_in, t_weight, t_bias}, "linear_out_with_bias");
   } else {
     builder.CreateCall(mod->getFunction("linear_out_without_bias"), {t_out, t_in, t_weight}, "linear_out_without_bias");
@@ -145,7 +146,8 @@ void compileLinearFunc(
 void compileMatmulFunc(
     const MatmulOp* matmul,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 
@@ -165,9 +167,9 @@ void compileMatmulFunc(
   llvm::Value* tv_out_void_ptr = builder.CreateIntToPtr(tv_out_constant, void_ptr_type);
 
   // Call get_tensor function to get at::Tensor* pointers
-  llvm::Value* t_a = builder.CreateCall(mod->getFunction("get_tensor"), {tv_a_void_ptr}, "t_a");
-  llvm::Value* t_b = builder.CreateCall(mod->getFunction("get_tensor"), {tv_b_void_ptr}, "t_b");
-  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr}, "t_out");
+  llvm::Value* t_a = builder.CreateCall(mod->getFunction("get_tensor"), {tv_a_void_ptr, pimpl_void_ptr}, "t_a");
+  llvm::Value* t_b = builder.CreateCall(mod->getFunction("get_tensor"), {tv_b_void_ptr, pimpl_void_ptr}, "t_b");
+  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "t_out");
 
   // Call matmul_out function
   builder.CreateCall(mod->getFunction("matmul_out"), {t_out, t_a, t_b}, "matmul_out");
@@ -185,7 +187,8 @@ void compileMatmulFunc(
 void compileLaunchKernelFunc(
     const hir::LaunchKernel* launch_kernel,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
@@ -200,7 +203,7 @@ void compileLaunchKernelFunc(
     llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
     // Call get_tensor function to get at::Tensor* pointer
-    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "input_tensor");
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "input_tensor");
     input_tensors.push_back(tensor_ptr);
   }
 
@@ -213,7 +216,7 @@ void compileLaunchKernelFunc(
     llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
     // Call get_tensor function to get at::Tensor* pointer
-    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "output_tensor");
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "output_tensor");
     output_tensors.push_back(tensor_ptr);
   }
   
@@ -254,7 +257,7 @@ void compileLaunchKernelFunc(
   
   // Call launch_kernel function with correct signature
   builder.CreateCall(mod->getFunction("launch_kernel"), 
-                     {cache_id_arg, input_ptr, num_inputs, output_ptr, num_outputs, launch_kernel_void_ptr}, 
+                     {cache_id_arg, input_ptr, num_inputs, output_ptr, num_outputs, launch_kernel_void_ptr, pimpl_void_ptr}, 
                      "launch_kernel");
   
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
@@ -267,7 +270,8 @@ void compileLaunchKernelFunc(
 void compileDeallocateFunc(
     const hir::Deallocate* deallocate,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
   // Call wrapper function to erase tensor from at::TensorMap
@@ -275,7 +279,7 @@ void compileDeallocateFunc(
   auto tv_ptr = reinterpret_cast<uintptr_t>(tv);
   llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
   llvm::Function* erase_tensor_func = mod->getFunction("erase_tensor");
-  builder.CreateCall(erase_tensor_func, {tv_ptr_constant}, "erase_tensor"); 
+  builder.CreateCall(erase_tensor_func, {tv_ptr_constant, pimpl_void_ptr}, "erase_tensor"); 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
     llvm::outs() << "=== LLVM IR Generation for Deallocate Function ===\n";
@@ -287,7 +291,8 @@ void compileDeallocateFunc(
 void compileAllocateFunc(
     const kir::Allocate* allocate,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
@@ -338,7 +343,7 @@ void compileAllocateFunc(
   uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(allocate->buffer()->as<TensorView>());
   llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(int64_type, tv_ptr);
   llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_ptr_constant, void_ptr_type);
-  llvm::Value* out_tensor_arg = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "out_tensor");
+  llvm::Value* out_tensor_arg = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "out_tensor");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -393,12 +398,13 @@ void compileAllocateFunc(
 void compileMainFuncOutputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
     llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
     builder.CreateRetVoid();
     const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
     if (debug_print) {
-      llvm::outs() << "=== LLVM IR Generation for Main Function ===\n";
+      llvm::outs() << "=== LLVM IR Generation for Main Function Outputs ===\n";
       mod->print(llvm::outs(), nullptr);
     }
 }
@@ -409,21 +415,12 @@ void compileMainFuncOutputs(
 void compileMainFuncInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
 
-  // Create function signature with input tensor array, count, and output tensor array parameters
-  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  llvm::PointerType* tensor_array_type = llvm::PointerType::getUnqual(void_ptr_type);
-  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
-  
-  std::vector<llvm::Type*> param_types = {
-    tensor_array_type, // at::Tensor** input_tensors
-    int64_type,        // int64_t num_inputs
-    tensor_array_type,  // at::Tensor** output_tensors,
-    int64_type,        // int64_t num_outputs
-  };
+  std::vector<llvm::Type*> param_types = {};
   
   llvm::FunctionType* func_type = llvm::FunctionType::get(llvm::Type::getVoidTy(context), param_types, false);
   llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "full_graph_induction", mod);
@@ -446,7 +443,7 @@ void compileMainFuncInputs(
       // Call get_tensor function with the void pointer
       llvm::Value* tensor_ptr = builder.CreateCall(
           mod->getFunction("get_tensor"),
-          {tv_void_ptr}
+          {tv_void_ptr, pimpl_void_ptr}
       );
       // bind input aten tensor sizes to val2llvmMap
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
@@ -466,7 +463,7 @@ void compileMainFuncInputs(
 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    llvm::outs() << "=== LLVM IR Generation for Main Function ===\n";
+    llvm::outs() << "=== LLVM IR Generation for Main Function Inputs ===\n";
     mod->print(llvm::outs(), nullptr);
   }
 }
@@ -484,39 +481,41 @@ void compile(
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   llvm::IRBuilder<> builder(*ctx);
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
+  // bind the pimpl pointer
+  llvm::Value* pimpl_void_ptr = compileJitImpl(container, pimpl_, builder);
   // bind the constants
-  compileMainFuncInputs(container, builder, val2llvmMap);
+  compileMainFuncInputs(container, builder, val2llvmMap, pimpl_void_ptr);
   std::vector<Expr*> top_level_exprs = container->topLevelExprs();
   livenessAnalysis(top_level_exprs, val2llvmMap);
   // Generate the top level functions
   for(auto* input : top_level_exprs) {
     if(auto* allocate = dynamic_cast<const kir::Allocate*>(input)) {
-      compileAllocateFunc(allocate, builder, val2llvmMap);
+      compileAllocateFunc(allocate, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* deallocate = dynamic_cast<const hir::Deallocate*>(input)) {
-      compileDeallocateFunc(deallocate, builder, val2llvmMap);
+      compileDeallocateFunc(deallocate, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* launch_kernel = dynamic_cast<const hir::LaunchKernel*>(input)) {
-      compileLaunchKernelFunc(launch_kernel, builder, val2llvmMap);
+      compileLaunchKernelFunc(launch_kernel, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* for_loop = dynamic_cast<const ForLoop*>(input)) {
-      compileForLoopFunc(for_loop, builder, val2llvmMap);
+      compileForLoopFunc(for_loop, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* if_then_else = dynamic_cast<const kir::IfThenElse*>(input)) {
-      compileIfThenElseFunc(if_then_else, builder, val2llvmMap);
+      compileIfThenElseFunc(if_then_else, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* matmul = dynamic_cast<const MatmulOp*>(input)) {
-      compileMatmulFunc(matmul, builder, val2llvmMap);
+      compileMatmulFunc(matmul, builder, val2llvmMap, pimpl_void_ptr);
     }
     else if(auto* linear_op = dynamic_cast<const LinearOp*>(input)) {
-      compileLinearFunc(linear_op, builder, val2llvmMap);
+      compileLinearFunc(linear_op, builder, val2llvmMap, pimpl_void_ptr);
     }
     else{
       NVF_THROW("Unsupported input type: ", input);
     }
   }
   // Collect output tensors and garbage collect intermediate tensors
-  compileMainFuncOutputs(container, builder, val2llvmMap);
+  compileMainFuncOutputs(container, builder, val2llvmMap, pimpl_void_ptr);
   std::string error;
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(
@@ -535,8 +534,15 @@ void compile(
 
 llvm::Value* compileJitImpl(
     const hir::HostIrContainer* container,
-    HostIrJit::LlvmJitImpl* pimpl_) {
-  return nullptr;
+    HostIrJit::LlvmJitImpl* pimpl_,
+    llvm::IRBuilder<>& builder) {
+    llvm::LLVMContext& context = builder.getContext();
+    llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+  // Convert TensorView pointer to void pointer
+    uintptr_t pimpl_ptr = reinterpret_cast<uintptr_t>(pimpl_);
+    llvm::Value* pimpl_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), pimpl_ptr);
+    llvm::Value* pimpl_void_ptr = builder.CreateIntToPtr(pimpl_constant, void_ptr_type);
+    return pimpl_void_ptr;
 }
 
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
@@ -1116,7 +1122,8 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   auto deallocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(deallocate_tensor_func_ptr);
   auto get_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(get_tensor_func_ptr);
   auto matmul_out_addr = llvm::orc::ExecutorAddr::fromPtr(matmul_out_func_ptr);
-  auto linear_out_addr = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr);
+  auto linear_out_addr_with_bias = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr_with_bias);
+  auto linear_out_addr_without_bias = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr_without_bias);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
@@ -1136,8 +1143,10 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       llvm::orc::ExecutorSymbolDef(get_tensor_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("matmul_out")] = 
       llvm::orc::ExecutorSymbolDef(matmul_out_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("linear_out")] = 
-      llvm::orc::ExecutorSymbolDef(linear_out_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("linear_out_with_bias")] = 
+      llvm::orc::ExecutorSymbolDef(linear_out_addr_with_bias, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("linear_out_without_bias")] = 
+      llvm::orc::ExecutorSymbolDef(linear_out_addr_without_bias, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
@@ -1157,7 +1166,7 @@ KernelArgumentHolder HostIrJit::run(
   // Bind the inputs to the tensor map
   for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), val_to_PValue)) {
     if (arg.is<at::Tensor>()) {
-      pimpl_->tensor_map[in_val] = arg.as<at::Tensor>();
+      pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
     }
   }
   // Run the main function
