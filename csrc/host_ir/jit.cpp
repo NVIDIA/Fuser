@@ -43,7 +43,14 @@
 namespace nvfuser {
 
 using main_func_fn = std::function<void()>;
-void inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::vector<llvm::Value*> inferTensorStridesReordered(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesNoReorder(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
+std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
+void generate_stride_llvm_ir(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
+void generateTensorSizeExtraction(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
+void generateTensorStrideExtraction(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit
@@ -467,7 +474,8 @@ void compileMainFuncInputs(
 void compile(
     const hir::HostIrContainer* container,
     llvm::orc::LLJIT* jit,
-    main_func_fn& main_func_) {
+    main_func_fn& main_func_,
+    HostIrJit::LlvmJitImpl* pimpl_) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   NVF_ERROR(
       container != nullptr,
@@ -525,6 +533,12 @@ void compile(
 }
 
 
+llvm::Value* compileJitImpl(
+    const hir::HostIrContainer* container,
+    HostIrJit::LlvmJitImpl* pimpl_) {
+  return nullptr;
+}
+
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   // TODO: for other types of aten ops, we want to insert proper deallocate calls to intermediate tensors
   return;
@@ -581,8 +595,8 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
 std::vector<llvm::Value*> getContiguousStrides(
     const std::vector<llvm::Value*>& sizes,
     const std::vector<bool>& expand_flags,
-    llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& context = builder.getContext();
   NVF_ERROR(sizes.size() == expand_flags.size());
 
   std::vector<llvm::Value*> strides(sizes.size());
@@ -648,7 +662,6 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStr
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    llvm::LLVMContext& context,
     llvm::IRBuilder<>& builder) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
   std::vector<llvm::Value*> concrete_sizes(symbolic_sizes.size(), nullptr);
@@ -663,7 +676,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStr
     concrete_sizes.at(i) = inferred_val;
   }
 
-  auto strides = getContiguousStrides(concrete_sizes, expand_flags, context, builder);
+  auto strides = getContiguousStrides(concrete_sizes, expand_flags, builder);
   return {concrete_sizes, strides};
 }
 
@@ -993,21 +1006,24 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
 
   // raw tensor allocation and deallocation
   void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](TensorView* tv) -> at::Tensor* {
-        NVF_ERROR(pimpl_->tensor_map.find(tv) == pimpl_->tensor_map.end(), "tensor_ptr is already allocated");
-        pimpl_->tensor_map[tv] = {};
-        return &pimpl_->tensor_map[tv];
+      +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
+        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) == host_ir_jit_impl->tensor_map.end(), "tensor_ptr is already allocated");
+        host_ir_jit_impl->tensor_map[tv] = {};
+        return &host_ir_jit_impl->tensor_map[tv];
       });
 
   void* deallocate_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](TensorView* tv) -> void {
-        NVF_ERROR(pimpl_->tensor_map.find(tv) != pimpl_->tensor_map.end(), "tensor_ptr is not found");
-        pimpl_->tensor_map.erase(tv);
+      +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> void {
+        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) != host_ir_jit_impl->tensor_map.end(), "tensor_ptr is not found");
+        host_ir_jit_impl->tensor_map.erase(tv);
       });
 
   void* get_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](TensorView* tv) -> at::Tensor* {
-        return &pimpl_->tensor_map[tv];
+      +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
+        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        return &host_ir_jit_impl->tensor_map[tv];
       });
 
   // native at:: functions
@@ -1054,7 +1070,8 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       +[](size_t id, 
       at::Tensor** input_tensors, int64_t num_inputs, 
       at::Tensor** output_tensors, int64_t num_outputs,
-      void* launch_kernel_ptr) {
+      void* launch_kernel_ptr, void* host_ir_jit_impl_ptr) {
+        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
         auto launch_kernel = reinterpret_cast<hir::LaunchKernel*>(launch_kernel_ptr);
         KernelArgumentHolder input_args, output_args;
         input_args.setCacheId(id);
@@ -1065,7 +1082,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
           output_args.push(output_tensors[i]);
         }
         input_args.setDeviceIndex();
-        pimpl_->container_->getKernelExecutor(launch_kernel->groupId())
+        host_ir_jit_impl->container_->getKernelExecutor(launch_kernel->groupId())
             ->run(
                 input_args,
                 output_args,
@@ -1127,7 +1144,8 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   compile(
       container,
       pimpl_->jit.get(),
-      pimpl_->main_func_);
+      pimpl_->main_func_,
+      pimpl_.get());
 }
 
 HostIrJit::~HostIrJit() = default;
