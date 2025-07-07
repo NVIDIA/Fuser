@@ -1100,6 +1100,20 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map ScatterOp to python frontend
+  void handle(const ScatterOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.scatter",
+        std::make_tuple(sop->selfTv(), sop->indexTv(), sop->srcTv()),
+        argument_names,
+        std::make_tuple(sop->dim()),
+        {out_tv});
+  }
+
   // Map TopKOp to python frontend
   void handle(const TopKOp* topkop) final {
     NVF_ERROR(topkop != nullptr);
