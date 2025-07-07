@@ -43,7 +43,8 @@
 namespace nvfuser {
 
 using main_func_fn = std::function<void()>;
-
+void inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
@@ -72,7 +73,7 @@ T throwIfError(llvm::Expected<T>&& E) {
 
 // Generate a function for ForLoop runtime
 void compileForLoopFunc(
-    const hir::ForLoop* for_loop,
+    const ForLoop* for_loop,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   return;
@@ -80,7 +81,7 @@ void compileForLoopFunc(
 
 // Generate a function for IfThenElse runtime
 void compileIfThenElseFunc(
-    const hir::IfThenElse* ifthenelse,
+    const kir::IfThenElse* ifthenelse,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   return;
@@ -88,7 +89,7 @@ void compileIfThenElseFunc(
 
 // Generate a function for LinearOp runtime
 void compileLinearFunc(
-    const hir::LinearOp* linear,
+    const LinearOp* linear,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   llvm::LLVMContext& context = builder.getContext();
@@ -113,7 +114,6 @@ void compileLinearFunc(
 
   // Handle optional bias
   llvm::Value* tv_bias_void_ptr = nullptr;
-  llvm::Value* has_bias_val = nullptr;
   
   // Call get_tensor function to get at::Tensor* pointers
   llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr}, "t_in");
@@ -136,10 +136,11 @@ void compileLinearFunc(
 
 // Generate a function for Matmul runtime
 void compileMatmulFunc(
-    const hir::Matmul* matmul,
+    const MatmulOp* matmul,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   llvm::LLVMContext& context = builder.getContext();
+  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
   uintptr_t tv_a_ptr = reinterpret_cast<uintptr_t>(matmul->inA());
@@ -257,7 +258,7 @@ void compileLaunchKernelFunc(
 }
 
 void compileDeallocateFunc(
-    const kir::Deallocate* deallocate,
+    const hir::Deallocate* deallocate,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   llvm::LLVMContext& context = builder.getContext();
@@ -386,6 +387,7 @@ void compileMainFuncOutputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
     builder.CreateRetVoid();
     const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
     if (debug_print) {
@@ -483,7 +485,7 @@ void compile(
     if(auto* allocate = dynamic_cast<const kir::Allocate*>(input)) {
       compileAllocateFunc(allocate, builder, val2llvmMap);
     }
-    else if(auto* deallocate = dynamic_cast<const kir::Deallocate*>(input)) {
+    else if(auto* deallocate = dynamic_cast<const hir::Deallocate*>(input)) {
       compileDeallocateFunc(deallocate, builder, val2llvmMap);
     }
     else if(auto* launch_kernel = dynamic_cast<const hir::LaunchKernel*>(input)) {
