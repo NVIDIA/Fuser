@@ -18,8 +18,8 @@ struct LlvmJitImpl;
 
 class HostIrJit {
  public:
-  KernelArgumentHolder run(
-      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
+  KernelArgumentHolder runWithInputs(
+      const KernelArgumentHolder& args);
 
   HostIrJit(
       std::unique_ptr<hir::HostIrContainer> container,

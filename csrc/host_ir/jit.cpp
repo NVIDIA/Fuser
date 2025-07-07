@@ -1176,17 +1176,20 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
 
 HostIrJit::~HostIrJit() = default;
 
-KernelArgumentHolder HostIrJit::run(
-    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
-  FUSER_PERF_SCOPE("HostIrJit::run");
+KernelArgumentHolder HostIrJit::runWithInputs(
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrJit::runWithInputs");
+  // Bind cache id to llvm global variable
+  NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
+  NVF_ERROR_EQ(std::ssize(pimpl_->container_->inputs()), args.size());
   // Bind the inputs to the tensor map
-  for (auto* in_val : pimpl_->container_->inputs()) {
-    auto it = val_to_PValue.find(in_val);
-    if (it != val_to_PValue.end()) {
-      const auto& arg = it->second;
-      if (arg.is<at::Tensor>()) {
-        pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
-      }
+
+  for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), args)) {
+    if (arg.is<at::Tensor>()) {
+      pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
+    }
+    else{
+      // TODO: handle other primitive types so we can just align them to input of main function
     }
   }
   // Run the main function
