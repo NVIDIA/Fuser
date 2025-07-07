@@ -6169,9 +6169,6 @@ std::string ScaledMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
-  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
-  // we'll fallback with aten kernels
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& scale1 = inputs[2].as<at::Tensor>();
@@ -6210,7 +6207,23 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
         inputs[beta_offset].type().name());
     beta = inputs[beta_offset].as<at::Tensor>();
   }
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  // TODO: only opt-in supported cases.
 
+  // nvfp4_scaled_mm seems to have some restriction as well.
+  at::Tensor output;
+  // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
+  int m = mat1.sizes().at(0);
+  int n = mat2.sizes().at(mat2.dim() - 1);
+  const auto options =
+      at::TensorOptions().device(mat1.device()).dtype(data_type_to_aten(out()->dtype()));
+  result = at::empty({m, n}, options);
+  cutlass_kernels::nvfp4_scaled_mm(result, mat1, mat2.t(), scale1, scale2, alpha);
+  return {result};
+
+#elif NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
+  // we'll fallback with aten kernels
   // at::_scaled_mm has implementation limitations:
   NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
   NVF_CHECK(
