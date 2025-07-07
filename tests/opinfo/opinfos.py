@@ -62,7 +62,7 @@ from opinfo_input_generators import (
     scaled_grouped_mm_input_generator,
     scaled_mm_input_generator,
 )
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     bool_int_dtypes,
     complex_dtypes,
     full_precision_float_dtypes,
