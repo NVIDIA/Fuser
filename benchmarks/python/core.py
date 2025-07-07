@@ -321,20 +321,17 @@ def run_benchmark(
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
 
-    try:
-        outputs = nvf_benchmark.pedantic(
-            benchmark_fn,
-            setup=setup,
-            rounds=BENCHMARK_CONFIG["rounds"],
-            warmup_rounds=warmup_rounds,
-        )
-        if device == "cuda":
-            # Record additional metrics (IOBytes, Bandwidth)
-            nvf_benchmark.set_metrics(inputs, outputs, iobytes)
-        return outputs
-    except Exception as e:
-        raise RuntimeError(
-            f"Exception when running {benchmark_fn.__name__}: {e}"
-        ) from e
-    finally:
+    outputs = nvf_benchmark.pedantic(
+        benchmark_fn,
+        setup=setup,
+        rounds=BENCHMARK_CONFIG["rounds"],
+        warmup_rounds=warmup_rounds,
+    )
+
+    if device == "cuda":
+        # Record additional metrics (IOBytes, Bandwidth)
+        nvf_benchmark.set_metrics(inputs, outputs, iobytes)
+        # Stop torch.profiler instance
         nvf_benchmark.cleanup()
+
+    return outputs
