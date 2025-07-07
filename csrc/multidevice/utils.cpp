@@ -69,9 +69,6 @@ bool isSharded(const TensorView* tv) {
 
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
-  const std::unordered_set<ParallelType>& parallel_types =
-      deviceAndStreamParallelTypes();
-
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
   parallel_type_to_id.reserve(parallel_types.size());
 
@@ -116,19 +113,12 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-int64_t getShardedLogicalAxisInDomain(
+int64_t getShardedLogicalAxis(
     const TensorView* tv,
-    const std::vector<IterDomain*>& domain,
-    const ParallelType parallel_type) {
-  // Find the IterDomain that is parallelized on the given parallel type.
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(domain);
-  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+    IterDomain* parallel_id) {
   if (parallel_id == nullptr) {
     return -1;
   }
-
-  // Find the tensor axis that is sharded.
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
   IterDomain* id = parallel_id;
@@ -174,6 +164,8 @@ int64_t getShardedLogicalAxisInDomain(
           split);
       id = split->in();
     } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // During propagation, we follow the outermost of the merge to shard
+      // across reshape. We follow that here, but it may not always be accurate.
       // For example,
       //
       //   t = makeContigTensor(2);
@@ -182,10 +174,7 @@ int64_t getShardedLogicalAxisInDomain(
       //
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
-      NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and "
-          "therefore bailed out: ",
-          merge);
+      id = merge->outer();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
@@ -193,7 +182,6 @@ int64_t getShardedLogicalAxisInDomain(
           def);
     }
   }
-
   return logical_id_to_axis.at(id);
 }
 
@@ -202,8 +190,11 @@ int64_t getShardedLogicalAxisInDomain(
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  return getShardedLogicalAxisInDomain(
-      tv, tv->getMaybeAllocationDomain(), parallel_type);
+  // Find the IterDomain that is parallelized on the given parallel type.
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
+  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+  return getShardedLogicalAxis(tv, parallel_id);
 }
 
 int64_t getShardedLoopAxis(
@@ -257,14 +248,15 @@ std::vector<int64_t> unshardedSizes(
   // may require it to facilitate forward propagation. Regardless, fusion inputs
   // will still be fully allocated on the stream parallelized dimension, and
   // hence we can always use the getMaybeAllocationDomain for obtaining the
-  // unsharded sizes.
-  for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
-    std::vector<IterDomain*> domain = tv->getMaybeAllocationDomain();
-    if (tv->isFusionInput() && parallel_type != ParallelType::Stream) {
-      domain = tv->getLoopDomain();
-    }
-    const int64_t sharded_axis =
-        getShardedLogicalAxisInDomain(tv, domain, parallel_type);
+  // unsharded sizes on stream parallelized dimension.
+  // TODO: Add ParallelType::Stream.
+
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(tv->getLoopDomain());
+
+  for (ParallelType parallel_type : kParallelTypeDIDs) {    
+    IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+    const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_id);
     if (sharded_axis == -1) {
       continue;
     }
