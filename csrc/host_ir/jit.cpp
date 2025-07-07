@@ -284,7 +284,13 @@ void compileAllocateFunc(
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
-  // Get arguments from the function
+  // Define LLVM types
+  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
+  llvm::Type* int64_ptr_type = int64_type->getPointerTo();
+  llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
+  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+
+  // Get tensor sizes and strides using the inference function
   auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(allocate->buffer()->as<TensorView>(), val2llvmMap, builder);
 
   // Bounds checking for ndim
@@ -293,6 +299,39 @@ void compileAllocateFunc(
 
   NVF_ERROR(tensor_sizes.size() == logical_domain.size(), "tensor_sizes.size() != logical_domain.size()");
   NVF_ERROR(tensor_strides.size() == logical_domain.size(), "tensor_strides.size() != logical_domain.size()");
+
+  // Create arrays for sizes and strides
+  llvm::ArrayType* sizes_array_type = llvm::ArrayType::get(int64_type, tensor_sizes.size());
+  llvm::ArrayType* strides_array_type = llvm::ArrayType::get(int64_type, tensor_strides.size());
+  
+  llvm::Value* sizes_array = builder.CreateAlloca(sizes_array_type, nullptr, "sizes_array");
+  llvm::Value* strides_array = builder.CreateAlloca(strides_array_type, nullptr, "strides_array");
+  
+  // Populate sizes array
+  for (size_t i = 0; i < tensor_sizes.size(); ++i) {
+    llvm::Value* gep = builder.CreateInBoundsGEP(sizes_array_type, sizes_array, {builder.getInt32(0), builder.getInt32(i)});
+    builder.CreateStore(tensor_sizes[i], gep);
+  }
+  
+  // Populate strides array
+  for (size_t i = 0; i < tensor_strides.size(); ++i) {
+    llvm::Value* gep = builder.CreateInBoundsGEP(strides_array_type, strides_array, {builder.getInt32(0), builder.getInt32(i)});
+    builder.CreateStore(tensor_strides[i], gep);
+  }
+  
+  // Convert arrays to pointers
+  llvm::Value* sizes_arg = builder.CreateBitCast(sizes_array, int64_ptr_type);
+  llvm::Value* strides_arg = builder.CreateBitCast(strides_array, int64_ptr_type);
+  
+  // Create array size arguments
+  llvm::Value* shape_ndim_arg = builder.getInt64(tensor_sizes.size());
+  llvm::Value* strides_ndim_arg = builder.getInt64(tensor_strides.size());
+
+  // Create tensor storage for output
+  uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(allocate->buffer()->as<TensorView>());
+  llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(int64_type, tv_ptr);
+  llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_ptr_constant, void_ptr_type);
+  llvm::Value* out_tensor_arg = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr}, "out_tensor");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -304,10 +343,9 @@ void compileAllocateFunc(
   llvm::Value* device_index_constant = llvm::ConstantInt::get(
       int64_type, Communicator::getInstance().deviceId());
 
-  // Get the at::native::empty_strided_cuda function pointer (registered in the
-  // JIT)
+  // Get the at::native::empty_strided_cuda function pointer (registered in the JIT)
   llvm::Function* at_empty_strided_cuda_func =
-      mod->getFunction(kHostIrJitAtEmptyStridedCudaFuncName);
+      mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
   if (at_empty_strided_cuda_func == nullptr) {
     llvm::FunctionType* at_empty_strided_cuda_func_type =
         llvm::FunctionType::get(
@@ -323,11 +361,11 @@ void compileAllocateFunc(
     at_empty_strided_cuda_func = llvm::Function::Create(
         at_empty_strided_cuda_func_type,
         llvm::Function::ExternalLinkage,
-        kHostIrJitAtEmptyStridedCudaFuncName,
+        kHostIrJitEmptyStridedCudaFuncName,
         mod);
   }
 
-  // Call at::native::empty_strided_cuda with constants
+  // Call at::native::empty_strided_cuda with the computed arguments
   builder.CreateCall(
       at_empty_strided_cuda_func,
       {sizes_arg,
@@ -338,18 +376,9 @@ void compileAllocateFunc(
        device_index_constant,
        out_tensor_arg});
 
-  builder.CreateRetVoid();
-
-  // Verify the module
-  std::string error;
-  llvm::raw_string_ostream error_stream(error);
-  NVF_ERROR(
-      !llvm::verifyModule(*mod, &error_stream),
-      "LLVM module verification failed: " + error);
-
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    llvm::outs() << "=== LLVM IR ===\n";
+    llvm::outs() << "=== LLVM IR Generation for Allocate Function ===\n";
     mod->print(llvm::outs(), nullptr);
   }
 }
