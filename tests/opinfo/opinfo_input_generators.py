@@ -13,7 +13,7 @@ import random
 from numbers import Number
 
 from opinfo_core import OpInfo, SampleInput, ErrorSample, Domain
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     make_number,
     find_nonmatching_dtype,
     is_floating_dtype,
@@ -356,7 +356,7 @@ def define_tensor_error_generator(
             "contiguity": [True, True, True],
             "dtype": DataType.Float,
         },
-        "The size of contiguity must equal to the number of non-broadcasting IterDomains",
+        "Length of contiguity argument (3) must match that of shape argument (2)",
     )
 
     check_empty_tensor_size = ErrorSample(
@@ -910,10 +910,10 @@ def topk_error_generator(
         a, 3, -4, True, False
     ), RuntimeError, "Tried to access out of boundary index"
 
-    # negative k size fails nvfuser shape inference.
-    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Unexpected size of axis"
+    # Concretization should detect the negative K as an error
+    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Invalid TopK K parameter"
 
-    # error coming from aten fallback.
+    #  error coming from aten fallback.
     yield SampleInput(
         a, 16, 1, True, False
     ), RuntimeError, "selected index k out of range"
@@ -1821,3 +1821,224 @@ def triu_error_generator(op: OpInfo, dtype: torch.dtype, requires_grad: bool = F
         yield SampleInput(
             make_arg(shape),
         ), RuntimeError, f"input tensor for triu must have 2 or more dims, but got {len(shape)} dims"
+
+
+def grouped_mm_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for grouped matrix multiplication.
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+    """
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    def make_index(extent, num_groups):
+        group_size = extent // num_groups
+        return torch.arange(
+            group_size,
+            group_size * g + 1,
+            group_size,
+            device="cuda",
+            dtype=torch.int32,
+            requires_grad=False,
+        )
+
+    # TODO: expand the test when kernel restrictions are lifted
+    # Test various group sizes and matrix dimensions
+    configs = (
+        (4, 128, 256, 64),
+        (2, 32, 32, 32),
+    )
+
+    for config in configs:
+        g, m, k, n = config
+
+        # case 1: 2d x 2d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(k, g)
+        yield SampleInput(mat1, mat2, offsets)
+        # case 3: 2d x 3d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((g, k, n))
+        offsets = make_index(m, g)
+        yield SampleInput(mat1, mat2, offsets)
+        # case 1: 3d x 2d
+        mat1 = make_arg((g, m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(n, g)
+        yield SampleInput(mat1, mat2, offsets)
+
+
+def scaled_grouped_mm_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for scaled grouped matrix multiplication.
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+    """
+
+    # TODO: enable mxfp8 test when backend supports it.
+    make_arg = partial(
+        make_tensor,
+        dtype=dtype,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    make_scale_factor = partial(
+        make_tensor,
+        dtype=torch.float32,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=False,
+    )
+
+    def make_index(extent, num_groups):
+        group_size = extent // num_groups
+        return torch.arange(
+            group_size,
+            group_size * g + 1,
+            group_size,
+            device="cuda",
+            dtype=torch.int32,
+            requires_grad=False,
+        )
+
+    # TODO: expand the test when fallback kernel restrictions are lifted
+    #       currently only bf16 output is supported.
+    #       there are also restrictions on the input/output shapes.
+    # Test various group sizes and matrix dimensions
+    # configs: list(g, m, k, n, output_dtype)
+    configs = (
+        (4, 128, 256, 64, torch.bfloat16),
+        (2, 32, 32, 32, torch.bfloat16),
+    )
+
+    # TODO: Enable mxfp8 test when backend supports it.
+    for config in configs:
+        g, m, k, n, dtype = config
+        # case 1: 2d x 2d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((k, n))
+        scale1 = make_scale_factor((g, m, 1))
+        scale2 = make_scale_factor((g, 1, n))
+        offsets = make_index(k, g)
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, None, None, None, dtype)
+        # case 3: 2d x 3d
+        mat1 = make_arg((m, k))
+        mat2 = make_arg((g, k, n))
+        scale1 = make_scale_factor((m, 1))
+        scale2 = make_scale_factor((g, 1, n))
+        offsets = make_index(m, g)
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, None, None, None, dtype)
+        # case 1: 3d x 2d
+        mat1 = make_arg((g, m, k))
+        mat2 = make_arg((k, n))
+        offsets = make_index(n, g)
+        scale1 = make_scale_factor((g, m, 1))
+        scale2 = make_scale_factor((1, n))
+        yield SampleInput(mat1, mat2, offsets, scale1, scale2, None, None, None, dtype)
+
+
+###############################################################################
+#
+# NOTE: quantization taken from torch testing. Since this is using aten backend
+#
+###############################################################################
+# largest power of 2 representable in `torch.float8_e4m3fn`
+F8E4M3_LARGEST_POW2 = 8
+# max value of `torch.float8_e4m3fn` (448)
+F8E4M3_MAX_VAL = torch.finfo(torch.float8_e4m3fn).max
+# exponent bias of `torch.float8_e8m0fnu`
+F8E8M0_EXP_BIAS = 127
+
+
+def data_to_mxfp8_scale(x, block_size):
+    # simple implementation of https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
+    # section 6.3, not all edge cases (such as NaN) are handled/tested
+    orig_shape = x.shape
+    x = x.reshape(-1, block_size)
+    max_abs = torch.amax(torch.abs(x), 1)
+    largest_p2_lt_max_abs = torch.floor(torch.log2(max_abs))
+    scale_e8m0_unbiased = largest_p2_lt_max_abs - F8E4M3_LARGEST_POW2
+    scale_e8m0_unbiased = torch.clamp(
+        scale_e8m0_unbiased, -1 * F8E8M0_EXP_BIAS, F8E8M0_EXP_BIAS
+    )
+    scale_e8m0_biased = scale_e8m0_unbiased + F8E8M0_EXP_BIAS
+    scale_e8m0_biased = scale_e8m0_biased.to(torch.uint8)
+    scale_e8m0_biased = scale_e8m0_biased.view(torch.float8_e8m0fnu)
+    return scale_e8m0_biased.reshape(orig_shape[0], -1)
+
+
+def data_to_mxfp8(x, block_size):
+    x_scale = data_to_mxfp8_scale(x, block_size)
+    K = x.shape[1]
+    max_val = F8E4M3_MAX_VAL
+    min_val = -1 * max_val
+    x = (x.reshape(-1, block_size) / x_scale.reshape(-1, 1).float()).reshape(-1, K)
+    x = x.clamp(min=min_val, max=max_val).to(torch.float8_e4m3fn)
+    return x, x_scale
+
+
+def scaled_mm_input_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for scaled matrix multiplication.
+
+    Args:
+        op: OpInfo object for the bmm operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+    """
+
+    # TODO: enable mxfp8 test when backend supports it.
+    make_arg = partial(
+        make_tensor,
+        dtype=torch.float32,
+        device="cuda",
+        low=None,
+        high=None,
+        requires_grad=requires_grad,
+    )
+
+    # TODO: expand the test when fallback kernel restrictions are lifted
+    #       currently only bf16 output is supported.
+    #       there are also restrictions on the input/output shapes.
+    # Test various group sizes and matrix dimensions
+    # configs: list(m, k, n, output_dtype)
+    configs = (
+        (128, 256, 512, torch.bfloat16),
+        (128, 128, 128, torch.bfloat16),
+    )
+
+    # TODO: support nvfp4
+    assert dtype == torch.float8_e4m3fn
+    quantization = partial(data_to_mxfp8, block_size=32)
+
+    for config in configs:
+        m, k, n, dtype = config
+        mat1_ref = make_arg((m, k))
+        mat2_ref = make_arg((n, k))
+        mat1, scale1 = quantization(mat1_ref)
+        mat2, scale2 = quantization(mat2_ref)
+        yield SampleInput(mat1, mat2.t(), scale1, scale2, None, None, None, dtype)

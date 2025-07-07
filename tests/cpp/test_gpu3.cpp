@@ -4422,7 +4422,7 @@ TEST_F(NVFuserTest, FusionHuggingFaceRepro2064_CUDA) {
 
 #ifndef USE_ROCM
 
-TEST_F(NVFuserTest, FusionCastings_CUDA) {
+TEST_F(NVFuserTest, Castings) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -6876,6 +6876,12 @@ TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {
     auto compile_opts = heuristic_params->cparams;
     compile_opts.maxrregcount = 32;
     compile_opts.enable_ptxas_verbose = true;
+
+    // nvrtc JIT caching may skip compilation, in which case no warning
+    // is produced. Disable caching to test the warning option.
+    DisableOptionsGuard disable_opt_guard;
+    DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
+
     KernelExecutor ke;
     ke.compile(&fusion, {aten_input}, heuristic_params->lparams, compile_opts);
     auto cg_outputs = ke.run({aten_input});
@@ -7087,8 +7093,13 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
   // intentionally set maxrregcount to 32 to trigger register spill
   heuristic_params->cparams.maxrregcount = 32;
 
-  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard enable_opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::WarnRegisterSpill);
+
+  // nvrtc JIT caching may skip compilation, in which case no warning
+  // is produced. Disable caching to test the warning option.
+  DisableOptionsGuard disable_opt_guard;
+  DisableOptionsGuard::getCurOptions().set(DisableOption::NvrtcCaching);
 
   // capture stdout and check stdout contains register spill warning
   captureStdout();
@@ -7102,7 +7113,7 @@ TEST_F(NVFuserTest, FusionOptionsGuard_CUDA) {
 
   std::string output = getCapturedStdout();
   ASSERT_NE(output.find("Register spill detected"), std::string::npos)
-      << "Register spill is not captured!";
+      << "Register spill is not captured! NVRTC output: " << output;
 }
 
 // Test that DebugStreamGuard captures output
@@ -7489,45 +7500,6 @@ TEST_F(NVFuserTest, StructConstruct) {
   EXPECT_EQ(
       outputs[0].as<at::Tensor>().item<c10::complex<float>>(),
       c10::complex<float>(1.2, 3.4));
-}
-
-// Repro of an issue found in PR #733. Previously the runtime
-// validation of strides of vectorized tensors issued a false positive
-TEST_F(NVFuserTest, VectorizationStrideValidation) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
-
-  const std::vector<int64_t> shape({2, 1, 3});
-  const std::vector<int64_t> expanded_shape({2, 5, 3});
-
-  auto tv0 = TensorViewBuilder()
-                 .ndims(shape.size())
-                 .shape(expanded_shape)
-                 .contiguity({false, std::nullopt, true})
-                 .expanded({false, true, false})
-                 .build();
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
-
-  tv1->merge(0)->merge(0);
-  tv1->split(0, 2);
-
-  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(shape, options).expand({-1, 5, -1});
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-
-  // This previously triggered a false positive error with the stride
-  // validation
-  auto cg_outputs = ke.run({t0});
-
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t0));
 }
 
 // Test that Int constants used in expressions that would overflow for 32-bit
@@ -9087,6 +9059,49 @@ TEST_F(NVFuserTest, DeviceSharedMemoryLimit) {
   int device_reserved = (int)properties->reservedSharedMemPerBlock;
   EXPECT_EQ(device_limit, device_total - device_reserved);
 }
+
+// Check that we can actually make use of every byte of shared memory on the
+// device
+TEST_F(NVFuserTest, UseAllSharedMemory) {
+  const auto properties = at::cuda::getDeviceProperties(
+      c10::Device(c10::DeviceType::CUDA, 0).index());
+
+  // This kernel requires some static smem for some reason. We validate that
+  // here as well.
+  constexpr int64_t expected_static_smem = 16L;
+  const int64_t available_dyn_smem_bytes =
+      (int64_t)properties->sharedMemPerBlockOptin - expected_static_smem;
+
+  const PrimDataType dtype = DataType::Char;
+  EXPECT_EQ(available_dyn_smem_bytes % dataTypeSizeByte(dtype), 0);
+  const int64_t len = available_dyn_smem_bytes / dataTypeSizeByte(dtype);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({len}, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  auto tv1_smem = tv1->cacheBefore();
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  auto options = at::TensorOptions().dtype(at::kChar).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, 128, {len}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+
+  // check that we used the full device
+  int64_t actual_smem = ke.lastLaunchParams().smem();
+  EXPECT_EQ(actual_smem, available_dyn_smem_bytes);
+  EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser

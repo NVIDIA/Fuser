@@ -380,8 +380,11 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda and len(tensor.size()) != 0:
-            raise ValueError("CPU non-scalar tensor is not supported!")
+        supported_tensor = tensor.is_cuda or (tensor.is_cpu and len(tensor.size()) == 0)
+        if not supported_tensor:
+            raise ValueError(
+                f"Found unsupported device {tensor.device}, only scalar CPU or CUDA tensors are supported"
+            )
 
         return self.define_tensor(
             sizes=tensor.size(),

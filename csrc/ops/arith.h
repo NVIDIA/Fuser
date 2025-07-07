@@ -13,6 +13,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -733,6 +734,44 @@ NVF_API TensorView* argsort(
     bool descending = false,
     bool stable = false);
 
+//! Grouped matrix multiplication
+//!
+//! Performs matrix multiplication on grouped sets of matrices using offsets
+//! to define variable-sized groups. This op computes:
+//!
+//! alpha * grouped_mm((mat1 * scale1), (mat2 * scale2), offsets) + bias * beta
+//!
+//! \param mat1 First set of matrices
+//! \param mat2 Second set of matrices
+//! \param offsets Offsets tensor defining group boundaries
+//! \param scale1 Scale tensor for mat1
+//! \param scale2 Scale tensor for mat2
+//! \param alpha Global Scaling factor for mat1@mat2
+//! \param bias Bias tensor
+//! \param beta Scale tensor for bias
+//! \param dtype Output dtype, if empty, the output dtype will be the same as
+//! the input dtype
+//! \param out_block_scale_size Output block scaling factor size, if 0, the
+//! output block scaling factor will not be computed
+//! \param block_scaling_factor_dtype Block scaling factor dtype. This argument
+//! is needed when out_block_scale_size is not 0.
+//! \param out_gamma Output gamma flag, if true, the output gamma will be
+//! computed
+//! \return Result of grouped matrix multiplication
+NVF_API ScaledTensorView grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    TensorView* scale1 = nullptr,
+    TensorView* scale2 = nullptr,
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
+    DataType dtype = DataType::Null,
+    int64_t out_block_scale_size = 0,
+    DataType block_scaling_factor_dtype = DataType::Null,
+    bool out_gamma = false);
+
 //! TopK operation: find the k largest or smallest elements along a dimension
 //!
 //! Returns the k largest (if largest=true) or smallest (if largest=false)
@@ -759,5 +798,30 @@ NVF_API TopKResult topk(
     bool largest = true,
     bool sorted = false,
     bool maybe_symbolic = true);
+
+//! Computes an inclusive scan of a tensor in a single dimension.
+//!
+//! Given a 1D input tensor x, this computes the output
+//! recursively via
+//!
+//!   y = scan(x, 0, Add, zeroVal())
+//!
+//!   y[0] = x[0]
+//!   y[i] = y[i-1] + x[i] for 0 < i < n
+//!
+//! If the dimension being scanned is an expanded broadcast, we throw an error.
+NVF_API TensorView* scan(
+    TensorView* in_tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init = nullptr);
+
+//! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
+NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
+
+//! Another alias for PyTorch's cumsum
+NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
+  return prefixSum(tv, dim);
+}
 
 } // namespace nvfuser

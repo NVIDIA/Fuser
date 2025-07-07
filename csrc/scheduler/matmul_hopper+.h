@@ -216,6 +216,17 @@ class HopperPlus : public Common {
 
   // This is like the above method, but tv should not have any K dimension
   void transformLikeMmaOutputWithoutK(TensorView* tv);
+
+  // Get the number of warp groups that are used for epilogue operations.
+  // For Hopper, it is the number of warp groups that are used for mma +
+  // epilogue operations. For Blackwell, it is the number of warp groups that
+  // are used for epilogue operations (mma is fully async, and it only needs
+  // one thread).
+  int64_t getNumEpilogueWarpGroups() const;
+
+  // Get the circular buffer type: pipelined or warp-specialized?
+  // If warp-specialized, on which parallel type? Do we want register sharing?
+  CircularBufferType getCircularBufferType() const;
 };
 
 class Hopper : public HopperPlus {

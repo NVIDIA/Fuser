@@ -138,7 +138,7 @@ class IndexPutAccumulateOp : public Expr {
   // logical ID groups of IndexPutAccumulateOp
   // args:
   //     acc   [ ID_indexed_g0, ID_g0 ]
-  //     index [ ID_indexing_g1, ID_broadcast ]
+  //     index [ ID_indexing_g1 ]
   //     value [ ID_indexing_g1, ID_g0 ]
   // output:
   //     out   [ ID_indexed_g0, ID_g0 ]
@@ -181,7 +181,7 @@ class IndexPutAccumulateOp : public Expr {
   IterDomain* getIndexingIDOfValue() const;
 
   // return ID_indexing_g1 from index, for IndexPutAccumulate, there's only one
-  // indexing ID, while the remaining ID is broadcast
+  // indexing ID at this moment
   IterDomain* getIndexingID() const;
 };
 
@@ -803,7 +803,7 @@ class RNGOp : public Expr {
                                             : nullptr;
   }
 
-  bool isDeterministic() const {
+  bool isDeterministic() const override {
     return inputs().size() == getOutputDims() + getNumParameters() + 2;
   }
 
@@ -2860,6 +2860,393 @@ class ArgsortOp : public Expr {
   }
 };
 
+//! NOTE -- [ Grouped Matrix Multiplication semantics ]
+//!
+//! This operation performs a grouped matrix multiplication.
+//!
+//! Parameters:
+//! - out_mat: output tensor
+//! - out_scale: output block scaling factor tensor
+//! - out_gamma: output global scaling factor tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - offsets: 1D offsets tensor, specifying the ending index of each group
+//! - scale1: scale tensor for matrix1 (optional)
+//! - scale2: scale tensor for matrix2 (optional)
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is roughly two steps:
+//! out =
+//!   alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets)
+//!   + beta * bias
+//! out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! Post quantization only applies when out_scale / out_gamma is not nullptr;
+//!
+//! Regarding the grouped mm semantics:
+//!
+//! The offsets tensor is a vector tensor of length `num_groups` that specifies
+//! the ending index of each group in the matrix1 and matrix2 tensors.
+//!
+//! Given the number of groups as G, the operation conceptually runs G matmuls.
+//! There are three configurations of grouping, reflected by ranks of input
+//! matrices:
+//!
+//! Note 0: f(0) = 0 : offset[0]
+//!         f(i) = offset(i-1) : offset(i), when i >= 1;
+//!         f(i) is a slice with length equal to offsets[i] - offsets[i-1]
+//! Note 1: scales don't need to follow broadcast rules against corresponding
+//!         matrices on the k-dimension. Hardware uses blocked scale factors.
+//!         so the corresponding scale factor on k-dimension is shared by fixed
+//!         number of consecutive elements.
+//!         e.g. Given k as the size of k-dimension on input matrices, and the
+//!         scale factor has size k' on k-dimension.
+//!         For mxfp8, k' = k // 32. Each scale factor is shared by 32
+//!         consecutive elements.
+//! Note 2: output could have a reduction axis rk if k is not broadcast on
+//! inputs.
+//!
+//!     Case 1: grouped k-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ g, k', n]
+//!       requires: offsets[g-1] == k
+//!       output: out[ g, m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ i, 0:m, 0:n ] = (mat1[ 0:m, f(i) ] * scale1[ i, 0:m, 0:k' ])
+//!                             @(mat2[ f(i), 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 2: grouped m-dimension:
+//!       inputs: mat1[ m, k ] @ mat2[ g, k, n ] , offsets[ g ]
+//!               scale1[ m, k' ], scale2[ g, k', n ]
+//!       requires: offsets[g-1] == m
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ f(i), 0:n ] = (mat1[ f(i), 0:k ] * scale1[ f(i), 0:k' ])
+//!                           @(mat2[ i, 0:k, 0:n ] * scale2[ i, 0:k', 0:n ])
+//!
+//!     Case 3: grouped n-dimension:
+//!       inputs: mat1[ g, m, k ] @ mat2[ k, n ] , offsets[ g ]
+//!               scale1[ g, m, k' ], scale2[ k', n ]
+//!       requires: offsets[g-1] == n
+//!       output: out[ m, n, [rk]]
+//!
+//!       math:
+//!       for i in range(g):
+//!         out[ 0:m, f(i) ] = (mat1[ i, 0:m, 0:k ] * scale1[ i, 0:m, 0:k' ])
+//!                           @(mat2[ 0:k, f(i) ] * scale2[ 0:k', f(i) ])
+//!
+class GroupedMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  GroupedMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
+      Val* mat1,
+      Val* mat2,
+      Val* offsets,
+      Val* scale1 = nullptr,
+      Val* scale2 = nullptr,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "GroupedMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get group offset input vector
+  TensorView* offsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    if (hasScale()) {
+      return input(attribute<int64_t>(0))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    if (hasScale()) {
+      return input(attribute<int64_t>(0) + 1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(3))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // True if scale factors are present
+  bool hasScale() const {
+    return attribute<int64_t>(0) != -1;
+  }
+
+  int64_t scale1Offset() const {
+    return attribute<int64_t>(0);
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(1);
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t biasOffset() const {
+    return attribute<int64_t>(2);
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(3) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t scale2Offset() const {
+    return attribute<int64_t>(0) + 1;
+  }
+
+  // Get the IterDomain for the k-dimension of the first input matrix
+  IterDomain* getKDimOfMatrix1() const;
+
+  // Get the IterDomain for the k-dimension of the second input matrix
+  IterDomain* getKDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the first input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix1() const;
+
+  // Get the IterDomain for the group dimension of the second input matrix,
+  // returns nullptr if not present
+  IterDomain* getGroupDimOfMatrix2() const;
+
+  // Get the IterDomain for the group dimension of the output matrix, returns
+  // nullptr if not present
+  IterDomain* getGroupDimOfOutput() const;
+};
+
+//! NOTE -- [ Scaled Matrix Multiplication semantics ]
+//!
+//! This operation performs a matrix multiplication.
+//!
+//! Parameters:
+//! - out_mat: [output] tensor matrix
+//! - out_scale: [output] block scaling factor tensor
+//! - out_gamma: [output] global scaling factor tensor
+//! - matrix1: first input tensor matrix
+//! - matrix2: second input tensor matrix
+//! - scale1: scale tensor for matrix1
+//! - scale2: scale tensor for matrix2
+//! - alpha: alpha tensor (optional)
+//! - bias: bias tensor (optional)
+//! - beta: beta tensor (optional)
+//!
+//! The math operation is conceptually:
+//!   out =
+//!       alpha * (dequant(mat1, scale1) @ dequant(mat2, scale2), offsets)
+//!       + beta * bias
+//!   out_mat, out_scale, out_gamma = Quantization(out)
+//!
+//! TODO: This operation is here to support non-codegen kernel. The block
+//! semantics in scaling factor have implementation/hardware-specific padding
+//! and alignment requirement. We haven't mapped it to out_scale/out_gamma yet.
+class ScaledMmaOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScaledMmaOp(
+      IrBuilderPasskey,
+      Val* out_mat,
+      Val* out_scale,
+      Val* out_gamma,
+      Val* mat1,
+      Val* mat2,
+      Val* scale1,
+      Val* scale2,
+      Val* alpha = nullptr,
+      Val* bias = nullptr,
+      Val* beta = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ScaledMmaOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  // Get output matrix
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  // Get output block scaling factor
+  TensorView* outScale() const {
+    if (outputs().size() > 1) {
+      return output(1)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get output global scaling factor
+  TensorView* outGamma() const {
+    if (outputs().size() > 2) {
+      return output(2)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // Get first input matrix
+  TensorView* matrix1() const {
+    return input(0)->as<TensorView>();
+  }
+
+  // Get second input matrix
+  TensorView* matrix2() const {
+    return input(1)->as<TensorView>();
+  }
+
+  // Get scale factor for first input matrix, returns nullptr if not present
+  TensorView* scale1() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // Get scale factor for second input matrix, returns nullptr if not present
+  TensorView* scale2() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* alpha() const {
+    if (hasAlpha()) {
+      return input(attribute<int64_t>(0))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(attribute<int64_t>(1))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* beta() const {
+    if (hasBeta()) {
+      return input(attribute<int64_t>(2))->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  // True if scale factors are present
+  bool hasAlpha() const {
+    return attribute<int64_t>(0) != -1;
+  }
+
+  int64_t alphaOffset() const {
+    return attribute<int64_t>(0);
+  }
+
+  // True if bias is present
+  bool hasBias() const {
+    return attribute<int64_t>(1) != -1;
+  }
+
+  int64_t biasOffset() const {
+    return attribute<int64_t>(1);
+  }
+
+  // True if beta is present
+  bool hasBeta() const {
+    return attribute<int64_t>(2) != -1;
+  }
+
+  int64_t betaOffset() const {
+    return attribute<int64_t>(2);
+  }
+};
+
 //! TopK operation that finds the k largest or smallest elements
 //! along a specified dimension.
 //!
@@ -2918,6 +3305,53 @@ class NVF_API TopKOp : public Expr {
   bool isSorted() const {
     return attribute<bool>(2);
   }
+};
+
+class ScanOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScanOp(
+      IrBuilderPasskey,
+      BinaryOpType op_type,
+      Val* init,
+      Val* out,
+      Val* in,
+      int64_t dim);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "ScanOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Returns the inclusive scan output
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  Val* init() const {
+    return attributeVal(0);
+  }
+
+  BinaryOpType opType() const {
+    return attribute<BinaryOpType>(1);
+  }
+
+  int64_t scanDim() const {
+    return attribute<int64_t>(2);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

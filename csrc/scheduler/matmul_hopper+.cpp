@@ -10,6 +10,7 @@
 #include <id_model/schedule.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
 #include <scheduler/matmul_heuristic.h>
@@ -26,7 +27,6 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
-#include "mma_type.h"
 
 namespace nvfuser {
 
@@ -36,6 +36,8 @@ namespace {
 
 constexpr int64_t hardcoded_smem_vectorize_factor = 4;
 constexpr int64_t hardcoded_blackwell_splitk_vectorization_factor = 4;
+constexpr int64_t num_registers_async_warp = 40;
+constexpr int64_t num_registers_compute_warp = 232;
 
 // Find the first MatmulDimRole from left to right in a vector of roles
 int64_t findFirstRole(
@@ -375,14 +377,9 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
   // params_->tile_sizes and infer cluster_dims from that
   bool has_cga = params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1;
   if (has_cga) {
-    int64_t cm = params_->cluster_dims.x;
-    int64_t cn = params_->cluster_dims.y;
-    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
-      std::swap(cm, cn);
-    }
     GemmTile cga_tile{
-        params_->tile_sizes.cta_tile.m * cm,
-        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.m * params_->cluster_dims.x,
+        params_->tile_sizes.cta_tile.n * params_->cluster_dims.y,
         params_->tile_sizes.cta_tile.k};
 
     merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
@@ -590,7 +587,9 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      tv->split(num_device_dims_, numCGAs());
+      const int64_t num_clusters =
+          matmul_utils::getMaxActiveClusters(params_->cluster_dims);
+      tv->split(num_device_dims_, num_clusters);
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -670,26 +669,16 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
         break;
       case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
-        // For persistent kernels, we parallelize BIDx, and if cluster_dims is
-        // non-trivial then we also bind BIDy and BIDz
         if (params_->cluster_dims.x != 1 || params_->cluster_dims.y != 1) {
+          // With CGAs, we only bind BIDz to indicate the cluster ID and
+          // BIDx/BIDy are the cluster dimensions
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
-          switch (params_->cta_order) {
-            // TODO: Should we instead check the roles of these dimensions to
-            // take the outermost two M or N axes?
-            case MatmulParams::TileRasterizationOrder::ColumnMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
-              break;
-            case MatmulParams::TileRasterizationOrder::RowMajor:
-              tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDy);
-              tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDx);
-              break;
-            default:
-              NVF_THROW(
-                  "Invalid TileRasterizationOrder passed to Matmul scheduler");
-          }
+          // BIDx and BIDy are the cluster dims and always correspond to M and
+          // N, regardless of cta_order
+          tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
+          tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
         } else {
+          // Without CGAs, we only bind BIDx
           tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
         }
         break;
@@ -915,8 +904,6 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
-  fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -955,6 +942,21 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
 
+      // reg_tv is the consumer for ldmatrix. Set alternate loop domain to
+      // generate shared memory address for ldmatrix.
+      AbstractTensor reg_tv_ldmatrix_abstract =
+          mma_utils::scheduleLdStMatrixSharedMemory(
+              reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+      std::vector<IterDomain*> reg_tv_ldmatrix =
+          reg_tv_ldmatrix_abstract.as<IterDomain*>();
+
+      // Parallelize
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 2)
+          ->parallelize(ParallelType::TIDx);
+      reg_tv_ldmatrix.at(reg_tv_ldmatrix.size() - 1)
+          ->parallelize(ParallelType::Vectorize);
+      reg_tv->setAlternateLoopDomain(reg_tv_ldmatrix);
+
       // Schedule the loop and allocation domain of LdMatrix like the
       // accumulation register TensorView of wgmma.
       AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
@@ -984,6 +986,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     TensorView* d = dv->as<TensorView>();
     NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
     TensorView* dc = d->definition()->input(0)->as<TensorView>();
+    NVF_ERROR(dc != nullptr);
 
     // The chain of operations storing data to global memory:
     //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
@@ -1022,8 +1025,26 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     // (instruction tile) of dc and propagate is back till the outputs of mma.
     blockTileTensors(tvs_to_schedule);
     parallelizeBlocks(tvs_to_schedule);
+
     for (auto tv : tvs_to_schedule) {
       transformLikeMmaOutputWithoutK(tv);
+    }
+
+    if (store_with_stmatrix) {
+      // d_smem is the consumer for stmatrix. Set alternate loop domain to
+      // generate shared memory address for stmatrix.
+      AbstractTensor d_smem_stmatrix_abstract =
+          mma_utils::scheduleLdStMatrixSharedMemory(
+              d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+      std::vector<IterDomain*> d_smem_stmatrix =
+          d_smem_stmatrix_abstract.as<IterDomain*>();
+
+      // Parallelize
+      d_smem_stmatrix.at(d_smem_stmatrix.size() - 2)
+          ->parallelize(ParallelType::TIDx);
+      d_smem_stmatrix.at(d_smem_stmatrix.size() - 1)
+          ->parallelize(ParallelType::Vectorize);
+      d_smem->setAlternateLoopDomain(d_smem_stmatrix);
     }
 
     // Should not propagate if the dc is a mma output as the mma output has
@@ -1247,6 +1268,44 @@ void HopperPlus::setUpInlining() {
   }
 }
 
+int64_t HopperPlus::getNumEpilogueWarpGroups() const {
+  NVF_ERROR(!mma_results_.empty());
+  for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::TIDy) {
+      return id->extent()->evaluate().as<int64_t>();
+    }
+  }
+  return 1;
+}
+
+CircularBufferType HopperPlus::getCircularBufferType() const {
+  switch (params_->circular_buffering_strategy) {
+    case MatmulParams::CircularBufferingStrategy::Pipelined:
+      return (CircularBufferType)Pipelined(false);
+    case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
+      if (getNumEpilogueWarpGroups() != 2) {
+        // Disable register sharing when there is only one math warp group.
+        // In such case we will have 128 math threads and 128 dma threads,
+        // for a total of 256 threads per CTA. The register file size on
+        // Hopper is 64K registers, which is filled when a 256-thread CTA
+        // has 256 registers per thread. Since 256 is already the maximum
+        // number of registers per thread even with register sharing, there
+        // is no point in doing register sharing to try and increase it.
+        //
+        // When there is not two warp groups, we also disable
+        // register sharing, since we don't currently compute the number of
+        // register properly in that case.
+        return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      } else {
+        return (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_async_warp, num_registers_compute_warp));
+      }
+  }
+  NVF_ERROR(false, "Invalid circular buffer type");
+}
+
 void HopperPlus::setUpCircularBuffering() {
   // Propagate mma output swizzle and parallelization down the DAG
   if (params_->circular_buffer_options.circular_buffer_smem_write) {
@@ -1270,44 +1329,7 @@ void HopperPlus::setUpCircularBuffering() {
         "stages: ",
         params_->circular_buffer_options.smem_circular_buffer_stage);
 
-    CircularBufferType cb_type;
-    switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined: {
-        cb_type = (CircularBufferType)Pipelined(false);
-        break;
-      }
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        int64_t num_math_warp_groups = 1L;
-        NVF_ERROR(!mma_results_.empty());
-        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-          if (id->getParallelType() == ParallelType::TIDy) {
-            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-          }
-        }
-        if (num_math_warp_groups != 2) {
-          // Disable register sharing when there is only one math warp group.
-          // In such case we will have 128 math threads and 128 dma threads,
-          // for a total of 256 threads per CTA. The register file size on
-          // Hopper is 64K registers, which is filled when a 256-thread CTA
-          // has 256 registers per thread. Since 256 is already the maximum
-          // number of registers per thread even with register sharing, there
-          // is no point in doing register sharing to try and increase it.
-          //
-          // When there is more than one math warp group, we also disable
-          // register sharing, since we don't currently compute the number of
-          // register properly in that case.
-          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-        } else {
-          constexpr int64_t num_registers_async_warp = 40;
-          constexpr int64_t num_registers_compute_warp = 232;
-          cb_type = (CircularBufferType)WarpSpecialized(
-              ParallelType::TIDy,
-              std::make_pair(
-                  num_registers_async_warp, num_registers_compute_warp));
-        }
-        break;
-      }
-    }
+    CircularBufferType cb_type = getCircularBufferType();
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
           params_->circular_buffer_options.smem_circular_buffer_stage,

@@ -778,13 +778,19 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   //     set.");
   NVF_ERROR(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
+  NVF_CHECK(definition() != nullptr, "Definition is a nullptr");
   NVF_CHECK(
-      definition() != nullptr &&
-          (definition()
-               ->isStrictlyOneOf<ReductionOp, MmaOp, MatmulOp, LinearOp>()),
+      (definition()
+           ->isStrictlyOneOf<
+               ReductionOp,
+               MmaOp,
+               MatmulOp,
+               LinearOp,
+               GroupedMmaOp,
+               ScaledMmaOp>()),
       "Error rfactoring ",
       this,
-      " its definition is either a nullptr or not a reduction.");
+      " because its definition is not a reduction.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const "
@@ -835,6 +841,50 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   } else if (auto linear = dynamic_cast<LinearOp*>(definition())) {
     IrBuilder::create<LinearOp>(
         producer, linear->inA(), linear->inB(), linear->bias());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto grouped_mma = dynamic_cast<GroupedMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        grouped_mma->outScale() == nullptr &&
+            grouped_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<GroupedMmaOp>(
+        producer,
+        grouped_mma->outScale(),
+        grouped_mma->outGamma(),
+        grouped_mma->matrix1(),
+        grouped_mma->matrix2(),
+        grouped_mma->offsets(),
+        grouped_mma->scale1(),
+        grouped_mma->scale2(),
+        grouped_mma->alpha(),
+        grouped_mma->bias(),
+        grouped_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto scaled_mma = dynamic_cast<ScaledMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        scaled_mma->outScale() == nullptr && scaled_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<ScaledMmaOp>(
+        producer,
+        scaled_mma->outScale(),
+        scaled_mma->outGamma(),
+        scaled_mma->matrix1(),
+        scaled_mma->matrix2(),
+        scaled_mma->scale1(),
+        scaled_mma->scale2(),
+        scaled_mma->alpha(),
+        scaled_mma->bias(),
+        scaled_mma->beta());
     IrBuilder::create<ReductionOp>(
         BinaryOpType::Add,
         IrBuilder::create<Val>(0.0, producer->dtype()),

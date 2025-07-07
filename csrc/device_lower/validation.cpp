@@ -472,7 +472,18 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* vec_alloc_id,
       const std::unordered_set<IterDomain*>& dep_alloc_ids,
       TensorView* tv,
-      std::string name) {
+      std::string name,
+      int64_t vector_word_size_bit) {
+    // aten_element_size_bit is the minimum unit (one element) of tv's
+    // corresponding at::Tensor. It may or may not be the same as
+    // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+    // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+    // For example, for fp4 tensor, we use Byte as the corresponding ATen
+    // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
+    int64_t aten_element_size_bit =
+        c10::elementSize(
+            data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) *
+        8;
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
@@ -525,9 +536,14 @@ class VectorizeValidator : public OptInDispatch {
           ", innermost id: ",
           last_alloc_dim);
 
+      // Because aten_element_size_bit is the minimum unit (one element) in
+      // ATen, if one vector is smaller than one element, regardless of the
+      // contiguity of the ATen tensor, we can always vectorize because an
+      // element in ATen tensor is always contiguous by design.
       auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
       NVF_CHECK(
-          contiguity.value_or(false),
+          aten_element_size_bit % vector_word_size_bit == 0 ||
+              contiguity.value_or(false),
           "The innermost position has to be contiguous. tv: ",
           tv,
           ", allocation domain: ",
@@ -543,13 +559,15 @@ class VectorizeValidator : public OptInDispatch {
       IterDomain* v_id,
       TensorView* tv,
       std::string name,
-      Expr* load_store) {
+      Expr* load_store,
+      int64_t vector_word_size_bit) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
         GpuLower::current()->hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
-    validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
+    validateAllocationVectorizedId(
+        vec_alloc_id, dep_alloc_ids, tv, name, vector_word_size_bit);
 
     return vec_alloc_id;
   }
@@ -592,39 +610,44 @@ class VectorizeValidator : public OptInDispatch {
         tv);
 
     auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
-    auto vector_size =
-        dataTypeSizeByte(
+    auto vector_size_bit =
+        dataTypeSizeBit(
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
+    if (tv_def->isA<LoadStoreOp>()) {
+      // Except for TMem, allow half2, float2, float4 and same sized vtypes.
+      std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // TMem can vectorize up to 4096 bits.
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
+          (ldst->opType() == LoadStoreOpType::LdTMem ||
+           ldst->opType() == LoadStoreOpType::StTMem)) {
+        allowed_vector_sizes_bit.push_back(256);
+        allowed_vector_sizes_bit.push_back(512);
+        allowed_vector_sizes_bit.push_back(1024);
+        allowed_vector_sizes_bit.push_back(2048);
+        allowed_vector_sizes_bit.push_back(4096);
+      }
 
-    // Except for TMem, allow half2, float2, float4 and same sized vtypes.
-    std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
-    // TMem can vectorize up to 512 bytes.
-    bool is_tmem = false;
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
-        (ldst->opType() == LoadStoreOpType::LdTMem ||
-         ldst->opType() == LoadStoreOpType::StTMem)) {
-      allowed_vector_sizes.push_back(32);
-      allowed_vector_sizes.push_back(64);
-      allowed_vector_sizes.push_back(128);
-      allowed_vector_sizes.push_back(256);
-      allowed_vector_sizes.push_back(512);
-      is_tmem = true;
+      NVF_CHECK(
+          std::find(
+              allowed_vector_sizes_bit.begin(),
+              allowed_vector_sizes_bit.end(),
+              vector_size_bit) != allowed_vector_sizes_bit.end(),
+          "Tried to vectorize a dim resulting in a word size of ",
+          vector_size_bit,
+          " bits, however, vector sizes starting from and including ",
+          allowed_vector_sizes_bit.front(),
+          " bits upto and including ",
+          allowed_vector_sizes_bit.back(),
+          " bits are supported.");
     }
 
-    NVF_CHECK(
-        std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including ",
-        is_tmem ? "512 bytes" : "16 bytes",
-        " are supported.");
+    if (!tv_def->isA<LoadStoreOp>()) {
+      return;
+    }
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
-        v_id, tv, "consumer", tv_def);
+        v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -692,7 +715,7 @@ class VectorizeValidator : public OptInDispatch {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              v_id, producer_tv, "producer", tv_def);
+              v_id, producer_tv, "producer", tv_def, vector_size_bit);
     } else {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
       auto producer_replayed_as_consumer =
@@ -710,7 +733,11 @@ class VectorizeValidator : public OptInDispatch {
               .getReplay();
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              c2p_map.at(v_id), producer_tv, "producer", tv_def);
+              c2p_map.at(v_id),
+              producer_tv,
+              "producer",
+              tv_def,
+              vector_size_bit);
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
@@ -788,7 +815,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
                def->as<TernaryOp>()->getTernaryOpType() ==
                    TernaryOpType::Where) ||
               (def->isA<ReductionOp>() &&
-               def->as<ReductionOp>()->serialGridReductionRequested()),
+               def->as<ReductionOp>()->serialGridReductionRequested()) ||
+              (def->isA<UnaryOp>() &&
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
     }

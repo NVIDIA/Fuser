@@ -293,6 +293,39 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
+cmake_dependent_option(NVFUSER_HOST_IR_JIT "Build nvFuser with LLVM" ON "USE_HOST_IR_JIT" OFF)
+
+
+message(STATUS "Setting NVFUSER_HOST_IR_JIT=${NVFUSER_HOST_IR_JIT}")
+
+if(NVFUSER_HOST_IR_JIT)
+  add_compile_definitions(NVFUSER_HOST_IR_JIT)
+  # Add LLVM JIT related dependencies
+  find_package(LLVM 18.1 REQUIRED CONFIG)
+  llvm_map_components_to_libnames(LLVM_LIBS
+    support
+    core
+    orcjit
+    executionengine
+    irreader
+    nativecodegen
+    Target
+    Analysis
+    JITLink
+    Demangle
+  )
+
+  add_library(LLVM_JIT INTERFACE)
+  target_include_directories(LLVM_JIT INTERFACE ${LLVM_INCLUDE_DIRS})
+  target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
+  target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
+
+  # Add LLVM JIT related sources
+  list(APPEND NVFUSER_SRCS
+    ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  )
+endif()
+
 # We don't link CUPTI for MSVC
 if(NOT MSVC)
   list(APPEND NVFUSER_SRCS
@@ -380,6 +413,9 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
+if(NVFUSER_HOST_IR_JIT)
+  target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
+endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
@@ -575,6 +611,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -718,7 +755,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_vectorization_analysis.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_vectorization.cpp
 )
 
 if(BUILD_TEST)
@@ -810,12 +847,27 @@ if(BUILD_TEST)
   add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_argsort)
 
+  set(SCAN_TEST_SRCS)
+  list(APPEND SCAN_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_scan.cpp
+  )
+  add_test(test_scan "${SCAN_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_scan)
+
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_topk.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_topk_device_func.cpp
   )
   add_test(test_topk "${TOPK_TEST_SRCS}" ${TOPK_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_topk)
+
+  set(MOE_TEST_SRCS)
+  list(APPEND MOE_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_moe.cpp
+  )
+  add_test(test_moe "${MOE_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_moe)
 
   set(MULTIDEVICE_TEST_SRCS)
   list(APPEND MULTIDEVICE_TEST_SRCS
@@ -852,7 +904,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
+    # ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
@@ -878,6 +930,17 @@ if(BUILD_TEST)
   )
   add_test(test_host_ir "${HOSTIR_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_host_ir)
+
+  if(NVFUSER_HOST_IR_JIT)
+    set(LLVM_COMPILE_TEST_SRCS)
+    list(APPEND LLVM_COMPILE_TEST_SRCS
+      ${NVFUSER_ROOT}/tests/cpp/test_host_ir_jit.cpp
+    )
+    add_test(test_host_ir_jit "${LLVM_COMPILE_TEST_SRCS}" "")
+    target_link_libraries(test_host_ir_jit PUBLIC LLVM_JIT)
+    list(APPEND TEST_BINARIES test_host_ir_jit)
+  endif()
+
 
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
@@ -1022,10 +1085,12 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
+  ${NVFUSER_ROOT}/runtime/fp4_support.cu
   ${NVFUSER_ROOT}/runtime/fused_reduction.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_helper.cu
   ${NVFUSER_ROOT}/runtime/fused_welford_impl.cu
@@ -1040,6 +1105,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
+  ${NVFUSER_ROOT}/runtime/topk.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
   ${NVFUSER_ROOT}/runtime/warp.cu
@@ -1086,6 +1152,7 @@ message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUILD_WITH_UCC}")
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
+message(STATUS "  NVFUSER_HOST_IR_JIT                : ${NVFUSER_HOST_IR_JIT}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)

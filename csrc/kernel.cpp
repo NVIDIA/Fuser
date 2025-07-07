@@ -266,6 +266,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_argsort = true;
   }
 
+  void handle(TopKOp* top) final {
+    summary_.has_topk = true;
+  }
+
   void handle(IfThenElse* ite) final {
     // Search for ElectSync UnaryOp in IfThenElse predicate
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
@@ -275,6 +279,10 @@ class KernelIrScanner : private IrVisitor {
     }
     // Run default handle
     IrVisitor::handle(ite);
+  }
+
+  void handle(MmaOp* mma_op) final {
+    summary_.has_mma_op = true;
   }
 
  private:

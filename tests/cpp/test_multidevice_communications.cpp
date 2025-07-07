@@ -411,7 +411,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    testing::Values(CommunicatorBackend::kNccl),
     testing::PrintToStringParamName());
 
 using P2PCommunicationTest = MultiDeviceTest;

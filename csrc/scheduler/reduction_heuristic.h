@@ -140,6 +140,9 @@ class ReductionParams : public HeuristicParams {
   // TMA warp specialized, only used in inner-outer persistent scheduler
   bool tma_warp_specialized = false;
 
+  // Whether the heuristic is good enough to use warp specialized
+  bool is_good_ws_heuristic = false;
+
   // Directly load from gmem to regs
   bool is_non_circular_buffer_gmem_to_regs = true;
 
@@ -148,6 +151,9 @@ class ReductionParams : public HeuristicParams {
 
   // Circular buffer used in tma warp specialized normalization
   CircularBufferOptions circular_buffer_options;
+
+  // Number of independent warp groups for computation, parallelized by TIDy
+  int64_t computation_warp_groups = 1;
 
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
