@@ -52,6 +52,8 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStr
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::IRBuilder<>& builder);
 llvm::Value* compileJitImpl(const hir::HostIrContainer* container, LlvmJitImpl* pimpl_, llvm::IRBuilder<>& builder);
+void compileFunc(Expr* top_level_expr, llvm::IRBuilder<>& builder, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::Value* pimpl_void_ptr);
+llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
@@ -485,13 +487,6 @@ void compileMainFuncInputs(
   llvm::LLVMContext& context = builder.getContext();
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
 
-  std::vector<llvm::Type*> param_types = {};
-  
-  llvm::FunctionType* func_type = llvm::FunctionType::get(llvm::Type::getVoidTy(context), param_types, false);
-  llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "full_graph_induction", mod);
-  
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
-  builder.SetInsertPoint(entry);
   for(auto* input : container->inputs()) {
     if(auto* tv = dynamic_cast<const TensorView*>(input)) {
       uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(tv);
@@ -574,12 +569,21 @@ void compile(
   llvm::IRBuilder<> builder(*ctx);
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
   
+  // Create the main function first
+  std::vector<llvm::Type*> param_types = {};
+  llvm::FunctionType* func_type = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), param_types, false);
+  llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "full_graph_induction", mod.get());
+  
+  // Create entry block and set insertion point
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
+  builder.SetInsertPoint(entry);
+  
   // Generate pimpl_void_ptr once at the top
   llvm::Value* pimpl_void_ptr = compileJitImpl(container, pimpl_, builder);
   
   // bind the constants
   compileMainFuncInputs(container, builder, val2llvmMap, pimpl_void_ptr);
-  std::deque<Expr*> top_level_exprs = container->topLevelExprs();
+  std::deque<Expr*> top_level_exprs = std::deque<Expr*>(container->topLevelExprs().begin(), container->topLevelExprs().end());
   livenessAnalysis(top_level_exprs, val2llvmMap);
   // Generate the top level functions
   int64_t pos = 0;

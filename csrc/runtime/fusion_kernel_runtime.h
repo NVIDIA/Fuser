@@ -11,6 +11,9 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#ifdef NVFUSER_HOST_IR_JIT
+#include <host_ir/jit.h>
+#endif
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -139,8 +142,8 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
-  #ifdef NVFUSER_ENABLE_HOST_IR_JIT
-  const hir::HostIrJit& getHostIrJit() const {
+  #ifdef NVFUSER_HOST_IR_JIT
+  const HostIrJit& getHostIrJit() const {
     return *hie_.get();
   }
   #else
@@ -197,8 +200,8 @@ class FusionKernelRuntime {
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
   //! Host IR Evaluator
-  #ifdef NVFUSER_ENABLE_HOST_IR_JIT
-  std::unique_ptr<hir::HostIrJit> hie_;
+  #ifdef NVFUSER_HOST_IR_JIT
+  std::unique_ptr<HostIrJit> hie_;
   #else
   std::unique_ptr<hir::HostIrEvaluator> hie_;
   #endif
