@@ -484,7 +484,7 @@ target_link_libraries(codegen_internal PUBLIC
   dl
 )
 if(BUILD_CUTLASS)
-  target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
+  target_link_libraries(codegen_internal PRIVATE nvf_cutlass)
   target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
 
@@ -666,12 +666,18 @@ if(BUILD_PYTHON)
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
+  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+    target_link_libraries(nvf_py_internal PRIVATE
+      nvf_cutlass
+    )
+  endif()
 
   target_link_libraries(nvfuser PRIVATE
     nvf_py_internal
     codegen_internal
     Python::Module
   )
+
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
