@@ -20,7 +20,6 @@
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
-#include <queue>
 #include <unordered_map>
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -972,10 +971,10 @@ llvm::Value* generateTensorStrideExtraction(
   return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
 }
 
-HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
+HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_threads)
     : pimpl_(new LlvmJitImpl) {
   // Initialize params with passed parameters
-  pimpl_->host_ir_jit_params_ = std::make_unique<HostIrJitParams>(container);
+  pimpl_->container_ = std::move(container);
 
   // Initialize LLVM
   llvm::InitializeNativeTarget();

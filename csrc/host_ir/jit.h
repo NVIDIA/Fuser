@@ -19,7 +19,7 @@ class HostIrJit {
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
   HostIrJit(
-      hir::HostIrContainer* container,
+      std::unique_ptr<hir::HostIrContainer> container,
       int num_threads = kHostIrJitCompileThreads);
 
   ~HostIrJit();
