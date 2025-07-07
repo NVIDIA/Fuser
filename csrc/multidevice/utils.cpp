@@ -69,6 +69,8 @@ bool isSharded(const TensorView* tv) {
 
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain) {
+  std::unordered_set<ParallelType> parallel_types =
+      deviceAndStreamParallelTypes();
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id;
   parallel_type_to_id.reserve(parallel_types.size());
 
@@ -113,9 +115,7 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   return id_to_axis;
 }
 
-int64_t getShardedLogicalAxis(
-    const TensorView* tv,
-    IterDomain* parallel_id) {
+int64_t getShardedLogicalAxis(const TensorView* tv, IterDomain* parallel_id) {
   if (parallel_id == nullptr) {
     return -1;
   }
@@ -242,19 +242,13 @@ std::vector<int64_t> unshardedSizes(
   // This exposes a issue: allocation domain is not set for fusion inputs
   // before presegmentation and can cause errors during binding.
 
-  // For DID parallelization, allocation domain and loop domain have the same
-  // parallelization.
-  // Conceptually, fusion inputs should not be stream parallelized, however, we
-  // may require it to facilitate forward propagation. Regardless, fusion inputs
-  // will still be fully allocated on the stream parallelized dimension, and
-  // hence we can always use the getMaybeAllocationDomain for obtaining the
-  // unsharded sizes on stream parallelized dimension.
-  // TODO: Add ParallelType::Stream.
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization.
 
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
       mapDeviceAndStreamParallelTypeToId(tv->getLoopDomain());
 
-  for (ParallelType parallel_type : kParallelTypeDIDs) {    
+  for (ParallelType parallel_type : kParallelTypeDIDs) {
     IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
     const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_id);
     if (sharded_axis == -1) {
