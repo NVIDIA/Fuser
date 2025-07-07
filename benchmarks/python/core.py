@@ -320,7 +320,6 @@ def run_benchmark(
         return fd.execute(inputs, profile=not BENCHMARK_CONFIG["with_nsys"])
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-
     outputs = nvf_benchmark.pedantic(
         benchmark_fn,
         setup=setup,

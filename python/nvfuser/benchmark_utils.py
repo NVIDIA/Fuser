@@ -81,7 +81,7 @@ class TorchProfileTimer(Timer):
         """
         try:
             self.prof.stop()
-        except:
+        except AssertionError:
             pass
 
 
