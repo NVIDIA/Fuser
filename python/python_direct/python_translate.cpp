@@ -810,6 +810,26 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
+  // Map WelfordOp to python frontend
+  void handle(const WelfordOp* wop) final {
+    NVF_ERROR(wop != nullptr);
+    NVF_ERROR(wop->initAvg()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initVar()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
+
+    visited_vals_.insert(wop->outAvg());
+    visited_vals_.insert(wop->outVar());
+    visited_vals_.insert(wop->outN());
+
+    static const std::vector<std::string> argument_names = {"dims"};
+    printer_.generateKwargsOperation(
+        "fd.ops.welford",
+        std::make_tuple(wop->in()),
+        argument_names,
+        std::make_tuple(getReductionAxes(wop->outAvg()->as<TensorView>())),
+        {wop->outAvg(), wop->outVar(), wop->outN()});
+  }
+
   // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
     NVF_ERROR(bcast_op != nullptr);
