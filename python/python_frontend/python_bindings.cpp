@@ -663,7 +663,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
-  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
+  py::enum_<PrimDataType>(nvfuser, "DataType")
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -682,7 +682,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
+  py::enum_<ParallelType>(nvfuser, "ParallelType")
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -732,8 +732,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<CommunicatorBackend>(
-      nvfuser, "CommunicatorBackend", py::module_local())
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 

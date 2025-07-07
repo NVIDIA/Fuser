@@ -4989,20 +4989,16 @@ fd.execute(inputs)
         self.assertEqual(nvf_out[0], ref_inp.relu())
 
     def test_import_conflict_nvfuser_then_direct(self):
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-
+        try:
             import nvfuser  # noqa: F401
             import nvfuser_direct  # noqa: F401
-
-            assert len(w) == 1
-            assert issubclass(w[-1].category, UserWarning)
-            assert (
-                "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported."
-                in str(w[-1].message)
+        except AssertionError as e:
+            expected_msg = (
+                "Cannot import nvfuser_direct if nvfuser module is already imported."
             )
+            assert expected_msg in str(e)
+            return
+        raise AssertionError("Expected AssertionError from imports.")
 
 
 @pytest.mark.skip("https://github.com/NVIDIA/Fuser/issues/3740")

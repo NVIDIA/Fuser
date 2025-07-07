@@ -3,13 +3,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
-import warnings
 
-if "nvfuser" in sys.modules:
-    warnings.warn(
-        "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported.",
-        UserWarning,
-    )
+assert (
+    "nvfuser" not in sys.modules
+), "Cannot import nvfuser_direct if nvfuser module is already imported."
 
 import os
 import torch
