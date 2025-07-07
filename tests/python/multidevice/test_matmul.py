@@ -460,3 +460,44 @@ def test_row_parallel_grouped_mm(multidevice_test):
         out.cpu(),
         expected_out,
     )
+
+
+@pytest.mark.mpi
+def test_mul_linear(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.x = self.define_tensor(
+                [1, 1, 16384], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.y = self.define_tensor(
+                [1, 1, 16384], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.w = self.define_tensor(
+                [5120, 16384], dtype=DataType.BFloat16, contiguity=True
+            )
+            x = self.ops.cast(self.x, DataType.Float)
+            y = self.ops.cast(self.y, DataType.Float)
+            xy = self.ops.mul(x, y)
+            xy = self.ops.cast(xy, DataType.BFloat16)
+            out = self.ops.linear(xy, self.w)
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            for t in [self.x, self.y, self.w]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.split(t, -1, d, False)
+                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
+
+    x = torch.randn(1, 1, 16384, dtype=torch.bfloat16)
+    y = torch.randn(1, 1, 16384, dtype=torch.bfloat16)
+    w = torch.randn(5120, 16384, dtype=torch.bfloat16)
+    sharded_x = multidevice_test.shard_tensor(x, -1, mesh)
+    sharded_y = multidevice_test.shard_tensor(y, -1, mesh)
+    sharded_w = multidevice_test.shard_tensor(w, -1, mesh)
+
+    fd = Model()
+    fd.execute([sharded_x, sharded_y, sharded_w])

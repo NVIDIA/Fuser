@@ -327,11 +327,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    const auto& reference_inputs = getOrderedReferenceInputs(expr);
+    std::cerr << "Forward propagating shardings for " << expr << std::endl;
+    std::cerr << "outputs_without_mesh: " << outputs_without_mesh << std::endl;
 
-    if (reference_inputs.empty()) {
-      continue;
-    }
+    const auto& reference_inputs = getOrderedReferenceInputs(expr);
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       // Skip if the input has no device mesh or is nullptr.
@@ -356,6 +355,12 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       // This restricts the transform propagation to only the relevant DID axis.
       int64_t did_pos =
           selectiveReorderDIDToFront(ref_input, selected_parallel_types);
+      std::cerr << "ref_input: " << ref_input << std::endl;
+      std::cerr << "selected_parallel_types: "
+                << std::vector<ParallelType>(
+                       selected_parallel_types.begin(),
+                       selected_parallel_types.end())
+                << std::endl;
 
       if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
         // Propagation of reshape will return how many DID axis were propagated.
