@@ -256,7 +256,7 @@ constexpr auto FLOAT4_E2M1X2 = at::ScalarType::Byte;
 constexpr auto SF_DTYPE = at::ScalarType::Float8_e4m3fn;
 
 void nvfp4_scaled_mm_assert(
-    const at::ScalarType& out_dtype,
+    at::ScalarType out_dtype,
     torch::Tensor const& a,
     torch::Tensor const& b,
     torch::Tensor const& scales_a,
@@ -316,7 +316,7 @@ void nvfp4_scaled_mm_assert(
 }
 
 bool nvfp4_scaled_mm_check(
-    const at::ScalarType& out_dtype,
+    at::ScalarType out_dtype,
     torch::Tensor const& a,
     torch::Tensor const& b,
     torch::Tensor const& scales_a,
@@ -336,7 +336,8 @@ void nvfp4_scaled_mm(
     torch::Tensor const& scales_a,
     torch::Tensor const& scales_b,
     torch::Tensor const& alpha) {
-  nvfp4_scaled_mm_assert(output.dtype(), a, b, scales_a, scales_b, alpha);
+  auto out_dtype = output.dtype();
+  nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
 
   auto const m = a.sizes()[0];
   auto const n = b.sizes()[0];
@@ -385,7 +386,6 @@ void nvfp4_scaled_mm(
       scales_b.sizes()[1],
       ")");
 
-  auto out_dtype = output.dtype();
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
 
