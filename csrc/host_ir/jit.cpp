@@ -48,13 +48,19 @@ std::vector<llvm::Value*> inferTensorStridesReordered(const TensorView* tv, std:
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesNoReorder(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
 std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
-void generate_stride_llvm_ir(Val* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
-void generateTensorSizeExtraction(llvm::Value* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
-void generateTensorStrideExtraction(llvm::Value* current_val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value*& running_stride_product, std::unordered_map<Val*, bool>& boundary_vals, std::vector<llvm::Value*>& strides);
+llvm::Value* generateTensorSizeExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder);
+llvm::Value* generateTensorStrideExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder);
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit
 struct HostIrJit::LlvmJitImpl {
+  public:
   std::unique_ptr<llvm::orc::LLJIT> jit;
   main_func_fn main_func_;
   std::unordered_map<const TensorView*, at::Tensor> tensor_map;
@@ -82,7 +88,8 @@ T throwIfError(llvm::Expected<T>&& E) {
 void compileForLoopFunc(
     const ForLoop* for_loop,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   return;
 }
 
@@ -90,7 +97,8 @@ void compileForLoopFunc(
 void compileIfThenElseFunc(
     const kir::IfThenElse* ifthenelse,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
   return;
 }
 
@@ -469,14 +477,14 @@ void compileMainFuncInputs(
 }
 
 void compile(
-    const hir::HostIrContainer* container,
-    llvm::orc::LLJIT* jit,
-    main_func_fn& main_func_,
     HostIrJit::LlvmJitImpl* pimpl_) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   NVF_ERROR(
       container != nullptr,
       "container is nullptr during host ir JIT compilation");
+  auto* container = pimpl_->container;
+  auto* jit = pimpl_->jit.get();
+  auto* main_func_ = pimpl_->main_func_;
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   llvm::IRBuilder<> builder(*ctx);
@@ -1151,14 +1159,10 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
 
   // Compile the module
   compile(
-      container,
-      pimpl_->jit.get(),
-      pimpl_->main_func_,
       pimpl_.get());
 }
 
 HostIrJit::~HostIrJit() = default;
-
 
 KernelArgumentHolder HostIrJit::run(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
