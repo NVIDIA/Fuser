@@ -861,8 +861,29 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const UnaryOp* uop) final {
     const auto op_type = uop->getUnaryOpType();
 
+    int64_t vectorize_size = 1;
+    if (uop->out()->isA<kir::TensorIndex>()) {
+      vectorize_size = ir_utils::getVectorizeSize(
+          uop->out()->as<kir::TensorIndex>()->view());
+    }
+
+    std::string vectorize_output;
+    std::string vectorize_input;
+    if (vectorize_size > 1) {
+      std::stringstream output_type;
+      output_type << "Array<" << uop->out()->dtype() << ", " << vectorize_size
+                  << ", " << vectorize_size << ">*";
+      vectorize_output =
+          "*" + genReinterpretCast(output_type.str(), "&" + gen(uop->out()));
+      std::stringstream input_type;
+      input_type << "Array<" << uop->in()->dtype() << ", " << vectorize_size
+                 << ", " << vectorize_size << ">*";
+      vectorize_input =
+          "*" + genReinterpretCast(input_type.str(), "&" + gen(uop->in()));
+    }
+
     if (!print_inline_) {
-      indent() << gen(uop->out());
+      indent() << (vectorize_size > 1 ? vectorize_output : gen(uop->out()));
       if (!uop->out()->isScalar() && !uop->in()->isScalar()) {
         code_ << "\n";
         indent() << kTab;
@@ -895,7 +916,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       }
 
-      code_ << "(" << gen(uop->in()) << ")";
+      code_ << "(" << (vectorize_size > 1 ? vectorize_input : gen(uop->in()))
+            << ")";
       if (op_type == UnaryOpType::RefCast) {
         code_ << "))";
       }
