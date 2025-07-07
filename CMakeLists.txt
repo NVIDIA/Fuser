@@ -644,7 +644,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
     VISIBILITY_INLINES_HIDDEN Yes
@@ -662,19 +662,14 @@ if(BUILD_PYTHON)
   )
 
   if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
-    target_link_libraries(nvf_py_internal PRIVATE
-      codegen_internal
-      nvf_cutlass
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-    )
-  else()
-    target_link_libraries(nvf_py_internal PRIVATE
-      codegen_internal
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-    )
+    target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
+
+  target_link_libraries(nvf_py_internal PRIVATE
+    codegen_internal
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+  )
 
   target_link_libraries(nvfuser PRIVATE
     nvf_py_internal
