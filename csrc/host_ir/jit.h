@@ -13,6 +13,9 @@
 #include <memory>
 namespace nvfuser {
 
+// Forward declaration
+struct LlvmJitImpl;
+
 class HostIrJit {
  public:
   KernelArgumentHolder run(
@@ -25,7 +28,6 @@ class HostIrJit {
   ~HostIrJit();
 
  private:
-  struct LlvmJitImpl;
   std::unique_ptr<LlvmJitImpl> pimpl_;
 };
 } // namespace nvfuser

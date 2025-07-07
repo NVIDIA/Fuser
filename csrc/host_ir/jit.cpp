@@ -51,7 +51,7 @@ std::vector<llvm::Value*> inferTensorStridesReordered(const TensorView* tv, std:
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesNoReorder(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::IRBuilder<>& builder);
-void compileJitImpl(const hir::HostIrContainer* container, LlvmJitImpl* pimpl_, llvm::IRBuilder<>& builder);
+llvm::Value* compileJitImpl(const hir::HostIrContainer* container, LlvmJitImpl* pimpl_, llvm::IRBuilder<>& builder);
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
@@ -1032,7 +1032,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
         auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
         NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) == host_ir_jit_impl->tensor_map.end(), "tensor_ptr is already allocated");
-        host_ir_jit_impl->tensor_map[tv] = {};
+        host_ir_jit_impl->tensor_map[tv] = at::Tensor();
         return &host_ir_jit_impl->tensor_map[tv];
       });
 
@@ -1180,9 +1180,13 @@ KernelArgumentHolder HostIrJit::run(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::run");
   // Bind the inputs to the tensor map
-  for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), val_to_PValue)) {
-    if (arg.is<at::Tensor>()) {
-      pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
+  for (auto* in_val : pimpl_->container_->inputs()) {
+    auto it = val_to_PValue.find(in_val);
+    if (it != val_to_PValue.end()) {
+      const auto& arg = it->second;
+      if (arg.is<at::Tensor>()) {
+        pimpl_->tensor_map[in_val->as<TensorView>()] = arg.as<at::Tensor>();
+      }
     }
   }
   // Run the main function
