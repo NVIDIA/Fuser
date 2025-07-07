@@ -614,32 +614,37 @@ class VectorizeValidator : public OptInDispatch {
         dataTypeSizeBit(
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
+    if (tv_def->isA<LoadStoreOp>()) {
+      // Except for TMem, allow half2, float2, float4 and same sized vtypes.
+      std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // TMem can vectorize up to 4096 bits.
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
+          (ldst->opType() == LoadStoreOpType::LdTMem ||
+           ldst->opType() == LoadStoreOpType::StTMem)) {
+        allowed_vector_sizes_bit.push_back(256);
+        allowed_vector_sizes_bit.push_back(512);
+        allowed_vector_sizes_bit.push_back(1024);
+        allowed_vector_sizes_bit.push_back(2048);
+        allowed_vector_sizes_bit.push_back(4096);
+      }
 
-    // Except for TMem, allow half2, float2, float4 and same sized vtypes.
-    std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
-    // TMem can vectorize up to 4096 bits.
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
-        (ldst->opType() == LoadStoreOpType::LdTMem ||
-         ldst->opType() == LoadStoreOpType::StTMem)) {
-      allowed_vector_sizes_bit.push_back(256);
-      allowed_vector_sizes_bit.push_back(512);
-      allowed_vector_sizes_bit.push_back(1024);
-      allowed_vector_sizes_bit.push_back(2048);
-      allowed_vector_sizes_bit.push_back(4096);
+      NVF_CHECK(
+          std::find(
+              allowed_vector_sizes_bit.begin(),
+              allowed_vector_sizes_bit.end(),
+              vector_size_bit) != allowed_vector_sizes_bit.end(),
+          "Tried to vectorize a dim resulting in a word size of ",
+          vector_size_bit,
+          " bits, however, vector sizes starting from and including ",
+          allowed_vector_sizes_bit.front(),
+          " bits upto and including ",
+          allowed_vector_sizes_bit.back(),
+          " bits are supported.");
     }
 
-    NVF_CHECK(
-        std::find(
-            allowed_vector_sizes_bit.begin(),
-            allowed_vector_sizes_bit.end(),
-            vector_size_bit) != allowed_vector_sizes_bit.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size_bit,
-        " bits, however, vector sizes starting from and including ",
-        allowed_vector_sizes_bit.front(),
-        " bits upto and including ",
-        allowed_vector_sizes_bit.back(),
-        " bits are supported.");
+    if (!tv_def->isA<LoadStoreOp>()) {
+      return;
+    }
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def, vector_size_bit);
@@ -810,7 +815,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
                def->as<TernaryOp>()->getTernaryOpType() ==
                    TernaryOpType::Where) ||
               (def->isA<ReductionOp>() &&
-               def->as<ReductionOp>()->serialGridReductionRequested()),
+               def->as<ReductionOp>()->serialGridReductionRequested()) ||
+              (def->isA<UnaryOp>() &&
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
           "Vectorized accesses cannot be inline with computation: ",
           (def == nullptr ? tv->toString() : def->toString()));
     }
