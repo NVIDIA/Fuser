@@ -284,62 +284,15 @@ void compileAllocateFunc(
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
 
-  // Define function signature: void(i64*, i64, i64*, i64, void*)
-  // The last void* is for at::Tensor&
-  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
-  llvm::Type* int64_ptr_type = int64_type->getPointerTo();
-  llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
-  llvm::PointerType* void_ptr_type =
-      llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  llvm::FunctionType* func_type = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(context),
-      {int64_ptr_type, int64_type, int64_ptr_type, int64_type, void_ptr_type},
-      false);
-
-  std::string func_name = ir_utils::varName(allocate->buffer()->as<Val>());
-  llvm::Function* func = llvm::Function::Create(
-      func_type,
-      llvm::Function::ExternalLinkage,
-      func_name, // Use the generated unique name
-      mod);
-
-  // Set argument names for better readability in IR
-  func->getArg(0)->setName("sizes");
-  func->getArg(1)->setName("ndim");
-  func->getArg(2)->setName("strides");
-  func->getArg(3)->setName("strides_ndim");
-  func->getArg(4)->setName("out_tensor");
-
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(context, "entry", func);
-  llvm::IRBuilder<> builder(entry);
-
   // Get arguments from the function
-  llvm::Value* sizes_arg = func->getArg(0); // const int64_t*
-  llvm::Value* ndim_arg = func->getArg(1); // int64_t
-  llvm::Value* strides_arg = func->getArg(2); // const int64_t*
-  llvm::Value* strides_ndim_arg = func->getArg(3); // int64_t (strides_ndim)
-  llvm::Value* out_tensor_arg = func->getArg(4); // at::Tensor&
+  auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(allocate->buffer()->as<TensorView>(), val2llvmMap, builder);
 
   // Bounds checking for ndim
   auto logical_domain = TensorDomain::noReductions(
       allocate->buffer()->as<TensorView>()->getLogicalDomain());
-  size_t compile_time_ndim = logical_domain.size();
-  llvm::Value* compile_time_ndim_val =
-      llvm::ConstantInt::get(int64_type, compile_time_ndim);
-  llvm::Value* cmp =
-      builder.CreateICmpEQ(ndim_arg, compile_time_ndim_val, "ndim_check");
-  llvm::Function* parent_func = builder.GetInsertBlock()->getParent();
-  llvm::BasicBlock* then_bb =
-      llvm::BasicBlock::Create(context, "if.then", parent_func);
-  llvm::BasicBlock* else_bb =
-      llvm::BasicBlock::Create(context, "if.else", parent_func);
-  builder.CreateCondBr(cmp, then_bb, else_bb);
-  builder.SetInsertPoint(else_bb);
-  llvm::Function* trap_func =
-      llvm::Intrinsic::getDeclaration(mod, llvm::Intrinsic::trap);
-  builder.CreateCall(trap_func, {});
-  builder.CreateUnreachable();
-  builder.SetInsertPoint(then_bb);
+
+  NVF_ERROR(tensor_sizes.size() == logical_domain.size(), "tensor_sizes.size() != logical_domain.size()");
+  NVF_ERROR(tensor_strides.size() == logical_domain.size(), "tensor_strides.size() != logical_domain.size()");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -349,12 +302,12 @@ void compileAllocateFunc(
   llvm::Value* dtype_constant =
       llvm::ConstantInt::get(int32_type, static_cast<int32_t>(data_type));
   llvm::Value* device_index_constant = llvm::ConstantInt::get(
-      int64_type, host_ir_jit_params.getCommunicator()->deviceId());
+      int64_type, Communicator::getInstance().deviceId());
 
   // Get the at::native::empty_strided_cuda function pointer (registered in the
   // JIT)
   llvm::Function* at_empty_strided_cuda_func =
-      mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
+      mod->getFunction(kHostIrJitAtEmptyStridedCudaFuncName);
   if (at_empty_strided_cuda_func == nullptr) {
     llvm::FunctionType* at_empty_strided_cuda_func_type =
         llvm::FunctionType::get(
@@ -370,7 +323,7 @@ void compileAllocateFunc(
     at_empty_strided_cuda_func = llvm::Function::Create(
         at_empty_strided_cuda_func_type,
         llvm::Function::ExternalLinkage,
-        kHostIrJitEmptyStridedCudaFuncName,
+        kHostIrJitAtEmptyStridedCudaFuncName,
         mod);
   }
 
@@ -378,19 +331,29 @@ void compileAllocateFunc(
   builder.CreateCall(
       at_empty_strided_cuda_func,
       {sizes_arg,
-       ndim_arg,
+       shape_ndim_arg,
        strides_arg,
        strides_ndim_arg,
        dtype_constant,
        device_index_constant,
        out_tensor_arg});
 
+  builder.CreateRetVoid();
+
+  // Verify the module
+  std::string error;
+  llvm::raw_string_ostream error_stream(error);
+  NVF_ERROR(
+      !llvm::verifyModule(*mod, &error_stream),
+      "LLVM module verification failed: " + error);
+
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
-    llvm::outs() << "=== LLVM IR Generation for Allocate Function ===\n";
+    llvm::outs() << "=== LLVM IR ===\n";
     mod->print(llvm::outs(), nullptr);
   }
 }
+        
 
 // Mainly bind input tensor sizes to val2llvmMap
 void compileMainFunc(
