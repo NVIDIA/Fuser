@@ -1131,6 +1131,16 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       vectorized_tvs.insert(
           vectorized_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
     }
+    // Vectorize all casts
+    if (pparams->vectorize_casts) {
+      for (auto tv : fusion->allTvs()) {
+        if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+          if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+            vectorized_tvs.emplace_back(tv);
+          }
+        }
+      }
+    }
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.

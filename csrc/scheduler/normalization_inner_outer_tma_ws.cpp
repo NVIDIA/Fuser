@@ -354,8 +354,9 @@ void getHeuristics(
       int64_t buffer_regs =
           round_up_reg_count(non_circular_buffered_smem_size, bdimx) +
           round_up_reg_count(regs_buffer_size, bdimx);
-      NVF_ERROR(ws.num_registers.has_value(), "num_registers is not set");
-      int64_t other_regs = ws.num_registers.value().second - buffer_regs;
+      int64_t compute_branch_regs =
+          ws.num_registers.has_value() ? ws.num_registers.value().second : 255L;
+      int64_t other_regs = compute_branch_regs - buffer_regs;
       return other_regs >= 64L;
     }
     return true;
