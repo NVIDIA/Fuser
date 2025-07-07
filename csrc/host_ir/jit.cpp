@@ -43,11 +43,15 @@
 namespace nvfuser {
 
 using main_func_fn = std::function<void()>;
+
+// Forward declarations
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStridesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::vector<llvm::Value*> inferTensorStridesReordered(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesNoReorder(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
-std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
-std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::LLVMContext& context, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::vector<llvm::Value*> getContiguousStrides(const std::vector<llvm::Value*>& sizes, const std::vector<bool>& expand_flags, llvm::IRBuilder<>& builder);
+void compileJitImpl(const hir::HostIrContainer* container, LlvmJitImpl* pimpl_, llvm::IRBuilder<>& builder);
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
@@ -58,9 +62,8 @@ llvm::Value* generateTensorStrideExtraction(
     llvm::IRBuilder<>& builder);
 void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
-// PIMPL implementation for HostIrJit
-struct HostIrJit::LlvmJitImpl {
-  public:
+// PIMPL implementation for HostIrJit - moved to public scope
+struct LlvmJitImpl {
   std::unique_ptr<llvm::orc::LLJIT> jit;
   main_func_fn main_func_;
   std::unordered_map<const TensorView*, at::Tensor> tensor_map;
@@ -282,12 +285,16 @@ void compileDeallocateFunc(
     llvm::Value* pimpl_void_ptr) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
-  // Call wrapper function to erase tensor from at::TensorMap
+  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+  
+  // Call wrapper function to deallocate tensor from tensor_map
   auto tv = deallocate->buffer()->as<TensorView>();
   auto tv_ptr = reinterpret_cast<uintptr_t>(tv);
   llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
-  llvm::Function* erase_tensor_func = mod->getFunction("erase_tensor");
-  builder.CreateCall(erase_tensor_func, {tv_ptr_constant, pimpl_void_ptr}, "erase_tensor"); 
+  llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_ptr_constant, void_ptr_type);
+  
+  llvm::Function* deallocate_tensor_func = mod->getFunction("deallocate_tensor");
+  builder.CreateCall(deallocate_tensor_func, {tv_void_ptr, pimpl_void_ptr}, "deallocate_tensor"); 
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
     llvm::outs() << "=== LLVM IR Generation for Deallocate Function ===\n";
@@ -351,7 +358,7 @@ void compileAllocateFunc(
   uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(allocate->buffer()->as<TensorView>());
   llvm::Value* tv_ptr_constant = llvm::ConstantInt::get(int64_type, tv_ptr);
   llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_ptr_constant, void_ptr_type);
-  llvm::Value* out_tensor_arg = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "out_tensor");
+  llvm::Value* out_tensor_arg = builder.CreateCall(mod->getFunction("allocate_tensor"), {tv_void_ptr, pimpl_void_ptr}, "out_tensor");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -477,20 +484,22 @@ void compileMainFuncInputs(
 }
 
 void compile(
-    HostIrJit::LlvmJitImpl* pimpl_) {
+    const hir::HostIrContainer* container,
+    llvm::orc::LLJIT* jit,
+    main_func_fn& main_func_,
+    LlvmJitImpl* pimpl_) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   NVF_ERROR(
       container != nullptr,
       "container is nullptr during host ir JIT compilation");
-  auto* container = pimpl_->container;
-  auto* jit = pimpl_->jit.get();
-  auto* main_func_ = pimpl_->main_func_;
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   llvm::IRBuilder<> builder(*ctx);
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
-  // bind the pimpl pointer
+  
+  // Generate pimpl_void_ptr once at the top
   llvm::Value* pimpl_void_ptr = compileJitImpl(container, pimpl_, builder);
+  
   // bind the constants
   compileMainFuncInputs(container, builder, val2llvmMap, pimpl_void_ptr);
   std::vector<Expr*> top_level_exprs = container->topLevelExprs();
@@ -542,11 +551,11 @@ void compile(
 
 llvm::Value* compileJitImpl(
     const hir::HostIrContainer* container,
-    HostIrJit::LlvmJitImpl* pimpl_,
+    LlvmJitImpl* pimpl_,
     llvm::IRBuilder<>& builder) {
     llvm::LLVMContext& context = builder.getContext();
     llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
-  // Convert TensorView pointer to void pointer
+  // Convert LlvmJitImpl pointer to void pointer
     uintptr_t pimpl_ptr = reinterpret_cast<uintptr_t>(pimpl_);
     llvm::Value* pimpl_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), pimpl_ptr);
     llvm::Value* pimpl_void_ptr = builder.CreateIntToPtr(pimpl_constant, void_ptr_type);
@@ -1021,7 +1030,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   // raw tensor allocation and deallocation
   void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
-        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
         NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) == host_ir_jit_impl->tensor_map.end(), "tensor_ptr is already allocated");
         host_ir_jit_impl->tensor_map[tv] = {};
         return &host_ir_jit_impl->tensor_map[tv];
@@ -1029,14 +1038,14 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
 
   void* deallocate_tensor_func_ptr = reinterpret_cast<void*>(
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> void {
-        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
         NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) != host_ir_jit_impl->tensor_map.end(), "tensor_ptr is not found");
         host_ir_jit_impl->tensor_map.erase(tv);
       });
 
   void* get_tensor_func_ptr = reinterpret_cast<void*>(
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
-        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
         return &host_ir_jit_impl->tensor_map[tv];
       });
 
@@ -1085,7 +1094,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       at::Tensor** input_tensors, int64_t num_inputs, 
       at::Tensor** output_tensors, int64_t num_outputs,
       void* launch_kernel_ptr, void* host_ir_jit_impl_ptr) {
-        auto* host_ir_jit_impl = static_cast<HostIrJit::LlvmJitImpl*>(host_ir_jit_impl_ptr);
+        auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
         auto launch_kernel = reinterpret_cast<hir::LaunchKernel*>(launch_kernel_ptr);
         KernelArgumentHolder input_args, output_args;
         input_args.setCacheId(id);
@@ -1159,6 +1168,9 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
 
   // Compile the module
   compile(
+      pimpl_->container_.get(),
+      pimpl_->jit.get(),
+      pimpl_->main_func_,
       pimpl_.get());
 }
 
