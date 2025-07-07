@@ -1639,6 +1639,30 @@ Returns
 TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
+  ops.def(
+      "welford",
+      [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
+        WelfordResult output = WelfordRaw(arg, dims);
+        return std::make_tuple(output.avg, output.var_sum, output.n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Reduce a tensor by computing the mean and variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+
+Returns
+-------
+tuple
+    A tuple containing the mean, variance, and count along the specified dimensions.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindScanOps(py::module_& ops) {
