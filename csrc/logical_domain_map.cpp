@@ -275,24 +275,22 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
 
     // Check if the producer is A, B or bias.
     int64_t input_position = -1;
-    if (producer->sameAs(op->inA()->as<TensorView>()->domain())) {
+    if (producer == op->inA()->domain()) {
       input_position = 0;
-    } else if (producer->sameAs(op->inB()->as<TensorView>()->domain())) {
+    } else if (producer == op->inB()->domain()) {
       input_position = 1;
-    } else if (producer->sameAs(op->bias()->as<TensorView>()->domain())) {
+    } else if (producer == op->bias()->domain()) {
       input_position = 2;
     } else {
       NVF_THROW("Producer did not match any LinearOp input.")
     }
-
-    const bool k_bcast = op->inA()->getLogicalDomain().back()->isBroadcast();
-    // const bool k_bcast = op->inA()->axis(-1)->isBroadcast();
 
     // LinearOp:
     // inputs (0) = {*, in_features}
     // weight (1) = {out_features, in_features} / {in_features}
     // bias (2) = {out_features} / {}
     // output = {*, out_features} / {*}
+    const bool k_bcast = op->inA()->getLogicalDomain().back()->isBroadcast();
 
     const std::vector<IterDomain*>& aligned_producer_ids =
         ops::mapLinearOpIterDomains(
