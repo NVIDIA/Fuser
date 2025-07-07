@@ -594,8 +594,8 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
                {to->getLogicalDomain().begin(),
                 to->getLogicalDomain().end()})) {
         // TODO: should we exclude ID exprs other than Merge/Split here?
-        bool has_unscheduled_input = std::any_of(
-            e->inputs().begin(), e->inputs().end(), [&](Val* in_val) {
+        bool has_unscheduled_input = std::ranges::any_of(
+            e->inputs(), [&](Val* in_val) {
               auto* id = dynamic_cast<IterDomain*>(in_val);
               return id && unscheduled_ids_.count(id);
             });
