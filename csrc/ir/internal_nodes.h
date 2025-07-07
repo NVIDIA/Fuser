@@ -257,16 +257,20 @@ class ScatterOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  TensorView* selfTv() const {
-    return input(0)->as<TensorView>();
+  Val* in() const {
+    return input(0);
   }
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
+  Val* out() const {
+    return output(0);
   }
 
-  TensorView* srcTv() const {
-    return input(2)->as<TensorView>();
+  Val* index() const {
+    return input(1);
+  }
+
+  Val* src() const {
+    return input(2);
   }
 
   int64_t dim() const {

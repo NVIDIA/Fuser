@@ -25,6 +25,14 @@ std::vector<IterDomain*> getPredicateDomains(
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
+  if (expr->isA<ScatterOp>()) {
+    auto index_input = expr->as<ScatterOp>()->index();
+    if (index_input->isA<kir::TensorIndex>()) {
+      index_input = index_input->as<kir::TensorIndex>()->view();
+    }
+    predicate_domains = index_input->as<TensorView>()->getLogicalDomain();
+  }
+
   // Broadcast domains should not need to be predicated. Note that
   // unlike indexing for TensorIndex, reduction domains do need to be
   // indexed to guard the access to the producer tensor

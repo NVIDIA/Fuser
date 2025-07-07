@@ -2324,7 +2324,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     TensorView* consumer,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
-    const std::unordered_map<int, Val*>& override_index,
+    const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
@@ -2334,7 +2334,7 @@ kir::TensorIndex* Index::getConsumerIndex(
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition(), loops);
+        consumer, consumer->definition(), loops, override_index);
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
@@ -2350,8 +2350,9 @@ kir::TensorIndex* Index::getConsumerIndex(
           IrBuilder::baseAddressExpr(consumer), address_offset);
     }
   } else {
+    // Overriding of consumer indexing is not supported
     index = getConsumerStridedIndices(
-        consumer, loops, rotated_loops, override_index, generate_pointer);
+        consumer, loops, rotated_loops, {}, generate_pointer);
   }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);

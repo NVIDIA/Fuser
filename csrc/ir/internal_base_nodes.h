@@ -640,7 +640,9 @@ class TensorDomain : public Val {
   }
 
   // Set the loop domain of this TensorDomain.
-  void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
+  void setLoopDomain(
+      std::vector<IterDomain*> new_loop_domain,
+      bool skip_validation = false);
 
   // Set the alternate loop domain of this TensorDomain.
   void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain);

@@ -121,6 +121,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/grid_serialization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/index.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inline_ptx.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
@@ -1103,6 +1104,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/scatter.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/topk.cu

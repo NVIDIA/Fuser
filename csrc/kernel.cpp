@@ -425,6 +425,9 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
+    if (alloc->buffer()->isFusionOutput() || alloc->alias() != nullptr) {
+      continue;
+    }
     parameters_.push_back(alloc->buffer());
   }
 }

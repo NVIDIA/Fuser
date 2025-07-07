@@ -1103,9 +1103,9 @@ class AllocationInserter : public kir::ExprMutator {
   }
 
   kir::Allocate* createAllocExpr(AllocationInformation& info, bool is_output) {
-    if (is_output) {
-      return nullptr;
-    }
+    // if (is_output) {
+    // return nullptr;
+    // }
 
     TensorView* tv_to_alloc = info.buffer;
     const MemoryType memory_type = tv_to_alloc->getMemoryType();
@@ -1274,7 +1274,7 @@ class AllocationInserter : public kir::ExprMutator {
       // Don't need to alloc outputs, and if we don't need to initialize we're
       // done.
       if (is_output && init == nullptr) {
-        continue;
+        // continue;
       }
 
       AllocationInformation allocation;

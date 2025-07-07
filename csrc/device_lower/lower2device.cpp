@@ -20,6 +20,7 @@
 #include <device_lower/pass/grid_serialization.h>
 #include <device_lower/pass/index.h>
 #include <device_lower/pass/inline_ptx.h>
+#include <device_lower/pass/inplace_alias.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
 #include <device_lower/pass/loop_rotation.h>
@@ -270,6 +271,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
+           {"setInplaceAlias", setInplaceAlias},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
            {"CircularBufferPass", CircularBufferPass::run},
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},

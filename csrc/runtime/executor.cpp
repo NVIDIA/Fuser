@@ -532,6 +532,11 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     if (tv->isFusionOutput()) {
       continue;
     }
+    if (alloc->alias() != nullptr) {
+      std::cerr << "Aliased from: " << alloc->buffer()->toString() << " -> "
+                << alloc->alias()->buffer()->toString() << "\n";
+      continue;
+    }
     GlobalBufferInfo info;
     info.tv = tv;
     info.zero_init = alloc->zeroInit();

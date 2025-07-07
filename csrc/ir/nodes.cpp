@@ -303,8 +303,8 @@ std::string ScatterOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " =" << getScatterOpType() << "(";
-  ss << "self = " << selfTv()->toString() << ", dim = " << dim()
-     << ", src = " << input(2)->toString() << ", idx = " << input(1)->toString()
+  ss << "in = " << in()->toString() << ", dim = " << dim()
+     << ", src = " << src()->toString() << ", idx = " << index()->toString()
      << " )\n";
   return ss.str();
 }
@@ -3974,8 +3974,12 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
   return TransformRFactor::runReplay(this, axes_);
 }
 
-void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+void TensorDomain::setLoopDomain(
+    std::vector<IterDomain*> new_loop_domain,
+    bool skip_validation) {
+  if (!skip_validation) {
+    validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  }
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();

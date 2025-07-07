@@ -27,38 +27,11 @@ class ScatterTest : public NVFuserTest {
  protected:
   void SetUp() override {
     // To make the tests using std::rand deterministic
-    std::srand(0);
+    // std::srand(0);
   }
 };
 
 namespace {
-auto randomVector(int64_t low, int64_t high, int rank) {
-  std::vector<int64_t> out(rank, 0);
-  for (int idim = 0; idim < rank; ++idim) {
-    out[idim] = (std::rand() % (high - low)) + low;
-  }
-  return out;
-}
-
-// When takeAlongAxis is true, the extents of non-indexed dimensions
-// are set to be the same as those of the input dimensions
-auto randomIndexVector(
-    const std::vector<int64_t>& input_dims,
-    int64_t low,
-    int rank,
-    bool take_along_axis = false,
-    int indexed_dim = -1) {
-  std::vector<int64_t> index_dims(rank, 0);
-  for (int idim = 0; idim < rank; ++idim) {
-    if (!take_along_axis || idim == indexed_dim) {
-      index_dims[idim] = (std::rand() % (input_dims[idim] - low)) + low;
-    } else {
-      index_dims[idim] = input_dims.at(idim);
-    }
-  }
-  return index_dims;
-}
-
 at::Tensor generateScatter2DIndex(
     int64_t min,
     int64_t extent_1d,
@@ -127,6 +100,102 @@ TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
     testValidate(
         &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
   }
+}
+
+TEST_F(ScatterTest, TMP) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // const int64_t m = 64;
+  const int64_t m = 8;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal(DataType::Int));
+  auto tv2 = add(tv1, fusion.oneVal(DataType::Int));
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+}
+
+TEST_F(ScatterTest, BlockCounting) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // const int64_t m = 64;
+  const int64_t m = 8;
+  const int64_t n = 5;
+
+  auto tv0 = makeContigConcreteTensor({n}, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = zeros({IrBuilder::create<Val>(m)}, DataType::Int);
+  auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
+  auto tv4 = scatter(tv2, 0, tv1, tv3);
+  fusion.addOutput(tv4);
+
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+
+  // Scatter input must be the same type as the output
+  tv2->setMemoryType(MemoryType::Global);
+
+  fusion.print();
+  fusion.printKernel();
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randperm(m, options).slice(0, 0, n);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  std::cerr << "t0: " << t0 << "\n";
+  std::cerr << "out: " << outputs[0].as<at::Tensor>() << "\n";
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, SyncthreadsWithGmem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // [TIDx, TIDy]
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDy);
+
+  // [TIDy, TIDx]
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  fusion.printKernel();
 }
 
 } // namespace nvfuser
