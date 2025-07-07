@@ -15,28 +15,8 @@ namespace nvfuser {
 
 class HostIrJit {
  public:
-  struct LaunchKernelResult {
-    KernelArgumentHolder args;
-    KernelArgumentHolder outputs;
-  };
-
-  at::Tensor allocate(
-      const kir::Allocate* allocate,
-      const std::vector<int64_t>& input_sizes,
-      const std::vector<int64_t>& input_strides);
-
-  at::Tensor allocate(
-      const kir::Allocate* allocate);
-
-  std::vector<at::Tensor> runFullGraph(
-      const hir::HostIrContainer* container,
+  KernelArgumentHolder run(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
-
-LaunchKernelResult launchKernel(
-      const hir::LaunchKernel* launch_kernel,
-      int64_t cache_id,
-      const std::vector<at::Tensor>& inputs,
-      const std::vector<at::Tensor>& outputs);
 
   HostIrJit(
       hir::HostIrContainer* container,

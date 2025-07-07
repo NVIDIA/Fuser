@@ -197,9 +197,6 @@ HostIrEvaluator::HostIrEvaluator(
     Communicator* communicator,
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
-#ifdef NVFUSER_HOST_IR_JIT
-      jit_(std::make_unique<HostIrJit>(container_.get())),
-#endif
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
@@ -235,8 +232,6 @@ KernelArgumentHolder HostIrEvaluator::runWithInputs(
     expr_evaluator_.bind(in_val, arg);
   }
 
-  jit_->runFullGraph(container_.get(), val_to_PValue);
-
   for (Expr* e : container_->topLevelExprs()) {
     const std::string event_name =
         std::string("HostIrEvaluator::dispatch ") + e->getOpString();
@@ -261,7 +256,6 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
   }
-  jit_->runFullGraph(container_.get(), val_to_PValue);
 
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
@@ -358,47 +352,6 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(event));
 }
 
-#ifdef NVFUSER_HOST_IR_JIT
-void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
-
-  PolymorphicValue cache_id_poly = expr_evaluator_.evaluate(launch_kernel->cacheId());
-  int64_t cache_id = -1;
-  if (!cache_id_poly.is<std::monostate>()) {
-    cache_id = static_cast<int64_t>(cache_id_poly.as<int64_t>());
-  }
-
-  std::vector<at::Tensor> inputs;
-  for (auto& input : launch_kernel->inputs()) {
-    inputs.push_back(getKnownConcreteValue(input).as<at::Tensor>());
-  }
-
-  // All output buffers are known already, pass them to the executor
-  std::vector<at::Tensor> outputs;
-  for (Val* output : launch_kernel->outputs()) {
-    if (expr_evaluator_.isKnown(output)) {
-      outputs.push_back(getKnownConcreteValue(output).as<at::Tensor>());
-    }
-  }
-
-  auto result = jit_->launchKernel(launch_kernel, cache_id, inputs, outputs);
-  auto& kah_args = result.args;
-  auto& kah_outputs = result.outputs;
-
-  NVF_ERROR_EQ(
-      kah_outputs.size(),
-      std::ssize(launch_kernel->outputs()),
-      "Not all outputs to the kernel were preallocated");
-      
-  // run the compiled kernel
-  container_->getKernelExecutor(launch_kernel->groupId())
-      ->run(
-          kah_args,
-          kah_outputs,
-          launch_kernel->launchParams(),
-          launch_kernel->compileParams());
-}
-
-#else
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
@@ -434,7 +387,6 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
           launch_kernel->launchParams(),
           launch_kernel->compileParams());
 }
-#endif
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
@@ -775,17 +727,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 }
 
-#ifdef NVFUSER_HOST_IR_JIT
-void HostIrEvaluator::handle(kir::Allocate* allocate) {
-  FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
-  NVF_ERROR(
-      allocate->buffer()->isA<TensorView>(),
-      "Allocation must be on a TensorView but got ",
-      allocate->buffer());
-  auto tensor = jit_->allocate(allocate);
-  expr_evaluator_.bind(allocate->buffer(), tensor);
-}
-#else
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
@@ -808,7 +750,6 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt);
   expr_evaluator_.bind(tv, tensor);
 }
-#endif
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto indexed_id =

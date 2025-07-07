@@ -383,9 +383,22 @@ void compileAllocateFunc(
   }
 }
         
+void compileMainFuncOutputs(
+    const hir::HostIrContainer* container,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+    builder.CreateRetVoid();
+    const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+    if (debug_print) {
+      llvm::outs() << "=== LLVM IR Generation for Main Function ===\n";
+      mod->print(llvm::outs(), nullptr);
+    }
+}
+
+
 
 // Mainly bind input tensor sizes to val2llvmMap
-void compileMainFunc(
+void compileMainFuncInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
@@ -463,9 +476,11 @@ void compile(
   llvm::IRBuilder<> builder(*ctx);
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
   // bind the constants
-  compileMainFunc(container, builder, val2llvmMap);
+  compileMainFuncInputs(container, builder, val2llvmMap);
+  std::vector<Expr*> top_level_exprs = container->topLevelExprs();
+  livenessAnalysis(top_level_exprs, val2llvmMap);
   // Generate the top level functions
-  for(auto* input : container->topLevelExprs()) {
+  for(auto* input : top_level_exprs) {
     if(auto* allocate = dynamic_cast<const kir::Allocate*>(input)) {
       compileAllocateFunc(allocate, builder, val2llvmMap);
     }
@@ -491,8 +506,8 @@ void compile(
       NVF_THROW("Unsupported input type: ", input);
     }
   }
-  // return and verify the module
-  builder.CreateRetVoid();
+  // Collect output tensors and garbage collect intermediate tensors
+  compileMainFuncOutputs(container, builder, val2llvmMap);
   std::string error;
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(
@@ -508,6 +523,11 @@ void compile(
   main_func_ = reinterpret_cast<void(*)()>(main_func_addr.getValue());
 }
 
+
+void livenessAnalysis(const std::vector<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+  // TODO: for other types of aten ops, we want to insert proper deallocate calls to intermediate tensors
+  return;
+}
 
 llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder) {
   if (val2llvmMap.find(val) != val2llvmMap.end()) {
@@ -1112,10 +1132,29 @@ HostIrJit::HostIrJit(hir::HostIrContainer* container, int num_threads)
 HostIrJit::~HostIrJit() = default;
 
 
-std::vector<at::Tensor> HostIrJit::runFullGraph(
+KernelArgumentHolder HostIrJit::run(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
-  FUSER_PERF_SCOPE("HostIrJit::runFullGraph");
+  FUSER_PERF_SCOPE("HostIrJit::run");
+  // Bind the inputs to the tensor map
+  for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), val_to_PValue)) {
+    if (arg.is<at::Tensor>()) {
+      pimpl_->tensor_map[in_val] = arg.as<at::Tensor>();
+    }
+  }
+  // Run the main function
   pimpl_->main_func_();
+  // Collect the outputs
+  KernelArgumentHolder outputs;
+  for(auto* output : pimpl_->container_->outputs()) {
+    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+      outputs.push(pimpl_->tensor_map[tv]);
+    }
+  }
+  
+  // Clear the entire tensor map after collecting outputs, garbage collect intermediate tensors
+  pimpl_->tensor_map.clear();
+  
+  return outputs;
 }
 
 

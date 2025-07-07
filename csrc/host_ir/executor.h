@@ -11,9 +11,6 @@
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#ifdef NVFUSER_HOST_IR_JIT
-#include <host_ir/jit.h>
-#endif
 #include <c10/cuda/CUDAStream.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
@@ -167,9 +164,6 @@ class HostIrEvaluator final : public OptOutDispatch {
   }
 
   std::unique_ptr<HostIrContainer> container_;
-#ifdef NVFUSER_HOST_IR_JIT
-  std::unique_ptr<HostIrJit> jit_;
-#endif
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
   // Stores concrete computed values
