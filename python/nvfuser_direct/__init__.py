@@ -24,7 +24,7 @@ from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
 
 
-def dtensor_execute(fd, in_dtensors):
+def execute_with_dtensors(fd, in_dtensors):
     """
     Execute a fusion on a list of DTensor inputs.
 
@@ -45,7 +45,9 @@ def dtensor_execute(fd, in_dtensors):
     from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 
     inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
-    out_tensors, out_shardings = fd.multigpu_execute(inputs)
+    out_tensors = self.execute(inputs, auto_schedule=True)
+    out_shardings = self.fec.get_output_shardings()
+    assert len(out_tensors) == len(out_shardings)
 
     out_dtensors: list[DTensor] = []
     for out_tensor, out_sharding in zip(out_tensors, out_shardings):
@@ -219,27 +221,6 @@ class FusionDefinition:
             return self.fec.execute(inputs)
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
-
-    def multigpu_execute(self, inputs):
-        """
-        Execute the fusion on a list of torch.Tensor inputs on a specific device.
-
-        Parameters
-        ----------
-        inputs : list of torch.Tensor
-            The list of torch.Tensor inputs to the fusion
-
-        Returns
-        -------
-        list of torch.Tensor
-            The list of torch.Tensor outputs from the fusion
-        list of Sharding
-            The list of Sharding objects for the outputs
-        """
-        out_tensors = self.execute(inputs, auto_schedule=True)
-        out_shardings = self.fec.get_output_shardings()
-        assert len(out_tensors) == len(out_shardings)
-        return out_tensors, out_shardings
 
     def from_pytorch(self, tensor, static_sizes=False):
         """
