@@ -310,46 +310,13 @@ void nvfp4_scaled_mm_assert(
       b.sizes()[1],
       ").");
 
-  NVF_CHECK(out_dtype == at::ScalarType::Half ||
- out_dtype == at::ScalarType::BFloat16 ||
- out_dtype == at::ScalarType::Float, "unsupported dtype on output: ", out_dtype)
-}
-
-bool nvfp4_scaled_mm_check(
-    at::ScalarType out_dtype,
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
-  try {
-    nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
-  auto out_dtype = output.dtype();
-  nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
-
-  auto const m = a.sizes()[0];
-  auto const n = b.sizes()[0];
-  auto const k = a.sizes()[1] * 2;
-
   auto round_up = [](int x, int y) { return (x + y - 1) / y * y; };
   int rounded_m = round_up(m, 128);
   int rounded_n = round_up(n, 128);
   // Since k is divisible by 32 (alignment), k / 16 is guaranteed to be an
   // integer.
   int rounded_k = round_up(k / 16, 4);
-
+  
   NVF_CHECK(scales_a.dim() == 2, "scale_a must be a matrix");
   NVF_CHECK(scales_b.dim() == 2, "scale_b must be a matrix");
   NVF_CHECK(
@@ -385,6 +352,39 @@ void nvfp4_scaled_mm(
       "x",
       scales_b.sizes()[1],
       ")");
+
+  NVF_CHECK(out_dtype == at::ScalarType::Half ||
+ out_dtype == at::ScalarType::BFloat16 ||
+ out_dtype == at::ScalarType::Float, "unsupported dtype on output: ", out_dtype)
+}
+
+bool nvfp4_scaled_mm_check(
+    at::ScalarType out_dtype,
+    torch::Tensor const& a,
+    torch::Tensor const& b,
+    torch::Tensor const& scales_a,
+    torch::Tensor const& scales_b,
+    torch::Tensor const& alpha) {
+  try {
+    nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+void nvfp4_scaled_mm(
+    torch::Tensor& output,
+    torch::Tensor const& a,
+    torch::Tensor const& b,
+    torch::Tensor const& scales_a,
+    torch::Tensor const& scales_b,
+    torch::Tensor const& alpha) {
+  auto out_dtype = output.scalar_type();
+  nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
+
+  auto const m = a.sizes()[0];
+  auto const n = b.sizes()[0];
+  auto const k = a.sizes()[1] * 2;
 
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());

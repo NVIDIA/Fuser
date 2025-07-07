@@ -6214,9 +6214,10 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   at::Tensor result;
   at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
-  // TODO: refactor this to use `canExecute` util from the kernel.
-  if (cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1, mat2.t(), scale1, scale2, alpha)) {
-    // nvfp4_scaled_mm seems to have some restriction as well.
+  // nvfp4_scaled_mm seems to have some restriction as well, use the check function to avoid assert
+  // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
+  if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
+    cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1, mat2.t(), scale1, scale2, alpha)) {
     // NOTE: this doesn't feel very flexible. We probably want to relax this when the kernel is fixed up.
     int m = mat1.sizes().at(0);
     int n = mat2.sizes().at(mat2.dim() - 1);
