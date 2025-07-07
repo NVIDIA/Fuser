@@ -89,4 +89,15 @@ std::vector<std::pair<double, double>> get_val_constants(
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 
+void validate_with_auto_inferred_outputs(
+    Fusion* fusion,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    std::vector<at::Tensor> aten_outputs = {},
+    int line_number = 0,
+    const char* file_name = "",
+    std::string err_msg = "",
+    const LaunchParams& lparams = LaunchParams(),
+    const ValidationConstants& tolerances = ValidationConstants());
+
 } // namespace nvfuser

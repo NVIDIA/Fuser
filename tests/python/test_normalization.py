@@ -199,3 +199,116 @@ def test_issue2702():
     outs = fd.execute(ins)
 
     torch.testing.assert_close(outs[0], ins[0].view(8, 4, 8192, 128).sum(1))
+
+
+# https://nvbugspro.nvidia.com/bug/5374765
+# Avoid setting 2 vectorization loop domains for a single tensor.
+def test_ws_tma_vectorization_loop_domain():
+    def create_fusion(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[4096, 3072],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[4096, 3072],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[3072],
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        T3 = fd.define_tensor(
+            shape=[1, 4096, 3072],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T4 = fd.define_tensor(
+            shape=[1, 4096, 1],
+            contiguity=[None, True, None],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T5 = fd.define_tensor(
+            shape=[1, 4096, 3072],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T10 = fd.ops.reshape(T0, new_shape=[1, 4096, 3072])
+        T15 = fd.ops.reshape(T1, new_shape=[1, 4096, 3072])
+        T16 = fd.ops.cast(T2, dtype=DataType.Float)
+        T17 = fd.ops.cast(T10, dtype=DataType.Float)
+        T18 = fd.ops.cast(T15, dtype=DataType.Float)
+        S19 = fd.define_scalar(1.00000, dtype=DataType.Double)
+        T20 = fd.ops.add(S19, T16)
+        T21 = fd.ops.add(T18, T17)
+        T26 = fd.ops.broadcast_in_dim(T20, shape=[1, 4096, 3072], broadcast_dims=[2])
+        T27 = fd.ops.mul(T26, T21)
+        T28 = fd.ops.cast(T3, dtype=DataType.Float)
+        T29 = fd.ops.mul(T28, T27)
+        T30 = fd.ops.sum(T29, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T35 = fd.ops.broadcast_in_dim(T30, shape=[1, 4096, 1], broadcast_dims=[1])
+        T36 = fd.ops.mul(T4, T4)
+        T37 = fd.ops.mul(T4, T36)
+        S38 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+        T39 = fd.ops.mul(S38, T35)
+        T40 = fd.ops.mul(T39, T37)
+        S41 = fd.define_scalar(3072.00, dtype=DataType.Double)
+        S42 = fd.ops.reciprocal(S41)
+        T43 = fd.ops.mul(T40, S42)
+        T44 = fd.ops.sum(T43, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T48 = fd.ops.broadcast_in_dim(T44, shape=[1, 4096], broadcast_dims=[1])
+        T53 = fd.ops.broadcast_in_dim(T48, shape=[1, 4096, 1], broadcast_dims=[0, 1])
+        T58 = fd.ops.broadcast_in_dim(
+            T53, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+        )
+        T63 = fd.ops.broadcast_in_dim(
+            T4, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+        )
+        T64 = fd.ops.mul(T28, T58)
+        T65 = fd.ops.mul(T63, T27)
+        T66 = fd.ops.add(T65, T64)
+        T67 = fd.ops.add(T66, T64)
+        T68 = fd.ops.cast(T5, dtype=DataType.Float)
+        T69 = fd.ops.add(T68, T67)
+        T70 = fd.ops.mul(T28, T63)
+        T71 = fd.ops.mul(T70, T21)
+        T72 = fd.ops.sum(T71, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T73 = fd.ops.cast(T69, dtype=DataType.BFloat16)
+        T74 = fd.ops.cast(T72, dtype=DataType.BFloat16)
+        T78 = fd.ops.reshape(T73, new_shape=[4096, 3072])
+        T79 = fd.ops.permute(T78, dims=[1, 0])
+        fd.add_output(T79)
+        fd.add_output(T78)
+        fd.add_output(T73)
+        fd.add_output(T74)
+
+    with FusionDefinition() as fd:
+        create_fusion(fd)
+
+    inputs = [
+        torch.testing.make_tensor((4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((3072,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor(
+            (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+        ),
+        torch.testing.make_tensor((1, 4096, 1), dtype=torch.float32, device="cuda:0"),
+        torch.testing.make_tensor(
+            (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+        ),
+    ]
+    fd.validate(inputs)

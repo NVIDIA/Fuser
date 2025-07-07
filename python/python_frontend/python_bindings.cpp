@@ -1462,6 +1462,24 @@ void initNvFuserPythonBindings(PyObject* module) {
       },
       py::return_value_policy::reference);
 
+  fusion_def.def(
+      "validateWithAutoInferredOutputs",
+      [](FusionDefinition& self,
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
+        KernelArgumentHolder fusion_outputs_holder;
+        for (py::handle obj : fusion_outputs) {
+          fusion_outputs_holder.push(
+              torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        KernelArgumentHolder inputs_holder;
+        for (py::handle obj : inputs) {
+          inputs_holder.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.validateWithAutoInferredOutputs(
+            fusion_outputs_holder, inputs_holder);
+      },
+      py::return_value_policy::reference);
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
   //!
