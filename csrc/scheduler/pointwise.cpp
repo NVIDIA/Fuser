@@ -589,9 +589,10 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
     if (to->hasRoot()) {
       // propagate untracked property through root->logical transforms
       for (Expr* e : StmtSort::getExprsBetween(
-               {to->getLogicalDomain().begin(), to->getLogicalDomain().end()},
                {to->getMaybeRootDomain().begin(),
-                to->getMaybeRootDomain().end()})) {
+                to->getMaybeRootDomain().end()},
+               {to->getLogicalDomain().begin(),
+                to->getLogicalDomain().end()})) {
         // TODO: should we exclude ID exprs other than Merge/Split here?
         bool has_unscheduled_input = std::any_of(
             e->inputs().begin(), e->inputs().end(), [&](Val* in_val) {
