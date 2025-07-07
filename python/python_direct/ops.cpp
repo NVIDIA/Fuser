@@ -2306,6 +2306,57 @@ TensorView
     The scattered tensor.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "gather",
+      [](TensorView* arg1, TensorView* index, int64_t dim) -> TensorView* {
+        NVF_CHECK(
+            arg1->nDims() == index->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg1->nDims(),
+            " and ",
+            index->nDims());
+        NVF_CHECK(
+            dim >= -arg1->nDims() && dim < arg1->nDims(),
+            "Tensor arguments have dimension ",
+            arg1->nDims(),
+            " so dim argument must satisfy ",
+            -arg1->nDims(),
+            " <= dim < ",
+            arg1->nDims(),
+            ", but received ",
+            dim);
+        return gather(arg1, dim, index);
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("dim"),
+      R"(
+Index arg1 in dim at positions given by index.
+
+The dimension of arg1 and index must match. For all axes other than dim
+the extent of index in that axis need not be equal to its counterpart
+in arg1 but must not be greater than it.
+
+Parameters
+----------
+arg1 : TensorView
+    A TensorView of shape `(Ni...,M,Nk...)` where `M` is the extent of `arg1`
+    in the dimension `dim`.
+index : TensorView
+    A TensorView of dtype `DataType::Int` of shape `(Mi...,J,Mk...)` where all
+    the extents other than `J` are less than or equal to their counterparts in
+    `arg1`; for example `Mk <= Nk`.
+dim : int
+    Which position to index along.
+
+Returns
+-------
+TensorView
+    A TensorView of same dtype as `arg1` and of shape `(Mi...,J,Mk...)` where
+    the element at position `(i...,j,k...)` is equal to 
+    `arg1[i,...,index[i,...,j,k,...],k,...]`.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>

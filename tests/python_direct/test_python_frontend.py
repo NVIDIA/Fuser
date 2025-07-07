@@ -892,3 +892,25 @@ class TestNvFuserFrontend(NVFuserTest):
         fuser_result, _ = self.exec_nvfuser(fusion_func, inputs)
         torch_result = torch.var_mean(inputs[0], [-1], correction=0)
         self.assertEqual(fuser_result, torch_result)
+
+    def test_gather(self):
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+            torch.randn(8, 16, device="cuda"),
+            torch.randint(0, 8, (4, 4), device="cuda").to(dtype=torch.long),
+        ]
+
+        for dim in [0, 1]:
+
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(inputs[0])
+                t1 = fd.from_pytorch(inputs[1])
+                t2 = fd.from_pytorch(inputs[2])
+                t3 = fd.ops.add(t0, t1)
+                t4 = fd.ops.gather(t3, t2, dim)
+                fd.add_output(t4)
+
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+
+            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            self.assertEqual(eager_out, nvf_out[0])
