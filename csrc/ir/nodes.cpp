@@ -24,6 +24,9 @@
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+#include <nvf_cutlass.h>
+#endif
 
 #include <torch/nn/options/embedding.h>
 
