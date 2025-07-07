@@ -130,6 +130,7 @@ TEST_F(ScatterTest, TMP) {
   auto outputs = ke.run({t0});
 }
 
+// Counting of non-duplicated integers with TIDx
 TEST_F(ScatterTest, BlockCounting) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -168,6 +169,7 @@ TEST_F(ScatterTest, BlockCounting) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Counting of non-duplicated integers with BIDx
 TEST_F(ScatterTest, GridCounting) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
