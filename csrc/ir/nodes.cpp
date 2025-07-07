@@ -6215,8 +6215,8 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   // nvfp4_scaled_mm expected Byte input dtype. We shouldn't need to do this.
-  at::Tensor mat1_view = at::view_dtype(mat1, at::ScalarType::Byte);
-  at::Tensor mat2_view = at::view_dtype(mat2, at::ScalarType::Byte);
+  at::Tensor mat1_view = at::view(mat1, at::ScalarType::Byte);
+  at::Tensor mat2_view = at::view(mat2, at::ScalarType::Byte);
   // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
   if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
     cutlass_kernels::nvfp4_scaled_mm_check(out_scalar_type, mat1_view, mat2_view.t(), scale1, scale2, alpha)) {
