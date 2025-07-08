@@ -761,7 +761,6 @@ class PythonTranslator : public OptInConstDispatch {
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
 
-  // Map UnaryOp to python_frontend OpRecord
   void handle(const UnaryOp* uop) final {
     NVF_ERROR(uop != nullptr);
     // short-circuit: Handle cast operation separately
@@ -769,13 +768,12 @@ class PythonTranslator : public OptInConstDispatch {
       return handleCastOp(uop);
     }
 
-    // Map remaining UnaryOp to python_frontend OpRecord
+    // Map remaining UnaryOp to python_frontend
     visited_vals_.insert(uop->out());
     printer_.generateOperation(
         "fd.ops." + nvfuser::python::toString(uop), {uop->in()}, {uop->out()});
   }
 
-  // Map cast UnaryOp to CastOpRecord
   void handleCastOp(const UnaryOp* uop) {
     NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
     visited_vals_.insert(uop->out());
@@ -796,7 +794,6 @@ class PythonTranslator : public OptInConstDispatch {
         {uop->out()});
   }
 
-  // Map BinaryOp to python_frontend OpRecord
   void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop != nullptr);
     if (visited_vals_.count(bop->out()) > 0) {
@@ -809,7 +806,6 @@ class PythonTranslator : public OptInConstDispatch {
         {bop->out()});
   }
 
-  // Map TernaryOp to python frontend
   void handle(const TernaryOp* top) final {
     NVF_ERROR(top != nullptr);
     visited_vals_.insert(top->out());
@@ -819,7 +815,6 @@ class PythonTranslator : public OptInConstDispatch {
         {top->out()});
   }
 
-  // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
     NVF_ERROR(rop->out()->isA<TensorView>());
@@ -848,7 +843,6 @@ class PythonTranslator : public OptInConstDispatch {
         {rop->out()});
   }
 
-  // Map ScanOp to python frontend
   void handle(const ScanOp* sop) final {
     NVF_ERROR(sop != nullptr);
     visited_vals_.insert(sop->out());
@@ -862,7 +856,6 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
-  // Map WelfordOp to python frontend
   void handle(const WelfordOp* wop) final {
     NVF_ERROR(wop != nullptr);
     NVF_ERROR(wop->initAvg()->evaluate().as<double>() == 0.0);
@@ -882,7 +875,6 @@ class PythonTranslator : public OptInConstDispatch {
         {wop->outAvg(), wop->outVar(), wop->outN()});
   }
 
-  // Add Broadcast operation to FusionDefinition
   void handle(const BroadcastOp* bcast_op) final {
     NVF_ERROR(bcast_op != nullptr);
     visited_vals_.insert(bcast_op->out());
@@ -896,7 +888,6 @@ class PythonTranslator : public OptInConstDispatch {
         {bcast_op->out()});
   }
 
-  // Map MatmulOp to TensorView-Only OpRecord
   void handle(const MatmulOp* matmul_op) final {
     NVF_ERROR(matmul_op != nullptr);
     visited_vals_.insert(matmul_op->out());
@@ -907,7 +898,6 @@ class PythonTranslator : public OptInConstDispatch {
         {matmul_op->out()});
   }
 
-  // Map LinearOp to python frontend
   void handle(const LinearOp* lop) final {
     NVF_ERROR(lop != nullptr);
     visited_vals_.insert(lop->out());
@@ -922,7 +912,6 @@ class PythonTranslator : public OptInConstDispatch {
         {lop->out()});
   }
 
-  // Map GroupedMmaOp to python frontend
   void handle(const GroupedMmaOp* gmm_op) final {
     NVF_ERROR(gmm_op != nullptr);
     TensorView* out_tv = gmm_op->out();
@@ -988,7 +977,6 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
-  // Map ScaledMmaOp to python frontend
   void handle(const ScaledMmaOp* smm_op) final {
     NVF_ERROR(smm_op != nullptr);
     TensorView* out_tv = smm_op->out();
@@ -1046,7 +1034,32 @@ class PythonTranslator : public OptInConstDispatch {
         {smm_op->out(), out_block_scale_tv, out_gamma_tv});
   }
 
-  // Map SqueezeOp to python frontend
+  void handle(const SdpaFwdOp* sdpa_fwd_op) final {
+    NVF_ERROR(sdpa_fwd_op != nullptr);
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<Val*>{"dropout_p", nullptr},
+        KeywordArgument<Val*>{"is_causal", nullptr},
+        KeywordArgument<Val*>{"scale", nullptr});
+    visited_vals_.insert(sdpa_fwd_op->attn_out());
+    visited_vals_.insert(sdpa_fwd_op->logsumexp());
+    visited_vals_.insert(sdpa_fwd_op->philox_seed());
+    visited_vals_.insert(sdpa_fwd_op->philox_offset());
+    printer_.generateKwargsOperation(
+        "fd.ops.sdpfa_fwd",
+        std::make_tuple(
+            sdpa_fwd_op->query(), sdpa_fwd_op->key(), sdpa_fwd_op->value()),
+        default_args,
+        std::make_tuple(
+            sdpa_fwd_op->dropout_p(),
+            sdpa_fwd_op->is_causal(),
+            sdpa_fwd_op->scale()),
+        {sdpa_fwd_op->attn_out(),
+         sdpa_fwd_op->logsumexp(),
+         sdpa_fwd_op->philox_seed(),
+         sdpa_fwd_op->philox_offset()});
+  }
+
   void handle(const SqueezeOp* sop) final {
     NVF_ERROR(sop != nullptr);
     visited_vals_.insert(sop->out());
@@ -1082,7 +1095,6 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
-  // Map ViewOp to python frontend
   void handle(const ViewOp* vop) final {
     NVF_ERROR(vop != nullptr);
 
@@ -1108,7 +1120,6 @@ class PythonTranslator : public OptInConstDispatch {
         {vop->out()});
   }
 
-  // Map ExpandOp to python frontend
   void handle(const ExpandOp* eop) final {
     NVF_ERROR(eop != nullptr);
     TensorView* in_tv = eop->in()->as<TensorView>();
@@ -1129,7 +1140,6 @@ class PythonTranslator : public OptInConstDispatch {
         {eop->out()});
   }
 
-  // Map SliceOp to python frontend
   void handle(const SliceOp* sop) final {
     NVF_ERROR(sop != nullptr);
     std::vector<nvfuser::Slice> slices = sop->getRanges();
@@ -1167,7 +1177,6 @@ class PythonTranslator : public OptInConstDispatch {
         {sop->out()});
   }
 
-  // Map PadOp to python frontend
   void handle(const PadOp* pad_op) final {
     NVF_ERROR(pad_op != nullptr);
 
@@ -1224,7 +1233,6 @@ class PythonTranslator : public OptInConstDispatch {
         {pad_op->out()});
   }
 
-  // Map CatOp to python frontend
   void handle(const CatOp* cat_op) final {
     NVF_ERROR(cat_op != nullptr);
 
@@ -1281,7 +1289,6 @@ class PythonTranslator : public OptInConstDispatch {
         {lsop->out()});
   }
 
-  // Map FullOp to python frontend
   void handle(const FullOp* fop) final {
     NVF_ERROR(fop != nullptr);
     TensorView* out_tv = fop->output(0)->as<TensorView>();
@@ -1300,7 +1307,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map IotaOp to python frontend
   void handle(const IotaOp* iop) final {
     NVF_ERROR(iop != nullptr);
     TensorView* out_tv = iop->output(0)->as<TensorView>();
@@ -1323,7 +1329,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);
     TensorView* out_tv = isop->output(0)->as<TensorView>();
@@ -1337,7 +1342,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map SelectOp to IndexSelectOpRecord
   void handle(const SelectOp* sop) final {
     NVF_ERROR(sop != nullptr);
     TensorView* out_tv = sop->output(0)->as<TensorView>();
@@ -1351,7 +1355,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map ScatterOp to python frontend
   void handle(const ScatterOp* sop) final {
     NVF_ERROR(sop != nullptr);
     TensorView* out_tv = sop->output(0)->as<TensorView>();
@@ -1365,7 +1368,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
     NVF_ERROR(gop != nullptr);
     TensorView* out_tv = gop->output(0)->as<TensorView>();
@@ -1379,7 +1381,6 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
-  // Map TopKOp to python frontend
   void handle(const TopKOp* topkop) final {
     NVF_ERROR(topkop != nullptr);
     visited_vals_.insert(topkop->output(0));
@@ -1396,7 +1397,6 @@ class PythonTranslator : public OptInConstDispatch {
         std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
   }
 
-  // Map ArgsortOp to python frontend
   void handle(const ArgsortOp* argsortop) final {
     NVF_ERROR(argsortop != nullptr);
 
