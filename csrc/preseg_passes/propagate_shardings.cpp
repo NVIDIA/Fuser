@@ -196,13 +196,12 @@ void transformLoopDomain(
       // Find the root domain id.
       std::unordered_set<IterDomain*> inputs =
           getInputsInTargetDomain({ref_id}, ref->getMaybeRootDomain());
-      NVF_ERROR(
-          inputs.size() == 1,
+      NVF_ERROR_EQ(
+          inputs.size(),
+          1,
           "Expected one input for ",
           ref_id,
-          " in the root domain. Got ",
-          inputs.size(),
-          " inputs.");
+          " in the root domain.");
       ref_id = *inputs.begin();
     }
 
@@ -295,7 +294,7 @@ void transformLoopDomain(
   // Parallelize based on the ref2target map.
   for (IterDomain* device_id : device_ids) {
     NVF_ERROR(
-        ref2target.find(device_id) != ref2target.end(),
+        ref2target.contains(device_id),
         "Failed to propagate ",
         device_id,
         " to ",
@@ -319,23 +318,22 @@ void propagateDIDTransform(
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, tv, direction);
 
-  for (IterDomain* maybe_did : ref->getLoopDomain()) {
-    if (selected_parallel_types.count(maybe_did->getParallelType()) == 0) {
+  for (IterDomain* device_id : ref->getLoopDomain()) {
+    if (selected_parallel_types.count(device_id->getParallelType()) == 0) {
       continue;
     }
-    // Get input of maybe_did in the root / logical domain
+    // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
     std::unordered_set<IterDomain*> inputs =
         direction == PropagateDirection::kForward
-        ? getInputsInTargetDomain({maybe_did}, ref->getLogicalDomain())
-        : getInputsInTargetDomain({maybe_did}, ref->getMaybeRootDomain());
-    NVF_ERROR(
-        inputs.size() == 1,
-        "Expected one input for ",
-        maybe_did,
-        " in the root / logical domain. Got ",
+        ? getInputsInTargetDomain({device_id}, ref->getLogicalDomain())
+        : getInputsInTargetDomain({device_id}, ref->getMaybeRootDomain());
+    NVF_ERROR_EQ(
         inputs.size(),
-        " inputs.");
+        1,
+        "Expected one input for ",
+        device_id,
+        " in the root / logical domain.");
     IterDomain* ref_id = *inputs.begin();
     IterDomain* target_id = getOrDefault(ref2target, ref_id);
     if (target_id == nullptr) {
@@ -347,13 +345,15 @@ void propagateDIDTransform(
     // For e.g., if ref [h] -> target [a, h/a], then the outermost logical ID
     // is `a`.
     IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
-    // Skip if the target is parallelized or not in the loop domain (i.e.
-    // further transformed).
-    if (outermost_target_id->isParallelized() ||
-        !isInDomain(outermost_target_id, tv->getLoopDomain())) {
+
+    if (outermost_target_id->isParallelized()) {
       continue;
     }
-    device_ids.insert(maybe_did);
+    // Skip if the target is not in the loop domain (i.e. further transformed).
+    if (!isInDomain(outermost_target_id, tv->getLoopDomain())) {
+      continue;
+    }
+    device_ids.insert(device_id);
   }
 
   transformLoopDomain(tv, ref, device_ids, direction);
