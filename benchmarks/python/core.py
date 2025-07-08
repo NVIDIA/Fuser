@@ -20,6 +20,7 @@ BENCHMARK_CONFIG = {
     "rounds": 10,
     "warmup_rounds": 1,
     "num_inputs": None,
+    "with_nsys": False,
 }
 
 L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
@@ -144,7 +145,8 @@ class NVFBenchmark:
         self._timer.set_fd(fd)
 
     def cleanup(self):
-        self._timer.cleanup()
+        if not BENCHMARK_CONFIG["with_nsys"]:
+            self._timer.cleanup()
 
     def set_metrics(
         self,

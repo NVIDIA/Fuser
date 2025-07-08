@@ -61,6 +61,13 @@ def pytest_addoption(parser):
         help="Number of inputs to randomly sample for each benchmark.",
     )
 
+    parser.addoption(
+        "--with-nsys",
+        action="store_true",
+        default=False,
+        help="Run benchmark scripts with nsys. Disable all other profilers.",
+    )
+
 
 @pytest.fixture
 def disable_validation(request):
