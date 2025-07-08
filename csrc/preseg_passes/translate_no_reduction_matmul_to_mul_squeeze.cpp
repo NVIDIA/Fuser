@@ -75,6 +75,7 @@ class NoReductionMatmulToMulSqueezeTranslator {
     for (auto matmul : no_reduction_matmul_) {
       auto in_a = matmul->inA();
       auto in_b = matmul->inB();
+      auto dtype = matmul->out()->dtype();
 
       // Given:
       //
@@ -166,15 +167,10 @@ class NoReductionMatmulToMulSqueezeTranslator {
 
       if (matrix_ndims_a == 2 && matrix_ndims_b == 1) {
         // Case 1
-        if (std::any_of(bc_flags_a.begin(), bc_flags_a.end(), [](bool flag) {
-              return flag;
-            })) {
-          in_a = broadcast(in_a, bc_flags_a);
-        }
         bc_flags_b.push_back(false);
         *(bc_flags_b.rbegin() + 1) = true;
         in_b = broadcast(in_b, bc_flags_b);
-        auto out = mul(in_a, in_b);
+        auto out = maybeCastOp(dtype, mul(in_a, in_b));
         std::vector<bool> squeeze_flags(out->nDims(), false);
         squeeze_flags.back() = true;
         IrBuilder::create<SqueezeOp>(matmul->out(), out, squeeze_flags);
@@ -182,16 +178,10 @@ class NoReductionMatmulToMulSqueezeTranslator {
         // Case 2
         bc_flags_a.push_back(true);
         in_a = broadcast(in_a, bc_flags_a);
-        if (std::any_of(bc_flags_b.begin(), bc_flags_b.end(), [](bool flag) {
-              return flag;
-            })) {
-          in_b = broadcast(in_a, bc_flags_b);
-        }
-        auto out = mul(in_a, in_b);
+        auto out = maybeCastOp(dtype, mul(in_a, in_b));
         std::vector<bool> squeeze_flags(out->nDims(), false);
         *(squeeze_flags.rbegin() + 1) = true;
         IrBuilder::create<SqueezeOp>(matmul->out(), out, squeeze_flags);
-        continue;
       } else {
         // Case 3
         bc_flags_a.push_back(false);
@@ -203,7 +193,7 @@ class NoReductionMatmulToMulSqueezeTranslator {
         *(bc_flags_b.rbegin() + 2) = true;
         auto in_b_bc = broadcast(in_b_t, bc_flags_b);
 
-        auto out = mul(in_a_bc, in_b_bc);
+        auto out = maybeCastOp(dtype, mul(in_a_bc, in_b_bc));
         std::vector<bool> to_squeeze(out->nDims(), false);
         to_squeeze.back() = true;
         IrBuilder::create<SqueezeOp>(matmul->out(), out, to_squeeze);

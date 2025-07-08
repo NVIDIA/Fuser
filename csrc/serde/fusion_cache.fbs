@@ -88,6 +88,7 @@ enum RecordType: int {
     ReshapeOp,
     Scalar,
     ScaledGroupedMmaOp,
+    ScaledMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -366,7 +367,7 @@ table TopK {
   sorted: bool;
 }
 
-// Data for ScaledGroupedMmaOpRecord
+// Data for ScaledGroupedMmaOpRecord and ScaledMmaOpRecord
 table ScaledOp {
   dtype: long;
   block_scale_size: long;
