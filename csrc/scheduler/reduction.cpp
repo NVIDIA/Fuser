@@ -381,8 +381,8 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
             << "outer_unroll: " << outer_unroll << "\n"
             << "inner iteration: " << getInnerRemainder() << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_dtype_size_for_vectorization: "
-            << max_dtype_size_for_vectorization << "\n"
+            << "max_dtype_size_bit_for_vectorization: "
+            << max_dtype_size_bit_for_vectorization << "\n"
             << "block(" << bdimx << ", " << bdimy << ", " << 1 << ")"
             << std::endl;
     debug() << rparams->toString() << std::endl;
@@ -776,8 +776,8 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_dtype_size_for_vectorization: "
-            << max_dtype_size_for_vectorization << "\n"
+            << "max_dtype_size_bit_for_vectorization: "
+            << max_dtype_size_bit_for_vectorization << "\n"
             << "block(" << bdimx << ", " << bdimy << ", " << bdimz << ")"
             << std::endl;
     debug() << rparams->toString() << std::endl;
@@ -799,7 +799,7 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
           total_reduction_numel,
           total_iteration_numel,
           (int64_t)n_tensor_inputs,
-          (int64_t)max_dtype_size_for_vectorization,
+          (int64_t)max_dtype_size_bit_for_vectorization,
           (int64_t)vectorize_factor,
           has_mufu_computation);
     }
