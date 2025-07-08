@@ -12,6 +12,7 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/pre_segmenter.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -154,7 +155,11 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
   fusion.addOutput(tv_block_scale_fp8);
   fusion.addOutput(tv_data_lp);
-  fusion.print();
+
+  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
+      &fusion);
+
+  fusion.printMath();
 }
 
 INSTANTIATE_TEST_SUITE_P(
