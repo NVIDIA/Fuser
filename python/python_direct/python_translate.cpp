@@ -936,6 +936,31 @@ class PythonTranslator : public OptInConstDispatch {
         {smm_op->out(), out_block_scale_tv, out_gamma_tv});
   }
 
+  // Map SdpaFwdOp to SdpaFwdOpRecord
+  void handle(const SdpaFwdOp* sdpa_fwd_op) final {
+    NVF_ERROR(sdpa_fwd_op != nullptr);
+
+    static const std::vector<std::string> argument_names = {
+        "dropout_p", "is_causal", "scale"};
+    visited_vals_.insert(sdpa_fwd_op->attn_out());
+    visited_vals_.insert(sdpa_fwd_op->logsumexp());
+    visited_vals_.insert(sdpa_fwd_op->philox_seed());
+    visited_vals_.insert(sdpa_fwd_op->philox_offset());
+    printer_.generateKwargsOperation(
+        "fd.ops.sdpfa_fwd",
+        std::make_tuple(
+            sdpa_fwd_op->query(), sdpa_fwd_op->key(), sdpa_fwd_op->value()),
+        argument_names,
+        std::make_tuple(
+            sdpa_fwd_op->dropout_p(),
+            sdpa_fwd_op->is_causal(),
+            sdpa_fwd_op->scale()),
+        {sdpa_fwd_op->attn_out(),
+         sdpa_fwd_op->logsumexp(),
+         sdpa_fwd_op->philox_seed(),
+         sdpa_fwd_op->philox_offset()});
+  }
+
   // Map SqueezeOp to python frontend
   void handle(const SqueezeOp* sop) final {
     NVF_ERROR(sop != nullptr);
