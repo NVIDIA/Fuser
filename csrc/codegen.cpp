@@ -3540,9 +3540,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     startBlock(true);
     if (cbls == CircularBufferLoopStage::ComputeWarp) {
       is_within_warp_specialized_compute_loop_ = true;
+      kir::ConstIrVisitor::handle(loop);
+      is_within_warp_specialized_compute_loop_ = false;
+    } else {
+      kir::ConstIrVisitor::handle(loop);
     }
-    kir::ConstIrVisitor::handle(loop);
-    is_within_warp_specialized_compute_loop_ = false;
     endBlock();
   }
 
