@@ -502,4 +502,6 @@ def test_issue4729(multidevice_test):
     fd = Model()
     (z,), _ = fd.execute([x, y, w])
 
-    torch.testing.assert_close(z.cpu(), torch.nn.functional.linear(x_ref * y_ref, w_ref))
+    torch.testing.assert_close(
+        z.cpu(), torch.nn.functional.linear(x_ref * y_ref, w_ref)
+    )
