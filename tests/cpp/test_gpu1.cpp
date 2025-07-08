@@ -2908,6 +2908,7 @@ TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
 }
 
 TEST_F(NVFuserTest, Fp4CastToHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2935,6 +2936,7 @@ TEST_F(NVFuserTest, Fp4CastToHighPrecisionFusionExecutorCache) {
 }
 
 TEST_F(NVFuserTest, Fp4CastFromHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
