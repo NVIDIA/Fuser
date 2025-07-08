@@ -976,7 +976,7 @@ bool canProjectToPersistentProducer(
   }
 }
 
-int64_t getPersistentBufferSizeOfTensorBit(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
@@ -1057,7 +1057,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 
   for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes_bit[buffer_i] = getPersistentBufferSizeOfTensorBit(
+    persistent_buffer_sizes_bit[buffer_i] = getPersistentBufferSizeBitOfTensor(
         buffer, runtime_info, persistent_buffer_info);
   }
 
