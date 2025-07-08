@@ -38,7 +38,8 @@ class Pointer {
 
  public:
   template <typename T>
-  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
+  Pointer(T* ptr)
+      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
 
   inline Pointer(void* ptr, DataType dtype);
 
@@ -55,14 +56,16 @@ class Pointer {
 
   Pointer& operator+=(int64_t offset) {
     int64_t offset_bit = offset * size_bit_;
-    NVF_ERROR(offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
     ptr_ += offset_bit / 8;
     return *this;
   }
 
   Pointer& operator-=(int64_t offset) {
     int64_t offset_bit = offset * size_bit_;
-    NVF_ERROR(offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
     ptr_ -= offset_bit / 8;
     return *this;
   }

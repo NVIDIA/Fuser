@@ -80,7 +80,9 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
         if (stride != expected_stride) {
           int64_t new_stride_bit = stride * dtype_size_bit;
-          NVF_ERROR(new_stride_bit % 8 == 0, "Stride must be a multiple of 8 bits (one byte)");
+          NVF_ERROR(
+              new_stride_bit % 8 == 0,
+              "Stride must be a multiple of 8 bits (one byte)");
           input_discontig_strides_[fusion_inp].push_back(new_stride_bit / 8);
           expected_stride = stride;
         }
