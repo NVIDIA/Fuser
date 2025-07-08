@@ -1501,8 +1501,8 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
     if ((int64_t)dev_prop->sharedMemPerBlockOptin * 8 < logic_buffer_size_bit) {
       has_enough_regs_smem = false;
     } else {
-      int64_t available_buffer_size = normalization_scheduler_utils::
-          getMaxRegOrSharedMemorySizeForPersistentBuffer(
+      int64_t available_buffer_size_bit = normalization_scheduler_utils::
+          getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
               &fusion,
               runtime_info,
               scheduler_utils::getReductionTvs(&fusion),
