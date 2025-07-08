@@ -1444,9 +1444,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         is_within_warp_specialized_compute_loop_) {
       // NOTE If there are independent compute warp groups, assume there is 128
       // active threads per warp group.
-      // TODO Specify the actual shape of the independent warp group, rather
-      // than 128 threads in TIDx axis.
-      ss << "dim3(128, 1, 1)";
+      ParallelType wspt =
+          kernel_->summary().circular_buffer_info.getWarpSpecializedOn();
+      const std::string xdim = wspt == ParallelType::TIDx
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx));
+      const std::string ydim = wspt == ParallelType::TIDy
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy));
+      const std::string zdim = wspt == ParallelType::TIDz
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz));
+      ss << "dim3(" << xdim << ", " << ydim << ", " << zdim << ")";
     } else {
       ss << "dim3("
          << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx)) << ", "
