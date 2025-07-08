@@ -135,7 +135,8 @@ int64_t shardViewOp(ViewOp* view_op, int64_t did_pos) {
 
     NVF_ERROR(
         p_transforms.size() == 1 && p_transforms.front()->isA<Split>(),
-        "Expected a split transform producing the device id.");
+        "Expected a split transform producing the device id. Got:\n",
+        p_transforms);
 
     // Get the reshape transforms corresponding to this root id.
     IterDomain* c_root_reshaped_id = p2c.at(p_logical_reshaped_id);
@@ -323,6 +324,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Note: Tvs without a mesh are assumed to have no manual sharding
     // annotation and are sharded like the first producer Tv.
     const auto& outputs_without_mesh = getOutputsWithoutMesh(expr);
+    if (outputs_without_mesh.empty()) {
+      continue;
+    }
+
     const auto& reference_inputs = getOrderedReferenceInputs(expr);
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
