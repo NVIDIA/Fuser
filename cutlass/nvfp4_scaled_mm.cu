@@ -316,7 +316,7 @@ void nvfp4_scaled_mm_assert(
   // Since k is divisible by 32 (alignment), k / 16 is guaranteed to be an
   // integer.
   int rounded_k = round_up(k / 16, 4);
-  
+
   NVF_CHECK(scales_a.dim() == 2, "scale_a must be a matrix");
   NVF_CHECK(scales_b.dim() == 2, "scale_b must be a matrix");
   NVF_CHECK(
@@ -353,9 +353,12 @@ void nvfp4_scaled_mm_assert(
       scales_b.sizes()[1],
       ")");
 
-  NVF_CHECK(out_dtype == at::ScalarType::Half ||
- out_dtype == at::ScalarType::BFloat16 ||
- out_dtype == at::ScalarType::Float, "unsupported dtype on output: ", out_dtype)
+  NVF_CHECK(
+      out_dtype == at::ScalarType::Half ||
+          out_dtype == at::ScalarType::BFloat16 ||
+          out_dtype == at::ScalarType::Float,
+      "unsupported dtype on output: ",
+      out_dtype)
 }
 
 bool nvfp4_scaled_mm_check(
