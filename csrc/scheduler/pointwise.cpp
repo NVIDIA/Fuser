@@ -559,7 +559,8 @@ namespace {
 //  In this example, the broadcast of tv2 is concretized when multiplying by
 //  tv1, which is 2D. If we propagate from tv2, then we introduce that
 //  broadcast dimension which is then concretized as i1, so we detect an
-//  unscheduled concrete ID.
+//  unscheduled concrete ID. Note that this should not happen as tv2 will not be
+//  selected as a potential reference tensor.
 //
 //  Example 2:
 //
@@ -574,7 +575,8 @@ namespace {
 //  In this example, if we propagate from the output tv3, the backward
 //  propagation from tv2 to tv0 picks up a broadcast ID. The broadcast is
 //  concretized in the multiplication with tv1, so we have an unscheduled i1 ID
-//  in the output tv4.
+//  in the output tv4. Note that tv2 should not be chosen as a reference tensor
+//  anyway as it does not have all concrete IDs.
 //
 //  Example 3:
 //
