@@ -41,7 +41,7 @@ constexpr int64_t register_file_size_bit = register_file_size_bit_full / 2;
 constexpr int64_t register_file_size_bit_56k = (int64_t)56 * 4 * 1024 * 8;
 
 // Empirically observed number. Not guaranteed to be a good estimate
-constexpr int64_t register_overhead_bit = 40l * 8;
+constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
 constexpr int64_t bits_per_register = 4l * 8;
 
