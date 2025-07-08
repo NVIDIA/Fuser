@@ -1823,20 +1823,20 @@ BroadcastMultipleInformation getBroadcastMultiples(
     {
       bool rhs = false;
       bool lhs = false;
-      auto dtype_size =
-          dataTypeSizeByte(in_out_tv->getDataType().value(), index_type);
+      auto dtype_size_bit =
+          dataTypeSizeBit(in_out_tv->getDataType().value(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
         if (lhs) {
-          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size;
+          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size_bit;
         } else if (mapped_axes[lhs_i]) {
           lhs = true;
         }
 
         if (rhs || mapped_axes[rhs_i]) {
-          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size;
+          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size_bit;
           rhs = true;
         }
       }

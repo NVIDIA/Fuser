@@ -346,8 +346,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
-  auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_byte_multiples.size() == ref_loop.size());
+  auto& broadcast_bit_multiples = broadcast_info.get().broadcast_multiples;
+  NVF_ERROR(broadcast_bit_multiples.size() == ref_loop.size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
@@ -396,9 +396,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
 
         auto lhs_byte_multiple =
-            broadcast_byte_multiples[break_point_i].lhs_multiple;
+            broadcast_bit_multiples[break_point_i].lhs_multiple / 8;
         auto rhs_byte_multiple =
-            broadcast_byte_multiples[break_point_i].rhs_multiple;
+            broadcast_bit_multiples[break_point_i].rhs_multiple / 8;
 
         // Estimate transfer cost with this break point
         int64_t cur_transfer_size = 1;
@@ -527,7 +527,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
-    for (auto multiple : broadcast_byte_multiples) {
+    for (auto multiple : broadcast_bit_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
     }
