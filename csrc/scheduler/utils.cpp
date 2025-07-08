@@ -2651,7 +2651,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getReductionSmemWorkspace(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2660,22 +2660,22 @@ int64_t getReductionSmemWorkspace(
   threads_per_block =
       threads_per_block > 0 ? threads_per_block : dev_prop->maxThreadsPerBlock;
   // (1) part-1, space for the reduction broadcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size =
-        std::max(dtype_size, dataTypeSizeByte(tv->getDataType().value()));
+    dtype_size_bit =
+        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {
-    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+    dtype_size_bit = std::max(dtype_size_bit, (int64_t)sizeof(int64_t) * 8);
   }
-  int64_t reduction_broadcast_workspace =
-      threads_per_block * dtype_size * welford_factor;
+  int64_t reduction_broadcast_workspace_bit =
+      threads_per_block * dtype_size_bit * welford_factor;
 
-  return reduction_broadcast_workspace;
+  return reduction_broadcast_workspace_bit;
 }
 
 bool isResharding(Fusion* fusion) {

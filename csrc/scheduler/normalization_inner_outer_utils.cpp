@@ -154,7 +154,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       fusion, reduction_tvs, threads_per_block_max);
   int64_t available_smem_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
-  int64_t available_regs_bit = scheduler_utils::register_file_size_448kbit;
+  int64_t available_regs_bit = scheduler_utils::register_file_size_bit_56k;
   buffer_params.smem_overhead = smem_overhead;
 
   // (1) Use both register and shared memory.

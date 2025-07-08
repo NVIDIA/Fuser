@@ -36,14 +36,14 @@ namespace scheduler_utils {
 // with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
-constexpr int64_t register_file_size = register_file_size_full / 2;
-constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
+constexpr int64_t register_file_size_bit_full = (int64_t)256 * 1024 * 8;
+constexpr int64_t register_file_size_bit = register_file_size_bit_full / 2;
+constexpr int64_t register_file_size_bit_56k = (int64_t)56 * 4 * 1024 * 8;
 
 // Empirically observed number. Not guaranteed to be a good estimate
-constexpr int64_t register_overhead = 40l;
+constexpr int64_t register_overhead_bit = 40l * 8;
 constexpr int64_t max_registers_per_thread = 255l;
-constexpr int64_t bytes_per_register = 4l;
+constexpr int64_t bits_per_register = 4l * 8;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
@@ -753,7 +753,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 //! Get the persistent buffer size of a tensor
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
@@ -765,7 +765,7 @@ int64_t getPersistentBufferSizeOfTensor(
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getReductionSmemWorkspace(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);

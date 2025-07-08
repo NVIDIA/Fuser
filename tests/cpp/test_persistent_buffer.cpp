@@ -1227,7 +1227,7 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+      scheduler_utils::register_file_size_bit / scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {2, 64, 2, total_elements / (2 * 2)};
@@ -1260,7 +1260,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+      scheduler_utils::register_file_size_bit / scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {64, 2, 2, total_elements / (2 * 2)};
@@ -1528,7 +1528,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
                                    ->compiledKernel()
                                    ->kernel();
 
-    if (logic_buffer_size > scheduler_utils::register_file_size) {
+    if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
       bool has_smem_tv = false;
       for (auto tv : scheduled_fusion->allTvs()) {
         if (tv->getMemoryType() == MemoryType::Shared) {

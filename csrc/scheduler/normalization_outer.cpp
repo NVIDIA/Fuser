@@ -471,8 +471,8 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
 
-  const int64_t sm_register_file_size =
-      static_cast<int64_t>(device_prop->regsPerBlock * sizeof(int));
+  const int64_t sm_register_file_size_bit =
+      static_cast<int64_t>(device_prop->regsPerBlock * sizeof(int) * 8);
 
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
