@@ -681,27 +681,33 @@ llvm::Value* compileJitImpl(
 
 void livenessAnalysis(std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   std::unordered_set<TensorView*> allocatedTvs;
-  std::unordered_set<TensorView*> deallocatedTvs;
-  std::unordered_map<TensorView*, int64_t> posMap;
   // TODO: deallocate need to be supported
   for(auto it = top_level_exprs.begin(); it != top_level_exprs.end(); ++it) {
     auto* top_level_expr = *it;
-    if(auto* allocate = top_level_expr->as<kir::Allocate>()) {
-      auto* tv = allocate->buffer()->as<TensorView>();
+    NVF_ERROR(top_level_expr != nullptr, "top_level_expr is nullptr");
+    if(top_level_expr->isA<kir::Allocate>()) {
+      auto* allocate = top_level_expr->as<kir::Allocate>();
+      TensorView* tv = allocate->buffer()->as<TensorView>();
       allocatedTvs.insert(tv);
     }
-    else if(auto* matmul = top_level_expr->as<MatmulOp>()) {
-      auto* out = matmul->out()->as<TensorView>();
+    else if(top_level_expr->isA<MatmulOp>()) {
+      auto* matmul = top_level_expr->as<MatmulOp>();
+      TensorView* out = matmul->out();
       if(allocatedTvs.find(out) == allocatedTvs.end()) {
-        auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+        Expr* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
         it = top_level_exprs.insert(it, allocate);  // Insert allocate before current position
+        allocatedTvs.insert(out);  // Add to allocated set
+        ++it;  // Skip over the newly inserted allocate expression
       }
     }
-    else if(auto* linear = top_level_expr->as<LinearOp>()) {
-      auto* out = linear->out()->as<TensorView>();
+    else if(top_level_expr->isA<LinearOp>()) {
+      auto* linear = top_level_expr->as<LinearOp>();
+      TensorView* out = linear->out();
       if(allocatedTvs.find(out) == allocatedTvs.end()) {
-        auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+        Expr* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
         it = top_level_exprs.insert(it, allocate);  // Insert allocate before current position
+        allocatedTvs.insert(out);  // Add to allocated set
+        ++it;  // Skip over the newly inserted allocate expression
       }
     }
   }
