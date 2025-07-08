@@ -961,6 +961,31 @@ class PythonTranslator : public OptInConstDispatch {
          sdpa_fwd_op->philox_offset()});
   }
 
+  // Map SdpaBwdOp to SdpaBwdOpRecord
+  void handle(const SdpaBwdOp* sdpa_bwd_op) final {
+    NVF_ERROR(sdpa_bwd_op != nullptr);
+
+    visited_vals_.insert(sdpa_bwd_op->grad_query());
+    visited_vals_.insert(sdpa_bwd_op->grad_key());
+    visited_vals_.insert(sdpa_bwd_op->grad_value());
+    printer_.generateOperation(
+        "fd.ops.sdpfa_bwd",
+        {sdpa_bwd_op->grad_attn(),
+         sdpa_bwd_op->query(),
+         sdpa_bwd_op->key(),
+         sdpa_bwd_op->value(),
+         sdpa_bwd_op->attn_out(),
+         sdpa_bwd_op->logsumexp(),
+         sdpa_bwd_op->dropout_p(),
+         sdpa_bwd_op->is_causal(),
+         sdpa_bwd_op->philox_seed(),
+         sdpa_bwd_op->philox_offset(),
+         sdpa_bwd_op->scale()},
+        {sdpa_bwd_op->grad_query(),
+         sdpa_bwd_op->grad_key(),
+         sdpa_bwd_op->grad_value()});
+  }
+
   // Map SqueezeOp to python frontend
   void handle(const SqueezeOp* sop) final {
     NVF_ERROR(sop != nullptr);
