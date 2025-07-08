@@ -61,7 +61,7 @@ llvm::Value* generateTensorStrideExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
     llvm::IRBuilder<>& builder);
-void livenessAnalysis(const std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
+void livenessAnalysis(std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap);
 
 // PIMPL implementation for HostIrJit - moved to public scope
 struct LlvmJitImpl {
@@ -679,34 +679,32 @@ llvm::Value* compileJitImpl(
     return pimpl_void_ptr;
 }
 
-void livenessAnalysis(const std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
+void livenessAnalysis(std::deque<Expr*>& top_level_exprs, std::unordered_map<Val*, llvm::Value*>& val2llvmMap) {
   std::unordered_set<TensorView*> allocatedTvs;
   std::unordered_set<TensorView*> deallocatedTvs;
   std::unordered_map<TensorView*, int64_t> posMap;
+  // TODO: deallocate need to be supported
   for(auto it = top_level_exprs.begin(); it != top_level_exprs.end(); ++it) {
     auto* top_level_expr = *it;
-    if(auto* allocate = top_level_expr->as<Allocate>()) {
+    if(auto* allocate = top_level_expr->as<kir::Allocate>()) {
       auto* tv = allocate->buffer()->as<TensorView>();
       allocatedTvs.insert(tv);
     }
-    else if(auto* matmul = top_level_expr->as<Matmul>()) {
+    else if(auto* matmul = top_level_expr->as<MatmulOp>()) {
       auto* out = matmul->out()->as<TensorView>();
       if(allocatedTvs.find(out) == allocatedTvs.end()) {
         auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
-        auto* deallocate = IrBuilder::create<Deallocate>(out);
         it = top_level_exprs.insert(it, allocate);  // Insert allocate before current position
-        
       }
     }
-    else if(auto* linear = top_level_expr->as<Linear>()) {
+    else if(auto* linear = top_level_expr->as<LinearOp>()) {
       auto* out = linear->out()->as<TensorView>();
       if(allocatedTvs.find(out) == allocatedTvs.end()) {
         auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
-        auto* deallocate = IrBuilder::create<Deallocate>(out);
+        it = top_level_exprs.insert(it, allocate);  // Insert allocate before current position
       }
     }
   }
-
   return;
 }
 
