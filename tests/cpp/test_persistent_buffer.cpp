@@ -1274,10 +1274,10 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   fusion->addOutput(tv7);
 
   // If device doesn't have enough shared memory, skip this test
-  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspaceBit(
+  int64_t smem_overhead_bit = scheduler_utils::getReductionSmemWorkspaceBit(
       fusion.get(), scheduler_utils::getReductionTvs(fusion.get()));
   const size_t required_smem_size_bit =
-      smem_overhead + total_elements * dataTypeSizeBit(input_dtype);
+      smem_overhead_bit + total_elements * dataTypeSizeBit(input_dtype);
   REQUIRE_DEVICE_SMEM_SIZE(required_smem_size_bit / 8, 0);
 
   // Schedule through magic scheduler and test the use of smem persistent buffer

@@ -150,12 +150,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
            ProjectToInputs);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspaceBit(
+  int64_t smem_overhead_bit = scheduler_utils::getReductionSmemWorkspaceBit(
       fusion, reduction_tvs, threads_per_block_max);
   int64_t available_smem_bit =
-      (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
+      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
   int64_t available_regs_bit = scheduler_utils::register_file_size_bit_56k;
-  buffer_params.smem_overhead = smem_overhead;
+  buffer_params.smem_overhead_bit = smem_overhead_bit;
 
   // (1) Use both register and shared memory.
   // Start with all the cached input buffers in shared memory, they are loaded
