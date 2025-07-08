@@ -159,9 +159,3 @@ class FusionProfileTimer(Timer):
         self.execution_start = not self.execution_start
         return self.current_time
 
-
-if __name__ == "__main__":
-    timer = CuptiProfiler()
-    timer.start()
-    timer.stop()
-    print(timer.profiler_output)
