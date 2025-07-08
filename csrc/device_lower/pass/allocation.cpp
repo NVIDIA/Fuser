@@ -212,6 +212,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
             })) {
           use_set_allocation_domain = true;
         }
+
+        // If a shared memory output produced by scatter has an
+        // allocation domain explicitly set, it's likely to be the
+        // valid allocation domain.
+        if (auto def = tv->definition();
+            def != nullptr && def->isA<ScatterOp>()) {
+          use_set_allocation_domain = true;
+        }
       }
     }
 
