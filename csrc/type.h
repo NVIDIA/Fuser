@@ -7,14 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <macros.h>
-#include <visibility.h>
-
-#include <c10/core/ScalarType.h>
-
-#include <polymorphic_value.h>
-
 #include <array>
 #include <complex>
 #include <cstdint>
@@ -26,6 +18,15 @@
 #include <typeinfo>
 #include <unordered_set>
 #include <variant>
+
+#include <cuda_runtime_api.h>
+
+#include <c10/core/ScalarType.h>
+
+#include <exceptions.h>
+#include <macros.h>
+#include <polymorphic_value.h>
+#include <visibility.h>
 
 #define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
   TORCH_VERSION_MAJOR > major ||                                      \
@@ -1171,5 +1172,7 @@ enum class TMemRegisterDataPath {
 };
 
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
+
+std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
 
 } // namespace nvfuser
