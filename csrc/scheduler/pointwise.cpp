@@ -483,7 +483,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       fusion,
       break_point,
       total_blocks,
-      params->vectorization_factor * max_dtype_size_for_vectorization,
+      params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
 
