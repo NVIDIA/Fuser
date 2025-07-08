@@ -1843,4 +1843,25 @@ std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
   }
 }
 
+std::ostream& operator<<(
+    std::ostream& os,
+    const cudaDriverEntryPointQueryResult result) {
+  switch (result) {
+    case cudaDriverEntryPointSuccess:
+      os << "Success";
+      break;
+    case cudaDriverEntryPointSymbolNotFound:
+      os << "SymbolNotFound";
+      break;
+    case cudaDriverEntryPointVersionNotSufficent:
+      os << "VersionNotSufficient";
+      break;
+    default:
+      NVF_THROW(
+          "Unknown cudaDriverEntryPointQueryResult: ",
+          static_cast<int>(result));
+  }
+  return os;
+}
+
 } // namespace nvfuser
