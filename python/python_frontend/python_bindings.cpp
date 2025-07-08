@@ -1465,8 +1465,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "validate_with_auto_inferred_outputs",
       [](FusionDefinition& self,
-          const py::iterable& fusion_outputs,
-          const py::iterable& inputs) {
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
         KernelArgumentHolder fusion_outputs_holder;
         for (py::handle obj : fusion_outputs) {
           fusion_outputs_holder.push(
