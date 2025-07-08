@@ -796,10 +796,10 @@ class VectorizationCalculator {
     // However, we might be provided an output tensor. We should verify once
     // preallocated outputs are fully plumbed in that misaligned pointers are
     // respected in this calculation.
-    const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
-    int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-    vec_size = std::min(vec_size, 16l);
-    vec_size /= dataTypeSizeByte(tv->dtype());
+    const int64_t data_ptr_bit = (int64_t)runtime_info_.ptrBitOf(tv);
+    int64_t vec_size_bit = scheduler_utils::maxVectorizationWidthBit(data_ptr_bit);
+    vec_size_bit = std::min(vec_size_bit, 128l);
+    int64_t vec_size = vec_size_bit / dataTypeSizeBit(tv->dtype());
     vec_size = std::max(vec_size, 1l);
     return vec_size;
   }
