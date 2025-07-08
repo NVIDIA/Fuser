@@ -483,7 +483,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
 
   const auto& persistent_buffer_info = persistent_buffer_info_entry.get();
 
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSizeBit(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Note that projected buffer size can be zero

@@ -974,7 +974,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSizeBit(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Can project to input?

@@ -116,7 +116,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
 
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSizeBit(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Project to inputs when there is at least one outer broadcast tensor or
@@ -150,11 +150,11 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
            ProjectToInputs);
 
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspace(
+  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspaceBit(
       fusion, reduction_tvs, threads_per_block_max);
-  int64_t available_smem =
+  int64_t available_smem_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin - smem_overhead;
-  int64_t available_regs = scheduler_utils::register_file_size_56k;
+  int64_t available_regs_bit = scheduler_utils::register_file_size_448kbit;
   buffer_params.smem_overhead = smem_overhead;
 
   // (1) Use both register and shared memory.
@@ -192,8 +192,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
               [&buffer](TensorView* tv) {
                 return DependencyCheck::isDependencyOf(buffer, tv);
               })) {
-        buffer_params.non_circular_buffered_smem_size +=
-            scheduler_utils::getPersistentBufferSizeOfTensor(
+        buffer_params.non_circular_buffered_smem_size_bit +=
+            scheduler_utils::getPersistentBufferSizeOfTensorBit(
                 buffer, runtime_info, persistent_buffer_info);
       }
     }
@@ -203,33 +203,33 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // key : buffer tv.
   // val : register size and rounded shared memory size
   std::unordered_map<TensorView*, std::pair<int64_t, int64_t>>
-      required_size_regs_smem_map;
-  int64_t total_smem_buffer_size = 0;
+      required_size_bit_regs_smem_map;
+  int64_t total_smem_buffer_size_bit = 0;
   for (auto buffer : buffers) {
-    int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
+    int64_t buffer_size_regs_bit = scheduler_utils::getPersistentBufferSizeOfTensorBit(
         buffer, runtime_info, persistent_buffer_info);
     // When warp specialized, the whole buffer is loaded in a single TMA
     // instruction. No round up issue due to non-divisible split.
-    int64_t buffer_size_smem = is_warp_specialized
-        ? buffer_size_regs
+    int64_t buffer_size_smem_bit = is_warp_specialized
+        ? buffer_size_regs_bit
         : roundUpSharedMemory(
-              buffer_size_regs,
+              buffer_size_regs_bit,
               dataTypeSizeByte(buffer->getDataType().value()),
               vectorize_factor,
               threads_per_block_min,
               threads_per_block_max,
               dev_prop->warpSize);
-    required_size_regs_smem_map[buffer] =
-        std::make_pair(buffer_size_regs, buffer_size_smem);
-    total_smem_buffer_size += buffer_size_smem;
+    required_size_bit_regs_smem_map[buffer] =
+        std::make_pair(buffer_size_regs_bit, buffer_size_smem_bit);
+    total_smem_buffer_size_bit += buffer_size_smem_bit;
   }
-  buffer_params.smem_buffer_size = total_smem_buffer_size;
-  buffer_params.regs_buffer_size +=
+  buffer_params.smem_buffer_size_bit = total_smem_buffer_size_bit;
+  buffer_params.regs_buffer_size_bit +=
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
-  buffer_params.circular_buffered_smem_size = buffer_params.smem_buffer_size -
-      buffer_params.non_circular_buffered_smem_size;
-  if (buffer_params.regs_buffer_size <= available_regs &&
-      buffer_params.smem_buffer_size <= available_smem) {
+  buffer_params.circular_buffered_smem_size_bit = buffer_params.smem_buffer_size_bit -
+      buffer_params.non_circular_buffered_smem_size_bit;
+  if (buffer_params.regs_buffer_size_bit <= available_regs_bit &&
+      buffer_params.smem_buffer_size_bit <= available_smem_bit) {
     buffer_params.smem_persistent_buffers = buffers;
     buffer_params.has_enough_regs_and_smem = true;
     return buffer_params;
@@ -237,7 +237,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
 
   // Moving outer reduction buffer to shared memory is not considered yet,
   // set to false if the outer reduction buffer size exceeds the register size.
-  if (buffer_params.regs_buffer_size > available_regs) {
+  if (buffer_params.regs_buffer_size_bit > available_regs_bit) {
     buffer_params.has_enough_regs_and_smem = false;
     return buffer_params;
   }
@@ -254,22 +254,22 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   const int n_buffers = (int)buffers.size();
   for (int i = 0; i < n_buffers; i++) {
     auto current_tv = buffers[i];
-    auto [buffer_size_regs, buffer_size_smem] =
-        required_size_regs_smem_map.at(current_tv);
-    buffer_params.regs_buffer_size += buffer_size_regs;
-    buffer_params.smem_buffer_size -= buffer_size_smem;
+    auto [buffer_size_regs_bit, buffer_size_smem_bit] =
+        required_size_bit_regs_smem_map.at(current_tv);
+    buffer_params.regs_buffer_size_bit += buffer_size_regs_bit;
+    buffer_params.smem_buffer_size_bit -= buffer_size_smem_bit;
 
     // The first-i buffers to are moved from shared memory to register
     // If both the register buffer size and shared memory buffer size are within
     // the allowable limit, we found a good configuration.
-    if (buffer_params.regs_buffer_size <= available_regs &&
-        buffer_params.smem_buffer_size <= available_smem) {
+    if (buffer_params.regs_buffer_size_bit <= available_regs_bit &&
+        buffer_params.smem_buffer_size_bit <= available_smem_bit) {
       n_regs_buffer = i + 1;
       break;
     }
     // Register buffer size exceeds the limit, can't move more to registers.
     // Break the loop.
-    if (buffer_params.regs_buffer_size > available_regs) {
+    if (buffer_params.regs_buffer_size_bit > available_regs_bit) {
       break;
     }
   }

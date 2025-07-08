@@ -1033,7 +1033,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
     HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
+  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSizeBit");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
     PersistentBufferSizeReturn empty_sizes;
@@ -1093,7 +1093,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
                                const std::vector<bool>& mask1,
                                const std::vector<int64_t>& sizes,
                                const std::vector<TensorView*>& all_buffers) {
-    int64_t buffer_size = 0;
+    int64_t buffer_size_bit = 0;
     NVF_ERROR(
         mask0.size() == mask1.size() && mask0.size() == sizes.size() &&
         mask0.size() == all_buffers.size());
@@ -1104,11 +1104,11 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
     for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
-        buffer_size += sizes[buffer_i];
+        buffer_size_bit += sizes[buffer_i];
         active_buffers.insert(all_buffers[buffer_i]);
       }
     }
-    return buffer_size;
+    return buffer_size_bit;
   };
 
   auto persistent_buffer_info_entry =
