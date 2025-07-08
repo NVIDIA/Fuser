@@ -284,17 +284,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
-  int64_t max_dtype_size_for_vectorization = 1;
+  int64_t max_dtype_size_bit_for_vectorization = 1;
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
-    max_dtype_size_for_vectorization = std::max(
-        max_dtype_size_for_vectorization,
-        dataTypeSizeByte(inp->getDataType().value(), index_type));
+    max_dtype_size_bit_for_vectorization = std::max(
+        max_dtype_size_bit_for_vectorization,
+        dataTypeSizeBit(inp->getDataType().value(), index_type));
   }
 
-  constexpr int64_t kSixteen = 16; // clang tidy
+  constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   auto max_vect_factor = ceilDiv(
       // Available vectorization based on size of data type
-      (int64_t)kSixteen / max_dtype_size_for_vectorization,
+      (int64_t)kOneHundredTwentyEight / max_dtype_size_bit_for_vectorization,
       // Reduce max vectorization factor if we have many inputs/outputs to
       // vectorize as it could start consuming a lot of registers.
       std::max(
