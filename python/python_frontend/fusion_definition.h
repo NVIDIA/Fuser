@@ -11,9 +11,9 @@
 #include <iostream>
 #include <unordered_map>
 
+#include <distributed_tensor.h>
 #include <exceptions.h>
 #include <multidevice/executor.h>
-#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_state.h>
 #include <python_frontend/segmentation.h>
 #include <visibility.h>

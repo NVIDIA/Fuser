@@ -21,6 +21,42 @@ from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
 
 
+def execute_with_dtensors(fd, in_dtensors):
+    """
+    Execute a fusion on a list of DTensor inputs.
+
+    Parameters
+    ----------
+    fd : FusionDefinition
+        The fusion definition to execute
+    in_dtensors : list of DTensor
+        The list of DTensor inputs to the fusion
+
+    Returns
+    -------
+    list of DTensor
+        The list of DTensor outputs from the fusion
+    """
+    import torch.distributed as dist
+    from torch.distributed.tensor import DTensor
+    from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
+
+    inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
+    out_tensors = self.execute(inputs, auto_schedule=True)
+    out_shardings = self.fec.get_output_shardings()
+    assert len(out_tensors) == len(out_shardings)
+
+    out_dtensors: list[DTensor] = []
+    for out_tensor, out_sharding in zip(out_tensors, out_shardings):
+        mesh = dist.device_mesh.init_device_mesh("cuda", (out_sharding.mesh.size,))
+        placements: list[Placement] = []
+        for parallel_type in [_C_DIRECT.ParallelType.mesh_x]:
+            axis: int = out_sharding.axis_sharded_on(parallel_type)
+            placements.append(Replicate() if axis == -1 else Shard(axis))
+        out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
+    return out_dtensors
+
+
 class FusionDefinition:
     """
     A class for defining and executing fused operations in nvFuser.
