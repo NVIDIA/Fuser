@@ -278,9 +278,9 @@ void getHeuristics(
   // For read from tmp gmem, since the parallelization is changed, a different
   //                         vectorization factor is used to optimize the
   //                         number of reductions per thread.
-  constexpr int64_t max_gmem_vect_access_bytes = 16;
+  constexpr int64_t max_gmem_vect_access_bit = 128;
   const int64_t max_tmp_gmem_vect_factor = std::min(
-      max_gmem_vect_access_bytes / (int64_t)computation_dtype_size,
+      max_gmem_vect_access_bit / (int64_t)computation_dtype_size_bit,
       vect_factor);
   int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
   const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
