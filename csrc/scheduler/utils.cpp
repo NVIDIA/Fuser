@@ -1130,7 +1130,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
     max_persistence_size_bit =
         std::max(max_persistence_size_bit, persistent_buffer_size_bit);
 
-    auto projected_buffer_size = masked_dot_product(
+    auto projected_buffer_size_bit = masked_dot_product(
         projected_mask, active_buffers, persistent_buffer_sizes_bit, all_buffers);
     max_proj_persistence_size_bit =
         std::max(max_proj_persistence_size_bit, projected_buffer_size_bit);
