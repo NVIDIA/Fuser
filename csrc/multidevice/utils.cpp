@@ -121,7 +121,16 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  // Find the IterDomain that is parallelized on the given parallel type.
+  // The allocation domain for multidevice tensorviews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+
   const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
       ? tv->getMaybeAllocationDomain()
       : tv->getLoopDomain();
@@ -236,15 +245,6 @@ std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
-
-  // The allocation domain for multidevice tensorviews is set during
-  // presegmentation, which is after concretization. This exposes a issue:
-  // allocation domain is not set for fusion inputs before presegmentation and
-  // can cause errors during binding.
-  //
-  // We use the loop domain, since allocation and loop domain will have the
-  // same DID parallelization.
-
   for (ParallelType parallel_type : kParallelTypeDIDs) {
     const int64_t sharded_axis = getShardedLogicalAxis(tv, parallel_type);
     if (sharded_axis == -1) {
