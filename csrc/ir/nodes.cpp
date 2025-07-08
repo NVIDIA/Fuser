@@ -3574,7 +3574,15 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
 
   // The allocation domain is set by the loop domain not by permuting the
   // logical domain.
-  if (allocation_domain_.size() == loop_domain_.size()) {
+  bool is_loop_domain_same_size_allocation_domain =
+      loop_domain_.size() == allocation_domain_.size();
+  bool is_loop_domain_same_as_allocation_domain =
+      is_loop_domain_same_size_allocation_domain &&
+      std::ranges::equal(
+          loop_domain_,
+          allocation_domain_,
+          [](IterDomain* lhs, IterDomain* rhs) { return lhs->sameAs(rhs); });
+  if (is_loop_domain_same_as_allocation_domain) {
     return {};
   }
 
