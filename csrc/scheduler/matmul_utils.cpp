@@ -797,7 +797,7 @@ class VectorizationCalculator {
     // preallocated outputs are fully plumbed in that misaligned pointers are
     // respected in this calculation.
     const int64_t data_ptr_bit = (int64_t)runtime_info_.ptrBitOf(tv);
-    int64_t vec_size_bit = scheduler_utils::maxVectorizationWidthBit(data_ptr_bit);
+    int64_t vec_size_bit = scheduler_utils::maxVectorizationWidth(data_ptr_bit);
     vec_size_bit = std::min(vec_size_bit, 128l);
     int64_t vec_size = vec_size_bit / dataTypeSizeBit(tv->dtype());
     vec_size = std::max(vec_size, 1l);
