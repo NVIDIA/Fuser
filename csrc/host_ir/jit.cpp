@@ -186,9 +186,9 @@ void compileLinearFunc(
   llvm::Value* tv_bias_void_ptr = nullptr;
   
   // Call get_tensor function to get at::Tensor* pointers
-  llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr, pimpl_void_ptr}, "t_in");
-  llvm::Value* t_weight = builder.CreateCall(mod->getFunction("get_tensor"), {tv_weight_void_ptr, pimpl_void_ptr}, "t_weight");
-  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "t_out");
+  llvm::Value* t_in = builder.CreateCall(mod->getFunction("get_tensor"), {tv_in_void_ptr, pimpl_void_ptr}, "linear_t_in");
+  llvm::Value* t_weight = builder.CreateCall(mod->getFunction("get_tensor"), {tv_weight_void_ptr, pimpl_void_ptr}, "linear_t_weight");
+  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "linear_t_out");
 
   if (linear->hasBias()) {
     // Convert tv_bias to void pointer
@@ -196,7 +196,7 @@ void compileLinearFunc(
     llvm::Value* tv_bias_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_bias_ptr);
     tv_bias_void_ptr = builder.CreateIntToPtr(tv_bias_constant, void_ptr_type);
     
-    llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr, pimpl_void_ptr}, "t_bias");
+    llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr, pimpl_void_ptr}, "linear_t_bias");
     builder.CreateCall(mod->getFunction("linear_out_with_bias"), {t_out, t_in, t_weight, t_bias});
   } else {
     builder.CreateCall(mod->getFunction("linear_out_without_bias"), {t_out, t_in, t_weight});
@@ -234,9 +234,9 @@ void compileMatmulFunc(
   llvm::Value* tv_out_void_ptr = builder.CreateIntToPtr(tv_out_constant, void_ptr_type);
 
   // Call get_tensor function to get at::Tensor* pointers
-  llvm::Value* t_a = builder.CreateCall(mod->getFunction("get_tensor"), {tv_a_void_ptr, pimpl_void_ptr}, "t_a");
-  llvm::Value* t_b = builder.CreateCall(mod->getFunction("get_tensor"), {tv_b_void_ptr, pimpl_void_ptr}, "t_b");
-  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "t_out");
+  llvm::Value* t_a = builder.CreateCall(mod->getFunction("get_tensor"), {tv_a_void_ptr, pimpl_void_ptr}, "matmul_t_a_inA");
+  llvm::Value* t_b = builder.CreateCall(mod->getFunction("get_tensor"), {tv_b_void_ptr, pimpl_void_ptr}, "matmul_t_b_inB");
+  llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "matmul_t_out_out");
 
   // Call matmul_out function
   builder.CreateCall(mod->getFunction("matmul_out"), {t_out, t_a, t_b});
@@ -270,7 +270,7 @@ void compileLaunchKernelFunc(
     llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
     // Call get_tensor function to get at::Tensor* pointer
-    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "input_tensor");
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "launch_kernel_input_tensor");
     input_tensors.push_back(tensor_ptr);
   }
 
@@ -283,7 +283,7 @@ void compileLaunchKernelFunc(
     llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
     
     // Call get_tensor function to get at::Tensor* pointer
-    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "output_tensor");
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "launch_kernel_output_tensor");
     output_tensors.push_back(tensor_ptr);
   }
   
@@ -515,7 +515,8 @@ void compileMainFuncInputs(
       // Call get_tensor function with the void pointer
       llvm::Value* tensor_ptr = builder.CreateCall(
           mod->getFunction("get_tensor"),
-          {tv_void_ptr, pimpl_void_ptr}
+          {tv_void_ptr, pimpl_void_ptr},
+          "main_func_input_tensor"
       );
       // bind input aten tensor sizes to val2llvmMap
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());

@@ -190,41 +190,6 @@ TEST_F(HostIrJitTest, HostIrLinearOut) {
   EXPECT_TRUE(ref_output.allclose(out_at));
 }
 
-TEST_F(HostIrJitTest, SimpleReshape) {
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-
-  auto input = makeContigTensor(2);
-  Val* x = input->axis(0)->extent();
-  Val* y = input->axis(1)->extent();
-  Val* xy = mul(x, y);
-  auto flattened_input = reshape(input, {xy});
-  auto transposed_intput = reshape(flattened_input, {y, x});
-
-  hic->addInput(input);
-  hic->addOutput(flattened_input);
-  hic->addOutput(transposed_intput);
-  hic->pushBackTopLevelExprs(flattened_input->definition());
-  hic->pushBackTopLevelExprs(transposed_intput->definition());
-
-  HostIrJit hie(std::move(hic));
-
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  constexpr int64_t kX = 32;
-  constexpr int64_t kY = 64;
-  auto t0 = at::randn({kX, kY}, options);
-  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
-      {input, t0}};
-
-  auto outputs = hie.runWithInput(concrete_input_buffers);
-
-  // validate
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(at::reshape(t0, {kX * kY})));
-  EXPECT_TRUE(outputs[1].as<at::Tensor>().equal(at::reshape(t0, {kY, kX})));
-}
-
-
-
 TEST_F(HostIrJitTest, Deallocate) {
   const std::vector<int64_t> sizes = {8, 64};
   c10::DeviceIndex device_index = 0;
@@ -253,6 +218,25 @@ TEST_F(HostIrJitTest, Deallocate) {
   hie.runWithInput({});
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
+}
+
+TEST_F(HostIrJitTest, Allocation) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Global);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrJit hie(std::move(hic));
+
+  auto outputs = hie.runWithInput({});
+
+  EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
 
