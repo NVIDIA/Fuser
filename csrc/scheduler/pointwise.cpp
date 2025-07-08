@@ -349,12 +349,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto& broadcast_bit_multiples = broadcast_info.get().broadcast_multiples;
   NVF_ERROR(broadcast_bit_multiples.size() == ref_loop.size());
 
-  int64_t dtype_sum = 0;
+  int64_t dtype_sum_bit = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    dtype_sum += dataTypeSizeByte(inp->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(inp->getDataType().value(), index_type);
   }
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    dtype_sum += dataTypeSizeByte(out->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
   }
 
   // Indicates whether the fusion is outer broadcast dominated or not.
@@ -363,15 +363,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // separate function.
     //
     // How much would this transfer cost if it was done as a 1-D schedule
-    int64_t transfer_size_1d = 1;
+    int64_t transfer_size_1d_bit = 1;
 
     for (const auto i : arange(ref_loop.size())) {
-      transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
+      transfer_size_1d_bit = transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
     }
 
     // If there isn't very much parallelism available, just use 1D scheduler
     if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
-      int64_t min_total_transfer = std::numeric_limits<int64_t>::max();
+      int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
       int64_t threads_per_warp =
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
@@ -395,30 +395,30 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           continue;
         }
 
-        auto lhs_byte_multiple =
-            broadcast_bit_multiples[break_point_i].lhs_multiple / 8;
-        auto rhs_byte_multiple =
-            broadcast_bit_multiples[break_point_i].rhs_multiple / 8;
+        auto lhs_bit_multiple =
+            broadcast_bit_multiples[break_point_i].lhs_multiple;
+        auto rhs_bit_multiple =
+            broadcast_bit_multiples[break_point_i].rhs_multiple;
 
         // Estimate transfer cost with this break point
-        int64_t cur_transfer_size = 1;
-        int64_t right_transfer_size = 1;
+        int64_t cur_transfer_size_bit = 1;
+        int64_t right_transfer_size_bit = 1;
 
         for (const auto left_i : arange(break_point_i)) {
-          cur_transfer_size =
-              cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
+          cur_transfer_size_bit =
+              cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
         }
 
         for (const auto right_i : arange(break_point_i, ref_loop.size())) {
-          right_transfer_size =
-              right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
+          right_transfer_size_bit =
+              right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
         }
-        cur_transfer_size *= right_transfer_size;
+        cur_transfer_size_bit *= right_transfer_size_bit;
 
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
-        if (cur_transfer_size >= min_total_transfer ||
-            cur_transfer_size * 10 >= transfer_size_1d * 9) {
+        if (cur_transfer_size_bit >= min_total_transfer_bit ||
+            cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
           continue;
         }
 
@@ -430,10 +430,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
 
         // If outer broadcast, or balanced broadcast:
-        if (lhs_byte_multiple <= rhs_byte_multiple &&
+        if (lhs_bit_multiple <= rhs_bit_multiple &&
             // If right transfer size is bigger than half of L2
             at::cuda::getCurrentDeviceProperties()->l2CacheSize <
-                right_transfer_size * 2) {
+                right_transfer_size_bit * 2) {
           // flip BIDx and BIDy bindings
           flip_grid_binding = true;
         } else {
@@ -453,7 +453,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
-        min_total_transfer = cur_transfer_size;
+        min_total_transfer_bit = cur_transfer_size_bit;
         right_elem_count = cur_right_elem_count;
 
         gdim_left = remainder_left;
@@ -461,7 +461,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // when lhs byte multiple is smaller than rhs byte multiple,
         // there is broadcast in the lhs, which is outer broadcast.
-        is_outer_broadcast_dominated = lhs_byte_multiple < rhs_byte_multiple;
+        is_outer_broadcast_dominated = lhs_bit_multiple < rhs_bit_multiple;
       }
     }
   }
