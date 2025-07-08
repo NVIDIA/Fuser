@@ -240,7 +240,7 @@ class NVF_API FusionDefinition : public FusionState {
       const KernelArgumentHolder& inputs);
 
   // Validate the fusion outputs against auto inferred outputs.
-  NVF_API void validateWithAutoInferredOutputs(
+  NVF_API void validate_with_auto_inferred_outputs(
       const KernelArgumentHolder& fusion_outputs,
       const KernelArgumentHolder& inputs);
 

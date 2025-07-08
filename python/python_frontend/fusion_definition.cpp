@@ -775,7 +775,7 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
   return get_val_constants(preschedFusion(), args);
 }
 
-void FusionDefinition::validateWithAutoInferredOutputs(
+void FusionDefinition::validate_with_auto_inferred_outputs(
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& args) {
   return testValidate(preschedFusion(), fusion_outputs, args);

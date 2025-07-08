@@ -590,7 +590,7 @@ class FusionDefinition(_C._FusionDefinition):
         fusion_outputs = self.execute(inputs, **kwargs)
 
         if reference_outputs is None:
-            self.validateWithAutoInferredOutputs(fusion_outputs, inputs)
+            self.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
             return
 
         assert len(fusion_outputs) == len(
