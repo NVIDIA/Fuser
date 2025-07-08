@@ -1438,8 +1438,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
     if (!pdim_map.hasWarpSpecialization()) {
       ss << "DefaultBlockDim()";
-    } else if (kernel_->summary()
-                   .circular_buffer_info.hasIndependentComputeWarpGroups()) {
+    } else if (
+        kernel_->summary()
+            .circular_buffer_info.hasIndependentComputeWarpGroups() &&
+        is_within_warp_specialized_compute_loop_) {
       // NOTE If there are independent compute warp groups, assume there is 128
       // active threads per warp group.
       // TODO Specify the actual shape of the independent warp group, rather
@@ -3527,7 +3529,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << "; " << gen_index << " < " << gen_stop << "; "
              << step_code.str() << ") ";
     startBlock(true);
+    if (cbls == CircularBufferLoopStage::ComputeWarp) {
+      is_within_warp_specialized_compute_loop_ = true;
+    }
     kir::ConstIrVisitor::handle(loop);
+    is_within_warp_specialized_compute_loop_ = false;
     endBlock();
   }
 
@@ -4231,6 +4237,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Track barrier ids used in the kernel
   //! 0 is system reserved, start from 1
   int64_t next_barrier_id_ = 1;
+  //! Track whether we are generating code for warp specialized computation loop
+  bool is_within_warp_specialized_compute_loop_ = false;
 };
 
 } // namespace
