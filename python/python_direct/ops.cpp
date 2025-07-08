@@ -2685,6 +2685,74 @@ TensorView
       py::arg("dim") = 0,
       py::arg("manual_padding") = false,
       py::return_value_policy::reference);
+  ops.def(
+      "embedding_fwd",
+      [](TensorView* input,
+         TensorView* weight,
+         Val* padding_idx,
+         Val* max_norm,
+         Val* norm_type,
+         Val* scale_grad_by_freq,
+         Val* sparse) -> decltype(auto) {
+        return embedding_fwd(
+            input,
+            weight,
+            padding_idx,
+            max_norm,
+            norm_type,
+            scale_grad_by_freq,
+            sparse);
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      R"(
+Forward pass for embedding layers that maps integer indices to vectors.
+
+This function performs the forward pass of an embedding layer, which converts
+integer indices into dense vector representations by looking up the corresponding
+rows in the weight matrix.
+
+Parameters
+----------
+input : TensorView
+    A 1D tensor containing integer indices to be embedded. Each element should
+    be a valid index into the weight matrix.
+weight : TensorView
+    A 2D tensor representing the embedding matrix. Shape should be (num_embeddings, embedding_dim).
+padding_idx : Val, optional
+    If specified, the embedding vector at this index will be filled with zeros.
+    Default is None (no padding).
+max_norm : Val, optional
+    If specified, each embedding vector will be normalized to have a maximum norm
+    of this value. Default is None (no normalization).
+norm_type : Val, optional
+    The p of the p-norm to use for normalization. Default is 2.0 (L2 norm).
+scale_grad_by_freq : Val, optional
+    If True, scale gradients by the inverse frequency of the indices in the batch.
+    Default is False.
+sparse : Val, optional
+    If True, only update the gradients for the indices that appear in the batch.
+    Default is False.
+
+Returns
+-------
+TensorView
+    A tensor with shape (input_shape + [embedding_dim]) containing the embedded
+    vectors corresponding to the input indices.
+
+Notes
+-----
+- The input tensor must be at least 1D.
+- The weight tensor must be exactly 2D.
+- All optional parameters must be scalar values when provided.
+- This operation is equivalent to PyTorch's torch.nn.functional.embedding.
+)",
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
