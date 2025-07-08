@@ -94,11 +94,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
-size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
+size_t SchedulerRuntimeInfo::ptrBitOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
-    return input_ptrs_.at(tv);
+    return input_ptrs_.at(tv) * 8;
   }
-  return max_alignment_size_in_byte;
+  return max_alignment_size_in_bit;
 }
 
 std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
@@ -114,34 +114,34 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
   return ee;
 }
 
-size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
-  size_t alignment_size = 1;
-  size_t next_alignment_size = 2;
+size_t SchedulerRuntimeInfo::computeAlignmentSizeBit(size_t ptr_address) {
+  size_t alignment_size_bit = 1;
+  size_t next_alignment_size_bit = 2;
 
-  while (next_alignment_size <= max_alignment_size_in_byte &&
-         ptr_address % next_alignment_size == 0) {
-    alignment_size = next_alignment_size;
-    next_alignment_size *= 2;
+  while (next_alignment_size_bit <= max_alignment_size_in_bit &&
+         ptr_address % next_alignment_size_bit == 0) {
+    alignment_size_bit = next_alignment_size_bit;
+    next_alignment_size_bit *= 2;
   }
-  return alignment_size;
+  return alignment_size_bit;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
-  auto alignment_entry = alignment_map_.find(tv);
-  if (alignment_entry != alignment_map_.end()) {
+size_t SchedulerRuntimeInfo::getAlignmentSizeBit(TensorView* tv) {
+  auto alignment_entry = alignment_map_bit_.find(tv);
+  if (alignment_entry != alignment_map_bit_.end()) {
     return alignment_entry->second;
   }
 
-  auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
+  auto alignment_size_bit = SchedulerRuntimeInfo::computeAlignmentSizeBit(ptrBitOf(tv));
   auto strides_it = input_discontig_strides_.find(tv);
   if (strides_it != input_discontig_strides_.end()) {
     for (auto stride : strides_it->second) {
-      alignment_size = std::min(
-          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
+      alignment_size_bit = std::min(
+          alignment_size_bit, SchedulerRuntimeInfo::computeAlignmentSizeBit(stride));
     }
   }
-  alignment_map_[tv] = alignment_size;
-  return alignment_size;
+  alignment_map_bit_[tv] = alignment_size_bit;
+  return alignment_size_bit;
 }
 
 } // namespace nvfuser

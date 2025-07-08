@@ -297,8 +297,8 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       }
       encoding_.push_back('a');
       encodeBuffer(
-          SchedulerRuntimeInfo::computeAlignmentSize(
-              (size_t)input_tensor.data_ptr()),
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(
+              (size_t)input_tensor.data_ptr() * 8),
           encoding_);
     } else {
       // encode s for scalar;
