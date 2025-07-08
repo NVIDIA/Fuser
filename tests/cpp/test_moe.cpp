@@ -59,8 +59,10 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
 };
 
 TEST_P(SgLangMoETest, ComputeProblemSizes) {
-  if (manual_scheduling) {
-    GTEST_SKIP() << "No manual scheduling implemented";
+  bool no_accumulation = num_tokens * topk == 1;
+  if (manual_scheduling && !no_accumulation) {
+    GTEST_SKIP() << "No manual scheduling implemented except when "
+                    "indexPutAccumulate is converted to scatter";
   }
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -82,13 +84,37 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   fusion.addOutput(tv4);
 
+  if (no_accumulation) {
+    ASSERT_TRUE(tv4->definition()->isA<ScatterOp>());
+  }
+
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_experts, {num_tokens, topk}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  KernelArgumentHolder outputs;
 
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  if (manual_scheduling) {
+    // Scheduling all tensors as 1D tensors
+    for (auto tv : fusion.allTvs()) {
+      tv->flatten();
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    // tv2 will be an alias of the scatter output, which is a fusion
+    // output, so the memory type needs to be Global. We could cache
+    // the scatter output in shared memory, in which case tv2 should
+    // be shared memory as well.
+    tv2->setMemoryType(MemoryType::Global);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  }
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
@@ -209,6 +235,10 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
       tv->axis(0)->parallelize(ParallelType::TIDx);
     }
 
+    // tv4 will be an alias of the scatter output, which is a fusion
+    // output, so the memory type needs to be Global. We could cache
+    // the scatter output in shared memory, in which case tv4 should
+    // be shared memory as well.
     tv4->setMemoryType(MemoryType::Global);
 
     KernelExecutor ke;
