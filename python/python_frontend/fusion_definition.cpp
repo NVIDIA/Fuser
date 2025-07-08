@@ -778,8 +778,7 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
 void FusionDefinition::validateWithAutoInferredOutputs(
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& args) {
-  return validate_with_auto_inferred_outputs(
-      preschedFusion(), fusion_outputs, args);
+  return testValidate(preschedFusion(), fusion_outputs, args);
 }
 
 int64_t FusionDefinition::setupSegmentation(const KernelArgumentHolder& args) {

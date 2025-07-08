@@ -310,7 +310,7 @@ std::vector<std::pair<double, double>> get_val_constants(
   return tolerance_values;
 }
 
-void validate_with_auto_inferred_outputs(
+void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs,
@@ -499,6 +499,43 @@ void validate_with_auto_inferred_outputs(
           ".\n Values are not equal and are not a floating type.");
     }
   }
+}
+
+void testValidate(
+    Fusion* fusion,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
+    int line_number,
+    const char* file_name,
+    std::string err_msg,
+    const LaunchParams& lparams,
+    const ValidationConstants& tolerances) {
+  testValidate(
+      fusion,
+      fusion_outputs,
+      aten_inputs,
+      /*aten_outputs=*/{},
+      line_number,
+      file_name,
+      err_msg,
+      lparams,
+      tolerances);
+}
+
+void testValidate(
+    Fusion* fusion,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs) {
+  testValidate(
+      fusion,
+      fusion_outputs,
+      aten_inputs,
+      /*aten_outputs=*/{},
+      /*line_number=*/0,
+      /*file_name=*/"",
+      /*err_msg=*/"",
+      LaunchParams(),
+      ValidationConstants());
 }
 
 } // namespace nvfuser
