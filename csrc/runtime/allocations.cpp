@@ -241,9 +241,13 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
     case at::ScalarType::Float8_e8m0fnu:
-      // case at::ScalarType::Float4_e2m1fn_x2:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(torch::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:

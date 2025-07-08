@@ -60,8 +60,9 @@ from opinfo_input_generators import (
     triu_error_generator,
     grouped_mm_input_generator,
     scaled_grouped_mm_input_generator,
+    scaled_mm_input_generator,
 )
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     bool_int_dtypes,
     complex_dtypes,
     full_precision_float_dtypes,
@@ -1355,10 +1356,38 @@ if LooseVersion(torch.__version__) >= LooseVersion("2.8.0"):
         ),
     )
 
+    def scaled_mm_wrapper(mat1, mat2, scale1, scale2, alpha, bias, beta, dtype):
+        assert beta is None
+        return torch._scaled_mm(
+            mat1, mat2, scale1, scale2, bias, alpha, out_dtype=dtype
+        )
+
+    scaled_mm_opinfo = OpInfo(
+        lambda fd: fd.ops.scaled_mm,
+        "scaled_mm",
+        # limit test to mxfp8 for now
+        dtypes=(torch.float8_e4m3fn,),
+        sample_input_generator=scaled_mm_input_generator,
+        reference=scaled_mm_wrapper,
+        symbolic_parameter_list=(
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Symbolic,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+            ArgumentType.Constant,
+        ),
+    )
+
     # only hopper is supported with torch._grouped_mm at this point.
     if torch.cuda.get_device_properties(torch.cuda.current_device()).major == 9:
         matmul_ops.append(grouped_mm_opinfo)
         matmul_ops.append(scaled_grouped_mm_opinfo)
+
+    if torch.cuda.get_device_properties(torch.cuda.current_device()).major >= 10:
+        matmul_ops.append(scaled_mm_opinfo)
 
 linear_ops = []
 
