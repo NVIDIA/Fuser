@@ -34,18 +34,18 @@ struct DataType;
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  int64_t size_;
+  int64_t size_bit_;
 
  public:
   template <typename T>
-  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
+  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
 
   inline Pointer(void* ptr, DataType dtype);
 
-  Pointer() : ptr_(nullptr), size_(-1) {}
+  Pointer() : ptr_(nullptr), size_bit_(-1) {}
 
-  int64_t size() const {
-    return size_;
+  int64_t sizeBit() const {
+    return size_bit_ / 8;
   }
 
   template <typename T>
@@ -54,23 +54,25 @@ class Pointer {
   }
 
   Pointer& operator+=(int64_t offset) {
-    ptr_ += offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ += offset_bit / 8;
     return *this;
   }
 
   Pointer& operator-=(int64_t offset) {
-    ptr_ -= offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ -= offset_bit / 8;
     return *this;
   }
 
   Pointer& operator++() {
-    ptr_ += size_;
-    return *this;
+    return *this += 1;
   }
 
   Pointer& operator--() {
-    ptr_ -= size_;
-    return *this;
+    return *this -= 1;
   }
 
   Pointer operator++(int) {
@@ -98,8 +100,8 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    NVF_ERROR(size_ == other.size_);
-    return (ptr_ - other.ptr_) / (int64_t)size_;
+    NVF_ERROR(size_bit_ == other.size_bit_, "Size must be the same");
+    return (int64_t)((ptr_ - other.ptr_) * 8) / size_bit_;
   }
 
   bool operator==(const Pointer& other) const {

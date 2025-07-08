@@ -2885,6 +2885,28 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(2, 4, 8, 16)),
     fp4CastTestName);
 
+TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024 * 1024}, options)
+                         .view(torch::kFloat4_e2m1fn_x2);
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
+}
+
 #endif
 
 TEST_F(NVFuserTest, BitCeilKernel) {

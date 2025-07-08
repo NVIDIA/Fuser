@@ -505,7 +505,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     auto ptr = std::get<PointerType>(dtype.type);
-    return dataTypeSizeByte(*ptr.type) == value.as<Pointer>().size();
+    return dataTypeSizeBit(*ptr.type) == value.as<Pointer>().sizeBit();
   } else if (std::holds_alternative<ArrayType>(dtype.type)) {
     if (!value.is<std::vector>()) {
       return false;
@@ -1122,7 +1122,7 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSizeByte(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(dataTypeSizeBit(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,
