@@ -191,7 +191,7 @@ int64_t getMinPersistentBufferSize(
 // result in no (or little) register spilling
 bool checkIfWithinRegisterSpace(
     int64_t total_reduction_numel,
-    int64_t persistent_buffer_size,
+    int64_t persistent_buffer_size_bit,
     int64_t vectorize_factor,
     int64_t bdimy,
     int64_t gdimy) {
@@ -203,11 +203,11 @@ bool checkIfWithinRegisterSpace(
 
   const auto available_reg_count = getAvailableRegisterCount(pb_factor);
 
-  auto per_thread_persistent_buffer_size =
-      ceilDiv(ceilDiv(persistent_buffer_size, bdimy), gdimy) * vectorize_factor;
+  auto per_thread_persistent_buffer_size_bit =
+      ceilDiv(ceilDiv(persistent_buffer_size_bit, bdimy), gdimy) * vectorize_factor;
 
   auto persistent_buffer_reg_count =
-      ceilDiv(per_thread_persistent_buffer_size, sizeof(int));
+      ceilDiv(per_thread_persistent_buffer_size_bit, sizeof(int) * 8);
 
   log("persistent_buffer_reg_count: ",
       persistent_buffer_reg_count,
@@ -226,10 +226,10 @@ bool checkIfWithinRegisterSpace(
 double getLastBlockWorkRatio(
     const int64_t total_reduction_numel,
     const int64_t bdimy,
-    const int64_t persistent_buffer_size) {
+    const int64_t persistent_buffer_size_bit) {
   auto last_block_pb =
-      total_reduction_numel % (persistent_buffer_size * bdimy) / bdimy;
-  return ((double)last_block_pb) / (double)persistent_buffer_size;
+      total_reduction_numel % (persistent_buffer_size_bit * bdimy) / bdimy;
+  return ((double)last_block_pb) / (double)persistent_buffer_size_bit;
 };
 
 // In the current outer normalization scheduling, only the last thread
@@ -260,7 +260,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
     const PreferredLaunchConfig& launch_cfg,
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
-    const int64_t persistent_buffer_size,
+    const int64_t persistent_buffer_size_bit,
     const int64_t vectorize_factor) {
   const auto bdimy = launch_cfg.bdimy();
 
@@ -292,7 +292,7 @@ std::optional<std::tuple<int64_t, int64_t, bool>> reduceWorkOfLastBlock(
   while (current_gdimy >= min_gdimy &&
          checkIfWithinRegisterSpace(
              total_reduction_numel,
-             persistent_buffer_size,
+             persistent_buffer_size_bit,
              vectorize_factor,
              bdimy,
              current_gdimy)) {
@@ -384,7 +384,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t total_reduction_numel,
     int64_t total_iteration_numel,
     int64_t vectorize_factor,
-    int64_t persistent_buffer_size) {
+    int64_t persistent_buffer_size_bit) {
   PreferredLaunchConfig launch_cfg;
 
   // The launch config starts with the largest blockDim.x, which may
@@ -421,7 +421,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
 
     if (!checkIfWithinRegisterSpace(
             total_reduction_numel,
-            persistent_buffer_size,
+            persistent_buffer_size_bit,
             vectorize_factor,
             launch_cfg.bdimy(),
             launch_cfg.gdimy())) {
@@ -476,7 +476,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
           launch_cfg,
           total_reduction_numel,
           total_iteration_numel,
-          persistent_buffer_size,
+          persistent_buffer_size_bit,
           vectorize_factor);
       if (!gdimy_pb_size.has_value()) {
         launch_cfg.moveToNextConfig();

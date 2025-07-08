@@ -353,15 +353,15 @@ ReductionTvProperties getReductionProperties(
 // Struct to store persistent buffer sizes. also holds the persistent buffer
 // size of the buffers are projected to the inputs.
 struct PersistentBufferSizeReturn {
-  int64_t persistent_buffer_size = 0;
-  int64_t projected_persistent_buffer_size = 0;
+  int64_t persistent_buffer_size_bit = 0;
+  int64_t projected_persistent_buffer_size_bit = 0;
 };
 
 // Compute the amount of register space would be needed to perform this kernel
 // persistently, only based on buffers that must be persistent, and based on the
 // maximum of all minimum size requirement. i.e. if must be persistent, only
 // hold persistent dimension.
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,

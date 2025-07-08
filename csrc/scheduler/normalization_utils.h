@@ -160,7 +160,7 @@ std::optional<GridOuterNormalizationParams> getGridOuterNormalizationParams(
     int64_t total_reduction_numel,
     int64_t total_iteration_numel,
     int64_t vectorize_factor,
-    int64_t persistent_buffer_size);
+    int64_t persistent_buffer_size_bit);
 
 //! check iter type of each domain in inner and outer reduction tvs
 //! inner reduction must be [I,I,...R,R]
@@ -213,9 +213,9 @@ struct PersistentKernelProperties {
   int64_t inner_most_dimension_numel;
   int64_t total_reduction_numel;
   int64_t total_iteration_numel;
-  int64_t max_persistent_buffer_size;
+  int64_t max_persistent_buffer_size_bit;
   int64_t n_tensor_inputs;
-  int64_t max_dtype_size;
+  int64_t max_dtype_size_bit;
   int64_t vectorize_factor;
   bool project_persistent_buffers;
   PrimDataType index_type;
@@ -229,9 +229,9 @@ struct PersistentKernelProperties {
        << "inner_most_dimension_numel: " << inner_most_dimension_numel << "\n"
        << "total_reduction_numel: " << total_reduction_numel << "\n"
        << "total_iteration_numel: " << total_iteration_numel << "\n"
-       << "max_persistent_buffer_size: " << max_persistent_buffer_size << "\n"
+       << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit << "\n"
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-       << "max_input_dtype_size: " << max_dtype_size << "\n"
+       << "max_input_dtype_size_bit: " << max_dtype_size_bit << "\n"
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"
        << "disable_project_to_avoid_recompute: "
        << disable_project_to_avoid_recompute << "\n"

@@ -63,8 +63,8 @@ std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
-    const int64_t max_input_dtype_size,
-    const int64_t max_persistent_buffer_size,
+    const int64_t max_input_dtype_size_bit,
+    const int64_t max_persistent_buffer_size_bit,
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type) {
@@ -73,7 +73,7 @@ std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
           total_reduction_numel,
           total_iteration_numel,
           (int64_t)vectorize_factor,
-          max_persistent_buffer_size);
+          max_persistent_buffer_size_bit);
 
   NVF_ERROR(outer_params.has_value(), "No valid config found");
 
@@ -122,8 +122,8 @@ std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "max_input_dtype_size_bit: " << max_input_dtype_size_bit << "\n"
+            << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
             << "\n"
             << "persistent_buffer_factor: " << pb_size << "\n"
             << "block(" << outer_params->launch_params.bdimx() << ", "
@@ -141,8 +141,8 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
     const int64_t total_reduction_numel,
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
-    const int64_t max_input_dtype_size,
-    const int64_t max_persistent_buffer_size,
+    const int64_t max_input_dtype_size_bit,
+    const int64_t max_persistent_buffer_size_bit,
     const size_t vectorize_factor,
     const bool project_to_input,
     const PrimDataType index_type) {
@@ -153,33 +153,33 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
   const int64_t device_multiprocessor_count =
       (int64_t)dev_prop->multiProcessorCount;
 
-  // If it fits in l2, we just want to make sure each warp uses 32Bytes. Set
+  // If it fits in l2, we just want to make sure each warp uses 256Bits. Set
   // minimum warp as 16 threads instead of 32 as if we have a small reduction
   // dim going a bit smaller than 32 usually helps.
   const int64_t warp_size =
-      n_elems * max_input_dtype_size * n_tensor_inputs < dev_prop->l2CacheSize
-      ? (int64_t)32 / max_input_dtype_size
+      n_elems * max_input_dtype_size_bit * n_tensor_inputs < dev_prop->l2CacheSize * 8
+      ? (int64_t)256 / max_input_dtype_size_bit
       : 16;
 
-  const auto register_file_size =
-      dev_prop->regsPerBlock * scheduler_utils::bytes_per_register;
+  const auto register_file_size_bit =
+      dev_prop->regsPerBlock * scheduler_utils::bits_per_register;
   const int64_t device_warp_size = (int64_t)dev_prop->warpSize;
 
   // Each block runs N reductions, where N is defined as:
   // vectorize_factor * blockDim.x. The minimum number of SMs to run
   // this as a persistent kernel is thus defined as:
   const int64_t min_required_sm_per_norm = ceilDiv(
-      max_persistent_buffer_size * (int64_t)vectorize_factor *
+      max_persistent_buffer_size_bit * (int64_t)vectorize_factor *
           normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx,
-      (int64_t)register_file_size);
+      (int64_t)register_file_size_bit);
 
   if (min_required_sm_per_norm > 1) {
     return gridOuterPersistentHeuristic(
         total_reduction_numel,
         total_iteration_numel,
         n_tensor_inputs,
-        max_input_dtype_size,
-        max_persistent_buffer_size,
+        max_input_dtype_size_bit,
+        max_persistent_buffer_size_bit,
         vectorize_factor,
         project_to_input,
         index_type);
@@ -188,7 +188,7 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
   // Compute maximum number of reductions we could do in the same kernel based
   // on persistent buffer size
   const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      scheduler_utils::register_file_size, max_persistent_buffer_size);
+      scheduler_utils::register_file_size_bit, max_persistent_buffer_size_bit);
 
   struct NormOuterParams {
     // Iteration dim, each CTA covers [bdimx] * [iter_unroll_factor] reductions.
@@ -330,9 +330,9 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
 
   // Final check of the requested registers
   int64_t sm_required_per_norm_set = ceilDiv(
-      max_persistent_buffer_size * params.bdimx.get() *
+      max_persistent_buffer_size_bit * params.bdimx.get() *
           params.iter_unroll_factor.get(),
-      scheduler_utils::register_file_size);
+      scheduler_utils::register_file_size_bit);
   NVF_ERROR(
       sm_required_per_norm_set == 1,
       "Tried to use multiple SMs on an outer persistent kernel ",
@@ -395,8 +395,8 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
             << "total_iteration_numel: " << total_iteration_numel << "\n"
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
-            << "max_persistent_buffer_size: " << max_persistent_buffer_size
+            << "max_input_dtype_size_bit: " << max_input_dtype_size_bit << "\n"
+            << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
             << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
@@ -427,8 +427,8 @@ std::unique_ptr<ReductionParams> getOuterPersistentHeuristics(
       prop.total_reduction_numel,
       prop.total_iteration_numel,
       prop.n_tensor_inputs,
-      prop.max_dtype_size,
-      prop.max_persistent_buffer_size,
+      prop.max_dtype_size_bit,
+      prop.max_persistent_buffer_size_bit,
       prop.vectorize_factor,
       prop.project_persistent_buffers,
       prop.index_type);
@@ -487,20 +487,20 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   // Note that projected buffer size can be zero
-  auto persistent_buffer_size =
-      persistent_buffer_size_info.projected_persistent_buffer_size == 0
-      ? persistent_buffer_size_info.persistent_buffer_size
+  auto persistent_buffer_size_bit =
+      persistent_buffer_size_info.projected_persistent_buffer_size_bit == 0
+      ? persistent_buffer_size_info.persistent_buffer_size_bit
       : std::min(
-            persistent_buffer_size_info.persistent_buffer_size,
-            persistent_buffer_size_info.projected_persistent_buffer_size);
+            persistent_buffer_size_info.persistent_buffer_size_bit,
+            persistent_buffer_size_info.projected_persistent_buffer_size_bit);
 
   const int64_t device_multiprocessor_count =
       (int64_t)device_prop->multiProcessorCount;
 
-  const auto available_persistent_buffer_size =
-      sm_register_file_size * device_multiprocessor_count;
+  const auto available_persistent_buffer_size_bit =
+      sm_register_file_size_bit * device_multiprocessor_count;
 
-  if (persistent_buffer_size > available_persistent_buffer_size) {
+  if (persistent_buffer_size_bit > available_persistent_buffer_size_bit) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "not enough registers for persistence");
     return false;
@@ -519,8 +519,8 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
       normalization_scheduler_utils::PreferredLaunchConfig::kMinBdimx;
 
   const int64_t required_sm_per_norm = ceilDiv(
-      persistent_buffer_size * min_multi_reduction_factor,
-      sm_register_file_size);
+      persistent_buffer_size_bit * min_multi_reduction_factor,
+      sm_register_file_size_bit);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.
@@ -555,7 +555,7 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
             properties.total_reduction_numel,
             properties.total_iteration_numel,
             vectorization_factor,
-            persistent_buffer_size);
+            persistent_buffer_size_bit);
 
     if (!cross_grid_params.has_value()) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -569,8 +569,8 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   // Maximum number of iteration dimensions we can have and still be
   // persistent.
   const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      is_cross_grid ? available_persistent_buffer_size : sm_register_file_size,
-      persistent_buffer_size);
+      is_cross_grid ? available_persistent_buffer_size_bit : sm_register_file_size_bit,
+      persistent_buffer_size_bit);
 
   // Don't go persistent if we can't fit the minimum multi reduction
   // factor
@@ -591,8 +591,8 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
             cross_grid_params->launch_params.bdimx()) *
           cross_grid_params->launch_params.gdimy()
       : ceilDiv(
-            properties.total_iteration_numel * persistent_buffer_size,
-            sm_register_file_size);
+            properties.total_iteration_numel * persistent_buffer_size_bit,
+            sm_register_file_size_bit);
 
   // Bandwidth suffers if the number of used SMs is small. This is
   // particularly impactful in the case of cross grid, so at least

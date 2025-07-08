@@ -976,11 +976,11 @@ bool canProjectToPersistentProducer(
   }
 }
 
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeOfTensorBit(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
-  int64_t buffer_bytes = -1;
+  int64_t buffer_bits = -1;
   bool is_input =
       std::find(
           persistent_buffer_info.projectable_buffer_inputs.begin(),
@@ -1004,10 +1004,10 @@ int64_t getPersistentBufferSizeOfTensor(
 
     auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-    if (buffer_bytes == -1) {
-      buffer_bytes = id_size.as<int64_t>();
+    if (buffer_bits == -1) {
+      buffer_bits = id_size.as<int64_t>();
     } else {
-      buffer_bytes *= id_size.as<int64_t>();
+      buffer_bits *= id_size.as<int64_t>();
     }
   }
   // If the persistent buffer is the output of an upcast op, scheduler will
@@ -1015,20 +1015,20 @@ int64_t getPersistentBufferSizeOfTensor(
   // project to inputs, not abosutely necessary but we always do it to
   // save register usage. So, need to compute the buffer size using the data
   // type before upcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSizeByte(
+    dtype_size_bit = dataTypeSizeBit(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSizeByte(
+    dtype_size_bit = dataTypeSizeBit(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
-  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
-  return buffer_bytes;
+  buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
+  return buffer_bits;
 }
 
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
@@ -1053,11 +1053,11 @@ PersistentBufferSizeReturn persistentBufferSize(
       projectable_buffers_inputs.begin(),
       projectable_buffers_inputs.end());
 
-  std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
+  std::vector<int64_t> persistent_buffer_sizes_bit(all_buffers.size(), -1);
 
   for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
+    persistent_buffer_sizes_bit[buffer_i] = getPersistentBufferSizeOfTensorBit(
         buffer, runtime_info, persistent_buffer_info);
   }
 
@@ -1121,26 +1121,26 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Go through all values, compute the size of the active persistent buffers,
   // do both without and with projection
-  int64_t max_persistence_size = 0;
-  int64_t max_proj_persistence_size = 0;
+  int64_t max_persistence_size_bit = 0;
+  int64_t max_proj_persistence_size_bit = 0;
   for (const auto& entry : scoped_persistence_factor) {
     auto active_buffers = entry.second;
-    auto persistent_buffer_size = masked_dot_product(
-        persistent_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_persistence_size =
-        std::max(max_persistence_size, persistent_buffer_size);
+    auto persistent_buffer_size_bit = masked_dot_product(
+        persistent_mask, active_buffers, persistent_buffer_sizes_bit, all_buffers);
+    max_persistence_size_bit =
+        std::max(max_persistence_size_bit, persistent_buffer_size_bit);
 
     auto projected_buffer_size = masked_dot_product(
-        projected_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_proj_persistence_size =
-        std::max(max_proj_persistence_size, projected_buffer_size);
+        projected_mask, active_buffers, persistent_buffer_sizes_bit, all_buffers);
+    max_proj_persistence_size_bit =
+        std::max(max_proj_persistence_size_bit, projected_buffer_size_bit);
   }
 
-  PersistentBufferSizeReturn persistent_buffer_size;
-  persistent_buffer_size.persistent_buffer_size = max_persistence_size;
-  persistent_buffer_size.projected_persistent_buffer_size =
-      max_proj_persistence_size;
-  return persistent_buffer_size;
+  PersistentBufferSizeReturn persistent_buffer_size_bit;
+  persistent_buffer_size_bit.persistent_buffer_size_bit = max_persistence_size_bit;
+  persistent_buffer_size_bit.projected_persistent_buffer_size_bit =
+      max_proj_persistence_size_bit;
+  return persistent_buffer_size_bit;
 }
 
 std::pair<bool, bool> canonicalDimReduction(

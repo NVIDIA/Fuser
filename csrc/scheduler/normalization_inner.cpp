@@ -1132,7 +1132,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   bool can_use_smem_persistent =
       properties.total_reduction_numel == properties.inner_most_dimension_numel;
 
-  // pair of persistent_buffer_size and available_persistent_buffer_size
+  // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
   const std::pair<int64_t, int64_t> buffer_size_bit = getPersistentBufferSizeBit(
       fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
   const int64_t persistent_buffer_size_bit = buffer_size_bit.first;
