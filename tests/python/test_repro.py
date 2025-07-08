@@ -178,6 +178,7 @@ class TestRepro(NVFuserTest):
             ),
         ]
         outputs = fd.execute(inputs)
+        fd.validate_with_auto_inferred_outputs(outputs, inputs)
 
     def test_issue4459(self):
         def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
