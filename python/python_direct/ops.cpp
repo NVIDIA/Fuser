@@ -2872,6 +2872,78 @@ tuple[TensorView, TensorView, TensorView, TensorView]
     A tuple of (output, log_sumexp, philox_seed, philox_offset).
       )",
       py::return_value_policy::reference);
+  ops.def(
+      "sdpfa_bwd",
+      [](TensorView* grad_output,
+         TensorView* query,
+         TensorView* key,
+         TensorView* value,
+         TensorView* output,
+         TensorView* log_sumexp,
+         Val* dropout_p,
+         Val* is_causal,
+         TensorView* philox_seed,
+         TensorView* philox_offset,
+         Val* scale) -> decltype(auto) {
+        auto [grad_query, grad_key, grad_value] = sdpfa_bwd(
+            grad_output,
+            query,
+            key,
+            value,
+            output,
+            log_sumexp,
+            dropout_p,
+            is_causal,
+            philox_seed,
+            philox_offset,
+            scale);
+        return std::make_tuple(grad_query, grad_key, grad_value);
+      },
+      py::arg("grad_output"),
+      py::arg("query"),
+      py::arg("key"),
+      py::arg("value"),
+      py::arg("output"),
+      py::arg("log_sumexp"),
+      py::arg("dropout_p").none(true) = py::none(),
+      py::arg("is_causal").none(true) = py::none(),
+      py::arg("philox_seed"),
+      py::arg("philox_offset"),
+      py::arg("scale").none(true) = py::none(),
+      R"(
+Scaled Dot Product Flash Attention Backward.
+
+Parameters
+----------
+grad_output : TensorView
+    The gradient of the output.
+query : TensorView
+    The query tensor.
+key : TensorView
+    The key tensor.
+value : TensorView
+    The value tensor.
+output : TensorView
+    The output tensor.
+log_sumexp : TensorView
+    The log of the sum of the exponential of the key.
+dropout_p : Val, optional
+    The dropout probability. Default is None.
+is_causal : Val, optional
+    Whether the attention is causal. Default is None.
+philox_seed : TensorView
+    The seed for the philox random number generator.
+philox_offset : TensorView
+    The offset for the philox random number generator.
+scale : Val, optional
+    The scale of the attention. Default is None.
+
+Returns
+-------
+tuple[TensorView, TensorView, TensorView]
+    A tuple of (grad_query, grad_key, grad_value).
+      )",
+      py::return_value_policy::reference);
 }
 
 } // namespace

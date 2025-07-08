@@ -1060,6 +1060,39 @@ class PythonTranslator : public OptInConstDispatch {
          sdpa_fwd_op->philox_offset()});
   }
 
+  void handle(const SdpaBwdOp* sdpa_bwd_op) final {
+    NVF_ERROR(sdpa_bwd_op != nullptr);
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<Val*>{"dropout_p", nullptr},
+        KeywordArgument<Val*>{"is_causal", nullptr},
+        KeywordArgument<TensorView*>{"philox_seed", std::nullopt},
+        KeywordArgument<TensorView*>{"philox_offset", std::nullopt},
+        KeywordArgument<Val*>{"scale", nullptr});
+    visited_vals_.insert(sdpa_bwd_op->grad_query());
+    visited_vals_.insert(sdpa_bwd_op->grad_key());
+    visited_vals_.insert(sdpa_bwd_op->grad_value());
+    printer_.generateKwargsOperation(
+        "fd.ops.sdpfa_bwd",
+        std::make_tuple(
+            sdpa_bwd_op->grad_attn(),
+            sdpa_bwd_op->query(),
+            sdpa_bwd_op->key(),
+            sdpa_bwd_op->value(),
+            sdpa_bwd_op->attn_out(),
+            sdpa_bwd_op->logsumexp()),
+        default_args,
+        std::make_tuple(
+            sdpa_bwd_op->dropout_p(),
+            sdpa_bwd_op->is_causal(),
+            sdpa_bwd_op->philox_seed(),
+            sdpa_bwd_op->philox_offset(),
+            sdpa_bwd_op->scale()),
+        {sdpa_bwd_op->grad_query(),
+         sdpa_bwd_op->grad_key(),
+         sdpa_bwd_op->grad_value()});
+  }
+
   void handle(const SqueezeOp* sop) final {
     NVF_ERROR(sop != nullptr);
     visited_vals_.insert(sop->out());
