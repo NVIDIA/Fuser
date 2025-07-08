@@ -361,7 +361,7 @@ void innerPersistentHeuristic2D(
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
-  // persistent_buffer_size / bytes_per_register
+  // persistent_buffer_size_bit / bits_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
@@ -575,7 +575,7 @@ void innerPersistentHeuristic3D(
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
-  // persistent_buffer_size / bytes_per_register
+  // persistent_buffer_size_bit / bits_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
@@ -962,8 +962,8 @@ void innerPersistentHeuristic3D(
 
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
-  // usage register per thread is estimated as overhead + buffer_size /
-  // bytes_per_register
+  // usage register per thread is estimated as overhead + buffer_size_bit /
+  // bits_per_register
   int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
   const int64_t blocksPerKernel = godim;
   // register estimation is only valid for vectorized gmem access
