@@ -100,12 +100,12 @@ void getHeuristics(
   // Given a smem buffer size, calculate the number of registers pre thread
   // required to cache it in registers. The total required register size may be
   // larger than smem size due to non-divisible split.
-  auto round_up_reg_count = [&](int64_t logical_size, int64_t bdimx) {
+  auto round_up_reg_count = [&](int64_t logical_size_bit, int64_t bdimx) {
     int persistent_batch = ceilDiv(after_vect, bdimx);
-    int buffer_per_element = logical_size / inner_dim_numel;
+    int buffer_per_element = logical_size_bit / inner_dim_numel;
     int elements_per_thread = persistent_batch * vect_factor;
     int buffer_per_thread = buffer_per_element * elements_per_thread;
-    return buffer_per_thread / scheduler_utils::bytes_per_register;
+    return buffer_per_thread / scheduler_utils::bits_per_register;
   };
   // Assume each padded threads keep [tma_branch_registers] registers and all
   // others are moved to computation threads. The granularity is 8.
@@ -139,15 +139,15 @@ void getHeuristics(
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
       reg_count +=
-          round_up_reg_count(circular_buffered_smem_size, bdimx) * iter_unroll;
+          round_up_reg_count(circular_buffered_smem_size_bit, bdimx) * iter_unroll;
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count += round_up_reg_count(non_circular_buffered_smem_size, bdimx);
+      reg_count += round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx);
     }
     // regs for partial outer reduction results.
-    reg_count += round_up_reg_count(regs_buffer_size, bdimx);
+    reg_count += round_up_reg_count(regs_buffer_size_bit, bdimx);
 
     // Empirical value, tunned for RMS Norm Bwd FP16
     // At hidden size 6144, buffer requires 120 registers, compute branch
@@ -352,8 +352,8 @@ void getHeuristics(
     // cut-off at hidden size of 24K.
     if (bdimy == 1 && is_non_circular_buffer_gmem_to_regs) {
       int64_t buffer_regs =
-          round_up_reg_count(non_circular_buffered_smem_size, bdimx) +
-          round_up_reg_count(regs_buffer_size, bdimx);
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx) +
+          round_up_reg_count(regs_buffer_size_bit, bdimx);
       int64_t compute_branch_regs =
           ws.num_registers.has_value() ? ws.num_registers.value().second : 255L;
       int64_t other_regs = compute_branch_regs - buffer_regs;
@@ -374,11 +374,11 @@ void getHeuristics(
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "regs_buffer_size: " << regs_buffer_size << "\n"
-            << "circular_buffered_smem_size: " << circular_buffered_smem_size
+            << "regs_buffer_size_bit: " << regs_buffer_size_bit << "\n"
+            << "circular_buffered_smem_size_bit: " << circular_buffered_smem_size_bit
             << "\n"
-            << "non_circular_buffered_smem_size: "
-            << non_circular_buffered_smem_size << "\n"
+            << "non_circular_buffered_smem_size_bit: "
+            << non_circular_buffered_smem_size_bit << "\n"
             << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"
             << "vectorization_factor_tmp_gmem_write: " << tmp_gmem_write_vect
             << "\n"

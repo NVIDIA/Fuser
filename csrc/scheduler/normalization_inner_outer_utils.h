@@ -48,24 +48,24 @@ struct PersistentBufferStorageParams {
 
   // Total number of bytes occupied by all persistent buffers stored in shared
   // memory.
-  int64_t smem_buffer_size = 0;
+  int64_t smem_buffer_size_bit = 0;
 
   // Shared memory buffers that are circular buffered.
-  int64_t circular_buffered_smem_size = 0;
+  int64_t circular_buffered_smem_size_bit = 0;
 
   // Shared memory buffers that are not circular buffered, e.g. outer bcast tv
   // which doesn't have iter dim to circulate. It is shared for different
   // circular loops and smem usage is not related to circular buffer stages.
-  int64_t non_circular_buffered_smem_size = 0;
+  int64_t non_circular_buffered_smem_size_bit = 0;
 
-  // Total number of bytes occupied by all persistent buffers stored in
+  // Total number of bits occupied by all persistent buffers stored in
   // registers.
-  int64_t regs_buffer_size = 0;
+  int64_t regs_buffer_size_bit = 0;
 
   // Additional shared memory usage per block that is not associated with
   // persistent buffers. This includes memory for driver overhead and workspace
   // for reductions.
-  int64_t smem_overhead = 0;
+  int64_t smem_overhead_bit = 0;
 
   // Flag indicating whether there are sufficient registers and shared memory
   // available to accommodate all persistent buffers as required for efficient

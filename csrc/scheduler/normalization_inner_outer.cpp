@@ -450,7 +450,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           ->maxThreadsPerMultiProcessor;
 
   const int64_t required_sm_per_norm = ceilDiv(
-      buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
+      buffer_params.regs_buffer_size_bit, scheduler_utils::register_file_size_bit);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.
