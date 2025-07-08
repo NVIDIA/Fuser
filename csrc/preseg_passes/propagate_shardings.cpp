@@ -183,10 +183,10 @@ void transformLoopDomain(
     const TensorView* ref,
     const std::unordered_set<IterDomain*>& device_ids,
     PropagateDirection direction) {
-  std::unordered_map<IterDomain*, IterDomain*>& ref2target =
+  std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, target, direction);
 
-  auto getTargetId = [&](IterDomain* ref_id) -> IterDomain* {
+  auto get_target_id = [&](IterDomain* ref_id) -> IterDomain* {
     // Finds the target id to be sharded corresponding to the ref_id.
     // This handles any root-to-logical transforms present on ref_id
     // or the mapped target_id.
@@ -252,7 +252,7 @@ void transformLoopDomain(
         transform);
 
     IterDomain* ref_id = split->in();
-    IterDomain* target_id = getTargetId(ref_id);
+    IterDomain* target_id = get_target_id(ref_id);
     NVF_ERROR(
         transformed_loop.contains(target_id),
         "Expected the target ID, ",
@@ -316,7 +316,7 @@ void propagateDIDTransform(
   tv->setDeviceMesh(ref->getDeviceMesh());
 
   std::unordered_set<IterDomain*> device_ids;
-  const std::unordered_map<IterDomain*, IterDomain*>& ref2target =
+  const std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, tv, direction);
 
   for (IterDomain* maybe_did : ref->getLoopDomain()) {
