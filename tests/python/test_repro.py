@@ -418,14 +418,16 @@ class TestRepro(NVFuserTest):
             S19 = fd.define_scalar(1.00000, dtype=DataType.Double)
             T20 = fd.ops.add(S19, T16)
             T21 = fd.ops.add(T18, T17)
-            T26 = fd.ops.broadcast_in_dim(T20, shape=[1, 4096, 3072], broadcast_dims=[2])
+            T26 = fd.ops.broadcast_in_dim(
+                T20, shape=[1, 4096, 3072], broadcast_dims=[2]
+            )
             T27 = fd.ops.mul(T26, T21)
             T28 = fd.ops.cast(T3, dtype=DataType.Float)
             T29 = fd.ops.mul(T28, T27)
             T30 = fd.ops.sum(T29, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T35 = fd.ops.broadcast_in_dim(T30, shape=[1, 4096, 1], broadcast_dims=[1])
             S36 = fd.define_scalar(3.00000, dtype=DataType.Float)
-            T37 = fd.ops.pow(T4, S36)
+            T37 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
             S38 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T39 = fd.ops.mul(S38, T35)
             T40 = fd.ops.mul(T39, T37)
@@ -434,9 +436,15 @@ class TestRepro(NVFuserTest):
             T43 = fd.ops.mul(T40, S42)
             T44 = fd.ops.sum(T43, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T48 = fd.ops.broadcast_in_dim(T44, shape=[1, 4096], broadcast_dims=[1])
-            T53 = fd.ops.broadcast_in_dim(T48, shape=[1, 4096, 1], broadcast_dims=[0, 1])
-            T58 = fd.ops.broadcast_in_dim(T53, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2])
-            T63 = fd.ops.broadcast_in_dim(T4, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2])
+            T53 = fd.ops.broadcast_in_dim(
+                T48, shape=[1, 4096, 1], broadcast_dims=[0, 1]
+            )
+            T58 = fd.ops.broadcast_in_dim(
+                T53, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+            )
+            T63 = fd.ops.broadcast_in_dim(
+                T4, shape=[1, 4096, 3072], broadcast_dims=[0, 1, 2]
+            )
             T64 = fd.ops.mul(T28, T58)
             T65 = fd.ops.mul(T63, T27)
             T66 = fd.ops.add(T65, T64)
@@ -459,12 +467,22 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id8(fd)
 
         inputs = [
-            torch.testing.make_tensor((4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
             torch.testing.make_tensor((3072,), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 1), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 1), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 3072), dtype=torch.bfloat16, device="cuda:0"
+            ),
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
@@ -509,19 +527,27 @@ class TestRepro(NVFuserTest):
             )
             T9 = fd.ops.reshape(T0, new_shape=[288, 512, 128])
             T14 = fd.ops.broadcast_in_dim(T1, shape=[288, 512, 128], broadcast_dims=[2])
-            T19 = fd.ops.broadcast_in_dim(T2, shape=[288, 512, 1], broadcast_dims=[0, 1])
+            T19 = fd.ops.broadcast_in_dim(
+                T2, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
             T20 = fd.ops.cast(T9, dtype=DataType.Float)
             T21 = fd.ops.cast(T14, dtype=DataType.Float)
-            T26 = fd.ops.broadcast_in_dim(T19, shape=[288, 512, 128], broadcast_dims=[0, 1, 2])
+            T26 = fd.ops.broadcast_in_dim(
+                T19, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
+            )
             T27 = fd.ops.cast(T3, dtype=DataType.Float)
             T28 = fd.ops.mul(T21, T20)
             T29 = fd.ops.sub(T27, T26)
             T30 = fd.ops.mul(T29, T28)
             T31 = fd.ops.sum(T30, dims=[2], keepdim=False, dtype=DataType.Null)
-            T36 = fd.ops.broadcast_in_dim(T31, shape=[288, 512, 1], broadcast_dims=[0, 1])
-            T41 = fd.ops.broadcast_in_dim(T4, shape=[288, 512, 128], broadcast_dims=[0, 1, 2])
+            T36 = fd.ops.broadcast_in_dim(
+                T31, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
+            T41 = fd.ops.broadcast_in_dim(
+                T4, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
+            )
             S42 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T43 = fd.ops.pow(T4, S42)
+            T43 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
             S44 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T45 = fd.ops.mul(S44, T36)
             T46 = fd.ops.mul(T41, T28)
@@ -529,18 +555,32 @@ class TestRepro(NVFuserTest):
             T48 = fd.ops.neg(T46)
             T49 = fd.ops.sum(T47, dims=[2], keepdim=False, dtype=DataType.Null)
             T50 = fd.ops.sum(T48, dims=[2], keepdim=False, dtype=DataType.Null)
-            T55 = fd.ops.broadcast_in_dim(T2, shape=[288, 512, 1], broadcast_dims=[0, 1])
-            T60 = fd.ops.broadcast_in_dim(T49, shape=[288, 512, 1], broadcast_dims=[0, 1])
-            T65 = fd.ops.broadcast_in_dim(T50, shape=[288, 512, 1], broadcast_dims=[0, 1])
-            T70 = fd.ops.broadcast_in_dim(T55, shape=[288, 512, 128], broadcast_dims=[0, 1, 2])
-            T75 = fd.ops.broadcast_in_dim(T60, shape=[288, 512, 128], broadcast_dims=[0, 1, 2])
+            T55 = fd.ops.broadcast_in_dim(
+                T2, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
+            T60 = fd.ops.broadcast_in_dim(
+                T49, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
+            T65 = fd.ops.broadcast_in_dim(
+                T50, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
+            T70 = fd.ops.broadcast_in_dim(
+                T55, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
+            )
+            T75 = fd.ops.broadcast_in_dim(
+                T60, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
+            )
             T76 = fd.ops.sum(T65, dims=[2], keepdim=False, dtype=DataType.Null)
             T77 = fd.ops.sub(T27, T70)
             S78 = fd.define_scalar(2.00000, dtype=DataType.Double)
             T79 = fd.ops.mul(S78, T75)
-            T84 = fd.ops.broadcast_in_dim(T76, shape=[288, 512, 1], broadcast_dims=[0, 1])
+            T84 = fd.ops.broadcast_in_dim(
+                T76, shape=[288, 512, 1], broadcast_dims=[0, 1]
+            )
             T85 = fd.ops.mul(T79, T77)
-            T90 = fd.ops.broadcast_in_dim(T84, shape=[288, 512, 128], broadcast_dims=[0, 1, 2])
+            T90 = fd.ops.broadcast_in_dim(
+                T84, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
+            )
             S91 = fd.define_scalar(128.000, dtype=DataType.Double)
             S92 = fd.ops.reciprocal(S91)
             T93 = fd.ops.mul(T85, S92)
@@ -571,11 +611,21 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id4(fd)
 
         inputs = [
-            torch.testing.make_tensor((147456, 128), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((128,), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((288, 512), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((288, 512, 128), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((288, 512, 1), dtype=torch.float32, device="cuda:0"),
+            torch.testing.make_tensor(
+                (147456, 128), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+            ),
+            torch.testing.make_tensor(
+                (128,), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+            ),
+            torch.testing.make_tensor(
+                (288, 512), dtype=torch.float32, device="cuda:0", low=-1, high=1
+            ),
+            torch.testing.make_tensor(
+                (288, 512, 128), dtype=torch.bfloat16, device="cuda:0", low=-1, high=1
+            ),
+            torch.testing.make_tensor(
+                (288, 512, 1), dtype=torch.float32, device="cuda:0", low=-1, high=1
+            ),
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
@@ -621,14 +671,16 @@ class TestRepro(NVFuserTest):
             T9 = fd.ops.reshape(T0, new_shape=[1, 4096, 4096])
             T10 = fd.ops.cast(T1, dtype=DataType.Float)
             T11 = fd.ops.cast(T9, dtype=DataType.Float)
-            T16 = fd.ops.broadcast_in_dim(T10, shape=[1, 4096, 4096], broadcast_dims=[2])
+            T16 = fd.ops.broadcast_in_dim(
+                T10, shape=[1, 4096, 4096], broadcast_dims=[2]
+            )
             T17 = fd.ops.mul(T16, T11)
             T18 = fd.ops.cast(T2, dtype=DataType.Float)
             T19 = fd.ops.mul(T18, T17)
             T20 = fd.ops.sum(T19, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T25 = fd.ops.broadcast_in_dim(T20, shape=[1, 4096, 1], broadcast_dims=[1])
             S26 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T27 = fd.ops.pow(T3, S26)
+            T27 = fd.ops.mul(T3, fd.ops.mul(T3, T3))
             S28 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T29 = fd.ops.mul(S28, T25)
             T30 = fd.ops.mul(T29, T27)
@@ -637,9 +689,15 @@ class TestRepro(NVFuserTest):
             T33 = fd.ops.mul(T30, S32)
             T34 = fd.ops.sum(T33, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T38 = fd.ops.broadcast_in_dim(T34, shape=[1, 4096], broadcast_dims=[1])
-            T43 = fd.ops.broadcast_in_dim(T38, shape=[1, 4096, 1], broadcast_dims=[0, 1])
-            T48 = fd.ops.broadcast_in_dim(T43, shape=[1, 4096, 4096], broadcast_dims=[0, 1, 2])
-            T53 = fd.ops.broadcast_in_dim(T3, shape=[1, 4096, 4096], broadcast_dims=[0, 1, 2])
+            T43 = fd.ops.broadcast_in_dim(
+                T38, shape=[1, 4096, 1], broadcast_dims=[0, 1]
+            )
+            T48 = fd.ops.broadcast_in_dim(
+                T43, shape=[1, 4096, 4096], broadcast_dims=[0, 1, 2]
+            )
+            T53 = fd.ops.broadcast_in_dim(
+                T3, shape=[1, 4096, 4096], broadcast_dims=[0, 1, 2]
+            )
             T54 = fd.ops.mul(T18, T48)
             T55 = fd.ops.mul(T53, T17)
             T56 = fd.ops.add(T55, T54)
@@ -658,11 +716,19 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id14(fd)
 
         inputs = [
-            torch.testing.make_tensor((4096, 4096), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (4096, 4096), dtype=torch.bfloat16, device="cuda:0"
+            ),
             torch.testing.make_tensor((4096,), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 1), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 1), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"
+            ),
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
@@ -701,14 +767,18 @@ class TestRepro(NVFuserTest):
             T8 = fd.ops.reshape(T0, new_shape=[14, 2048, 2048])
             T9 = fd.ops.cast(T1, dtype=DataType.Float)
             T10 = fd.ops.cast(T8, dtype=DataType.Float)
-            T15 = fd.ops.broadcast_in_dim(T9, shape=[14, 2048, 2048], broadcast_dims=[2])
+            T15 = fd.ops.broadcast_in_dim(
+                T9, shape=[14, 2048, 2048], broadcast_dims=[2]
+            )
             T16 = fd.ops.mul(T15, T10)
             T17 = fd.ops.cast(T2, dtype=DataType.Float)
             T18 = fd.ops.mul(T17, T16)
             T19 = fd.ops.sum(T18, dims=[2], keepdim=False, dtype=DataType.Null)
-            T24 = fd.ops.broadcast_in_dim(T19, shape=[14, 2048, 1], broadcast_dims=[0, 1])
+            T24 = fd.ops.broadcast_in_dim(
+                T19, shape=[14, 2048, 1], broadcast_dims=[0, 1]
+            )
             S25 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T26 = fd.ops.pow(T3, S25)
+            T26 = fd.ops.mul(T3, fd.ops.mul(T3, T3))
             S27 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T28 = fd.ops.mul(S27, T24)
             T29 = fd.ops.mul(T28, T26)
@@ -716,9 +786,15 @@ class TestRepro(NVFuserTest):
             S31 = fd.ops.reciprocal(S30)
             T32 = fd.ops.mul(T29, S31)
             T33 = fd.ops.sum(T32, dims=[2], keepdim=False, dtype=DataType.Null)
-            T38 = fd.ops.broadcast_in_dim(T33, shape=[14, 2048, 1], broadcast_dims=[0, 1])
-            T43 = fd.ops.broadcast_in_dim(T38, shape=[14, 2048, 2048], broadcast_dims=[0, 1, 2])
-            T48 = fd.ops.broadcast_in_dim(T3, shape=[14, 2048, 2048], broadcast_dims=[0, 1, 2])
+            T38 = fd.ops.broadcast_in_dim(
+                T33, shape=[14, 2048, 1], broadcast_dims=[0, 1]
+            )
+            T43 = fd.ops.broadcast_in_dim(
+                T38, shape=[14, 2048, 2048], broadcast_dims=[0, 1, 2]
+            )
+            T48 = fd.ops.broadcast_in_dim(
+                T3, shape=[14, 2048, 2048], broadcast_dims=[0, 1, 2]
+            )
             T49 = fd.ops.mul(T17, T43)
             T50 = fd.ops.mul(T48, T16)
             T51 = fd.ops.add(T50, T49)
@@ -739,10 +815,16 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id4(fd)
 
         inputs = [
-            torch.testing.make_tensor((28672, 2048), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (28672, 2048), dtype=torch.bfloat16, device="cuda:0"
+            ),
             torch.testing.make_tensor((2048,), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((14, 2048, 2048), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((14, 2048, 1), dtype=torch.float32, device="cuda:0"),
+            torch.testing.make_tensor(
+                (14, 2048, 2048), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (14, 2048, 1), dtype=torch.float32, device="cuda:0"
+            ),
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
@@ -807,22 +889,32 @@ class TestRepro(NVFuserTest):
                 stride_order=[2, 1, 0],
             )
             T12 = fd.ops.reshape(T0, new_shape=[1, 16384, 2560])
-            T17 = fd.ops.broadcast_in_dim(T1, shape=[1, 16384, 2560], broadcast_dims=[2])
-            T22 = fd.ops.broadcast_in_dim(T2, shape=[1, 16384, 1], broadcast_dims=[0, 1])
+            T17 = fd.ops.broadcast_in_dim(
+                T1, shape=[1, 16384, 2560], broadcast_dims=[2]
+            )
+            T22 = fd.ops.broadcast_in_dim(
+                T2, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
             T23 = fd.ops.cast(T12, dtype=DataType.Float)
             T24 = fd.ops.cast(T17, dtype=DataType.Float)
-            T29 = fd.ops.broadcast_in_dim(T22, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T29 = fd.ops.broadcast_in_dim(
+                T22, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             T30 = fd.ops.cast(T3, dtype=DataType.Float)
             T31 = fd.ops.mul(T24, T23)
             T32 = fd.ops.sub(T30, T29)
             T33 = fd.ops.mul(T32, T31)
             T34 = fd.ops.sum(T33, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T39 = fd.ops.broadcast_in_dim(T34, shape=[1, 16384, 1], broadcast_dims=[1])
-            T44 = fd.ops.broadcast_in_dim(T4, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T44 = fd.ops.broadcast_in_dim(
+                T4, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             T49 = fd.ops.reshape(T5, new_shape=[1, 16384, 2560])
-            T54 = fd.ops.broadcast_in_dim(T6, shape=[1, 16384, 2560], broadcast_dims=[2])
+            T54 = fd.ops.broadcast_in_dim(
+                T6, shape=[1, 16384, 2560], broadcast_dims=[2]
+            )
             S55 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T56 = fd.ops.pow(T4, S55)
+            T56 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
             S57 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T58 = fd.ops.mul(S57, T39)
             T59 = fd.ops.mul(T44, T31)
@@ -837,12 +929,20 @@ class TestRepro(NVFuserTest):
             T71 = fd.ops.broadcast_in_dim(T65, shape=[1, 16384], broadcast_dims=[1])
             T76 = fd.ops.broadcast_in_dim(T66, shape=[1, 16384, 1], broadcast_dims=[1])
             T77 = fd.ops.sum(T67, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-            T82 = fd.ops.broadcast_in_dim(T2, shape=[1, 16384, 1], broadcast_dims=[0, 1])
-            T87 = fd.ops.broadcast_in_dim(T71, shape=[1, 16384, 1], broadcast_dims=[0, 1])
+            T82 = fd.ops.broadcast_in_dim(
+                T2, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
+            T87 = fd.ops.broadcast_in_dim(
+                T71, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
             T88 = fd.ops.sum(T76, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T93 = fd.ops.broadcast_in_dim(T77, shape=[1, 16384, 1], broadcast_dims=[1])
-            T98 = fd.ops.broadcast_in_dim(T82, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
-            T103 = fd.ops.broadcast_in_dim(T87, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T98 = fd.ops.broadcast_in_dim(
+                T82, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
+            T103 = fd.ops.broadcast_in_dim(
+                T87, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             T107 = fd.ops.broadcast_in_dim(T88, shape=[1, 16384], broadcast_dims=[1])
             S108 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T109 = fd.ops.mul(S108, T93)
@@ -850,11 +950,15 @@ class TestRepro(NVFuserTest):
             T111 = fd.ops.sub(T30, T98)
             S112 = fd.define_scalar(2.00000, dtype=DataType.Double)
             T113 = fd.ops.mul(S112, T103)
-            T118 = fd.ops.broadcast_in_dim(T107, shape=[1, 16384, 1], broadcast_dims=[0, 1])
+            T118 = fd.ops.broadcast_in_dim(
+                T107, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
             T119 = fd.ops.mul(T109, T56)
             T120 = fd.ops.neg(T110)
             T121 = fd.ops.mul(T113, T111)
-            T126 = fd.ops.broadcast_in_dim(T118, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T126 = fd.ops.broadcast_in_dim(
+                T118, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             T127 = fd.ops.sum(T119, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T128 = fd.ops.sum(T120, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             S129 = fd.define_scalar(2560.00, dtype=DataType.Double)
@@ -864,19 +968,29 @@ class TestRepro(NVFuserTest):
             T133 = fd.ops.mul(S132, T126)
             T134 = fd.ops.cast(T7, dtype=DataType.Float)
             T138 = fd.ops.broadcast_in_dim(T127, shape=[1, 16384], broadcast_dims=[1])
-            T143 = fd.ops.broadcast_in_dim(T128, shape=[1, 16384, 1], broadcast_dims=[1])
+            T143 = fd.ops.broadcast_in_dim(
+                T128, shape=[1, 16384, 1], broadcast_dims=[1]
+            )
             T144 = fd.ops.add(T133, T131)
             T145 = fd.ops.add(T134, T59)
-            T150 = fd.ops.broadcast_in_dim(T138, shape=[1, 16384, 1], broadcast_dims=[0, 1])
+            T150 = fd.ops.broadcast_in_dim(
+                T138, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
             T151 = fd.ops.sum(T143, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-            T156 = fd.ops.broadcast_in_dim(T150, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T156 = fd.ops.broadcast_in_dim(
+                T150, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             T160 = fd.ops.broadcast_in_dim(T151, shape=[1, 16384], broadcast_dims=[1])
             S161 = fd.define_scalar(2.00000, dtype=DataType.Double)
             T162 = fd.ops.mul(S161, T156)
-            T167 = fd.ops.broadcast_in_dim(T160, shape=[1, 16384, 1], broadcast_dims=[0, 1])
+            T167 = fd.ops.broadcast_in_dim(
+                T160, shape=[1, 16384, 1], broadcast_dims=[0, 1]
+            )
             T168 = fd.ops.add(T145, T144)
             T169 = fd.ops.mul(T162, T111)
-            T174 = fd.ops.broadcast_in_dim(T167, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2])
+            T174 = fd.ops.broadcast_in_dim(
+                T167, shape=[1, 16384, 2560], broadcast_dims=[0, 1, 2]
+            )
             S175 = fd.define_scalar(2560.00, dtype=DataType.Double)
             S176 = fd.ops.reciprocal(S175)
             T177 = fd.ops.mul(T169, S176)
@@ -909,14 +1023,24 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id9(fd)
 
         inputs = [
-            torch.testing.make_tensor((16384, 2560), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (16384, 2560), dtype=torch.bfloat16, device="cuda:0"
+            ),
             torch.testing.make_tensor((2560,), dtype=torch.bfloat16, device="cuda:0"),
             torch.testing.make_tensor((1, 16384), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 16384, 1), dtype=torch.float32, device="cuda:0"),
-            torch.testing.make_tensor((16384, 2560), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 16384, 1), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (16384, 2560), dtype=torch.bfloat16, device="cuda:0"
+            ),
             torch.testing.make_tensor((2560,), dtype=torch.bfloat16, device="cuda:0"),
-            torch.testing.make_tensor((1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0"),
+            torch.testing.make_tensor(
+                (1, 16384, 2560), dtype=torch.bfloat16, device="cuda:0"
+            ),
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
