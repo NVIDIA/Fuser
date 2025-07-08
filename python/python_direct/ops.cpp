@@ -2670,6 +2670,32 @@ TensorView
       py::arg("dim") = 0,
       py::arg("manual_padding") = false,
       py::return_value_policy::reference);
+  ops.def(
+      "embedding_fwd",
+      [](TensorView* input,
+         TensorView* weight,
+         std::optional<Val*> padding_idx,
+         std::optional<Val*> max_norm,
+         std::optional<Val*> norm_type,
+         std::optional<Val*> scale_grad_by_freq,
+         std::optional<Val*> sparse) -> decltype(auto) {
+        return embedding_fwd(
+            input,
+            weight,
+            padding_idx.value_or(nullptr),
+            max_norm.value_or(nullptr),
+            norm_type.value_or(nullptr),
+            scale_grad_by_freq.value_or(nullptr),
+            sparse.value_or(nullptr));
+      },
+      py::arg("input"),
+      py::arg("weight"),
+      py::arg("padding_idx").none(true) = py::none(),
+      py::arg("max_norm").none(true) = py::none(),
+      py::arg("norm_type").none(true) = py::none(),
+      py::arg("scale_grad_by_freq").none(true) = py::none(),
+      py::arg("sparse").none(true) = py::none(),
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>

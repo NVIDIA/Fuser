@@ -1368,6 +1368,25 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map EmbeddingFwdOp to python frontend
+  void handle(const EmbeddingFwdOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    visited_vals_.insert(eop->output(0));
+    static const std::vector<std::string> argument_names = {
+        "padding_idx", "max_norm", "norm_type", "scale_grad_by_freq", "sparse"};
+    printer_.generateKwargsOperation(
+        "fd.ops.embedding_fwd",
+        std::make_tuple(eop->in(), eop->weight()),
+        argument_names,
+        std::make_tuple(
+            eop->padding_idx(),
+            eop->max_norm(),
+            eop->norm_type(),
+            eop->scale_grad_by_freq(),
+            eop->sparse()),
+        {eop->out()});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
