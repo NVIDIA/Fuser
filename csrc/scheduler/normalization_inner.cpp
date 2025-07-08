@@ -58,7 +58,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
       : persistent_buffer_size_info.persistent_buffer_size_bit;
 
   int64_t available_persistent_buffer_size_bit = normalization_scheduler_utils::
-      getMaxRegOrSharedMemorySizeForPersistentBuffer(
+      getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
           fusion,
           runtime_info,
           reduction_tvs,

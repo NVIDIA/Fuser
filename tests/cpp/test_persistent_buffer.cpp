@@ -1492,7 +1492,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   int64_t logic_buffer_size_bit = hidden_size * dataTypeSizeBit(dtype);
   EXPECT_EQ(
       persistent_buffer_size_bit.projected_persistent_buffer_size_bit,
-      logic_buffer_size);
+      logic_buffer_size_bit);
 
   // expect segmentation?
   bool has_enough_regs_smem = true;

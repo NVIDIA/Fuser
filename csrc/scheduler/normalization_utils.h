@@ -298,7 +298,7 @@ void schedulePersistentKernel(
     SchedulerType scheduler_type);
 
 // Get max register or shared memory size for persistent buffer
-int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const std::vector<TensorView*>& reduction_tvs,
