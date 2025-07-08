@@ -75,21 +75,21 @@ void getHeuristics(
   //     [n_computation_warps]
   auto is_enough_smem =
       [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
-        int64_t smem_size = 0;
+        int64_t smem_size_bit = 0;
         //  circular buffered smem size
-        smem_size += circular_buffered_smem_size * iter_unroll * n_stages;
+        smem_size_bit += circular_buffered_smem_size_bit * iter_unroll * n_stages;
         // non-circular buffered
         if (!is_non_circular_buffer_gmem_to_regs) {
-          smem_size += non_circular_buffered_smem_size;
+          smem_size_bit += non_circular_buffered_smem_size_bit;
         }
         // mbarrier size, round to 128 bytes as required by TMA
-        smem_size += roundUpToMultiple(16 * n_stages, 128);
+        smem_size_bit += roundUpToMultiple(128 * n_stages, 128 * 8);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size += roundUpToMultiple(
-            iter_unroll * bdimx * bdimy * computation_dtype_size, 128);
-        return (int64_t)dev_prop->sharedMemPerBlockOptin >= smem_size;
+        smem_size_bit += roundUpToMultiple(
+            iter_unroll * bdimx * bdimy * computation_dtype_size_bit, 128);
+        return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };
 
   // Check register usage,  it is calculated as:
