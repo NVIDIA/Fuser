@@ -240,6 +240,19 @@ class PythonPrinter {
         << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
+  template <typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::vector<Val*>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string connect = (args.size() == 0) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << toString(args) << connect
+        << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
   // Generate a python definition for a FusionDefinition.
   void generateFusionDefinition() {
     os_ << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
@@ -599,7 +612,7 @@ class PythonTranslator : public OptInConstDispatch {
         "shape", "contiguity", "dtype", "is_cpu", "stride_order"};
     printer_.generateKwargsOperation(
         "fd.define_tensor",
-        {},
+        std::make_tuple(),
         argument_names,
         std::make_tuple(
             shape,
@@ -942,6 +955,21 @@ class PythonTranslator : public OptInConstDispatch {
         pad_argument_names,
         std::make_tuple(original_order_pad_widths, pad_op->value()),
         {pad_op->out()});
+  }
+
+  // Map CatOp to python frontend
+  void handle(const CatOp* cat_op) final {
+    NVF_ERROR(cat_op != nullptr);
+
+    visited_vals_.insert(cat_op->output(0));
+    static const std::vector<std::string> cat_argument_names = {
+        "dim", "manual_padding"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cat",
+        cat_op->inputs(),
+        cat_argument_names,
+        std::make_tuple(cat_op->concatenatedDim(), /*manual_padding=*/true),
+        {cat_op->output(0)});
   }
 
   // If input and output values share the same type, a LoadStoreOp will be

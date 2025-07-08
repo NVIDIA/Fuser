@@ -2420,6 +2420,18 @@ TensorView
     The padded tensor.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "cat",
+      [](std::vector<TensorView*> tensors,
+         int64_t dim,
+         bool manual_padding) -> TensorView* {
+        return cat(
+            tensors, dim, /*iter_type_opt=*/std::nullopt, manual_padding);
+      },
+      py::arg("tensors"),
+      py::arg("dim") = 0,
+      py::arg("manual_padding") = false,
+      py::return_value_policy::reference);
 }
 
 template <class ShapeType>
