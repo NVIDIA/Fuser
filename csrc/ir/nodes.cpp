@@ -6221,6 +6221,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
     DataType in_dtype = matrix1()->dtype();
 
+    // TODO: check for contiguity
     // nvfp4_scaled_mm expected Byte input dtype for fp4
     if (in_dtype == DataType::Float4_e2m1fn || in_dtype == DataType::Float4_e2m1fn_x2) {
       mat1_view = mat1.view(at::ScalarType::Byte);
