@@ -1133,6 +1133,23 @@ class PythonTranslator : public OptInConstDispatch {
         std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
   }
 
+  // Map ArgsortOp to python frontend
+  void handle(const ArgsortOp* argsortop) final {
+    NVF_ERROR(argsortop != nullptr);
+
+    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {
+        "dim", "descending", "stable"};
+    printer_.generateKwargsOperation(
+        "fd.ops.argsort",
+        std::make_tuple(argsortop->in()),
+        argument_names,
+        std::make_tuple(
+            argsortop->dim(), argsortop->isDescending(), argsortop->isStable()),
+        {out_tv});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;

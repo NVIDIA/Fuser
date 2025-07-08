@@ -2558,6 +2558,34 @@ void bindSearchOps(py::module_& ops) {
       py::arg("largest") = true,
       py::arg("sorted") = false,
       py::return_value_policy::reference);
+  ops.def(
+      "argsort",
+      [](TensorView* arg, int64_t dim, bool descending, bool stable)
+          -> TensorView* { return argsort(arg, dim, descending, stable); },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("descending") = false,
+      py::arg("stable") = false,
+      R"(
+Sort the elements of a tensor.
+
+Parameters
+----------
+arg : TensorView
+    The input tensor.
+dim : int, optional
+    The dimension along which to sort. Defaults to -1.
+descending : bool, optional
+    If True, sort in descending order. Defaults to False.
+stable : bool, optional
+    If True, sort in stable order. Defaults to False.
+
+Returns
+-------
+TensorView
+    The sorted tensor.
+      )",
+      py::return_value_policy::reference);
 }
 
 } // namespace
