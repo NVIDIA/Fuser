@@ -2912,7 +2912,7 @@ TEST_F(NVFuserTest, Fp4CastToHighPrecisionFusionExecutorCache) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float4_e2m1fn);
   fusion->addInput(tv0);
   TensorView* tv1 = castOp(DataType::Float, tv0);
   fusion->addOutput(tv1);
@@ -2940,7 +2940,7 @@ TEST_F(NVFuserTest, Fp4CastFromHighPrecisionFusionExecutorCache) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float);
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float);
   fusion->addInput(tv0);
   TensorView* tv1 = castOp(DataType::Float4_e2m1fn, tv0);
   fusion->addOutput(tv1);
