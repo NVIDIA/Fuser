@@ -3944,14 +3944,8 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   IterDomain* merged_id = new_root_domain[start_dim];
   for (auto i : arange(start_dim + 1, end_dim + 1)) {
-    IterDomain* new_merged_id =
-        IterDomainBuilder(
-            merged_id->container()->zeroVal(),
-            mul(merged_id->extent(), new_root_domain[i]->extent()))
-            .is_rfactor_domain(true)
-            .build();
-    IrBuilder::create<Merge>(new_merged_id, merged_id, new_root_domain[i]);
-    merged_id = new_merged_id;
+    merged_id = IterDomain::merge(
+        merged_id, new_root_domain.at(i), /*rfactor_domain=*/true);
   }
   logical_domain.push_back(merged_id);
 
