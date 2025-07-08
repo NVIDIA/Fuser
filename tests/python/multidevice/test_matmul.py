@@ -460,3 +460,48 @@ def test_row_parallel_grouped_mm(multidevice_test):
         out.cpu(),
         expected_out,
     )
+
+
+@pytest.mark.mpi
+def test_issue4729(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.x = self.define_tensor(
+                [1, 1, d * 3], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.y = self.define_tensor(
+                [1, 1, d * 3], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.w = self.define_tensor(
+                [-1, d * 3], dtype=DataType.BFloat16, contiguity=True
+            )
+            x = self.ops.cast(self.x, DataType.Float)
+            y = self.ops.cast(self.y, DataType.Float)
+            xy = self.ops.mul(x, y)
+            xy = self.ops.cast(xy, DataType.BFloat16)
+            out = self.ops.linear(xy, self.w)
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            for t in [self.x, self.y, self.w]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.split(t, -1, d, False)
+                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
+
+    x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
+    y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
+    w_ref = torch.randint(-2, 3, (2, d * 3), dtype=torch.bfloat16)
+    x = multidevice_test.shard_tensor(x_ref, -1, mesh)
+    y = multidevice_test.shard_tensor(y_ref, -1, mesh)
+    w = multidevice_test.shard_tensor(w_ref, -1, mesh)
+
+    fd = Model()
+    (z,), _ = fd.execute([x, y, w])
+
+    torch.testing.assert_close(
+        z.cpu(), torch.nn.functional.linear(x_ref * y_ref, w_ref)
+    )
