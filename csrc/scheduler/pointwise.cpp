@@ -543,6 +543,79 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
 namespace {
 
+// This propagator checks that TransformPropagator will be able to properly
+// schedule the entire Fusion. To do so, it tracks logical IterDomains that are
+// introduced along the propagation path.
+//
+//  Example 1:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i0, i1 ]
+//    tv2 = neg(tv0)        // [ i0 ]
+//    tv3 = broadcast(tv2)  // [ i0, 1 ]
+//    tv4 = mul(tv3, tv1)   // [ i0, i1 ]
+//    addOutput(tv4)
+//
+//  In this example, the broadcast of tv2 is concretized when multiplying by
+//  tv1, which is 2D. If we propagate from tv2, then we introduce that
+//  broadcast dimension which is then concretized as i1, so we detect an
+//  unscheduled concrete ID.
+//
+//  Example 2:
+//
+//    addInput(tv0)         // [ i0, 1 ]
+//    addInput(tv1)         // [ i0, i1 ]
+//    tv2 = squeeze(tv0)    // [ i0 ]
+//    tv3 = neg(tv2)        // [ i0 ]
+//    tv4 = mul(tv0, tv1)   // [ i0, i1 ]
+//    addOutput(tv3)
+//    addOutput(tv4)
+//
+//  In this example, if we propagate from the output tv3, the backward
+//  propagation from tv2 to tv0 picks up a broadcast ID. The broadcast is
+//  concretized in the multiplication with tv1, so we have an unscheduled i1 ID
+//  in the output tv4.
+//
+//  Example 3:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i1 ]
+//    tv2 = broadcast(tv0)  // [ i0, 1 ]
+//    tv3 = broadcast(tv1)  // [ 1, i1 ]
+//    tv4 = mul(tv2, tv3)   // [ i0, i1 ]
+//    tv5 = broadcast(tv0)  // [ i0, 1 ]
+//    tv6 = broadcast(tv1)  // [ 1, i1 ]
+//    tv7 = add(tv5, tv6)   // [ i0, i1 ]
+//    addOutput(tv4)
+//    addOutput(tv7)
+//
+//  If we choose tv4 as the reference then a possible propagation path is
+//      4->2->0->5->7->6
+//      4->3->1
+//  The 2->0 propagation loses the broadcast dimension and then subsequently
+//  propagating 0->5->7 means we have concrete dimension i1 unscheduled in tv7,
+//  even though there is a scheduled i1 axis in the reference tensor tv4.
+//
+//  Example 4:
+//
+//    Suppose instead of creating new broadcasts, we reuse the broadcasts tv2
+//    and tv3:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i1 ]
+//    tv2 = broadcast(tv0)  // [ i0, 1 ]
+//    tv3 = broadcast(tv1)  // [ 1, i1 ]
+//    tv4 = mul(tv2, tv3)   // [ i0, i1 ]
+//    tv7 = add(tv2, tv3)   // [ i0, i1 ]
+//    addOutput(tv4)
+//    addOutput(tv7)
+//
+//  Now the propagation may look like this instead:
+//      4->2->0
+//         2->7
+//      4->3->1
+//  None of these steps loses an ID that later is needed for scheduling, so
+//  hasUnscheduledConcreteIDs() returns false.
 class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
  public:
   void propagateC2P(TensorView* from, TensorView* to) override {
@@ -594,8 +667,8 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
                {to->getLogicalDomain().begin(),
                 to->getLogicalDomain().end()})) {
         // TODO: should we exclude ID exprs other than Merge/Split here?
-        bool has_unscheduled_input = std::ranges::any_of(
-            e->inputs(), [&](Val* in_val) {
+        bool has_unscheduled_input =
+            std::ranges::any_of(e->inputs(), [&](Val* in_val) {
               auto* id = dynamic_cast<IterDomain*>(in_val);
               return id && unscheduled_ids_.count(id);
             });
