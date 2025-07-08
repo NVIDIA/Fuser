@@ -104,10 +104,10 @@ def test_dropout_layernorm_fwd_nvf_benchmark(
     eps: float = 1e-5,
 ):
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
-        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
-        torch.ones(size[1], device="cuda", dtype=dtype, requires_grad=True),
-        torch.zeros(size[1], device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype),
+        torch.ones(size[1], device="cuda", dtype=dtype),
+        torch.zeros(size[1], device="cuda", dtype=dtype),
     ]
 
     dropout_p = 0.2
@@ -166,10 +166,10 @@ def test_dropout_layernorm_fwd_baseline_benchmark(
 
     dropout_p = 0.2
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.ones(size[1], device="cuda", dtype=dtype),
-        torch.zeros(size[1], device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.ones(size[1], device="cuda", dtype=dtype, requires_grad=True),
+        torch.zeros(size[1], device="cuda", dtype=dtype, requires_grad=True),
         dropout_p,
     ]
 
