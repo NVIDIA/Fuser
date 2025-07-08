@@ -45,7 +45,7 @@ namespace nvfuser {
 using main_func_fn = std::function<void()>;
 
 // Forward declarations
-std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value* pimpl_void_ptr);
 std::vector<llvm::Value*> inferTensorStridesReordered(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesNoReorder(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStridesRaw(const TensorView* tv, std::vector<Val*> symbolic_sizes, std::vector<bool> expand_flags, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder);
@@ -191,6 +191,11 @@ void compileLinearFunc(
   llvm::Value* t_out = builder.CreateCall(mod->getFunction("get_tensor"), {tv_out_void_ptr, pimpl_void_ptr}, "t_out");
 
   if (linear->hasBias()) {
+    // Convert tv_bias to void pointer
+    uintptr_t tv_bias_ptr = reinterpret_cast<uintptr_t>(linear->bias());
+    llvm::Value* tv_bias_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_bias_ptr);
+    tv_bias_void_ptr = builder.CreateIntToPtr(tv_bias_constant, void_ptr_type);
+    
     llvm::Value* t_bias = builder.CreateCall(mod->getFunction("get_tensor"), {tv_bias_void_ptr, pimpl_void_ptr}, "t_bias");
     builder.CreateCall(mod->getFunction("linear_out_with_bias"), {t_out, t_in, t_weight, t_bias});
   } else {
@@ -377,7 +382,7 @@ void compileAllocateFunc(
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 
   // Get tensor sizes and strides using the inference function
-  auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(allocate->buffer()->as<TensorView>(), val2llvmMap, builder);
+  auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(allocate->buffer()->as<TensorView>(), val2llvmMap, builder, pimpl_void_ptr);
 
   // Bounds checking for ndim
   auto logical_domain = TensorDomain::noReductions(
@@ -1093,12 +1098,35 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
   return {allocation_size_stride.first, inferTensorStridesReordered(tv, val2llvmMap,builder)};
 }
 
-std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder) {
+std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value* pimpl_void_ptr) {
   // Alias handling, just return empty vector for now:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
-    NVF_THROW("Alias handling is not supported yet");
-    return {std::vector<llvm::Value*>(), std::vector<llvm::Value*>()};
+    // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tv = alias_info.aliased_io->as<TensorView>();
+    }
+    // Convert TensorView pointer to void pointer (same pattern as elsewhere)
+    llvm::LLVMContext& context = builder.getContext();
+    auto mod = builder.GetInsertBlock()->getParent()->getParent();
+    llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+    
+    uintptr_t tv_ptr = reinterpret_cast<uintptr_t>(tv);
+    llvm::Value* tv_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), tv_ptr);
+    llvm::Value* tv_void_ptr = builder.CreateIntToPtr(tv_constant, void_ptr_type);
+    
+    // Call get_tensor function to get the aliased at::Tensor* pointer
+    llvm::Value* tensor_ptr = builder.CreateCall(mod->getFunction("get_tensor"), {tv_void_ptr, pimpl_void_ptr}, "aliased_tensor");
+    
+    // Extract size/stride from at::Tensor in each dimension
+    std::vector<llvm::Value*> sizes;
+    std::vector<llvm::Value*> strides;
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+    for(int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++){
+      sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
+      strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
+    }
+    return {sizes, strides};
   }
 
   return inferTensorShapesAndStridesNonAlias(tv, val2llvmMap, builder);
@@ -1177,7 +1205,10 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
       +[](TensorView* tv, void* host_ir_jit_impl_ptr) -> at::Tensor* {
         auto* host_ir_jit_impl = static_cast<LlvmJitImpl*>(host_ir_jit_impl_ptr);
-        NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) == host_ir_jit_impl->tensor_map.end(), "tensor_ptr is already allocated");
+        // NVF_ERROR(host_ir_jit_impl->tensor_map.find(tv) == host_ir_jit_impl->tensor_map.end(), "tensor_ptr is already allocated");
+        if(host_ir_jit_impl->tensor_map.find(tv) != host_ir_jit_impl->tensor_map.end()){
+          return &host_ir_jit_impl->tensor_map[tv];
+        }
         host_ir_jit_impl->tensor_map[tv] = at::Tensor();
         return &host_ir_jit_impl->tensor_map[tv];
       });
@@ -1386,5 +1417,24 @@ KernelArgumentHolder HostIrJit::runWithInput(
   return outputs;
 }
 
+const std::vector<Val*>& HostIrJit::inputs() const {
+  return pimpl_->container_->inputs();
+}
+
+const std::vector<Val*>& HostIrJit::outputs() const {
+  return pimpl_->container_->outputs();
+}
+
+auto* HostIrJit::container() const {
+  return pimpl_->container_.get();
+}
+
+const hir::HostIrContainer& HostIrJit::getHostIrContainer() const {
+  return *pimpl_->container_;
+}
+
+std::ostream& HostIrJit::print(std::ostream& os) const {
+  return pimpl_->container_->print(os);
+}
 
 } // namespace nvfuser

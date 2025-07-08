@@ -18,15 +18,21 @@ struct LlvmJitImpl;
 
 class HostIrJit {
  public:
+ HostIrJit(
+      std::unique_ptr<hir::HostIrContainer> container,
+      int num_threads = kHostIrJitCompileThreads);
+
   KernelArgumentHolder runWithInputs(
       const KernelArgumentHolder& args);
     
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
-  HostIrJit(
-      std::unique_ptr<hir::HostIrContainer> container,
-      int num_threads = kHostIrJitCompileThreads);
+  const std::vector<Val*>& inputs() const;
+  const std::vector<Val*>& outputs() const;
+  auto* container() const;
+  const hir::HostIrContainer& getHostIrContainer() const;
+  std::ostream& print(std::ostream& os) const;
 
   ~HostIrJit();
 
