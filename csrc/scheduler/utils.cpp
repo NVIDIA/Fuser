@@ -2937,7 +2937,7 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 
 // Calculate hardware bandwidth and required bytes in flight based on
 // little's law. bytes_in_flight = bandwidth * latency
-int64_t getRequiredBytesInFlight() {
+int64_t getRequiredBitsInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_idx = at::cuda::current_device();
@@ -2945,7 +2945,7 @@ int64_t getRequiredBytesInFlight() {
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth *
       (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }

@@ -797,8 +797,8 @@ void moveNonConcretizedBroadcastInnermost(
 // predefined factor.
 int64_t getComputationCostFactor(Fusion* fusion);
 
-// Returns the required bytes in flight to saturate the memory bandwidth.
-int64_t getRequiredBytesInFlight();
+// Returns the required bits in flight to saturate the memory bandwidth.
+int64_t getRequiredBitsInFlight();
 
 // Returns true if the device has a high bandwidth to compute raito.
 bool isHighBandwidthFlopsRatio();
