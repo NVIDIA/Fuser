@@ -1122,7 +1122,8 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(dataTypeSizeBit(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)),
+      size_bit_(dataTypeSizeBit(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,
