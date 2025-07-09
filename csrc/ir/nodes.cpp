@@ -6430,11 +6430,11 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   c_strides.fill_(n);
   
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
-  // Call the cutlass kernel
+  // Call the cutlass kernel, note that it expect g,n,k layout on mat2.
   cutlass_kernels::nvfp4_scaled_grouped_mm(
       result,
       mat1.view(at::ScalarType::Byte),
-      mat2.transpose(-1, -2).view(at::ScalarType::Byte).transpose(-1, -2),
+      mat2.transpose(-1, -2).view(at::ScalarType::Byte),
       scale1,
       scale2,
       alpha,
