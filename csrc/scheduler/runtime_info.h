@@ -75,9 +75,9 @@ class SchedulerRuntimeInfo : public NonCopyable {
   }
 
   //! Returns strides of tensor in same order as allocation domain, in elements
-  //! instead of bytes/bits. Only works for complete Fusion inputs whose allocation
-  //! domain is a permutation of their root domain and will raise an exception
-  //! otherwise.
+  //! instead of bytes/bits. Only works for complete Fusion inputs whose
+  //! allocation domain is a permutation of their root domain and will raise an
+  //! exception otherwise.
   const std::vector<int64_t>& getInputAllocationStrides(TensorView* tv) const {
     NVF_ERROR(
         isInputTv(tv),

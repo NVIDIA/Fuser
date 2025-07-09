@@ -1126,18 +1126,25 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
   for (const auto& entry : scoped_persistence_factor) {
     auto active_buffers = entry.second;
     auto persistent_buffer_size_bit = masked_dot_product(
-        persistent_mask, active_buffers, persistent_buffer_sizes_bit, all_buffers);
+        persistent_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
     max_persistence_size_bit =
         std::max(max_persistence_size_bit, persistent_buffer_size_bit);
 
     auto projected_buffer_size_bit = masked_dot_product(
-        projected_mask, active_buffers, persistent_buffer_sizes_bit, all_buffers);
+        projected_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
     max_proj_persistence_size_bit =
         std::max(max_proj_persistence_size_bit, projected_buffer_size_bit);
   }
 
   PersistentBufferSizeReturn persistent_buffer_size_bit;
-  persistent_buffer_size_bit.persistent_buffer_size_bit = max_persistence_size_bit;
+  persistent_buffer_size_bit.persistent_buffer_size_bit =
+      max_persistence_size_bit;
   persistent_buffer_size_bit.projected_persistent_buffer_size_bit =
       max_proj_persistence_size_bit;
   return persistent_buffer_size_bit;
@@ -2945,8 +2952,8 @@ int64_t getRequiredBitsInFlight() {
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth *
-      (float)gpu_mem_clock_khz * 1000.f;
+  float hardware_bandwidth =
+      2.f * (float)dev_prop->memoryBusWidth * (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 

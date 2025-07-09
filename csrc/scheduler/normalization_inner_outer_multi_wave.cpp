@@ -144,8 +144,8 @@ void getHeuristics(
     int64_t max_blocks_per_sm_regs = scheduler_utils::safeDiv(
         threads_per_sm / warp_size, allocated_warps_per_block);
     // check shared memory limitation on blocks per sm
-    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin * 8 /
-        (smem_overhead_bit + smem_buffer_size_bit);
+    int64_t max_blocks_per_sm_smem = (int64_t)dev_prop->sharedMemPerBlockOptin *
+        8 / (smem_overhead_bit + smem_buffer_size_bit);
     return std::min(max_blocks_per_sm_regs, max_blocks_per_sm_smem);
   };
 
@@ -187,7 +187,8 @@ void getHeuristics(
   auto getOuterReductionBufferVectFactor = [&](int64_t inner_vect) {
     constexpr int64_t max_gmem_vect_access_bits = 128;
     const int64_t max_tmp_gmem_vect_factor = std::min(
-        max_gmem_vect_access_bits / (int64_t)tmp_gmem_dtype_size_bit, inner_vect);
+        max_gmem_vect_access_bits / (int64_t)tmp_gmem_dtype_size_bit,
+        inner_vect);
     int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
     const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
     int64_t vectorization_factor_outer =

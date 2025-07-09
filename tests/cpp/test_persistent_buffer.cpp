@@ -80,12 +80,10 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
 
   EXPECT_EQ(
       persistent_buffer_size_bit.persistent_buffer_size_bit,
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
   EXPECT_EQ(
       persistent_buffer_size_bit.projected_persistent_buffer_size_bit,
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
@@ -145,8 +143,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
 
   NVF_ERROR(
       persistent_buffer_size_bit.persistent_buffer_size_bit ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
   NVF_ERROR(
       persistent_buffer_size_bit.projected_persistent_buffer_size_bit ==
       static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Half)));
@@ -306,8 +303,7 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
   // So, the actual buffer size is just the size to save T1.
   NVF_ERROR(
       persistent_buffer_size_bit.persistent_buffer_size_bit ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
 
   NVF_ERROR(
       persistent_buffer_size_bit.projected_persistent_buffer_size_bit ==
@@ -427,7 +423,8 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection2_CUDA) {
   // of projected buffers, even though it is also included in the
   // projectable buffer inputs. Thus, the buffer size would be
   // calculated as the sum of tv1, tv0 and tv1.
-  auto projected_size = persistent_buffer_size_bit.projected_persistent_buffer_size_bit;
+  auto projected_size =
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit;
   auto expected_size =
       static_cast<int64_t>(shape[1] * 2 * dataTypeSizeBit(DataType::Half));
   NVF_CHECK(
@@ -1227,7 +1224,8 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size_bit / scheduler_utils::bits_per_register;
+      scheduler_utils::register_file_size_bit /
+      scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {2, 64, 2, total_elements / (2 * 2)};
@@ -1260,7 +1258,8 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size_bit / scheduler_utils::bits_per_register;
+      scheduler_utils::register_file_size_bit /
+      scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {64, 2, 2, total_elements / (2 * 2)};
@@ -1286,8 +1285,9 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
                      .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
   SchedulerRuntimeInfo runtime_info(fusion.get(), {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion.get(), runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1692,8 +1692,9 @@ TEST_F(PersistentBufferTest, BroadcastSync1) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1748,8 +1749,9 @@ TEST_F(PersistentBufferTest, BroadcastSync2) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  EXPECT_FALSE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  EXPECT_FALSE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
 }
 
 // Make sure isCacheableUnmappableTv does not falsely claim not
@@ -1784,8 +1786,9 @@ TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
   // This fusion has only one unmappable tensor. If it's falsely
   // detected as non cacheable, it will not be scheduled as a
   // persistent kernel.
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1824,8 +1827,9 @@ TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputs) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1892,8 +1896,9 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   auto t0 = at::randn({64}, options).unsqueeze(-1);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =

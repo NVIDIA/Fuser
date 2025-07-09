@@ -132,12 +132,14 @@ size_t SchedulerRuntimeInfo::getAlignmentSizeBit(TensorView* tv) {
     return alignment_entry->second;
   }
 
-  auto alignment_size_bit = SchedulerRuntimeInfo::computeAlignmentSizeBit(ptrBitOf(tv));
+  auto alignment_size_bit =
+      SchedulerRuntimeInfo::computeAlignmentSizeBit(ptrBitOf(tv));
   auto strides_it = input_discontig_strides_.find(tv);
   if (strides_it != input_discontig_strides_.end()) {
     for (auto stride : strides_it->second) {
       alignment_size_bit = std::min(
-          alignment_size_bit, SchedulerRuntimeInfo::computeAlignmentSizeBit(stride));
+          alignment_size_bit,
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(stride));
     }
   }
   alignment_map_bit_[tv] = alignment_size_bit;

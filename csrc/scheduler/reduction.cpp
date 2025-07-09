@@ -90,8 +90,7 @@ int64_t getVectUnroll(
     return vect_factor;
   }
 
-  int64_t required_bits_in_flight =
-      scheduler_utils::getRequiredBitsInFlight();
+  int64_t required_bits_in_flight = scheduler_utils::getRequiredBitsInFlight();
   int64_t required_bits_per_thread =
       ceilDiv(required_bits_in_flight, target_threads_per_sm);
   int64_t bits_per_element =
@@ -1263,8 +1262,8 @@ OuterReductionParams getGridOuterReduction(
     // across too many elements: In the parallel scheme [rBIDy, remainder,
     // iBIDx, rTIDy, i_unroll, r_unroll] figure out how many bytes iterations
     // across remainder stride
-    int64_t bits_stride_remainder = max_dtype_size_bit_for_vectorization * bdimx *
-        bdimy * iter_unroll_factor * inner_reduction_unroll_factor;
+    int64_t bits_stride_remainder = max_dtype_size_bit_for_vectorization *
+        bdimx * bdimy * iter_unroll_factor * inner_reduction_unroll_factor;
     // Empiercally found stride shouldn't exceed 256kiB boundaries in a block
     int64_t kMaxStrideBit = 128l * 1024l * 8;
 

@@ -77,7 +77,8 @@ void getHeuristics(
       [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
         int64_t smem_size_bit = 0;
         //  circular buffered smem size
-        smem_size_bit += circular_buffered_smem_size_bit * iter_unroll * n_stages;
+        smem_size_bit +=
+            circular_buffered_smem_size_bit * iter_unroll * n_stages;
         // non-circular buffered
         if (!is_non_circular_buffer_gmem_to_regs) {
           smem_size_bit += non_circular_buffered_smem_size_bit;
@@ -138,13 +139,14 @@ void getHeuristics(
     int64_t reg_count = 0;
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
-      reg_count +=
-          round_up_reg_count(circular_buffered_smem_size_bit, bdimx) * iter_unroll;
+      reg_count += round_up_reg_count(circular_buffered_smem_size_bit, bdimx) *
+          iter_unroll;
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count += round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx);
+      reg_count +=
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx);
     }
     // regs for partial outer reduction results.
     reg_count += round_up_reg_count(regs_buffer_size_bit, bdimx);
@@ -375,8 +377,8 @@ void getHeuristics(
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
             << "regs_buffer_size_bit: " << regs_buffer_size_bit << "\n"
-            << "circular_buffered_smem_size_bit: " << circular_buffered_smem_size_bit
-            << "\n"
+            << "circular_buffered_smem_size_bit: "
+            << circular_buffered_smem_size_bit << "\n"
             << "non_circular_buffered_smem_size_bit: "
             << non_circular_buffered_smem_size_bit << "\n"
             << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"

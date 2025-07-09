@@ -229,7 +229,8 @@ struct PersistentKernelProperties {
        << "inner_most_dimension_numel: " << inner_most_dimension_numel << "\n"
        << "total_reduction_numel: " << total_reduction_numel << "\n"
        << "total_iteration_numel: " << total_iteration_numel << "\n"
-       << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit << "\n"
+       << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
+       << "\n"
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
        << "max_input_dtype_size_bit: " << max_dtype_size_bit << "\n"
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"

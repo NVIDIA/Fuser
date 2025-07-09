@@ -206,8 +206,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       required_size_bit_regs_smem_map;
   int64_t total_smem_buffer_size_bit = 0;
   for (auto buffer : buffers) {
-    int64_t buffer_size_regs_bit = scheduler_utils::getPersistentBufferSizeBitOfTensor(
-        buffer, runtime_info, persistent_buffer_info);
+    int64_t buffer_size_regs_bit =
+        scheduler_utils::getPersistentBufferSizeBitOfTensor(
+            buffer, runtime_info, persistent_buffer_info);
     // When warp specialized, the whole buffer is loaded in a single TMA
     // instruction. No round up issue due to non-divisible split.
     int64_t buffer_size_smem_bit = is_warp_specialized
@@ -226,7 +227,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.smem_buffer_size_bit = total_smem_buffer_size_bit;
   buffer_params.regs_buffer_size_bit +=
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
-  buffer_params.circular_buffered_smem_size_bit = buffer_params.smem_buffer_size_bit -
+  buffer_params.circular_buffered_smem_size_bit =
+      buffer_params.smem_buffer_size_bit -
       buffer_params.non_circular_buffered_smem_size_bit;
   if (buffer_params.regs_buffer_size_bit <= available_regs_bit &&
       buffer_params.smem_buffer_size_bit <= available_smem_bit) {

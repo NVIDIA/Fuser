@@ -366,7 +366,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     int64_t transfer_size_1d_bit = 1;
 
     for (const auto i : arange(ref_loop.size())) {
-      transfer_size_1d_bit = transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
+      transfer_size_1d_bit =
+          transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
     }
 
     // If there isn't very much parallelism available, just use 1D scheduler
@@ -635,11 +636,12 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
     check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
     if (to->hasRoot()) {
       // propagate untracked property through root->logical transforms
-      for (Expr* e : std::ranges::views::reverse(StmtSort::getExprsBetween(
-               {to->getMaybeRootDomain().begin(),
-                to->getMaybeRootDomain().end()},
-               {to->getLogicalDomain().begin(),
-                to->getLogicalDomain().end()}))) {
+      for (Expr* e : std::ranges::views::reverse(
+               StmtSort::getExprsBetween(
+                   {to->getMaybeRootDomain().begin(),
+                    to->getMaybeRootDomain().end()},
+                   {to->getLogicalDomain().begin(),
+                    to->getLogicalDomain().end()}))) {
         bool has_unscheduled_output = std::any_of(
             e->outputs().begin(), e->outputs().end(), [&](Val* out_val) {
               auto* id = dynamic_cast<IterDomain*>(out_val);

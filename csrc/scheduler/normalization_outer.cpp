@@ -123,8 +123,8 @@ std::unique_ptr<ReductionParams> gridOuterPersistentHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size_bit: " << max_input_dtype_size_bit << "\n"
-            << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
-            << "\n"
+            << "max_persistent_buffer_size_bit: "
+            << max_persistent_buffer_size_bit << "\n"
             << "persistent_buffer_factor: " << pb_size << "\n"
             << "block(" << outer_params->launch_params.bdimx() << ", "
             << outer_params->launch_params.bdimy() << ", 1)" << std::endl;
@@ -157,7 +157,8 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
   // minimum warp as 16 threads instead of 32 as if we have a small reduction
   // dim going a bit smaller than 32 usually helps.
   const int64_t warp_size =
-      n_elems * max_input_dtype_size_bit * n_tensor_inputs < dev_prop->l2CacheSize * 8
+      n_elems * max_input_dtype_size_bit * n_tensor_inputs <
+          dev_prop->l2CacheSize * 8
       ? (int64_t)256 / max_input_dtype_size_bit
       : 16;
 
@@ -396,8 +397,8 @@ std::unique_ptr<ReductionParams> outerPersistentHeuristic(
             << "vectorize_factor: " << vectorize_factor << "\n"
             << "n_tensor_inputs: " << n_tensor_inputs << "\n"
             << "max_input_dtype_size_bit: " << max_input_dtype_size_bit << "\n"
-            << "max_persistent_buffer_size_bit: " << max_persistent_buffer_size_bit
-            << "\n"
+            << "max_persistent_buffer_size_bit: "
+            << max_persistent_buffer_size_bit << "\n"
             << "max_multi_reduction_factor: " << max_multi_reduction_factor
             << "\n"
             << "block(" << params.bdimx.get() << ", " << params.bdimy.get()
@@ -569,7 +570,8 @@ bool OuterPersistentKernelScheduler::canScheduleRunTime(
   // Maximum number of iteration dimensions we can have and still be
   // persistent.
   const int64_t max_multi_reduction_factor = scheduler_utils::safeDiv(
-      is_cross_grid ? available_persistent_buffer_size_bit : sm_register_file_size_bit,
+      is_cross_grid ? available_persistent_buffer_size_bit
+                    : sm_register_file_size_bit,
       persistent_buffer_size_bit);
 
   // Don't go persistent if we can't fit the minimum multi reduction

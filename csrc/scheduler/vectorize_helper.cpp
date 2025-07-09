@@ -836,8 +836,9 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
   while (!logical_dom.empty()) {
-    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
-                          .getTvToContigMergeOfInnerSizeMap());
+    mappers.push_back(
+        ContiguousInnerDimensionsMapper::map(ref, logical_dom)
+            .getTvToContigMergeOfInnerSizeMap());
     logical_dom.erase(logical_dom.begin());
   }
   return mappers;
@@ -926,9 +927,10 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     }
   };
 
-  const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
-      reference_tv->getLogicalDomain().begin() + break_point,
-      reference_tv->getLogicalDomain().end()});
+  const ValGroups ref_vec_groups = graph.toGroups(
+      std::vector<Val*>{
+          reference_tv->getLogicalDomain().begin() + break_point,
+          reference_tv->getLogicalDomain().end()});
 
   // For each of Resize exprs, if it's reachable from the reference
   // vectorized IDs without visiting the Resize expr itself, its
@@ -1009,7 +1011,8 @@ int64_t getVectorizationFactor(
         SchedulerRuntimeInfo::max_alignment_size_in_bit / dtype_size_bit);
 
     // factor <= alignment / dtype_size_bit
-    int64_t alignment_size_bit = (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
+    int64_t alignment_size_bit =
+        (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
     NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
     max_vec_size = std::min(max_vec_size, alignment_size_bit / dtype_size_bit);
 

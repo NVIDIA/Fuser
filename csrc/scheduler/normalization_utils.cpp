@@ -204,7 +204,8 @@ bool checkIfWithinRegisterSpace(
   const auto available_reg_count = getAvailableRegisterCount(pb_factor);
 
   auto per_thread_persistent_buffer_size_bit =
-      ceilDiv(ceilDiv(persistent_buffer_size_bit, bdimy), gdimy) * vectorize_factor;
+      ceilDiv(ceilDiv(persistent_buffer_size_bit, bdimy), gdimy) *
+      vectorize_factor;
 
   auto persistent_buffer_reg_count =
       ceilDiv(per_thread_persistent_buffer_size_bit, sizeof(int) * 8);
@@ -761,7 +762,9 @@ namespace {
 // larger than buffer size when split is not divisible. The difference is
 // counted as roundup overhead. This function estimates the maximum possible
 // shared memory size due to this round up.
-int64_t roundUpSharedMemory(int64_t tv_buffer_size_bit, int64_t data_type_size_bit) {
+int64_t roundUpSharedMemory(
+    int64_t tv_buffer_size_bit,
+    int64_t data_type_size_bit) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   int64_t max_smem_bit = 0;
@@ -803,7 +806,8 @@ int64_t sharedMemoryRoundUpOverheadBit(
             buffer, runtime_info, persistent_buffer_info);
     // Required shared memory size if store that tensor in shared memory
     int64_t buffer_size_smem = roundUpSharedMemory(
-        logical_buffer_size_bit, dataTypeSizeBit(buffer->getDataType().value()));
+        logical_buffer_size_bit,
+        dataTypeSizeBit(buffer->getDataType().value()));
     // The difference is counted as roundup overhead
     total_smem_overhead_bit += (buffer_size_smem - logical_buffer_size_bit);
   }
@@ -835,8 +839,8 @@ int64_t getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
   int64_t available_shared_memory_size_bit =
       (int64_t)dev_prop->sharedMemPerBlockOptin * 8 - smem_overhead_bit;
 
-  available_persistent_buffer_size_bit =
-      std::max(available_persistent_buffer_size_bit, available_shared_memory_size_bit);
+  available_persistent_buffer_size_bit = std::max(
+      available_persistent_buffer_size_bit, available_shared_memory_size_bit);
   return available_persistent_buffer_size_bit;
 }
 
