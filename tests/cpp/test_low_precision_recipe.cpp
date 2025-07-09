@@ -115,13 +115,13 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_data_hp = makeContigConcreteTensor({5, 8 * 16}, data_hp_dtype);
   fusion.addInput(tv_data_hp);
 
   // Unfortunately reshape uses outer-split, but I wanted inner split.
   // So here I just use an arbitrary shape to create a ViewOp. I will manually
   // modify the rFactor domain later, so the shape is here not important.
-  auto tv_data_hp_reshaped = reshape(tv_data_hp, {5, 7 * 16}, {5, -1, 16});
+  auto tv_data_hp_reshaped = reshape(tv_data_hp, {5, 8 * 16}, {5, -1, 16});
   tv_data_hp_reshaped->setLoopDomain(tv_data_hp_reshaped->getRootDomain());
   tv_data_hp_reshaped->split(-1, block_size);
   tv_data_hp_reshaped->commitLeafToLogical();
@@ -151,15 +151,21 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   // Arbitrarily choose 5, 7, and 16 to generate a merge for reshape
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   std::cout << "cast:" << tv_data_lp_fp4->toString() << std::endl;
-  auto tv_data_lp = reshape(tv_data_lp_fp4, {5, 7, 16}, {5, 7 * 16});
+  auto tv_data_lp = reshape(tv_data_lp_fp4, {5, 8, 16}, {5, 8 * 16});
 
   fusion.addOutput(tv_block_scale_fp8);
   fusion.addOutput(tv_data_lp);
 
+  DeviceMesh mesh({0, 1});
+  tv_data_hp->setDeviceMesh(mesh);
+  const int64_t d = mesh.size();
+  tv_data_hp->outer_split(-1, d);
+  tv_data_hp->axis(-2)->parallelize(ParallelType::DIDx);
+
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       &fusion);
 
-  fusion.printMath();
+  fusion.print();
 }
 
 INSTANTIATE_TEST_SUITE_P(
