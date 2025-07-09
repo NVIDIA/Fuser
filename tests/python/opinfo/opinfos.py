@@ -577,6 +577,7 @@ add_opinfo = OpInfo(
     ),
     reference=_elementwise_binary_torch(torch.add),
     is_clonable=True,
+    supports_direct_bindings=True,
 )
 binary_ops.append(add_opinfo)
 

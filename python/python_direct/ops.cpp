@@ -1396,6 +1396,31 @@ TensorView
 )")
 }
 
+void bindMetadataOps(py::module_& ops) {
+  ops.def(
+      "broadcast",
+      [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
+        return broadcast(arg, is_broadcast_dim);
+      },
+      py::arg("arg"),
+      py::arg("is_broadcast_dim"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1404,6 +1429,7 @@ void bindOperations(py::module& nvfuser) {
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindMetadataOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
