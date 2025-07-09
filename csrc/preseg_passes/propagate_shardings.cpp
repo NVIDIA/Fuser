@@ -381,13 +381,12 @@ void propagateDIDTransform(
 void PropagateShardingsPass::runPass(Fusion* fusion) {
   // Any tensorview with a device mesh is considered scheduled by user and not
   // modified in this pass.
-  std::unordered_set<TensorView*> user_sharded_tvs;
-  auto all_tvs = fusion->allTvs();
-  std::copy_if(
-      all_tvs.begin(),
-      all_tvs.end(),
-      std::inserter(user_sharded_tvs, user_sharded_tvs.end()),
-      [](TensorView* tv) { return tv->hasDeviceMesh(); });
+  auto user_sharded_tvs = [&]() {
+    const auto all_tvs = fusion->allTvs();
+    auto filtered = fusion->allTvs() |
+        std::views::filter(std::mem_fn(&TensorView::hasDeviceMesh));
+    return std::unordered_set<TensorView*>(filtered.begin(), filtered.end());
+  }();
 
   const std::vector<Expr*>& exprs = fusion->exprs();
 
