@@ -97,11 +97,9 @@ TEST_F(ScatterTest, BlockCountingWithShmem) {
 
   // Scatter input must use the same memory as the output
   tv2->setMemoryType(MemoryType::Shared);
+  tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
   tv4->setMemoryType(MemoryType::Shared);
   tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
-
-  fusion.print();
-  fusion.printKernel();
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
@@ -139,9 +137,6 @@ TEST_F(ScatterTest, GridCounting) {
   // Scatter input must use the same memory as the output
   tv2->setMemoryType(MemoryType::Global);
 
-  fusion.print();
-  fusion.printKernel();
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
 
@@ -150,32 +145,6 @@ TEST_F(ScatterTest, GridCounting) {
   auto outputs = ke.run({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, SyncthreadsWithGmem) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
-
-  auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-
-  fusion.addOutput(tv2);
-
-  tv1->setMemoryType(MemoryType::Global);
-
-  // [TIDx, TIDy]
-  tv1->axis(0)->parallelize(ParallelType::TIDx);
-  tv1->axis(1)->parallelize(ParallelType::TIDy);
-
-  // [TIDy, TIDx]
-  tv2->axis(0)->parallelize(ParallelType::TIDy);
-  tv2->axis(1)->parallelize(ParallelType::TIDx);
-
-  fusion.printKernel();
 }
 
 } // namespace nvfuser

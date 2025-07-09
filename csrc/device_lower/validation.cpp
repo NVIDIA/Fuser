@@ -1346,10 +1346,12 @@ void validateInplaceScatter(Fusion* fusion) {
 
     // Assumes both input and output have set allocation domains
     NVF_ERROR(
-        in_tv->hasAllocation(), "Scatter input must have an allocation domain");
+        in_tv->getMemoryType() == MemoryType::Global || in_tv->hasAllocation(),
+        "Non-global scatter input must have an allocation domain");
     NVF_ERROR(
-        out_tv->hasAllocation(),
-        "Scatter output must have an allocation domain");
+        out_tv->getMemoryType() == MemoryType::Global ||
+            out_tv->hasAllocation(),
+        "Non-global scatter output must have an allocation domain");
 
     auto is_exact_mapped = [](const std::vector<IterDomain*>& ids1,
                               const std::vector<IterDomain*>& ids2) -> bool {
