@@ -111,11 +111,11 @@ class NVFP4QuantizeTest : public FP4RecipeTest,
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
-  fusion.addInput(tv_data_hp);
+  fusion->addInput(tv_data_hp);
 
   // Unfortunately reshape uses outer-split, but I wanted inner split.
   // So here I just use an arbitrary shape to create a ViewOp. I will manually
@@ -149,8 +149,14 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
-  fusion.addOutput(tv_block_scale_fp8);
-  fusion.addOutput(tv_data_lp);
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)).to(data_hp_dtype));
+  auto outputs = fec.runWithInputs(inputs);
 }
 
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
