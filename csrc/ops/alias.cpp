@@ -199,6 +199,22 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   return out_tv;
 }
 
+NVF_API TensorView* reshape(TensorView* x, std::function<void(AbstractTensor&)> transform) {
+  auto root_domain = ops::newOutputDomain({x});
+  AbstractTensor abst(root_domain);
+  transform(abst);
+  auto logical_domain = abst.as<IterDomain*>();
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      x->getDataType().value());
+  IrBuilder::create<ViewOp>(x, out_tv);
+  return out_tv;
+}
+
 TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto inp_domain = TensorDomain::noReductions(x->getLogicalDomain());

@@ -13,6 +13,8 @@
 #include <ir/interface_nodes.h>
 #include <type.h>
 
+#include <functional>
+
 //
 // The operations defined in this header is intended as user facing functions.
 // The user will provide the necessary input TensorViews and the function will
@@ -40,6 +42,9 @@ NVF_API TensorView* reshape(
 //! symbolic, which are then concretized at run time with actual
 //! fusion inputs.
 NVF_API TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
+
+// Reshape by manually specify domain transformation
+NVF_API TensorView* reshape(TensorView* x, std::function<void(AbstractTensor&)> transform);
 
 NVF_API TensorView* flatten(
     TensorView* x,

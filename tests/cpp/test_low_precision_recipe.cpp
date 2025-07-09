@@ -120,10 +120,9 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   // Unfortunately reshape uses outer-split, but I wanted inner split.
   // So here I just use an arbitrary shape to create a ViewOp. I will manually
   // modify the rFactor domain later, so the shape is here not important.
-  auto tv_data_hp_reshaped = reshape(tv_data_hp, {5, 7 * 16}, {5, -1, 16});
-  tv_data_hp_reshaped->setLoopDomain(tv_data_hp_reshaped->getRootDomain());
-  tv_data_hp_reshaped->split(-1, block_size);
-  tv_data_hp_reshaped->commitLeafToLogical();
+  auto tv_data_hp_reshaped = reshape(tv_data_hp, [](auto &x){
+    x.split(-1, block_size);
+  });
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
@@ -149,8 +148,9 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
   // Arbitrarily choose 5, 7, and 16 to generate a merge for reshape
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
-  std::cout << "cast:" << tv_data_lp_fp4->toString() << std::endl;
-  auto tv_data_lp = reshape(tv_data_lp_fp4, {5, 7, 16}, {5, 7 * 16});
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto &x){
+    x.merge(-2);
+  });
 
   fusion.addOutput(tv_block_scale_fp8);
   fusion.addOutput(tv_data_lp);
