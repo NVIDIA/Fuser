@@ -154,7 +154,6 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 
   fusion.addOutput(tv_block_scale_fp8);
   fusion.addOutput(tv_data_lp);
-  fusion.print();
 }
 
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
@@ -232,7 +231,6 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
 
   fusion.addOutput(tv_scaled_block_scales_fp8);
   fusion.addOutput(tv_data_lp);
-  fusion.print();
 }
 
 INSTANTIATE_TEST_SUITE_P(
