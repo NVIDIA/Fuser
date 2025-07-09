@@ -4,7 +4,7 @@
 
 import torch
 from nvfuser import FusionDefinition, DataType
-from nvfuser.testing.utils import NVFuserTest
+from python.utils import NVFuserTest
 
 
 class TestRepro(NVFuserTest):
@@ -354,4 +354,52 @@ class TestRepro(NVFuserTest):
                 (4, 320, 66, 66), dtype=torch.float32, device="cuda:0"
             ),
         ]
+        fd.execute(inputs)
+
+    def test_issue4670(self):
+        def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+            S0 = fd.define_scalar(129, dtype=DataType.Int)
+            S1 = fd.define_scalar(0, dtype=DataType.Int)
+            S2 = fd.define_scalar(1, dtype=DataType.Int)
+            T3 = fd.ops.iota(S0, S1, S2, dtype=DataType.Int)
+            T4 = fd.ops.broadcast(T3, is_broadcast_dim=[True, False])
+            S5 = fd.define_scalar(128, dtype=DataType.Int)
+            S6 = fd.ops.size(T3, dim=0)
+            V7 = fd.define_vector([S5, S6], dtype=DataType.Int)
+            T8 = fd.ops.expand(T4, shape=V7)
+            S9 = fd.define_scalar(128, dtype=DataType.Int)
+            S10 = fd.define_scalar(0, dtype=DataType.Int)
+            S11 = fd.define_scalar(1, dtype=DataType.Int)
+            T12 = fd.ops.iota(S9, S10, S11, dtype=DataType.Int)
+            T13 = fd.ops.broadcast(T12, is_broadcast_dim=[False, True])
+            S14 = fd.ops.size(T12, dim=0)
+            S15 = fd.define_scalar(129, dtype=DataType.Int)
+            V16 = fd.define_vector([S14, S15], dtype=DataType.Int)
+            T17 = fd.ops.expand(T13, shape=V16)
+            T18 = fd.ops.gt(T8, T17)
+            T19 = fd.ops.broadcast(T3, is_broadcast_dim=[True, False])
+            S20 = fd.define_scalar(128, dtype=DataType.Int)
+            V21 = fd.define_vector([S20, S6], dtype=DataType.Int)
+            T22 = fd.ops.expand(T19, shape=V21)
+            T23 = fd.ops.broadcast(T12, is_broadcast_dim=[False, True])
+            S24 = fd.define_scalar(129, dtype=DataType.Int)
+            V25 = fd.define_vector([S14, S24], dtype=DataType.Int)
+            T26 = fd.ops.expand(T23, shape=V25)
+            T27 = fd.ops.sub(T22, T26)
+            S28 = fd.define_scalar(1, dtype=DataType.Int)
+            T29 = fd.ops.ge(T27, S28)
+            S30 = fd.define_scalar(-3.38953e38, dtype=DataType.BFloat16)
+            S31 = fd.define_scalar(128, dtype=DataType.Int)
+            S32 = fd.define_scalar(129, dtype=DataType.Int)
+            V33 = fd.define_vector([S31, S32], dtype=DataType.Int)
+            T34 = fd.ops.full(shape=V33, fill_value=S30, dtype=DataType.BFloat16)
+            S35 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T36 = fd.ops.where(T29, T34, S35)
+            fd.add_output(T18)
+            fd.add_output(T36)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id0(fd)
+
+        inputs = []
         fd.execute(inputs)
