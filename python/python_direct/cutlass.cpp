@@ -47,6 +47,7 @@ void bindCutlass(py::module& nvfuser) {
   py::module_ nvf_cutlass = nvfuser.def_submodule(
       "nvf_cutlass", "This submodule contains all cutlass gemms for NvFuser.");
   bindGemm(nvf_cutlass);
+  bindGroupedGemm(nvf_cutlass);
 }
 
 } // namespace nvfuser::python
