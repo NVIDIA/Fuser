@@ -6418,7 +6418,6 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
                            .dtype(data_type_to_aten(out()->dtype()));
   at::Tensor result = at::empty(output_shape, options);
 
-  // FIXME: this doesn't look right.
   // Calculate proper stride tensors for the cutlass kernel
   // ab_strides: stride information for input matrices A and B
   // c_strides: stride information for output matrix C
@@ -6426,6 +6425,7 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   int n = mat2.size(2);
   auto ab_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
   auto c_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  // FIXME: this could be done outside and provided as input to avoid two kernel launches.
   ab_strides.fill_(k);
   c_strides.fill_(n);
   
@@ -6433,8 +6433,8 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   // Call the cutlass kernel
   cutlass_kernels::nvfp4_scaled_grouped_mm(
       result,
-      mat1,
-      mat2,
+      mat1.view(at::ScalarType::kByte),
+      mat2.transpose(-1, -2).view(at::ScalarType::kByte).transpose(-1, -2),
       scale1,
       scale2,
       alpha,
