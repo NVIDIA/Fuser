@@ -157,6 +157,84 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   fusion.print();
 }
 
+TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
+  auto data_hp_dtype = GetParam();
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
+  fusion.addInput(tv_data_hp);
+  fusion.addInput(tv_per_tensor_scale);
+
+  // Unfortunately reshape uses outer-split, but I wanted inner split.
+  // So here I just use an arbitrary shape to create a ViewOp. I will manually
+  // modify the rFactor domain later, so the shape is here not important.
+  auto tv_data_hp_reshaped = reshape(tv_data_hp, [](auto &x){
+    x.split(-1, block_size);
+  });
+
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+  // These scales are currently in fp32, we are going to `quantize` them to e4m3
+  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
+  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
+  // input dtype.
+  auto tv_block_scale = div(
+      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+//     out_scales = None
+//         # We are doing two level scaling,
+//         # This will likely be calibrated but
+//         # we want the per_tensor_scale ~= amax of the block_scale_fp32
+//         block_scale_fp32 = block_scale.to(torch.float32)
+//         # Quantize the blockwise scales w/ the per_tensor_scale
+//         scaled_block_scales = block_scale_fp32 / per_tensor_scale
+//         scaled_block_scales_fp8 = torch.clamp(
+//             scaled_block_scales, min=E4M3_EPS, max=F8E4M3_MAX
+//         ).to(torch.float8_e4m3fn)
+//         scaled_block_scales_fp32 = scaled_block_scales_fp8.to(torch.float32)
+
+//         # We "temporarily" dequant the scaled_block_scales_fp32 to get the per_tensor_scale
+//         # To apply to data
+//         total_scale = per_tensor_scale * scaled_block_scales_fp32
+//         data_scaled = data_hp / total_scale.unsqueeze(-1)
+//         out_scales = scaled_block_scales_fp8
+
+  auto tv_scaled_block_scales = div(tv_block_scale, tv_per_tensor_scale);
+  auto tv_scaled_block_scales_clamp = clamp(
+      tv_scaled_block_scales,
+      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
+      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
+  auto tv_scaled_block_scales_fp8 =
+      castOp(DataType::Float8_e4m3fn, tv_scaled_block_scales_clamp);
+
+  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+  auto tv_scaled_block_scales_fp32 = castOp(DataType::Float, tv_scaled_block_scales_fp8);
+
+  // Temporary dequant the scaled_block_scales_fp32 to get the per_tensor_scale
+  // To apply to data
+  auto tv_total_scale = mul(tv_per_tensor_scale, tv_scaled_block_scales_fp32);
+
+  auto tv_total_scale_unsqueeze = unsqueeze(tv_total_scale, -1);
+  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_total_scale_unsqueeze);
+
+  auto tv_data_scaled_clamp = clamp(
+      tv_data_scaled,
+      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
+      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  // Arbitrarily choose 5, 7, and 16 to generate a merge for reshape
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto &x){
+    x.merge(-2);
+  });
+
+  fusion.addOutput(tv_scaled_block_scales_fp8);
+  fusion.addOutput(tv_data_lp);
+  fusion.print();
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,
