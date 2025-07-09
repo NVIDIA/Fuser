@@ -41,10 +41,17 @@ def test_grouped_mlp(multidevice_test):
             self.offsets = self.define_tensor(
                 [g], dtype=DataType.Int32, contiguity=True
             )
-            gate_out = self.ops.grouped_mm(self.x, self.gate_w, self.offsets)
-            up_out = self.ops.grouped_mm(self.x, self.up_w, self.offsets)
-            mul_out = self.ops.mul(silu(gate_y), up_y)
+
+            gate_out = self.ops.grouped_mm(self.inp, self.gate_w, self.offsets)
+            gate_out = self.ops.cast(gate_out, DataType.Float)
+
+            up_out = self.ops.grouped_mm(self.inp, self.up_w, self.offsets)
+
+            mul_out = self.ops.mul(self.ops.silu(gate_out), up_out)
+            mul_out = self.ops.cast(mul_out, DataType.BFloat16)
+
             out = self.ops.grouped_mm(mul_out, self.down_w, self.offsets)
+
             self.add_output(out)
 
         def multidevice_schedule(self):
@@ -59,10 +66,10 @@ def test_grouped_mlp(multidevice_test):
             self.sched.parallelize(self.down_w, -3, nvfuser.ParallelType.mesh_x)
 
     m = 32
-    inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
-    gate_w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    up_w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    down_w = torch.randn(g, n, k, dtype=torch.bfloat16)
+    inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16, device="cuda")
+    gate_w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
+    up_w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
+    down_w = torch.randint(-2, 3, (g, n, k), dtype=torch.bfloat16)
     sharded_gate_w = multidevice_test.shard_tensor(gate_w, -1, mesh)
     sharded_up_w = multidevice_test.shard_tensor(up_w, -1, mesh)
     sharded_down_w = multidevice_test.shard_tensor(down_w, -2, mesh)
@@ -73,7 +80,7 @@ def test_grouped_mlp(multidevice_test):
     group_outs = [
         (F.silu(group_in.cpu() @ group_gate_w) * (group_in.cpu() @ group_up_w))
         @ group_down_w
-        for group_in, gruop_gate_w, group_up_w, group_down_w in zip(
+        for group_in, group_gate_w, group_up_w, group_down_w in zip(
             inp.split(group_sizes), gate_w.unbind(), up_w.unbind(), down_w.unbind()
         )
     ]
