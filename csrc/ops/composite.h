@@ -102,7 +102,7 @@ NVF_API ScaledTensorView scaled_mm(
     DataType output_block_scale_dtype = DataType::Null,
     bool output_gamma = false);
 
-NVF_API TensorView cutlass_nvfp4_grouped_mm(
+NVF_API TensorView* cutlass_nvfp4_grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* scale1,
