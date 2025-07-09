@@ -199,7 +199,9 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   return out_tv;
 }
 
-NVF_API TensorView* reshape(TensorView* x, std::function<void(AbstractTensor&)> transform) {
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform) {
   auto root_domain = ops::newOutputDomain({x});
   AbstractTensor abst(root_domain);
   transform(abst);

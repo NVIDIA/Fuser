@@ -11,8 +11,8 @@
 #include <visibility.h>
 
 #include <ir/interface_nodes.h>
-#include <type.h>
 #include <scheduler/tools/abstract_tensor.h>
+#include <type.h>
 
 #include <functional>
 
@@ -45,7 +45,9 @@ NVF_API TensorView* reshape(
 NVF_API TensorView* reshape(TensorView* x, const std::vector<Val*>& new_sizes);
 
 // Reshape by manually specify domain transformation
-NVF_API TensorView* reshape(TensorView* x, std::function<void(AbstractTensor&)> transform);
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform);
 
 NVF_API TensorView* flatten(
     TensorView* x,
