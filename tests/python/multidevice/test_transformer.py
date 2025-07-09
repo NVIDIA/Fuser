@@ -2,12 +2,89 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
+
 import torch
+import torch.nn.functional as F
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 from python.utils import create_sdpa_rng_tensors, define_sdpa_rng_state, is_pre_ampere
 from nvfuser.testing.benchmark_utils import get_benchmark_fns
+
+
+@pytest.mark.mpi
+def test_grouped_mlp(multidevice_test):
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    if (prop.major, prop.minor) != (9, 0):
+        pytest.skip("at::_grouped_mm only supports sm90.")
+
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    g = 4
+    k = 16
+    n = 16 * d
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor(
+                [-1, k], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.gate_w = self.define_tensor(
+                [g, k, n], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.up_w = self.define_tensor(
+                [g, k, n], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.down_w = self.define_tensor(
+                [g, n, k], dtype=DataType.BFloat16, contiguity=True
+            )
+            self.offsets = self.define_tensor(
+                [g], dtype=DataType.Int32, contiguity=True
+            )
+            gate_out = self.ops.grouped_mm(self.x, self.gate_w, self.offsets)
+            up_out = self.ops.grouped_mm(self.x, self.up_w, self.offsets)
+            mul_out = self.ops.mul(silu(gate_y), up_y)
+            out = self.ops.grouped_mm(mul_out, self.down_w, self.offsets)
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.gate_w, self.up_w, self.down_w, self.offsets]:
+                self.sched._set_device_mesh(t, mesh)
+
+            for w in [self.gate_w, self.up_w]:
+                self.sched.split(w, -1, d, False)
+                self.sched.parallelize(w, -2, nvfuser.ParallelType.mesh_x)
+
+            self.sched.split(self.down_w, -2, d, False)
+            self.sched.parallelize(self.down_w, -3, nvfuser.ParallelType.mesh_x)
+
+    m = 32
+    inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
+    gate_w = torch.randn(g, k, n, dtype=torch.bfloat16)
+    up_w = torch.randn(g, k, n, dtype=torch.bfloat16)
+    down_w = torch.randn(g, n, k, dtype=torch.bfloat16)
+    sharded_gate_w = multidevice_test.shard_tensor(gate_w, -1, mesh)
+    sharded_up_w = multidevice_test.shard_tensor(up_w, -1, mesh)
+    sharded_down_w = multidevice_test.shard_tensor(down_w, -2, mesh)
+    assert m % g == 0
+    group_sizes = [m // g] * g
+    offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
+
+    group_outs = [
+        (F.silu(group_in.cpu() @ group_gate_w) * (group_in.cpu() @ group_up_w))
+        @ group_down_w
+        for group_in, gruop_gate_w, group_up_w, group_down_w in zip(
+            inp.split(group_sizes), gate_w.unbind(), up_w.unbind(), down_w.unbind()
+        )
+    ]
+    expected_out = torch.cat(group_outs, dim=0)
+
+    fd = Model()
+    (out,), _ = fd.execute([inp, sharded_gate_w, sharded_up_w, sharded_down_w, offsets])
+
+    torch.testing.assert_close(
+        out, multidevice_test.shard_tensor(expected_out, -1, mesh)
+    )
 
 
 def _sharded_linear_all_reduce(
