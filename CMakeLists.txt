@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
+enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
 
@@ -62,6 +63,7 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 # need this since the pytorch execution uses a different name
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
@@ -79,11 +81,6 @@ if(TORCH_CUDA_ARCH_LIST)
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
-
-# TODO: fix MSVC
-if(NOT MSVC)
-  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
-endif()
 
 # ------------------------------
 # build nvfuser_codegen library
@@ -384,7 +381,6 @@ target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
-  ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
   ${CUDA_INCLUDE_DIRS}
 )
 target_include_directories(codegen_internal PUBLIC
@@ -409,7 +405,7 @@ set_target_properties(codegen_internal PROPERTIES
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(codegen_internal PUBLIC
   dynamic_type
-  ${LIBCUPTI}
+  CUDA::cupti
   ${TORCH_LIBRARIES}
   dl
 )
@@ -432,7 +428,7 @@ target_include_directories(nvfuser_codegen PUBLIC
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
-  ${LIBCUPTI}
+  CUDA::cupti
   ${TORCH_LIBRARIES}
   dl
 )
