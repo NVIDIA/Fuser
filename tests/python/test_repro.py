@@ -4,7 +4,7 @@
 
 import torch
 from nvfuser import FusionDefinition, DataType
-from nvfuser.testing.utils import NVFuserTest
+from python.utils import NVFuserTest
 
 
 class TestRepro(NVFuserTest):

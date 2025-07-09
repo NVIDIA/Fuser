@@ -15,6 +15,7 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
+#include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -206,7 +207,19 @@ Communicator::Communicator(
         local_rank_ == server_local_rank;
   }
   store_opts.port = master_port_;
-  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  try {
+    store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+  } catch (const c10d::SocketError& e) {
+    TORCH_WARN(
+        "Failed to create a TCPStore: ",
+        e.what(),
+        ". The Communicator is therefore made unavailable. If you imported "
+        "both nvfuser and nvfuser_direct, this warning is expected and can be "
+        "ignored: https://github.com/NVIDIA/Fuser/pull/4722");
+    is_available_ = false;
+    return;
+  }
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
@@ -322,8 +335,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  if (is_available()) {
+  if (is_available_) {
     barrier();
+    is_available_ = false;
   }
 
   store_ = nullptr;
@@ -343,8 +357,6 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
-
-  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
