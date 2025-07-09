@@ -121,15 +121,31 @@ void compileMainFuncOutputs(
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
     llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
-    llvm::Type* aten_tensor_array_type = llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
-    llvm::Value* aten_tensor_array_ptr = builder.CreateRet(aten_tensor_array_type);
-    for(auto* output : arange(container->outputs().size())) {
+    llvm::LLVMContext& ctx = builder.getContext();
+    llvm::Type* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
+    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(void_ptr_type, num_outputs);
+    
+    int num_outputs = container->outputs().size();
+    llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
+        *mod, 
+        aten_tensor_array_type, 
+        false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantAggregateZero::get(aten_tensor_array_type),
+        "output_array"
+    );
+
+    for(auto* i : arange(container->outputs().size())) {
+      auto* output = container->outputs()[i];
       if(auto* tv = dynamic_cast<const TensorView*>(output)) {
-        llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_ptr, builder.getInt64(i));
-        aten_tensor_ptr->setName("output_aten_tensor_" + std::to_string(i));
-        
+        llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, 
+        {builder.getInt64(0), builder.getInt64(i)});
+        aten_tensor_ptr->setName("output_aten_tensor_" + std::to_string(i)); 
+        builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
       }
     }
+    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, llvm::PointerType::getUnqual(void_ptr_type));
+    builder.CreateRet(result);
 
     const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
     if (debug_print) {
