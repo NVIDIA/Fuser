@@ -1424,8 +1424,8 @@ TEST_F(CombinedSchedulerTest, ThunderLayerNormBackward) {
     auto tv23 = sum(tv22, {1}, false);
     auto tv27 = expand(broadcast(tv23, {false, true}), {dim0_val, one_val});
     auto tv31 = expand(broadcast(tv4, {false, false}), {dim0_val, dim1_val});
-    auto s32 = IrBuilder::create<Val>(3.0, DataType::Double);
-    auto tv33 = pow(tv4, s32);
+    // use pow(tv4,3) leads to dynamic type conversion error in validator
+    auto tv33 = mul(tv4, mul(tv4, tv4));
     auto s34 = IrBuilder::create<Val>(-0.5, DataType::Double);
     auto tv35 = mul(s34, tv27);
     auto tv36 = mul(tv31, tv20);
@@ -1477,69 +1477,140 @@ TEST_F(CombinedSchedulerTest, ThunderLayerNormBackward) {
   KernelArgumentHolder args = {t0, t1, t2, t3, t4};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
 
-  // Generate expected outputs using ATen computations
-  auto t0_fp32 = t0.to(at::kFloat);
-  auto t2_fp32 = t2.to(at::kFloat);
-  auto t3_fp32 = t3.to(at::kFloat);
-  auto t4_fp32 = t4.to(at::kFloat);
+// https://nvbugspro.nvidia.com/bug/5374766
+// when view ops are present, project buffer to inputs is disabled and warp
+// specialized approach is not used.
+TEST_F(CombinedSchedulerTest, ViewOps) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(
+      EnableOption::WarpSpecializedNormalization);
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
 
-  // Step-by-step computation matching the fusion
-  auto tv8 = t0_fp32.unsqueeze(0).expand({dim0, dim1}); // broadcast t0
-  auto tv12 = t1.unsqueeze(1).expand({dim0, 1}); // broadcast t1
-  auto tv13 = t2_fp32; // cast t2 to float
-  auto tv14 = tv8; // cast tv8 to float
-  auto tv18 = tv12.expand({dim0, dim1}); // expand tv12
-  auto tv19 = t3_fp32; // cast t3 to float
-  auto tv20 = tv14 * tv13; // mul(tv14, tv13)
-  auto tv21 = tv19 - tv18; // sub(tv19, tv18)
-  auto tv22 = tv21 * tv20; // mul(tv21, tv20)
-  auto tv23 = tv22.sum(1, false); // sum(tv22, {1})
-  auto tv27 = tv23.unsqueeze(1).expand({dim0, 1}); // broadcast tv23
-  auto tv31 = t4_fp32.expand({dim0, dim1}); // expand t4
-  auto tv33 = t4_fp32.pow(3.0); // pow(t4, 3.0)
-  auto tv35 = -0.5 * tv27; // mul(-0.5, tv27)
-  auto tv36 = tv31 * tv20; // mul(tv31, tv20)
-  auto tv37 = tv35 * tv33; // mul(tv35, tv33)
-  auto tv38 = -tv36; // neg(tv36)
-  auto tv39 = tv37.sum(1, false); // sum(tv37, {1})
-  auto tv40 = tv38.sum(1, false); // sum(tv38, {1})
-  auto tv44 = t1.unsqueeze(1).expand({dim0, 1}); // broadcast t1
-  auto tv48 = tv39.unsqueeze(1).expand({dim0, 1}); // broadcast tv39
-  auto tv52 = tv40.unsqueeze(1).expand({dim0, 1}); // broadcast tv40
-  auto tv56 = tv44.expand({dim0, dim1}); // expand tv44
-  auto tv60 = tv48.expand({dim0, dim1}); // expand tv48
-  auto tv61 = tv52.sum(1, false); // sum(tv52, {1})
-  auto tv62 = tv19 - tv56; // sub(tv19, tv56)
-  auto tv64 = 2.0 * tv60; // mul(2.0, tv60)
-  auto tv68 = tv61.unsqueeze(1).expand({dim0, 1}); // broadcast tv61
-  auto tv69 = tv64 * tv62; // mul(tv64, tv62)
-  auto tv73 = tv68.expand({dim0, dim1}); // expand tv68
-  auto tv75 = 1.0 / 2048.0; // reciprocal(2048.0)
-  auto tv76 = tv69 * tv75; // mul(tv69, tv75)
-  auto tv77 = 0.000488281; // constant
-  auto tv78 = tv77 * tv73; // mul(tv77, tv73)
-  auto tv79 = tv21 * tv31; // mul(tv21, tv31)
-  auto tv80 = tv78 + tv76; // add(tv78, tv76)
-  auto tv81 = tv79 * tv13; // mul(tv79, tv13)
-  auto tv82 = tv36 + tv80; // add(tv36, tv80)
-  auto tv83 = tv81.sum(0, false); // sum(tv81, {0})
-  auto tv84 = tv13.sum(0, false); // sum(tv13, {0})
+  // Define constants for dimensions
+  const int64_t dim_512 = 512;
+  const int64_t dim_288 = 288;
+  const int64_t dim_128 = 128;
 
-  // Expected outputs (cast to BFloat16)
-  auto expected_output0 = tv84.to(at::kBFloat16); // tv87
-  auto expected_output1 = tv83.to(at::kBFloat16); // tv86
-  auto expected_output2 = tv82.to(at::kBFloat16); // tv85
+  auto v512 = IrBuilder::create<Val>(dim_512);
+  auto v288 = IrBuilder::create<Val>(dim_288);
+  auto v128 = IrBuilder::create<Val>(dim_128);
 
-  std::vector<at::Tensor> expected_outputs = {
-      expected_output0, expected_output1, expected_output2};
+  {
+    auto tv0 = makeContigConcreteTensor({147456, 128}, DataType::BFloat16);
+    fusion->addInput(tv0);
+    auto tv1 = makeContigConcreteTensor({128}, DataType::BFloat16);
+    fusion->addInput(tv1);
+    auto tv2 = makeContigConcreteTensor({288, 512}, DataType::Float);
+    fusion->addInput(tv2);
+    auto tv3 = makeContigConcreteTensor({288, 512, 128}, DataType::BFloat16);
+    fusion->addInput(tv3);
+    auto tv4 = makeContigConcreteTensor({288, 512, 1}, DataType::Float);
+    fusion->addInput(tv4);
+    auto tv9 = reshape(tv0, {147456, 128}, {288, 512, 128});
+    auto tv14 = expand(broadcast(tv1, {true, true, false}), {v288, v512, v128});
+    auto tv19 = expand(
+        broadcast(tv2, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv20 = castOp(DataType::Float, tv9);
+    auto tv21 = castOp(DataType::Float, tv14);
+    auto tv26 =
+        expand(broadcast(tv19, {false, false, false}), {v288, v512, v128});
+    auto tv27 = castOp(DataType::Float, tv3);
+    auto tv28 = mul(tv21, tv20);
+    auto tv29 = sub(tv27, tv26);
+    auto tv30 = mul(tv29, tv28);
+    auto tv31 = sum(tv30, {2}, false, DataType::Null);
+    auto tv36 = expand(
+        broadcast(tv31, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv41 =
+        expand(broadcast(tv4, {false, false, false}), {v288, v512, v128});
+    auto tv43 = mul(tv4, mul(tv4, tv4));
+    auto s44 = IrBuilder::create<Val>(-0.5, DataType::Double);
+    auto tv45 = mul(s44, tv36);
+    auto tv46 = mul(tv41, tv28);
+    auto tv47 = mul(tv45, tv43);
+    auto tv48 = neg(tv46);
+    auto tv49 = sum(tv47, {2}, false, DataType::Null);
+    auto tv50 = sum(tv48, {2}, false, DataType::Null);
+    auto tv55 = expand(
+        broadcast(tv2, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv60 = expand(
+        broadcast(tv49, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv65 = expand(
+        broadcast(tv50, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv70 =
+        expand(broadcast(tv55, {false, false, false}), {v288, v512, v128});
+    auto tv75 =
+        expand(broadcast(tv60, {false, false, false}), {v288, v512, v128});
+    auto tv76 = sum(tv65, {2}, false, DataType::Null);
+    auto tv77 = sub(tv27, tv70);
+    auto s78 = IrBuilder::create<Val>(2.0, DataType::Double);
+    auto tv79 = mul(s78, tv75);
+    auto tv84 = expand(
+        broadcast(tv76, {false, false, true}),
+        {v288, v512, IrBuilder::create<Val>(1)});
+    auto tv85 = mul(tv79, tv77);
+    auto tv90 =
+        expand(broadcast(tv84, {false, false, false}), {v288, v512, v128});
+    auto s91 = IrBuilder::create<Val>(128.0, DataType::Double);
+    auto s92 = reciprocal(s91);
+    auto tv93 = mul(tv85, s92);
+    auto s94 = IrBuilder::create<Val>(0.0078125, DataType::Double);
+    auto tv95 = mul(s94, tv90);
+    auto tv96 = add(tv95, tv93);
+    auto tv97 = add(tv46, tv96);
+    auto tv98 = castOp(DataType::BFloat16, tv97);
+    auto tv99 = mul(tv29, tv41);
+    auto tv100 = mul(tv99, tv20);
+    auto tv101 = castOp(DataType::Float, tv9);
+    auto tv105 = reshape(tv98, {288, 512, 128}, {147456, 128});
+    auto tv106 = sum(tv97, {0, 1}, false, DataType::Null);
+    auto tv107 = sum(tv100, {0, 1}, false, DataType::Null);
+    auto tv108 = sum(tv101, {0, 1}, false, DataType::Null);
+    auto tv109 = permute(tv105, {1, 0});
+    auto tv110 = castOp(DataType::BFloat16, tv106);
+    auto tv111 = castOp(DataType::BFloat16, tv107);
+    auto tv112 = castOp(DataType::BFloat16, tv108);
+    fusion->addOutput(tv109);
+    fusion->addOutput(tv110);
+    fusion->addOutput(tv105);
+    fusion->addOutput(tv98);
+    fusion->addOutput(tv111);
+    fusion->addOutput(tv112);
+  }
 
-  testValidate(
-      &fusion_copy, cg_outputs, args, expected_outputs, __LINE__, __FILE__);
+  auto fusion_copy = *fusion_ptr;
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_fp16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({147456, 128}, options_fp16);
+  auto t1 = at::randn({128}, options_fp16);
+  auto t2 = at::randn({288, 512}, options_fp32);
+  auto t3 = at::randn({288, 512, 128}, options_fp16);
+  auto t4 = at::randn({288, 512, 1}, options_fp32);
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
-  // TODO: Fix auto validation - the fusion runs but testValidate has type
-  // conversion issues testValidate(&fusion_copy, cg_outputs, args,
-  // expected_outputs,
-  // __LINE__, __FILE__);
+  // ViewOp disables warp specialized approach
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  EXPECT_FALSE(heur->as<ReductionParams>()->tma_warp_specialized);
+
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
 }
 } // namespace nvfuser
