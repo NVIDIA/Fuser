@@ -52,7 +52,7 @@ class DeviceMesh final {
 
   // Returns the number of devices in the mesh
   int64_t size() const {
-    return static_cast<int64_t>(vector_.size());
+    return std::ssize(vector_);
   }
 
   // Return the size of an axis in the mesh
