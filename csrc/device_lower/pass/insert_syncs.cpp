@@ -585,21 +585,24 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-#if 0
       if (!sync_bitmap.hasBID() &&
           std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+              expr->inputs().begin(),
+              expr->inputs().end(),
+              [](Val* val) {
                 return !val->isA<TensorView>() ||
                     !isSharedMemory(val->as<TensorView>()) ||
                     ir_utils::isCpAsyncBulkLoad(val->definition());
+              }) &&
+          std::any_of(
+              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                return val->isA<TensorView>() &&
+                    isSharedMemory(val->as<TensorView>()) &&
+                    ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
-        std::cerr << "RAW TMA\n";
-        if (!getenv("SKIP")) {
-          return;
-        }
+        return;
       }
-#endif
 
       // TODO: Explicitly test the 3 cases below
       Expr* sync_expr = nullptr;
