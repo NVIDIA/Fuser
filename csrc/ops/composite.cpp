@@ -528,7 +528,7 @@ ScaledTensorView scaled_mm(
   return scaled_out;
 }
 
-ScaledTensorView cutlass_nvfp4_grouped_mm(
+TensorView* cutlass_nvfp4_grouped_mm(
     TensorView* mat1,
     TensorView* mat2,
     TensorView* scale1,

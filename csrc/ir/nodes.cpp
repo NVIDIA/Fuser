@@ -6422,8 +6422,12 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   // Calculate proper stride tensors for the cutlass kernel
   // ab_strides: stride information for input matrices A and B
   // c_strides: stride information for output matrix C
-  auto ab_strides = at::empty({num_experts, 3}, at::TensorOptions().device(mat1.device()).dtype(at::kInt32));
-  auto c_strides = at::empty({num_experts, 3}, at::TensorOptions().device(mat1.device()).dtype(at::kInt32));
+  int k = mat1.size(1);
+  int n = mat2.size(2);
+  auto ab_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  auto c_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
+  ab_strides.fill_(k);
+  c_strides.fill_(n);
   
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   // Call the cutlass kernel
