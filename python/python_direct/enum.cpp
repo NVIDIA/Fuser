@@ -33,6 +33,26 @@ void bindEnums(py::module& nvfuser) {
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
+
+  py::enum_<ParallelType>(nvfuser, "ParallelType")
+      .value("mesh_x", ParallelType::DIDx)
+      .value("grid_x", ParallelType::BIDx)
+      .value("grid_y", ParallelType::BIDy)
+      .value("grid_z", ParallelType::BIDz)
+      .value("block_x", ParallelType::TIDx)
+      .value("block_y", ParallelType::TIDy)
+      .value("block_z", ParallelType::TIDz)
+      .value("mma", ParallelType::Mma)
+      .value("serial", ParallelType::Serial)
+      .value("tma", ParallelType::Bulk)
+      .value("unroll", ParallelType::Unroll)
+      .value("unswitch", ParallelType::Unswitch)
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
+
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc);
 }
 
 } // namespace nvfuser::python

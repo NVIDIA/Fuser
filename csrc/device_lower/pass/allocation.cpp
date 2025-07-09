@@ -1210,7 +1210,11 @@ class AllocationInserter : public kir::ExprMutator {
           gpu_lower_->predicateElimination().getInitValue(out_tv);
 
       Val* init = nullptr;
-      if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {
+      if (out_tv->dtype() == DataType::Float4_e2m1fn) {
+        // TODO: fp4 is smaller than one byte, it is impossible to specify a
+        // fp4 value in computer. For now, we just skip the initialization.
+        init = nullptr;
+      } else if (expr->isA<ReductionOp>() && out_tv->hasReduction()) {
         NVF_ERROR(
             default_val == nullptr,
             "Reduction should not have a default initialization value for "

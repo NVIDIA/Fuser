@@ -43,6 +43,7 @@ namespace nvfuser::preseg_passes {
 
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
   // This pass should be placed before ConsecutiveCastPass as more
   // consecutive cast ops may be exposed by this pass
   OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);
@@ -80,7 +81,6 @@ namespace nvfuser::preseg_passes {
 
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
-  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
   OptimizationPass<MoveRepeatForwardPass>::runPass(fusion);
   OptimizationPass<MoveGatherPass>::runPass(fusion);
 
