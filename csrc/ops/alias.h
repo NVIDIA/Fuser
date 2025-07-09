@@ -16,6 +16,8 @@
 
 #include <functional>
 
+#include <functional>
+
 //
 // The operations defined in this header is intended as user facing functions.
 // The user will provide the necessary input TensorViews and the function will
