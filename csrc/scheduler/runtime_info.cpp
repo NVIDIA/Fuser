@@ -115,6 +115,7 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
 }
 
 size_t SchedulerRuntimeInfo::computeAlignmentSizeBit(size_t ptr_address) {
+  ptr_address *= 8; // Convert to bits
   size_t alignment_size_bit = 1;
   size_t next_alignment_size_bit = 2;
 
