@@ -110,7 +110,8 @@ NVF_API ScaledTensorView cutlass_nvfp4_grouped_mm(
     TensorView* alpha,
     TensorView* problem_sizes,
     TensorView* expert_offsets,
-    TensorView* sf_offsets);
+    TensorView* sf_offsets,
+    DataType dtype = DataType::BFloat16);
 
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {

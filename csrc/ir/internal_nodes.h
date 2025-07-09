@@ -3368,7 +3368,7 @@ class CutlassNvfp4GroupedMmaOp : public Expr {
       Val* alpha,
       Val* problem_sizes,
       Val* expert_offsets,
-      Val* sf_offsets)
+      Val* sf_offsets);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

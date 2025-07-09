@@ -528,6 +528,60 @@ ScaledTensorView scaled_mm(
   return scaled_out;
 }
 
+ScaledTensorView cutlass_nvfp4_grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* scale1,
+    TensorView* scale2,
+    TensorView* alpha,
+    TensorView* problem_sizes,
+    TensorView* expert_offsets,
+    TensorView* sf_offsets,
+    DataType dtype) {
+  
+  // Validate inputs
+  NVF_CHECK(mat1 != nullptr, "mat1 cannot be null");
+  NVF_CHECK(mat2 != nullptr, "mat2 cannot be null");
+  NVF_CHECK(scale1 != nullptr, "scale1 cannot be null");
+  NVF_CHECK(scale2 != nullptr, "scale2 cannot be null");
+  NVF_CHECK(alpha != nullptr, "alpha cannot be null");
+  NVF_CHECK(problem_sizes != nullptr, "problem_sizes cannot be null");
+  NVF_CHECK(expert_offsets != nullptr, "expert_offsets cannot be null");
+  NVF_CHECK(sf_offsets != nullptr, "sf_offsets cannot be null");
+
+  // Create output tensor
+  // The output shape depends on the problem sizes and expert structure
+  // For now, we'll create a simple output based on the input shapes
+  // This should be refined based on the actual requirements
+  auto mat1_domain = TensorDomain::noReductions(mat1->getLogicalDomain());
+  auto mat2_domain = TensorDomain::noReductions(mat2->getLogicalDomain());
+  NVF_CHECK(mat1_domain.size() == 2);
+  NVF_CHECK(mat2_domain.size() == 3);
+  
+  // Create output domain - this is a simplified approach
+  // The actual output shape calculation should be more sophisticated
+  std::vector<IterDomain*> out_domain;
+  out_domain.push_back(ops::newOutputIterDomain({mat1_domain[0]}));
+  out_domain.push_back(ops::newOutputIterDomain({mat2_domain[2]}));
+  
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, dtype);
+
+  IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+      output,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets);
+
+  return output;
+}
+
 SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,

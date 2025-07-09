@@ -107,6 +107,7 @@ class Val;
   f(ArgsortOp);                   \
   f(GroupedMmaOp);                \
   f(ScaledMmaOp);                 \
+  f(CutlassNvfp4GroupedMmaOp);    \
   f(TopKOp);                      \
   f(ScanOp);                      \
   f(Merge);                       \

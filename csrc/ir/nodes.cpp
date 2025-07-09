@@ -6341,4 +6341,116 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
 
+CutlassNvfp4GroupedMmaOp::CutlassNvfp4GroupedMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* mat1,
+    Val* mat2,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* problem_sizes,
+    Val* expert_offsets,
+    Val* sf_offsets)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  NVF_ERROR(scale1->isA<TensorView>(), "Scale1 must be a TensorView");
+  NVF_ERROR(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
+  NVF_ERROR(alpha->isA<TensorView>(), "Alpha must be a TensorView");
+  NVF_ERROR(problem_sizes->isA<TensorView>(), "Problem sizes must be a TensorView");
+  NVF_ERROR(expert_offsets->isA<TensorView>(), "Expert offsets must be a TensorView");
+  NVF_ERROR(sf_offsets->isA<TensorView>(), "SF offsets must be a TensorView");
+  
+  addOutput(out_mat);
+  addInput(mat1);
+  addInput(mat2);
+  addInput(scale1);
+  addInput(scale2);
+  addInput(alpha);
+  addInput(problem_sizes);
+  addInput(expert_offsets);
+  addInput(sf_offsets);
+}
+
+std::string CutlassNvfp4GroupedMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out();
+  ss << " = CutlassNvfp4GroupedMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << ", ";
+  ss << "alpha=" << alpha() << ", ";
+  ss << "problem_sizes=" << problemSizes() << ", ";
+  ss << "expert_offsets=" << expertOffsets() << ", ";
+  ss << "sf_offsets=" << sfOffsets() << ")\n";
+  return ss.str();
+}
+
+std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& scale1 = inputs[2].as<at::Tensor>();
+  const auto& scale2 = inputs[3].as<at::Tensor>();
+  const auto& alpha = inputs[4].as<at::Tensor>();
+  const auto& problem_sizes = inputs[5].as<at::Tensor>();
+  const auto& expert_offsets = inputs[6].as<at::Tensor>();
+  const auto& sf_offsets = inputs[7].as<at::Tensor>();
+
+  // Validate problem_sizes tensor
+  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be a 2D tensor");
+  NVF_CHECK(problem_sizes.size(1) == 3, "problem_sizes must have shape (num_experts, 3)");
+  int num_experts = problem_sizes.size(0);
+  
+  // Calculate output shape and allocate output tensor
+  std::vector<int64_t> output_shape;
+  output_shape = {mat1.size(0), mat2.size(2)};
+  const auto options = at::TensorOptions()
+                           .device(mat1.device())
+                           .dtype(data_type_to_aten(out()->dtype()));
+  at::Tensor result = at::empty(output_shape, options);
+
+  // FIXME: this doesn't look right.
+  // Calculate proper stride tensors for the cutlass kernel
+  // ab_strides: stride information for input matrices A and B
+  // c_strides: stride information for output matrix C
+  auto ab_strides = at::empty({num_experts, 3}, at::TensorOptions().device(mat1.device()).dtype(at::kInt32));
+  auto c_strides = at::empty({num_experts, 3}, at::TensorOptions().device(mat1.device()).dtype(at::kInt32));
+  
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  // Call the cutlass kernel
+  cutlass_kernels::nvfp4_scaled_grouped_mm(
+      result,
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      ab_strides,
+      c_strides,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets);
+#else
+  NVF_THROW("CutlassNvfp4GroupedMmaOp requires CUTLASS kernels to be enabled");
+#endif
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+  return {result};
+
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(CutlassNvfp4GroupedMmaOp)
+
 } // namespace nvfuser
