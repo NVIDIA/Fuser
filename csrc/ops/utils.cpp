@@ -156,11 +156,13 @@ IterType promoteIterType(IterType type1, IterType type2) {
       "Invalid IterType: ",
       type2);
 
-  // Do not propagate GatherScatter and VectorComponent
-  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter) {
+  // Do not propagate GatherScatter, VectorComponent, or Scan
+  if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter ||
+      type1 == IterType::Scan) {
     type1 = IterType::Iteration;
   }
-  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter) {
+  if (type2 == IterType::VectorComponent || type2 == IterType::GatherScatter ||
+      type2 == IterType::Scan) {
     type2 = IterType::Iteration;
   }
 
@@ -426,6 +428,7 @@ IterDomain* newOutputIterDomain(
                      .iter_type(IterType::Broadcast)
                      .build();
   }
+  NVF_ERROR(out_domain != nullptr);
   return out_domain;
 }
 #if defined(__GNUC__) && !defined(__clang__)
@@ -451,7 +454,7 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
       auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
-      input_ids.emplace_back(dom[dim_i]);
+      input_ids.emplace_back(dom.at(dim_i));
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
   }

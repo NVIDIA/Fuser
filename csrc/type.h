@@ -647,7 +647,11 @@ enum class BinaryOpType {
   LogicalOr,
 
   // generate complex from real and imaginary parts
-  Complex
+  Complex,
+
+  // These just return one or the other of the arguments
+  LHS,
+  RHS
 };
 
 enum class ScatterOpType { Set };
@@ -727,7 +731,8 @@ enum class IterType {
   Stride,
   GatherScatter,
   VectorComponent,
-  Symbolic
+  Symbolic,
+  Scan
 };
 
 // Used for Iteration Domain mapping modes in ComputeAtMap
