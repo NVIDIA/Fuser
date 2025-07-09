@@ -46,7 +46,7 @@ class Pointer {
   Pointer() : ptr_(nullptr), size_bit_(-1) {}
 
   int64_t sizeBit() const {
-    return size_bit_ / 8;
+    return size_bit_;
   }
 
   template <typename T>
