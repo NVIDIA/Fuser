@@ -379,6 +379,16 @@ void propagateDIDTransform(
 // meshes. This also splits and parallelizes unsharded inputs based on outputs.
 // See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
 void PropagateShardingsPass::runPass(Fusion* fusion) {
+  // Any tensorview with a device mesh is considered scheduled by user and not
+  // modified in this pass.
+  std::unordered_set<TensorView*> user_sharded_tvs;
+  auto all_tvs = fusion->allTvs();
+  std::copy_if(
+      all_tvs.begin(),
+      all_tvs.end(),
+      std::inserter(user_sharded_tvs, user_sharded_tvs.end()),
+      [](TensorView* tv) { return tv->hasDeviceMesh(); });
+
   const std::vector<Expr*>& exprs = fusion->exprs();
 
   for (Expr* expr : exprs) {
@@ -392,9 +402,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     const auto& reference_inputs = getOrderedReferenceInputs(expr);
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
-      // Skip if the input has no device mesh or is nullptr.
+      NVF_ERROR(ref_input != nullptr);
       NVF_ERROR(
-          ref_input != nullptr && ref_input->hasDeviceMesh(),
+          ref_input->hasDeviceMesh(),
           "Reference input ",
           ref_input,
           " has no device mesh.");
@@ -448,10 +458,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> sharding_candidates;
     for (auto* tv : inputs) {
+      if (user_sharded_tvs.count(tv) != 0) {
+        continue;
+      }
       if (tv->isFusionInput()) {
-        if (!tv->hasDeviceMesh()) {
-          tv->setDeviceMesh(ref_output->getDeviceMesh());
-        }
+        tv->setDeviceMesh(ref_output->getDeviceMesh());
         continue;
       }
       if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {

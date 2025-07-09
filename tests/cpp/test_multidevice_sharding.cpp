@@ -758,8 +758,7 @@ TEST_P(InsertReshardingTest, Execute) {
   TensorView* tv5 = mul(tv2, tv4);
 
   fusion->addInput(tv0);
-  // Due to #4642, we can't add tv1 as output.
-  // fusion->addOutput(tv1);
+  fusion->addOutput(tv1);
   fusion->addOutput(tv5);
 
   auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
@@ -781,7 +780,8 @@ TEST_P(InsertReshardingTest, Execute) {
   }
 
   at::Tensor t0 = at::randint(3, {2, mesh.size(), 5}, tensor_options);
-  at::Tensor t2 = t0 + t0 * t0;
+  at::Tensor t1 = t0 * t0;
+  at::Tensor t2 = t0 + t1;
   at::Tensor t5 = t2 * t2.sum({1}, /*keepdim=*/true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -789,9 +789,12 @@ TEST_P(InsertReshardingTest, Execute) {
     t0 = shardTensor(t0, 1, mesh);
     t5 = shardTensor(t5, 1, mesh);
   }
-
+  if (is_tv1_tv4_sharded) {
+    t1 = shardTensor(t1, 1, mesh);
+  }
   auto outs = executor_cache.runFusionWithInputs({t0});
-  testValidate(executor_cache.fusion(), outs, {t0}, {t5}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outs, {t0}, {t1, t5}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
