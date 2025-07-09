@@ -12,6 +12,7 @@
 
 #include <ir/interface_nodes.h>
 #include <type.h>
+#include <scheduler/tools/abstract_tensor.h>
 
 #include <functional>
 
