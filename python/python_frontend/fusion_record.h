@@ -3541,7 +3541,7 @@ struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
 
     auto result = cutlass_nvfp4_grouped_mm(
         mat1, mat2, scale1, scale2, alpha, problem_sizes, expert_offsets, sf_offsets, dtype_);
-    fd.setFusionState(outputs().at(0).index, output_mat);
+    fd.setFusionState(outputs().at(0).index, result);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
