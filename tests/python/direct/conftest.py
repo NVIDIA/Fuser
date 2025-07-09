@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+import pytest
 from copy import deepcopy
 import torch
 from torch.testing._internal.common_utils import TestCase
 
 from nvfuser_direct import FusionDefinition
-from nvfuser_direct.testing.utils import check_captured_python_definition
+from python.direct_utils import is_pre_volta, check_captured_python_definition
 
 
 class NVFuserTest(TestCase):
@@ -35,7 +36,13 @@ class NVFuserTest(TestCase):
             device=device,
         )
 
-        self.assertTrue(
-            check_captured_python_definition(out, fd, inputs_captured, device)
-        )
+        assert check_captured_python_definition(out, fd, inputs_captured, device)
         return out, fd
+
+
+# Migrated tests to new direct python bindings use this.
+@pytest.fixture
+def nvfuser_direct_test():
+    if is_pre_volta():
+        pytest.skip("Only supported on Volta and newer devices.")
+    yield NVFuserTest()
