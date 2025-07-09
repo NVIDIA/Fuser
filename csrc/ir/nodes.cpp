@@ -283,29 +283,52 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,
-    ScatterOpType type,
     Val* out,
     Val* self,
     int64_t dim,
     Val* index,
     Val* src)
+    : ScatterOp(
+          passkey,
+          out,
+          self,
+          dim,
+          index,
+          src,
+          false,
+          // This BinaryOpType will not be used
+          BinaryOpType::Add) {}
+
+ScatterOp::ScatterOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* self,
+    int64_t dim,
+    Val* index,
+    Val* src,
+    bool accumulate,
+    BinaryOpType bop)
     : Expr(passkey) {
   addInput(self);
   addInput(index);
   addInput(src);
   addOutput(out);
   addDataAttribute(dim);
-  addDataAttribute(type);
+  addDataAttribute(accumulate);
+  addDataAttribute(bop);
 }
 
 std::string ScatterOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " =" << getScatterOpType() << "(";
+  indent(ss, indent_size) << " = scatter(";
   ss << "in = " << in()->toString() << ", dim = " << dim()
-     << ", src = " << src()->toString() << ", idx = " << index()->toString()
-     << " )\n";
+     << ", src = " << src()->toString() << ", idx = " << index()->toString();
+  if (accumulate()) {
+    ss << ", accumulate = " << accumulateOp();
+  }
+  ss << " )\n";
   return ss.str();
 }
 
@@ -324,7 +347,29 @@ std::vector<PolymorphicValue> ScatterOp::evaluate(
   const auto& index = inputs.at(1).as<at::Tensor>();
   const auto& src = inputs.at(2).as<at::Tensor>();
   auto dimension = dim();
-  return {at::scatter(input, dimension, index, src)};
+  if (accumulate()) {
+    std::string accumulate_op_str;
+    switch (accumulateOp()) {
+      case BinaryOpType::Add:
+        accumulate_op_str = "sum";
+        break;
+      case BinaryOpType::Mul:
+        accumulate_op_str = "prod";
+        break;
+      case BinaryOpType::Max:
+        accumulate_op_str = "amax";
+        break;
+      case BinaryOpType::Min:
+        accumulate_op_str = "amin";
+        break;
+      default:
+        NVF_THROW("Unsupported accumulation op: ", accumulateOp());
+    }
+    return {
+        at::scatter_reduce(input, dimension, index, src, accumulate_op_str)};
+  } else {
+    return {at::scatter(input, dimension, index, src)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)

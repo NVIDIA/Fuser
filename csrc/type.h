@@ -650,8 +650,6 @@ enum class BinaryOpType {
   Complex
 };
 
-enum class ScatterOpType { Set };
-
 enum class RNGOpType {
   Uniform, // Uniform in [0, 1)
   UniformRange, // Uniform in [low, high]
@@ -1006,7 +1004,6 @@ NVF_API std::ostream& operator<<(std::ostream&, const DataType);
 std::ostream& operator<<(std::ostream&, const UnaryOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
 std::ostream& operator<<(std::ostream&, const TernaryOpType);
-std::ostream& operator<<(std::ostream&, const ScatterOpType);
 std::ostream& operator<<(std::ostream&, const RNGOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const ParallelType);
 NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
