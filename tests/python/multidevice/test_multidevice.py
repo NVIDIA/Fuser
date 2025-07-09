@@ -9,7 +9,7 @@ from torch.nn.attention import SDPBackend
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-from nvfuser.testing.utils import is_pre_ampere
+from python.utils import is_pre_ampere
 
 
 @pytest.mark.mpi

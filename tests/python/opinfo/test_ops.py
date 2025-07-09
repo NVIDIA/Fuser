@@ -17,7 +17,7 @@ from opinfo_utils import (
     is_tensor,
     requiresJAX,
 )
-from nvfuser.testing.utils import (
+from python.utils import (
     check_captured_python_definition,
     check_cpp_translation,
     debug_serde,
