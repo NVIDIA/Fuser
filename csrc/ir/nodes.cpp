@@ -6404,6 +6404,7 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   const auto& problem_sizes = inputs[5].as<at::Tensor>();
   const auto& expert_offsets = inputs[6].as<at::Tensor>();
   const auto& sf_offsets = inputs[7].as<at::Tensor>();
+  NVF_CHECK(mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 && mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);
 
   // Validate problem_sizes tensor
   NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be a 2D tensor");
@@ -6421,7 +6422,8 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   // Calculate proper stride tensors for the cutlass kernel
   // ab_strides: stride information for input matrices A and B
   // c_strides: stride information for output matrix C
-  int k = mat1.size(1);
+  // Note: mat1 is packed fp4x2.
+  int k = mat1.size(1) * 2;
   int n = mat2.size(2);
   auto ab_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
   auto c_strides = at::empty({num_experts}, options.dtype(at::ScalarType::Long));
