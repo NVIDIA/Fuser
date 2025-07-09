@@ -1326,4 +1326,69 @@ void validate1dTmaLoad(Fusion* fusion) {
   }
 }
 
+void validateInplaceScatter(Fusion* fusion) {
+  for (auto sop : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
+    auto in_tv = sop->in()->as<TensorView>();
+    auto out_tv = sop->out()->as<TensorView>();
+
+    // Scatter is implemented as an in-place op. To lower it safely, it
+    // needs to be able to alias each other. Here are the conditions to
+    // make sure they are valid input and output tensors.
+
+    NVF_ERROR_EQ(
+        in_tv->uses().size(),
+        1,
+        "Scatter input can only be used by the scatter op: ",
+        toDelimitedString(in_tv->uses()));
+
+    NVF_ERROR_EQ(in_tv->getMemoryType(), out_tv->getMemoryType());
+    NVF_ERROR_EQ(in_tv->getDeviceMesh(), out_tv->getDeviceMesh());
+
+    // Assumes both input and output have set allocation domains
+    NVF_ERROR(
+        in_tv->hasAllocation(), "Scatter input must have an allocation domain");
+    NVF_ERROR(
+        out_tv->hasAllocation(),
+        "Scatter output must have an allocation domain");
+
+    auto is_exact_mapped = [](const std::vector<IterDomain*>& ids1,
+                              const std::vector<IterDomain*>& ids2) -> bool {
+      const auto& exact_graph =
+          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
+      if (ids1.size() != ids2.size()) {
+        return false;
+      }
+
+      for (const auto i : arange(ids1.size())) {
+        if (!exact_graph.disjointValSets().strictAreMapped(ids1[i], ids2[i])) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    NVF_ERROR(
+        is_exact_mapped(
+            in_tv->getAllocationDomain(), out_tv->getAllocationDomain()),
+        "Scatter input and output must have equivalent allocation domains");
+
+    // Fusion input as scatter input is not yet supported
+    NVF_ERROR(
+        !in_tv->isFusionInput(),
+        "Scatter with fusion input not supported: ",
+        in_tv->toString());
+
+    // If the scatter output is a fusion output, aliasing to a fusion
+    // input is not yet supported
+    if (out_tv->isFusionOutput()) {
+      NVF_ERROR(
+          fusion->getOutputAlias(out_tv).aliased_io == nullptr,
+          "Scatter output to an aliasing fusion output is not supported: ",
+          out_tv->toString());
+    }
+  }
+}
+
 } // namespace nvfuser

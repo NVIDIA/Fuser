@@ -176,7 +176,6 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-// torch.scatter torch.scatter_add
 TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,

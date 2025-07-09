@@ -81,7 +81,6 @@
 #include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
-#include <nvfuser_resources/scatter.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tensor_memory.h>
 #include <nvfuser_resources/topk.h>
@@ -139,7 +138,6 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::fused_welford_impl_cu;
   ss << nvfuser_resources::block_welford_outer_cu;
   ss << nvfuser_resources::fused_welford_impl_outer_cu;
-  ss << nvfuser_resources::scatter_cu;
 
   return ss.str();
 }

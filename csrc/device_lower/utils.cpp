@@ -2157,6 +2157,44 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
+bool hasSameTransformations(const TensorDomain* td1, const TensorDomain* td2) {
+  const auto& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+
+  auto is_same = [&exact_graph](
+                     const std::vector<IterDomain*>& ids1,
+                     const std::vector<IterDomain*>& ids2) -> bool {
+    if (ids1.size() != ids2.size()) {
+      return false;
+    }
+
+    for (const auto i : arange(ids1.size())) {
+      if (!exact_graph.disjointValSets().strictAreMapped(ids1[i], ids2[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  if (!(is_same(td1->root(), td2->root()) &&
+        is_same(td1->logical(), td2->logical()) &&
+        is_same(td1->loop(), td2->loop()) &&
+        is_same(td1->allocation(), td2->allocation()))) {
+    return false;
+  }
+
+  if (td1->alternateLoop().has_value() != td2->alternateLoop().has_value()) {
+    return false;
+  }
+
+  if (td1->alternateLoop().has_value()) {
+    return is_same(td1->alternateLoop().value(), td2->alternateLoop().value());
+  } else {
+    return true;
+  }
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser

@@ -32,7 +32,7 @@ TensorView* indexPutAccumulate(
 // torch.gather
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
-// torch.scatter
+// TODO: Revisit the interface design. ScatterOpType could be just BinaryOpType
 TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
@@ -40,6 +40,16 @@ TensorView* scatterOp(
     TensorView* index,
     TensorView* src);
 
+// Provides torch.scatter. It is semantically ouf-of-place, i.e., the
+// returned tensor, out_tv, is defined as follows:
+//
+// out_tv = self
+// for (auto i: enumerate(index.size()) {
+//   out_tv[index[i]] = src[i]
+// }
+//
+// Internally, though, it may be implemented as an in-place op
+// whenever possible.
 NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
