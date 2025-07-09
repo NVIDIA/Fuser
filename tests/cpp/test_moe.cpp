@@ -14,6 +14,7 @@
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
+#include <scheduler/tools/scatter_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -94,17 +95,20 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
   KernelArgumentHolder outputs;
 
   if (manual_scheduling) {
+    auto tv4_cache = tv4->cacheBefore();
+    scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
+        tv4_cache->definition()->as<ScatterOp>());
+
     // Scheduling all tensors as 1D tensors
     for (auto tv : fusion.allTvs()) {
       tv->flatten();
       tv->axis(0)->parallelize(ParallelType::TIDx);
     }
 
-    // tv2 will be an alias of the scatter output, which is a fusion
-    // output, so the memory type needs to be Global. We could cache
-    // the scatter output in shared memory, in which case tv2 should
-    // be shared memory as well.
-    tv2->setMemoryType(MemoryType::Global);
+    tv2->setMemoryType(MemoryType::Shared);
+    tv2->setAllocationDomain(tv2->getLogicalDomain(), true);
+    tv4_cache->setMemoryType(MemoryType::Shared);
+    tv4_cache->setAllocationDomain(tv4_cache->getLogicalDomain(), true);
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});
@@ -229,17 +233,21 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
   KernelArgumentHolder outputs;
 
   if (manual_scheduling) {
+    auto tv6_cache = tv6->cacheBefore();
+
+    scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
+        tv6_cache->definition()->as<ScatterOp>());
+
     // Scheduling all tensors as 1D tensors
     for (auto tv : fusion.allTvs()) {
       tv->flatten();
       tv->axis(0)->parallelize(ParallelType::TIDx);
     }
 
-    // tv4 will be an alias of the scatter output, which is a fusion
-    // output, so the memory type needs to be Global. We could cache
-    // the scatter output in shared memory, in which case tv4 should
-    // be shared memory as well.
-    tv4->setMemoryType(MemoryType::Global);
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+    tv6_cache->setMemoryType(MemoryType::Shared);
+    tv6_cache->setAllocationDomain(tv6_cache->getLogicalDomain(), true);
 
     KernelExecutor ke;
     ke.compile(&fusion, {t0});

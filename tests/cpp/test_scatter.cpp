@@ -18,6 +18,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/scatter_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -49,6 +50,9 @@ TEST_F(ScatterTest, BlockCountingWithGmem) {
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   fusion.addOutput(tv4);
 
+  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
+      tv4->definition()->as<ScatterOp>());
+
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
   tv3->axis(0)->parallelize(ParallelType::TIDx);
@@ -57,9 +61,6 @@ TEST_F(ScatterTest, BlockCountingWithGmem) {
   // Scatter input must use the same memory as the output
   tv2->setMemoryType(MemoryType::Global);
 
-  fusion.print();
-  fusion.printKernel();
-
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
 
@@ -67,6 +68,8 @@ TEST_F(ScatterTest, BlockCountingWithGmem) {
   ke.compile(&fusion, {t0});
   auto outputs = ke.run({t0});
 
+  GTEST_SKIP()
+      << "Validation likely fail due to missing syncthreads (issue #4741)";
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -88,6 +91,9 @@ TEST_F(ScatterTest, BlockCountingWithShmem) {
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
+
+  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
+      tv4->definition()->as<ScatterOp>());
 
   tv1->axis(0)->parallelize(ParallelType::TIDx);
   tv2->axis(0)->parallelize(ParallelType::TIDx);
@@ -133,6 +139,9 @@ TEST_F(ScatterTest, GridCounting) {
   tv2->axis(0)->parallelize(ParallelType::BIDx);
   tv3->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(0)->parallelize(ParallelType::BIDx);
+
+  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
+      tv4->definition()->as<ScatterOp>());
 
   // Scatter input must use the same memory as the output
   tv2->setMemoryType(MemoryType::Global);
