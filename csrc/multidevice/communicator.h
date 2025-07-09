@@ -57,7 +57,7 @@ class Communicator {
   void cleanup();
 
   // returns if distributed config is available
-  auto is_available() const {
+  bool is_available() const {
     return is_available_;
   }
 
