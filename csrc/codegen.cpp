@@ -3584,7 +3584,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (alloc->alias() != nullptr) {
       // Allocate alias another Allocate stmt
       const auto alias_tv = alloc->alias()->buffer()->as<TensorView>();
-
       if (alias_tv->getDataType() == tv->getDataType()) {
         indent() << "// Alias Allocation - " << alloc->memoryType() << "\n";
         indent() << "auto& " << genVariableName(tv) << " = "

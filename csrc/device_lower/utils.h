@@ -392,7 +392,5 @@ bool isCopyOnly(Expr* expr);
 // on it.
 bool isCopyOnly(Val* val);
 
-bool hasSameTransformations(const TensorDomain* tv1, const TensorDomain* tv2);
-
 } // namespace lower_utils
 } // namespace nvfuser

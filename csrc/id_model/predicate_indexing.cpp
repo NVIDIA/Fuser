@@ -25,6 +25,8 @@ std::vector<IterDomain*> getPredicateDomains(
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
+  // Scatter is executed over the index tensor, so the logical domain
+  // of the index needs to be predicated
   if (expr->isA<ScatterOp>()) {
     auto index_input = expr->as<ScatterOp>()->index();
     if (index_input->isA<kir::TensorIndex>()) {

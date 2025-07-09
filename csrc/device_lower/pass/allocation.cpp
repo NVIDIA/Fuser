@@ -1110,10 +1110,8 @@ class AllocationInserter : public kir::ExprMutator {
     return init_expr;
   }
 
-  kir::Allocate* createAllocExpr(AllocationInformation& info, bool is_output) {
-    // if (is_output) {
-    // return nullptr;
-    // }
+  kir::Allocate* createAllocExpr(AllocationInformation& info) {
+    // Note that Allocate nodes are created for fusion outputs too
 
     TensorView* tv_to_alloc = info.buffer;
     const MemoryType memory_type = tv_to_alloc->getMemoryType();
@@ -1281,19 +1279,11 @@ class AllocationInserter : public kir::ExprMutator {
         init = nullptr;
       }
 
-      const bool is_output = out->isFusionOutput();
-
-      // Don't need to alloc outputs, and if we don't need to initialize we're
-      // done.
-      if (is_output && init == nullptr) {
-        // continue;
-      }
-
       AllocationInformation allocation;
       allocation.buffer = out_tv;
       fillAllocationInformation(allocation, expr);
 
-      auto alloc_expr = createAllocExpr(allocation, is_output);
+      auto alloc_expr = createAllocExpr(allocation);
       auto init_expr = createInitExpr(allocation, init);
 
       // Check that all circular buffer depth match
