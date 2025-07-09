@@ -26,14 +26,16 @@ std::unordered_set<IterDomain*> getReshapedIds(
       p_reshaped_ids; // Reshaped producer logical IDs
 
   TensorView* consumer = view_op->out();
-  std::vector<IterDomain*> c_root_domain = consumer->getMaybeRootDomain();
+  const std::vector<IterDomain*>& c_root_domain =
+      consumer->getMaybeRootDomain();
 
   for (auto id : consumer->getLogicalDomain()) {
-    if (id->isRFactorProduct() && id->definition() &&
-        !id->definition()->isA<Resize>()) {
-      auto root_ids = getInputsInTargetDomain(id, c_root_domain);
-      for (auto root_id : root_ids) {
-        p_reshaped_ids.insert(c2p.at(root_id));
+    if (Expr* def = id->definition()) {
+      if (!def->isA<Resize>()) {
+        auto root_ids = getInputsInTargetDomain(id, c_root_domain);
+        for (auto root_id : root_ids) {
+          p_reshaped_ids.insert(c2p.at(root_id));
+        }
       }
     }
   }
