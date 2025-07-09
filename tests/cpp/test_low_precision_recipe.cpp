@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <tests/cpp/utils.h>
@@ -166,6 +167,10 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       &fusion);
 
   fusion.print();
+
+  for (auto* out : ir_utils::filterByType<TensorView>(fusion.outputs())) {
+    EXPECT_TRUE(isSharded(out));
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
