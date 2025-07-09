@@ -6433,8 +6433,8 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   // Call the cutlass kernel
   cutlass_kernels::nvfp4_scaled_grouped_mm(
       result,
-      mat1.view(at::ScalarType::kByte),
-      mat2.transpose(-1, -2).view(at::ScalarType::kByte).transpose(-1, -2),
+      mat1.view(at::ScalarType::Byte),
+      mat2.transpose(-1, -2).view(at::ScalarType::Byte).transpose(-1, -2),
       scale1,
       scale2,
       alpha,

@@ -286,6 +286,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // Note that we are only mapping input matrices to output
   if (CutlassNvfp4GroupedMmaOp* op =
           dynamic_cast<CutlassNvfp4GroupedMmaOp*>(consumer_tv_->definition())) {
+    int64_t ndims_out = std::ssize(consumer_root);
     // [rk] is the reduction axis for the matmul operation, it only exists if k
     // is not broadcast.
     bool has_rk = consumer_root.back()->isReduction();
