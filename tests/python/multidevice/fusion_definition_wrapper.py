@@ -68,7 +68,6 @@ class FusionDefinitionWrapper:
                         self.sched.parallelize(
                             in_tensor, dim, nvfuser.ParallelType.mesh_x
                         )
-                        self.sched.set_allocation_as_loop(in_tensor)
 
         return Model()
 
