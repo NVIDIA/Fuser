@@ -3521,8 +3521,8 @@ struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
     if (!RecordFunctor::operator==(other)) {
       return false;
     }
-    auto other = static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
-    return (dtype_ == other_scaled_mma.dtype_);
+    auto other_cutlass_nvfp4_grouped_mma = static_cast<const CutlassNvfp4GroupedMmaOpRecord&>(other);
+    return (dtype_ == other_cutlass_nvfp4_grouped_mma.dtype_);
   }
 
   RecordFunctor* clone() final {
@@ -3541,7 +3541,7 @@ struct CutlassNvfp4GroupedMmaOpRecord : RecordFunctor {
 
     auto result = cutlass_nvfp4_grouped_mm(
         mat1, mat2, scale1, scale2, alpha, problem_sizes, expert_offsets, sf_offsets, dtype_);
-    fd.bind(outputs_[0].index, result);
+    fd.setFusionState(outputs().at(0).index, output_mat);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
