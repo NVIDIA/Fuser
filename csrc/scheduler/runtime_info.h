@@ -91,10 +91,10 @@ class SchedulerRuntimeInfo : public NonCopyable {
   }
 
   // Computes alignment size in bits for provided ptr address
-  static size_t computeAlignmentSizeBit(size_t ptr_address);
+  static size_t computeAlignmentSizeBit(size_t ptr_address_in_bytes);
 
-  // Return the runtime pointer value for provided tensor view
-  size_t ptrBitOf(TensorView* tv) const;
+  // Return the runtime pointer value (in bytes) for provided tensor view
+  size_t ptrOf(TensorView* tv) const;
 
   PrimDataType getIndexType() const {
     return index_type_;
@@ -147,7 +147,7 @@ class SchedulerRuntimeInfo : public NonCopyable {
 
   // Copy of aten input tensor strides (in bytes) for only discontiguous
   // dimensions
-  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
+  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_bytes_;
 
   // Cache for getAlignmentSize
   std::unordered_map<TensorView*, size_t> alignment_map_bit_;
