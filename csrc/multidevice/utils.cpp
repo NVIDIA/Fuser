@@ -121,22 +121,35 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
-  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
+  // The allocation domain for multidevice tensorviews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+
+  const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
+      ? tv->getMaybeAllocationDomain()
+      : tv->getLoopDomain();
+  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(domain);
+  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+  if (parallel_id == nullptr) {
     return -1;
   }
 
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = alloc_id;
+  IterDomain* id = parallel_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        alloc_id);
+        id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -173,6 +186,8 @@ int64_t getShardedLogicalAxis(
           split);
       id = split->in();
     } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // During propagation, we follow the outermost of the merge to shard
+      // across reshape. We follow that here, but it may not always be accurate.
       // For example,
       //
       //   t = makeContigTensor(2);
@@ -181,10 +196,7 @@ int64_t getShardedLogicalAxis(
       //
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
-      NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and "
-          "therefore bailed out: ",
-          merge);
+      id = merge->outer();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
@@ -192,7 +204,6 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-
   return logical_id_to_axis.at(id);
 }
 
