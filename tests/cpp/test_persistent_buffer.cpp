@@ -1601,7 +1601,7 @@ TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
       &fusion, runtime_info, persistent_buffer_info);
   EXPECT_EQ(
       persistent_buffer_size_bit.persistent_buffer_size_bit,
-      dim1 * dataTypeSizeByte(DataType::Bool));
+      dim1 * dataTypeSizeBit(DataType::Bool));
 
   // Check the compute position of the bool tensor, tv2, is at the top of the
   // kernel.
