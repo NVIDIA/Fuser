@@ -836,9 +836,8 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
     logical_dom = TensorDomain::orderedAs(logical_dom, logical_reorder_map);
   }
   while (!logical_dom.empty()) {
-    mappers.push_back(
-        ContiguousInnerDimensionsMapper::map(ref, logical_dom)
-            .getTvToContigMergeOfInnerSizeMap());
+    mappers.push_back(ContiguousInnerDimensionsMapper::map(ref, logical_dom)
+                          .getTvToContigMergeOfInnerSizeMap());
     logical_dom.erase(logical_dom.begin());
   }
   return mappers;
