@@ -208,6 +208,13 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
 
   fusion.addOutput(tv_scaled_block_scales_fp8);
   fusion.addOutput(tv_data_lp);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)).to(data_type_to_aten(data_hp_dtype)));
+  inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs = fec.runFusionWithInputs(inputs);
 }
 
 INSTANTIATE_TEST_SUITE_P(
