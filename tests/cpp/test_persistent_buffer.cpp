@@ -880,11 +880,11 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
     auto rparams = cg_results.heuristic_params->as<ReductionParams>();
 
     // Threshold to project to inputs
-    int64_t buffer_threshold = scheduler_utils::isHighBandwidthFlopsRatio()
-        ? 24 * 1024 * 4
-        : 6 * 1024 * 4;
+    int64_t buffer_threshold_bit = scheduler_utils::isHighBandwidthFlopsRatio()
+        ? 24 * 1024 * 4 * 8
+        : 6 * 1024 * 4 * 8;
     bool should_project_to_input =
-        feature * dataTypeSizeBit(DataType::Float) > buffer_threshold;
+        feature * dataTypeSizeBit(DataType::Float) > buffer_threshold_bit;
     NVF_CHECK(
         rparams->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
