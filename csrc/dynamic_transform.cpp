@@ -1368,7 +1368,7 @@ void DynamicTransformConcretizer::mutate(IterDomain* id) {
   // Check whether the extent was mutated to zero. If so, ensure that the
   // IterType is set to Iteration
   auto* mut_id = maybeMutated(id)->as<IterDomain>();
-  if (mut_id->extent()->isZeroInt()) {
+  if (mut_id->isSymbolic() && mut_id->extent()->isZeroInt()) {
     IterDomain* new_mut_id =
         IterDomainBuilder(mut_id).iter_type(IterType::Iteration).build();
     registerConcretization(id, new_mut_id);
