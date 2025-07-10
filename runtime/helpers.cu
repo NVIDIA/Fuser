@@ -114,6 +114,14 @@ __device__ __bfloat fmax(__bfloat a, __bfloat b) {
   return __bfloat2float(a) > __bfloat2float(b) ? a : b;
 }
 
+__device__ __half abs(__half a) {
+  return __float2half(abs(__half2float(a)));
+}
+
+__device__ __bfloat abs(__bfloat a) {
+  return __bfloat2float(abs(__bfloat2float(a)));
+}
+
 __device__ constexpr int min(int a, int b) {
   return a > b ? b : a;
 }
