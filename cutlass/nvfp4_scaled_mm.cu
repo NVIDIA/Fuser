@@ -276,21 +276,38 @@ inline int64_t roundUp(int64_t x, int64_t y) {
   return (x + y - 1) / y * y;
 }
 
-} // namespace
-
-torch::Tensor nvfp4_scaled_mm(
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha,
-    at::ScalarType out_dtype) {
+// Validates all input parameters and tensor properties for NVFP4 scaled matrix
+// multiplication
+//
+// This function performs comprehensive validation of input tensors including:
+// - CUDA device and contiguity checks
+// - Data type validation for all inputs
+// - Matrix dimension and shape compatibility
+// - Alignment requirements for optimal performance
+// - Scale matrix shape validation
+//
+// Parameters:
+//   a, b: Input matrices to validate
+//   scales_a, scales_b: Scale matrices to validate
+//   alpha: Alpha scaling factor to validate
+//
+// Returns: Tuple of (m, n, k) dimensions for the GEMM operation
+//
+// Throws: NVF_CHECK exceptions for any validation failures
+std::tuple<int64_t, int64_t, int64_t> validateInputs(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha) {
+  // Check CUDA device and contiguity for all input tensors
   for (const torch::Tensor& t : {a, b, scales_a, scales_b, alpha}) {
     NVF_CHECK(
         t.is_cuda() && t.is_contiguous(),
         "Input argument must be a CUDA tensor and contiguous.")
   }
 
+  // Validate data types
   NVF_CHECK(
       a.scalar_type() == at::ScalarType::Float4_e2m1fn_x2,
       "Expected Float4_e2m1fn_x2 for Operand A.")
@@ -307,6 +324,7 @@ torch::Tensor nvfp4_scaled_mm(
       alpha.scalar_type() == at::ScalarType::Float,
       "Expected FP32 for alpha scalar.")
 
+  // Validate matrix dimensions
   NVF_CHECK(a.dim() == 2, "Operand A must be a matrix.");
   NVF_CHECK(b.dim() == 2, "Operand B must be a matrix.");
   NVF_CHECK(
@@ -325,6 +343,7 @@ torch::Tensor nvfp4_scaled_mm(
   const int64_t n = b.sizes()[0];
   const int64_t k = a.sizes()[1] * 2;
 
+  // Check alignment requirements
   constexpr int64_t alignment = 32;
   NVF_CHECK(
       k % alignment == 0,
@@ -339,12 +358,12 @@ torch::Tensor nvfp4_scaled_mm(
       "is not divisible by ",
       alignment)
 
-  // Since k is divisible by 32 (alignment), k / 16 is guaranteed to be an
-  // integer.
+  // Calculate rounded dimensions for scale matrix validation
   int64_t rounded_m = roundUp(m, 128);
   int64_t rounded_n = roundUp(n, 128);
   int64_t rounded_k = roundUp(k / 16, 4);
 
+  // Validate scale matrix properties
   NVF_CHECK(scales_a.dim() == 2, "Blockscale scale_a must be a matrix.");
   NVF_CHECK(scales_b.dim() == 2, "Blockscale scale_b must be a matrix.");
   NVF_CHECK(
@@ -373,6 +392,21 @@ torch::Tensor nvfp4_scaled_mm(
       ",",
       scales_b.sizes()[1],
       ")");
+
+  return {m, n, k};
+}
+
+} // namespace
+
+torch::Tensor nvfp4_scaled_mm(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    const at::ScalarType out_dtype) {
+  // Validate all inputs and get matrix dimensions
+  auto [m, n, k] = validateInputs(a, b, scales_a, scales_b, alpha);
 
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
