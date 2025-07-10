@@ -94,16 +94,16 @@ llvm::Type* getType(PtrType type, llvm::LLVMContext& ctx) {
   return nullptr;
 }
 
+// NOTE: this is just a simple example of allocate a output tensor and set it to input tensor
+// The whole concept to to demonstrate llvm jit works, we will further support this op in the future
 void compileLoadStoreOp(
     LoadStoreOp* load_store_op,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
-    llvm::LLVMContext& ctx = builder.getContext();
-      
-    // bind input aten tensor sizes to val2llvmMap
-}
 
+    
+}
 
 void compileMainFuncInputs(
     const hir::HostIrContainer* container,
@@ -222,6 +222,15 @@ void compile(HostIrJitImpl* pimpl) {
   // bind the constants
   compileMainFuncInputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
   
+
+  // compile all top level expressions in host ir container
+  for(auto* expr : pimpl->container->expressions()) {
+    if(expr->isA<LoadStoreOp>()) {
+      compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
+    }
+  }
+
+
   // Collect output tensors and garbage collect intermediate tensors
   compileMainFuncOutputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
 
