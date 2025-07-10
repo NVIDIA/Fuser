@@ -774,6 +774,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(IterDomain* id) final;
+
   void mutate(Expr* expr) final;
 
   //! Concretizes the root domain of a symbolic consumer tensor from
@@ -1168,7 +1170,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   for (auto root_id : tv->getMaybeRootDomain()) {
     // This will register root_id for mutation if its extent, start, or
     // stop_offset is registered for mutation
-    OptOutMutator::mutate(root_id);
+    mutate(root_id);
   }
 
   // First, try to concretize the root domain as there may be symbolic
@@ -1359,6 +1361,19 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(), root_dom, logical_dom, alloc_dom, loop_domain, contig);
   registerConcretization(td, mutated_val);
+}
+
+void DynamicTransformConcretizer::mutate(IterDomain* id) {
+  OptOutMutator::mutate(id);
+  // Check whether the extent was mutated to zero. If so, ensure that the
+  // IterType is set to Iteration
+  auto* mut_id = maybeMutated(id)->as<IterDomain>();
+  if (mut_id->extent()->isZeroInt()) {
+    IterDomain* new_mut_id =
+        IterDomainBuilder(mut_id).iter_type(IterType::Iteration).build();
+    registerConcretization(id, new_mut_id);
+    registerConcretization(mut_id, new_mut_id);
+  }
 }
 
 //! Returns whether a reduction has any trivial partial reductions. Modifies
