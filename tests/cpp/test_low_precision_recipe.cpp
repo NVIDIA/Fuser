@@ -214,10 +214,6 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,
     ::testing::Values(DataType::BFloat16, DataType::Float),
-    [](auto info) {
-      std::stringstream ss;
-      ss << info.param;
-      return ss.str();
-    });
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
