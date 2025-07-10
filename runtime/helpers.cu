@@ -115,11 +115,11 @@ __device__ __bfloat fmax(__bfloat a, __bfloat b) {
 }
 
 __device__ __half abs(__half a) {
-  return __float2half(abs(__half2float(a)));
+  return __float2half(fabs(__half2float(a)));
 }
 
 __device__ __bfloat abs(__bfloat a) {
-  return __float2bfloat(abs(__bfloat2float(a)));
+  return __float2bfloat(fabs(__bfloat2float(a)));
 }
 
 __device__ constexpr int min(int a, int b) {
