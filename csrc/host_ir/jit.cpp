@@ -74,19 +74,19 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
-enum class DataType {  
+enum class JitDataType {  
   void_ptr,
   void_array_ptr,
   int64_t
 };
 
-llvm::Type* getType(PtrType type, llvm::LLVMContext& ctx) {
+llvm::Type* getType(JitDataType type, llvm::LLVMContext& ctx) {
   switch(type) {
-    case PtrType::void_ptr:
+    case JitDataType::void_ptr:
       return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
-    case PtrType::void_array_ptr:
+    case JitDataType::void_array_ptr:
       return llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
-    case DataType::int64_t:
+    case JitDataType::int64_t:
       return llvm::Type::getInt64Ty(ctx);
     default:
       NVF_ERROR("Invalid pointer type");
@@ -110,11 +110,18 @@ void compileLoadStoreOp(
   auto* out_tv = load_store_op->out()->as<TensorView>();
   auto it = tv2atenMap.find(in_tv);
   NVF_ERROR(it != tv2atenMap.end(), "input tensor is not found in tv2atenMap");
+  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Value* in_tensor_ptr = it->second;
+
   // allocate a new tensor
-  llvm::Value* out_tensor_ptr = builder.CreateCall(allocate_tensor_func_ptr, {}, "out_tensor_raw");
+  llvm::Function* allocate_tensor_func = mod->getFunction("allocate_tensor");
+  llvm::Value* out_tensor_ptr = builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
+
   // set the output tensor to the input tensor
-  builder.CreateCall(set_tensor_func_ptr, {out_tensor_ptr, in_tensor_ptr}, "out_tensor_set");
+  llvm::Function* set_tensor_func = mod->getFunction("set_tensor");
+  builder.CreateCall(set_tensor_func, {out_tensor_ptr, in_tensor_ptr}, "out_tensor_set");
+
+  // bind the output tensor to tv2atenMap
   tv2atenMap[out_tv] = out_tensor_ptr;
 }
 
@@ -129,7 +136,7 @@ void compileMainFuncInputs(
     llvm::Function* func = builder.GetInsertBlock()->getParent();
     llvm::Value* aten_tensor_array_ptr = func->getArg(0);
     
-    llvm::Type* aten_tensor_array_type = getPtrType(PtrType::void_array_ptr, ctx);
+    llvm::Type* aten_tensor_array_type = getType(JitDataType::void_array_ptr, ctx);
   // bind input aten tensor sizes to val2llvmMap
   for(size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
@@ -168,7 +175,7 @@ void compileMainFuncOutputs(
     int num_outputs = container->outputs().size();
     llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& ctx = builder.getContext();
-    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(getPtrType(PtrType::void_ptr, ctx), num_outputs);
+    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(getType(JitDataType::void_ptr, ctx), num_outputs);
 
     llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
         *mod, 
@@ -188,7 +195,7 @@ void compileMainFuncOutputs(
         builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
       }
     }
-    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, getPtrType(PtrType::void_array_ptr, ctx));
+    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, getType(JitDataType::void_array_ptr, ctx));
     builder.CreateRet(result);
 
     const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
@@ -205,9 +212,9 @@ void compileFunctionDeclarations(
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
 
   // get the types
-  auto* void_ptr_type = getType(DataType::void_ptr, ctx);
-  auto* void_array_ptr_type = getType(DataType::void_array_ptr, ctx);
-  auto* int64_t_type = getType(DataType::int64_t, ctx);
+  auto* void_ptr_type = getType(JitDataType::void_ptr, ctx);
+  auto* void_array_ptr_type = getType(JitDataType::void_array_ptr, ctx);
+  auto* int64_t_type = getType(JitDataType::int64_t, ctx);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(int64_t_type, {void_ptr_type, int64_t_type}, false);
@@ -277,24 +284,12 @@ llvm::Value* generateTensorSizeExtraction(
     llvm::IRBuilder<>& builder) {
   llvm::LLVMContext& context = builder.getContext();
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
+
   // Look up the tensor_size wrapper function
   llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
 
-  // TODO: move all declartions to the top of the file, beginning of the module
-  if (!tensor_size_func) {
-    // Create function declaration
-    llvm::FunctionType* func_type = llvm::FunctionType::get(
-      llvm::Type::getInt64Ty(context),
-      {getPtrType(PtrType::void_ptr, context), llvm::Type::getInt64Ty(context)},
-      false
-    );
-    tensor_size_func = llvm::Function::Create(
-      func_type, llvm::Function::ExternalLinkage, "tensor_size", mod
-    );
-  }
-  
   llvm::Value* dim_val = builder.getInt64(dim);
-  return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
+  return builder.CreateCall(mod->getFunction("tensor_size"), {tensor_ptr, dim_val});
 }
 
 
@@ -338,19 +333,21 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   // in place tensor update
   void* set_tensor_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, at::Tensor* other_tensor_ptr) -> void {
-        *tensor_ptr.copy_(*other_tensor_ptr, /*non_blocking=*/true);
+        tensor_ptr->copy_(*other_tensor_ptr, /*non_blocking=*/true);
       });
 
   // Register wrapper functions in JIT
   auto extract_tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
+  auto allocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(allocate_tensor_func_ptr);
+  auto set_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(set_tensor_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler("tensor_size")] = 
       llvm::orc::ExecutorSymbolDef(extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("allocate_tensor")] = 
-      llvm::orc::ExecutorSymbolDef(allocate_tensor_func_ptr, llvm::JITSymbolFlags::Exported);
+      llvm::orc::ExecutorSymbolDef(allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("set_tensor")] = 
-      llvm::orc::ExecutorSymbolDef(set_tensor_func_ptr, llvm::JITSymbolFlags::Exported);
+      llvm::orc::ExecutorSymbolDef(set_tensor_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
