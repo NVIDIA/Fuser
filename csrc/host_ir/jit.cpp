@@ -95,14 +95,27 @@ llvm::Type* getType(PtrType type, llvm::LLVMContext& ctx) {
 }
 
 // NOTE: this is just a simple example of allocate a output tensor and set it to input tensor
-// The whole concept to to demonstrate llvm jit works, we will further support this op in the future
+// The whole concept to to demonstrate llvm jit works, we will change this in the future
 void compileLoadStoreOp(
     LoadStoreOp* load_store_op,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
-
-    
+  NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set ||
+      load_store_op->opType() == LoadStoreOpType::SegmenterSet);
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  auto* in_tv = load_store_op->in()->as<TensorView>();
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  auto it = tv2atenMap.find(in_tv);
+  NVF_ERROR(it != tv2atenMap.end(), "input tensor is not found in tv2atenMap");
+  llvm::Value* in_tensor_ptr = it->second;
+  // allocate a new tensor
+  llvm::Value* out_tensor_ptr = builder.CreateCall(allocate_tensor_func_ptr, {}, "out_tensor_raw");
+  // set the output tensor to the input tensor
+  builder.CreateCall(set_tensor_func_ptr, {out_tensor_ptr, in_tensor_ptr}, "out_tensor_set");
+  tv2atenMap[out_tv] = out_tensor_ptr;
 }
 
 void compileMainFuncInputs(
@@ -191,12 +204,20 @@ void compileFunctionDeclarations(
   llvm::LLVMContext& ctx = builder.getContext();
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
 
+  // get the types
+  auto* void_ptr_type = getType(DataType::void_ptr, ctx);
+  auto* void_array_ptr_type = getType(DataType::void_array_ptr, ctx);
+  auto* int64_t_type = getType(DataType::int64_t, ctx);
+
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
-  llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(getType(DataType::int64_t, ctx), {getType(DataType::void_ptr, ctx), getType(DataType::int64_t, ctx)}, false);
+  llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(int64_t_type, {void_ptr_type, int64_t_type}, false);
   llvm::Function::Create(tensor_size_type, llvm::Function::ExternalLinkage, "tensor_size", mod);
 
+  llvm::FunctionType* allocate_tensor_type = llvm::FunctionType::get(void_ptr_type, {}, false);
+  llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, "allocate_tensor", mod.get());
+
   // main function: at::Tensor** main(at::Tensor** input_tensors)
-  llvm::FunctionType* main_type = llvm::FunctionType::get(getType(DataType::void_array_ptr, ctx), {getType(DataType::void_array_ptr, ctx)}, false);
+  llvm::FunctionType* main_type = llvm::FunctionType::get(void_array_ptr_type, {void_array_ptr_type}, false);
   llvm::Function::Create(main_type, llvm::Function::ExternalLinkage, "main", mod);
 
 }
@@ -222,7 +243,6 @@ void compile(HostIrJitImpl* pimpl) {
   // bind the constants
   compileMainFuncInputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
   
-
   // compile all top level expressions in host ir container
   for(auto* expr : pimpl->container->expressions()) {
     if(expr->isA<LoadStoreOp>()) {
@@ -230,10 +250,8 @@ void compile(HostIrJitImpl* pimpl) {
     }
   }
 
-
   // Collect output tensors and garbage collect intermediate tensors
   compileMainFuncOutputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
-
 
   // verify the module
   std::string error;
@@ -310,12 +328,29 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
         }
         return tensor_ptr->size(dim);
       });
+
+  // raw tensor allocation, we only allocate a wrapper here
+  void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
+      +[]() -> at::Tensor* {
+        return new at::Tensor();
+      });
+
+  // in place tensor update
+  void* set_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor_ptr, at::Tensor* other_tensor_ptr) -> void {
+        *tensor_ptr.copy_(*other_tensor_ptr, /*non_blocking=*/true);
+      });
+
   // Register wrapper functions in JIT
   auto extract_tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler("tensor_size")] = 
       llvm::orc::ExecutorSymbolDef(extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("allocate_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(allocate_tensor_func_ptr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("set_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(set_tensor_func_ptr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
