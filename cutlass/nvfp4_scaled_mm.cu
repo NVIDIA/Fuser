@@ -255,13 +255,13 @@ void runGemm(
 constexpr auto FLOAT4_E2M1X2 = at::ScalarType::Float4_e2m1fn_x2;
 constexpr auto SF_DTYPE = at::ScalarType::Float8_e4m3fn;
 
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
+torch::Tensor nvfp4_scaled_mm(
     torch::Tensor const& a,
     torch::Tensor const& b,
     torch::Tensor const& scales_a,
     torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
+    torch::Tensor const& alpha,
+    at::ScalarType out_dtype) {
   CHECK_INPUT(a, FLOAT4_E2M1X2, "a");
   CHECK_INPUT(b, FLOAT4_E2M1X2, "b");
 
@@ -283,6 +283,10 @@ void nvfp4_scaled_mm(
       "x",
       b.sizes()[1],
       ")");
+
+  auto options =
+      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
+  torch::Tensor output = at::empty({a.sizes()[0], b.sizes()[0]}, options);
 
   auto const m = a.sizes()[0];
   auto const n = b.sizes()[0];
@@ -353,7 +357,6 @@ void nvfp4_scaled_mm(
       scales_b.sizes()[1],
       ")");
 
-  auto out_dtype = output.dtype();
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
 
@@ -368,6 +371,7 @@ void nvfp4_scaled_mm(
   } else {
     NVF_CHECK(false, "Unsupported output data type of nvfp4 mm");
   }
+  return output;
 }
 
 } // namespace nvfuser::cutlass_kernels

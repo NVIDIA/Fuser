@@ -16,7 +16,7 @@ namespace {
 
 void bindGemm(py::module_& cutlass) {
   const char* nvfp4_gemm_docstring =
-      R"(nvfp4_scaled_mm(Tensor output, Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha))";
+      R"(nvfp4_scaled_mm(Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha, DataType out_dtype) -> Tensor output)";
   cutlass.def(
       "nvfp4_scaled_mm",
       &cutlass_kernels::nvfp4_scaled_mm,

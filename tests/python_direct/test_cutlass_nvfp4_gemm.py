@@ -5,7 +5,7 @@
 
 import pytest
 import torch
-from nvfuser_direct import cutlass_nvfp4_scaled_mm
+from nvfuser_direct import nvf_cutlass
 
 if torch.cuda.get_device_capability() < (10, 0):
     pytest.skip(
@@ -198,7 +198,7 @@ def test_nvfp4_gemm(
         block_size,
         "cuda",
     )
-    out = cutlass_nvfp4_scaled_mm(
+    out = nvf_cutlass.nvfp4_scaled_mm(
         a_fp4, b_fp4, a_scale_interleaved, b_scale_interleaved, alpha, dtype
     )
 

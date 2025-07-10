@@ -11,12 +11,12 @@
 
 namespace nvfuser::cutlass_kernels {
 
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
+torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& alpha);
+    const torch::Tensor& alpha,
+    at::ScalarType out_dtype);
 
 } // namespace nvfuser::cutlass_kernels
