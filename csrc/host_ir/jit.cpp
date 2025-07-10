@@ -61,6 +61,7 @@ struct HostIrJitImpl {
   public:
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unique_ptr<hir::HostIrContainer> container;
+  main_func_t main_func;
   HostIrJitImpl() = default;
   ~HostIrJitImpl() = default;
 };
@@ -98,7 +99,7 @@ void compileMainFuncInputs(
   builder.SetInsertPoint(entry);
   llvm::Value* aten_tensor_array_ptr = func->getArg(0);
   // bind input aten tensor sizes to val2llvmMap
-  for(auto i : arange(container->inputs().size())) {
+  for(size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
     if(TensorView* tv = dynamic_cast<TensorView*>(input)) {
       llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(0), builder.getInt64(i)});
@@ -147,7 +148,7 @@ void compileMainFuncOutputs(
         "output_array"
     );
 
-    for(auto i : arange(container->outputs().size())) {
+    for(size_t i = 0; i < container->outputs().size(); ++i) {
       auto* output = container->outputs()[i];
       if(TensorView* tv = dynamic_cast<TensorView*>(output)) {
         llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, 
@@ -182,7 +183,6 @@ void compile(HostIrJitImpl* pimpl) {
   
   // Define common types
   llvm::Type* void_type = llvm::Type::getVoidTy(*ctx);
-  llvm::Type* int64_type = llvm::Type::getInt64Ty(*ctx);
   llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*ctx));
   
   // allocate_tensor function: at::Tensor* allocate_tensor()
@@ -210,7 +210,8 @@ void compile(HostIrJitImpl* pimpl) {
  
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup("main"));
-  pimpl->main_func = reinterpret_cast<main_func_t>(main_func_addr.getValue());
+  using main_func_ptr_t = at::Tensor**(*)(at::Tensor**);
+  pimpl->main_func = reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
 }
 
 // Helper function to generate LLVM IR that extracts tensor size for a given dimension
