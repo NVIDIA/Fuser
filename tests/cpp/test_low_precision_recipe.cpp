@@ -159,13 +159,13 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
-  fusion.addInput(tv_data_hp);
-  fusion.addInput(tv_per_tensor_scale);
+  fusion->addInput(tv_data_hp);
+  fusion->addInput(tv_per_tensor_scale);
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -206,8 +206,8 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
-  fusion.addOutput(tv_scaled_block_scales_fp8);
-  fusion.addOutput(tv_data_lp);
+  fusion->addOutput(tv_scaled_block_scales_fp8);
+  fusion->addOutput(tv_data_lp);
 
   FusionExecutorCache fec(std::move(fusion));
 
