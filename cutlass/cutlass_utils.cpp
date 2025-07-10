@@ -5,18 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cuda_utils.h>
 #include <cutlass_utils.h>
 
 namespace nvfuser::cutlass_kernels {
 
 int getSMVersion() {
   int device{-1};
-  CHECK_CUDA_SUCCESS(cudaGetDevice(&device));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
   int sm_major = 0;
   int sm_minor = 0;
-  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
       &sm_major, cudaDevAttrComputeCapabilityMajor, device));
-  CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
       &sm_minor, cudaDevAttrComputeCapabilityMinor, device));
   return sm_major * 10 + sm_minor;
 }
@@ -27,10 +28,10 @@ int getMultiProcessorCount() {
     int count = 0;
 
     // Get the current CUDA device ID
-    CHECK_CUDA_SUCCESS(cudaGetDevice(&device_id));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device_id));
 
     // Get the number of multiprocessors for the current device
-    CHECK_CUDA_SUCCESS(cudaDeviceGetAttribute(
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaDeviceGetAttribute(
         &count, cudaDevAttrMultiProcessorCount, device_id));
 
     return count; // Initialize the static variable
