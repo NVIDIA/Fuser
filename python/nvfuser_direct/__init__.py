@@ -23,8 +23,6 @@ if pytorch_lib_dir not in sys.path:
 from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
 
-import torch
-
 
 def execute_with_dtensors(fd, in_dtensors):
     """

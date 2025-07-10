@@ -137,7 +137,7 @@ def pytorch_nvfp4_quantize(a, a_global_scale):
     BLOCK_SIZE = 16
     assert (
         a.size(-1) % BLOCK_SIZE == 0
-    ), "inner-most dim must be divisible by block_size"
+    ), "The inner-most dim must be divisible by block_size; Padding is not implemented."
     assert a.is_contiguous(), "Only contiguous tensors are supported."
 
     original_shape = a.shape
