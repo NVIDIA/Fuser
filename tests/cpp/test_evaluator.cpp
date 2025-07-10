@@ -825,4 +825,44 @@ TEST_F(ExprEvalTest, NamedScalar) {
   EXPECT_EQ(cache_id_pvalue.as<int64_t>(), kCacheIdValue);
 }
 
+// TODO: extend to other TernaryOps
+TEST_F(ExprEvalTest, TernaryOpsWhere) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2, DataType::Bool);
+  auto tv1 = makeContigTensor(2);
+  auto tv2 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  // tensor, tensor, tensor
+  auto tv3 = where(tv0, tv1, tv2);
+  // tensor, tensor, scalar
+  auto tv4 = where(tv0, tv1, IrBuilder::create<Val>(1.0));
+  // tensor, scalar, tensor
+  auto tv5 = where(tv0, IrBuilder::create<Val>(1.0), tv2);
+  // tensor, scalar, scalar
+  auto tv6 =
+      where(tv0, IrBuilder::create<Val>(2.0), IrBuilder::create<Val>(1.0));
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 2}, options) > 0.5;
+  auto t1 = at::randn({3, 2}, options);
+  auto t2 = at::randn({3, 2}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+  evaluator.bind(tv2, t2);
+
+  at::Tensor out1 = evaluator.evaluate(tv3).as<at::Tensor>();
+  at::Tensor out2 = evaluator.evaluate(tv4).as<at::Tensor>();
+  at::Tensor out3 = evaluator.evaluate(tv5).as<at::Tensor>();
+  at::Tensor out4 = evaluator.evaluate(tv6).as<at::Tensor>();
+}
 } // namespace nvfuser

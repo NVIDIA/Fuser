@@ -632,7 +632,32 @@ BinaryOp::BinaryOp(
   addInput(rhs);
   addDataAttribute(type);
 }
+namespace {
+// Helper function to call torch::where with appropriate overload
+at::Tensor evalWithTorchWhere(
+    const at::Tensor& condition,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  using namespace PolymorphicValue_functions;
+  // Check if b and c are tensors or scalars
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
 
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return torch::where(condition, b.as<at::Tensor>(), c.as<at::Tensor>());
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return torch::where(condition, b.as<at::Tensor>(), toScalar(c));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return torch::where(condition, toScalar(b), c.as<at::Tensor>());
+  } else {
+    // Both are scalars
+    return torch::where(condition, toScalar(b), toScalar(c));
+  }
+}
+} // namespace
 std::vector<PolymorphicValue> BinaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
@@ -829,9 +854,13 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
     case TernaryOpType::Threshold:
       return {(a <= b) ? c : a};
       break;
-    case TernaryOpType::Where:
-      return {a.as<bool>() ? b : c};
+    case TernaryOpType::Where: {
+      if (!a.is<at::Tensor>()) {
+        return {a.as<bool>() ? b : c};
+      }
+      return {evalWithTorchWhere(a.as<at::Tensor>(), b, c)};
       break;
+    }
     default:
       NVF_CHECK(
           false,
