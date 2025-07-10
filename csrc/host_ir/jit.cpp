@@ -221,7 +221,7 @@ void compileFunctionDeclarations(
   llvm::Function::Create(tensor_size_type, llvm::Function::ExternalLinkage, "tensor_size", mod);
 
   llvm::FunctionType* allocate_tensor_type = llvm::FunctionType::get(void_ptr_type, {}, false);
-  llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, "allocate_tensor", mod.get());
+  llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, "allocate_tensor", mod);
 
   // main function: at::Tensor** main(at::Tensor** input_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(void_array_ptr_type, {void_array_ptr_type}, false);
@@ -251,7 +251,7 @@ void compile(HostIrJitImpl* pimpl) {
   compileMainFuncInputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
   
   // compile all top level expressions in host ir container
-  for(auto* expr : pimpl->container->expressions()) {
+  for(auto* expr : pimpl->container->topLevelExprs()) {
     if(expr->isA<LoadStoreOp>()) {
       compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
     }
@@ -282,14 +282,13 @@ llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
     llvm::IRBuilder<>& builder) {
-  llvm::LLVMContext& context = builder.getContext();
-  auto mod = builder.GetInsertBlock()->getParent()->getParent();
+  auto* mod = builder.GetInsertBlock()->getParent()->getParent();
 
   // Look up the tensor_size wrapper function
   llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
-
   llvm::Value* dim_val = builder.getInt64(dim);
-  return builder.CreateCall(mod->getFunction("tensor_size"), {tensor_ptr, dim_val});
+
+  return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
 }
 
 
