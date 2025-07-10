@@ -32,14 +32,6 @@ using namespace cute;
 template <typename T>
 struct KernelTraits;
 
-// Kernel traits for FP32 output
-template <>
-struct KernelTraits<float> {
-  using MmaTileShape = Shape<_128, _128, _256>;
-  using ClusterShape = Shape<_1, _1, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _128, _256>;
-};
-
 // Kernel traits for FP16 output
 template <>
 struct KernelTraits<cutlass::half_t> {
@@ -279,6 +271,11 @@ void runGemm(
 }
 #endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
+// Helper function to round up to the nearest multiple of y
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return (x + y - 1) / y * y;
+}
+
 } // namespace
 
 torch::Tensor nvfp4_scaled_mm(
@@ -324,56 +321,36 @@ torch::Tensor nvfp4_scaled_mm(
       b.sizes()[1],
       ")");
 
-  auto options =
-      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
-  torch::Tensor output = at::empty({a.sizes()[0], b.sizes()[0]}, options);
+  const int64_t m = a.sizes()[0];
+  const int64_t n = b.sizes()[0];
+  const int64_t k = a.sizes()[1] * 2;
 
-  auto const m = a.sizes()[0];
-  auto const n = b.sizes()[0];
-  auto const k = a.sizes()[1] * 2;
-
-  constexpr int alignment = 32;
+  constexpr int64_t alignment = 32;
   NVF_CHECK(
       k % alignment == 0,
-      "Expected K dimension to be divisible by ",
-      alignment,
-      ", but got A shape: (",
-      a.sizes()[0],
-      ",",
-      a.sizes()[1],
-      "), K: ",
+      "The K dimension",
       k,
-      ".");
+      "is not divisible by ",
+      alignment)
   NVF_CHECK(
       n % alignment == 0,
-      "Expected N dimension to be divisible by ",
-      alignment,
-      ", but got B shape: (",
-      b.sizes()[0],
-      "@",
-      b.sizes()[1],
-      ").");
+      "The N dimension",
+      n,
+      "is not divisible by ",
+      alignment)
 
-  auto round_up = [](int x, int y) { return (x + y - 1) / y * y; };
-  int rounded_m = round_up(m, 128);
-  int rounded_n = round_up(n, 128);
   // Since k is divisible by 32 (alignment), k / 16 is guaranteed to be an
   // integer.
-  int rounded_k = round_up(k / 16, 4);
+  int64_t rounded_m = roundUp(m, 128);
+  int64_t rounded_n = roundUp(n, 128);
+  int64_t rounded_k = roundUp(k / 16, 4);
 
   NVF_CHECK(scales_a.dim() == 2, "Blockscale scale_a must be a matrix.");
   NVF_CHECK(scales_b.dim() == 2, "Blockscale scale_b must be a matrix.");
   NVF_CHECK(
       scales_a.sizes()[1] == scales_b.sizes()[1],
-      "scale_a and scale_b shapes cannot be multiplied (",
-      scales_a.sizes()[0],
-      ",",
-      scales_a.sizes()[1],
-      " and ",
-      scales_b.sizes()[0],
-      ",",
-      scales_b.sizes()[1],
-      ")");
+      "scale_a and scale_b shapes cannot be multiplied because the inner-most "
+      "dimensions are not equal.")
   NVF_CHECK(
       scales_a.sizes()[0] == rounded_m && scales_a.sizes()[1] == rounded_k,
       "scale_a must be padded and swizzled to a shape (",
@@ -400,14 +377,16 @@ torch::Tensor nvfp4_scaled_mm(
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
 
+  auto options =
+      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
+  torch::Tensor output = at::empty({a.sizes()[0], b.sizes()[0]}, options);
+
   if (out_dtype == at::ScalarType::Half) {
     runGemm<cutlass::half_t>(
         output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else if (out_dtype == at::ScalarType::BFloat16) {
     runGemm<cutlass::bfloat16_t>(
         output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
-  } else if (out_dtype == at::ScalarType::Float) {
-    runGemm<float>(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else {
     NVF_THROW("Unsupported output data type of nvfp4 scaled_mm.");
   }
