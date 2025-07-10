@@ -19,6 +19,9 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindOperations(nvfuser);
   bindMultiDevice(nvfuser);
   nvfuser.def("translate_fusion", &translateFusion);
+#ifdef NVFUSER_ENABLE_CUTLASS
+  bindCutlass(nvfuser);
+#endif
 
   auto cleanup = []() -> void { Communicator::getInstance().cleanup(); };
   nvfuser.add_object("_cleanup", py::capsule(cleanup));
