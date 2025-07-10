@@ -262,13 +262,7 @@ TEST_F(ShardingTest, ResidualAdd) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  // getShardedLogicalAxis uses maybeAllocationDomain to get the sharded axis.
-  // Setting allocation domain here manually, which is otherwise done by
-  // FinalizeMultideviceDomainsPass, to isolate the test to a single preseg
-  // pass.
-  for (auto tv : fusion->allTvs()) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
+
   NVF_CHECK(tv1->hasDeviceMesh());
   int64_t expected_sharded_axis =
       getShardedLogicalAxis(tv0, ParallelType::DIDx);
@@ -302,9 +296,6 @@ TEST_F(ShardingTest, PropagateParallelTypeOnce) {
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  for (auto tv : fusion->allTvs()) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
   NVF_CHECK(numDeviceDims(tv2) == 1);
   int64_t expected_sharded_axis =
       getShardedLogicalAxis(tv0, ParallelType::DIDx);
@@ -346,10 +337,6 @@ TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
   // tv4 will be sharded similarly as tv2 during forward propagation since tv3
   // is parallelized on r{K} Due to backpropagation of shardings, tv3 should be
   // sharded on N since DIDx on r{K} is ignored.
-  for (auto tv : fusion->allTvs()) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
-
   int64_t expected_sharded_axis =
       getShardedLogicalAxis(tv2, ParallelType::DIDx);
   NVF_CHECK(expected_sharded_axis != -1, "tv2 should have a sharded axis.");
@@ -437,9 +424,6 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
 
-  for (auto tv : fusion->allTvs()) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDx), 0);
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
 }
