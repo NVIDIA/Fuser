@@ -10,7 +10,6 @@
 #include <fusion.h>
 #include <global_allocator.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
 #include <host_ir/jit.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
@@ -35,11 +34,13 @@ TEST_F(HostIrJitTest, TestHostIrJit) {
   hic->addOutput(hic_out);
 
   HostIrJit jit(std::move(hic));
-  
-  jit.runWithInputs({});
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  auto output_args = jit.runWithInput({{hic_in, t0}});
+  auto output = output_args[0].as<at::Tensor>();
 
-  EXPECT_EQ(hic_out->getSizes(), at::IntArrayRef({1}));
-  EXPECT_EQ(hic_out->getStrides(), at::IntArrayRef({1}));
+  EXPECT_EQ(output.sizes(), t0.sizes());
+  EXPECT_EQ(output.strides(), t0.strides());
 }
 
 } // namespace hir

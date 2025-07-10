@@ -197,9 +197,6 @@ HostIrEvaluator::HostIrEvaluator(
     Communicator* communicator,
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
-#ifdef NVFUSER_HOST_IR_JIT
-      jit_(std::make_unique<HostIrJit>(container_.get())),
-#endif
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),

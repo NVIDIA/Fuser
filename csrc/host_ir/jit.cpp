@@ -287,4 +287,90 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   compile(pimpl_.get());
 }
 
+KernelArgumentHolder HostIrJit::runWithInputs(
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("HostIrJit::runWithInputs");
+  // Bind cache id to llvm global variable or align with main function inputs
+  NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
+  NVF_ERROR_EQ(std::ssize(pimpl_->container_->inputs()), args.size());
+
+  std::vector<at::Tensor*> input_aten_tensors;
+  // Bind the inputs to the tensor map
+  for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), args)) {
+    if (arg.is<at::Tensor>()) {
+      input_aten_tensors.push_back(&arg.as<at::Tensor>());
+    }
+    else{
+      // TODO: handle other primitive types so we can just align them to input of main function
+    }
+  }
+
+  // Run the main function
+  at::Tensor** output_aten_tensors = pimpl_->main_func_(input_aten_tensors.data());
+
+  // Collect the outputs
+  KernelArgumentHolder outputs;
+  for(size_t i = 0; i < pimpl_->container_->outputs().size(); ++i) {
+    auto* output = pimpl_->container_->outputs()[i];
+    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+      outputs.push(at::Tensor(*output_aten_tensors[i]));
+    }
+  }
+  // free the output_aten_tensors
+  delete[] output_aten_tensors;
+  return outputs;
+}
+
+KernelArgumentHolder HostIrJit::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  FUSER_PERF_SCOPE("HostIrJit::runWithInput");
+  // Bind the inputs to the tensor map
+  std::vector<at::Tensor*> input_aten_tensors;
+  for (auto&& [in_val, arg] : val_to_PValue) {
+    if (arg.is<at::Tensor>()) {
+      input_aten_tensors.push_back(&arg.as<at::Tensor>());
+    }
+    else{
+      // TODO: handle other primitive types so we can just align them to input of main function
+    }
+  }
+
+  // Run the main function
+  at::Tensor** output_aten_tensors = pimpl_->main_func_(input_aten_tensors.data());
+
+  // Collect the outputs
+  KernelArgumentHolder outputs;
+  for(size_t i = 0; i < pimpl_->container_->outputs().size(); ++i) {
+    auto* output = pimpl_->container_->outputs()[i];
+    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+      outputs.push(at::Tensor(*output_aten_tensors[i]));
+    }
+  }
+  // free the output_aten_tensors
+  delete[] output_aten_tensors;
+  return outputs;
+}
+
+const std::vector<Val*>& HostIrJit::inputs() const {
+  return pimpl_->container_->inputs();
+}
+
+const std::vector<Val*>& HostIrJit::outputs() const {
+  return pimpl_->container_->outputs();
+}
+
+auto* HostIrJit::container() const {
+  return pimpl_->container_.get();
+}
+
+const hir::HostIrContainer& HostIrJit::getHostIrContainer() const {
+  return *pimpl_->container_;
+}
+
+std::ostream& HostIrJit::print(std::ostream& os) const {
+  return pimpl_->container_->print(os);
+}
+
+
+
 } // namespace nvfuser
