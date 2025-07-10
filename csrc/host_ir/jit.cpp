@@ -42,19 +42,12 @@
 
 namespace nvfuser {
 
-using main_func_t = std::function<at::Tensor**(at::Tensor**)>;
+using main_func_t = std::function<at::Tensor**(const at::Tensor**)>;
 
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
     llvm::IRBuilder<>& builder);
-llvm::Value* generateTensorStrideExtraction(
-    llvm::Value* tensor_ptr,
-    int64_t dim,
-    llvm::IRBuilder<>& builder);
-
-
-
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -81,23 +74,35 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
+enum class PtrType {  
+  void_ptr,
+  void_array_ptr
+};
+
+llvm::Type* getPtrType(PtrType type, llvm::LLVMContext& ctx) {
+  switch(type) {
+    case PtrType::void_ptr:
+      return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
+    case PtrType::void_array_ptr:
+      return llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
+    default:
+      NVF_ERROR("Invalid pointer type");
+  }
+  return nullptr;
+}
+
 void compileMainFuncInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
     llvm::LLVMContext& ctx = builder.getContext();
-    llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
-
-  
-  llvm::Type* aten_tensor_array_type = llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
-  llvm::FunctionType* func_type = llvm::FunctionType::get(aten_tensor_array_type, aten_tensor_array_type, false);
-  llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", mod);
-
-  // Create entry block and set insertion point
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(ctx, "entry", func);
-  builder.SetInsertPoint(entry);
-  llvm::Value* aten_tensor_array_ptr = func->getArg(0);
+    
+    // Get the current function (main) and its first argument
+    llvm::Function* func = builder.GetInsertBlock()->getParent();
+    llvm::Value* aten_tensor_array_ptr = func->getArg(0);
+    
+    llvm::Type* aten_tensor_array_type = getPtrType(PtrType::void_array_ptr, ctx);
   // bind input aten tensor sizes to val2llvmMap
   for(size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
@@ -124,7 +129,7 @@ void compileMainFuncInputs(
   const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
   if (debug_print) {
     llvm::outs() << "=== LLVM IR Generation for Main Function Inputs ===\n";
-    mod->print(llvm::outs(), nullptr);
+    func->getParent()->print(llvm::outs(), nullptr);
   }
 }
 
@@ -136,8 +141,7 @@ void compileMainFuncOutputs(
     int num_outputs = container->outputs().size();
     llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& ctx = builder.getContext();
-    llvm::Type* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
-    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(void_ptr_type, num_outputs);
+    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(getPtrType(PtrType::void_ptr, ctx), num_outputs);
 
     llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
         *mod, 
@@ -157,7 +161,7 @@ void compileMainFuncOutputs(
         builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
       }
     }
-    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, llvm::PointerType::getUnqual(void_ptr_type));
+    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, getPtrType(PtrType::void_array_ptr, ctx));
     builder.CreateRet(result);
 
     const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
@@ -166,9 +170,6 @@ void compileMainFuncOutputs(
       mod->print(llvm::outs(), nullptr);
     }
 }
-
-
-
 
 void compile(HostIrJitImpl* pimpl) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
@@ -181,18 +182,15 @@ void compile(HostIrJitImpl* pimpl) {
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
   std::unordered_map<TensorView*, llvm::Value*> tv2atenMap;
   
-  // Define common types
-  llvm::Type* void_type = llvm::Type::getVoidTy(*ctx);
-  llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(*ctx));
+  // Create the main function signature
+  llvm::Type* aten_tensor_array_type = getPtrType(PtrType::void_array_ptr, *ctx);
+  llvm::FunctionType* func_type = llvm::FunctionType::get(aten_tensor_array_type, aten_tensor_array_type, false);
+  llvm::Function* main_func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", mod.get());
   
-  // allocate_tensor function: at::Tensor* allocate_tensor()
-  llvm::FunctionType* allocate_tensor_type = llvm::FunctionType::get(void_ptr_type, {}, false);
-  llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, "allocate_tensor", mod.get());
-  
-  // deallocate_tensor function: void deallocate_tensor(at::Tensor* tensor)
-  llvm::FunctionType* deallocate_tensor_type = llvm::FunctionType::get(void_type, {void_ptr_type}, false);
-  llvm::Function::Create(deallocate_tensor_type, llvm::Function::ExternalLinkage, "deallocate_tensor", mod.get());
-   
+  // Create entry block and set insertion point
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", main_func);
+  builder.SetInsertPoint(entry);
+     
   // bind the constants
   compileMainFuncInputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
   
@@ -210,7 +208,7 @@ void compile(HostIrJitImpl* pimpl) {
  
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup("main"));
-  using main_func_ptr_t = at::Tensor**(*)(at::Tensor**);
+  using main_func_ptr_t = at::Tensor**(*)(const at::Tensor**);
   pimpl->main_func = reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
 }
 
@@ -223,11 +221,13 @@ llvm::Value* generateTensorSizeExtraction(
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
   // Look up the tensor_size wrapper function
   llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
+
+  // TODO: move all declartions to the top of the file, beginning of the module
   if (!tensor_size_func) {
     // Create function declaration
     llvm::FunctionType* func_type = llvm::FunctionType::get(
       llvm::Type::getInt64Ty(context),
-      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), llvm::Type::getInt64Ty(context)},
+      {getPtrType(PtrType::void_ptr, context), llvm::Type::getInt64Ty(context)},
       false
     );
     tensor_size_func = llvm::Function::Create(
@@ -235,7 +235,7 @@ llvm::Value* generateTensorSizeExtraction(
     );
   }
   
-  llvm::Value* dim_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), dim);
+  llvm::Value* dim_val = builder.getInt64(dim);
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
 }
 
@@ -262,25 +262,20 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
-  // raw tensor allocation and deallocation
-  void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
-      +[]() -> at::Tensor* {
-        return new at::Tensor();
-      });
-
-  void* deallocate_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor) -> void {
-        delete tensor;
+  // tensor size and stride extraction functions
+  void* extract_tensor_size_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
+        if (tensor_ptr == nullptr) {
+          return 0;
+        }
+        return tensor_ptr->size(dim);
       });
   // Register wrapper functions in JIT
-  auto allocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(allocate_tensor_func_ptr);
-  auto deallocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(deallocate_tensor_func_ptr);
+  auto extract_tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler("allocate_tensor")] = 
-      llvm::orc::ExecutorSymbolDef(allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler("deallocate_tensor")] = 
-      llvm::orc::ExecutorSymbolDef(deallocate_tensor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("tensor_size")] = 
+      llvm::orc::ExecutorSymbolDef(extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
@@ -292,11 +287,11 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   FUSER_PERF_SCOPE("HostIrJit::runWithInputs");
   // Bind cache id to llvm global variable or align with main function inputs
   NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
-  NVF_ERROR_EQ(std::ssize(pimpl_->container_->inputs()), args.size());
+  NVF_ERROR_EQ(std::ssize(pimpl_->container->inputs()), args.size());
 
-  std::vector<at::Tensor*> input_aten_tensors;
+  std::vector<const at::Tensor*> input_aten_tensors;
   // Bind the inputs to the tensor map
-  for (auto&& [in_val, arg] : zip(pimpl_->container_->inputs(), args)) {
+  for (auto&& [in_val, arg] : zip(pimpl_->container->inputs(), args)) {
     if (arg.is<at::Tensor>()) {
       input_aten_tensors.push_back(&arg.as<at::Tensor>());
     }
@@ -306,13 +301,13 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors = pimpl_->main_func_(input_aten_tensors.data());
+  at::Tensor** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for(size_t i = 0; i < pimpl_->container_->outputs().size(); ++i) {
-    auto* output = pimpl_->container_->outputs()[i];
-    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+  for(size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
+    auto* output = pimpl_->container->outputs()[i];
+    if(output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
     }
   }
@@ -325,7 +320,7 @@ KernelArgumentHolder HostIrJit::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::runWithInput");
   // Bind the inputs to the tensor map
-  std::vector<at::Tensor*> input_aten_tensors;
+  std::vector<const at::Tensor*> input_aten_tensors;
   for (auto&& [in_val, arg] : val_to_PValue) {
     if (arg.is<at::Tensor>()) {
       input_aten_tensors.push_back(&arg.as<at::Tensor>());
@@ -336,13 +331,13 @@ KernelArgumentHolder HostIrJit::runWithInput(
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors = pimpl_->main_func_(input_aten_tensors.data());
+  at::Tensor** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for(size_t i = 0; i < pimpl_->container_->outputs().size(); ++i) {
-    auto* output = pimpl_->container_->outputs()[i];
-    if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+  for(size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
+    auto* output = pimpl_->container->outputs()[i];
+    if(output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
     }
   }
@@ -352,23 +347,23 @@ KernelArgumentHolder HostIrJit::runWithInput(
 }
 
 const std::vector<Val*>& HostIrJit::inputs() const {
-  return pimpl_->container_->inputs();
+  return pimpl_->container->inputs();
 }
 
 const std::vector<Val*>& HostIrJit::outputs() const {
-  return pimpl_->container_->outputs();
+  return pimpl_->container->outputs();
 }
 
 auto* HostIrJit::container() const {
-  return pimpl_->container_.get();
+  return pimpl_->container.get();
 }
 
 const hir::HostIrContainer& HostIrJit::getHostIrContainer() const {
-  return *pimpl_->container_;
+  return *pimpl_->container;
 }
 
 std::ostream& HostIrJit::print(std::ostream& os) const {
-  return pimpl_->container_->print(os);
+  return pimpl_->container->print(os);
 }
 
 
