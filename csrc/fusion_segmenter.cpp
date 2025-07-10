@@ -4372,7 +4372,7 @@ void SegmentCandidateFinder::privatizeUpcast() {
       }
 
       auto precisions =
-          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+          ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
       if (!precisions.has_value() || precisions->first >= precisions->second) {
         continue;
       }
