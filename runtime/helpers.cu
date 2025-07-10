@@ -119,7 +119,7 @@ __device__ __half abs(__half a) {
 }
 
 __device__ __bfloat abs(__bfloat a) {
-  return __bfloat2float(abs(__bfloat2float(a)));
+  return __float2bfloat(abs(__bfloat2float(a)));
 }
 
 __device__ constexpr int min(int a, int b) {
