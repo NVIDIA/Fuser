@@ -239,6 +239,11 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API std::vector<std::pair<double, double>> getValTolerances(
       const KernelArgumentHolder& inputs);
 
+  // Validate the fusion outputs against auto inferred outputs.
+  NVF_API void validate_with_auto_inferred_outputs(
+      const KernelArgumentHolder& fusion_outputs,
+      const KernelArgumentHolder& inputs);
+
   //! Return the unscheduled Fusion IR
   NVF_API std::string fusionIr();
   //! Return the user scheduled FusionIR;

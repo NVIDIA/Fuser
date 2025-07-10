@@ -880,11 +880,11 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
     auto rparams = cg_results.heuristic_params->as<ReductionParams>();
 
     // Threshold to project to inputs
-    int64_t buffer_threshold = scheduler_utils::isHighBandwidthFlopsRatio()
-        ? 24 * 1024 * 4
-        : 6 * 1024 * 4;
+    int64_t buffer_threshold_bit = scheduler_utils::isHighBandwidthFlopsRatio()
+        ? 24 * 1024 * 4 * 8
+        : 6 * 1024 * 4 * 8;
     bool should_project_to_input =
-        feature * dataTypeSizeBit(DataType::Float) > buffer_threshold;
+        feature * dataTypeSizeBit(DataType::Float) > buffer_threshold_bit;
     NVF_CHECK(
         rparams->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
@@ -1285,9 +1285,8 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
                      .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
   SchedulerRuntimeInfo runtime_info(fusion.get(), {t0});
-  ASSERT_TRUE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion.get(), runtime_info));
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1692,9 +1691,8 @@ TEST_F(PersistentBufferTest, BroadcastSync1) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1749,9 +1747,8 @@ TEST_F(PersistentBufferTest, BroadcastSync2) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  EXPECT_FALSE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  EXPECT_FALSE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
 }
 
 // Make sure isCacheableUnmappableTv does not falsely claim not
@@ -1786,9 +1783,8 @@ TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
   // This fusion has only one unmappable tensor. If it's falsely
   // detected as non cacheable, it will not be scheduled as a
   // persistent kernel.
-  ASSERT_TRUE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1827,9 +1823,8 @@ TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputs) {
   auto t0 = at::randn({64}, options);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
@@ -1896,9 +1891,8 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   auto t0 = at::randn({64}, options).unsqueeze(-1);
   auto t1 = at::randn({64, 16}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
-  ASSERT_TRUE(
-      Schedule::canSchedule(
-          SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =

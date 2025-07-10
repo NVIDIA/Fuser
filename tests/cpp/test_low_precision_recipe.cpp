@@ -117,9 +117,6 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
-  // Unfortunately reshape uses outer-split, but I wanted inner split.
-  // So here I just use an arbitrary shape to create a ViewOp. I will manually
-  // modify the rFactor domain later, so the shape is here not important.
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
 
@@ -145,7 +142,7 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       tv_data_scaled,
       IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
       IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-  // Arbitrarily choose 5, 7, and 16 to generate a merge for reshape
+
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
@@ -170,9 +167,6 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   fusion.addInput(tv_data_hp);
   fusion.addInput(tv_per_tensor_scale);
 
-  // Unfortunately reshape uses outer-split, but I wanted inner split.
-  // So here I just use an arbitrary shape to create a ViewOp. I will manually
-  // modify the rFactor domain later, so the shape is here not important.
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
 
@@ -208,7 +202,7 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
       tv_data_scaled,
       IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
       IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
-  // Arbitrarily choose 5, 7, and 16 to generate a merge for reshape
+
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
@@ -220,10 +214,6 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,
     ::testing::Values(DataType::BFloat16, DataType::Float),
-    [](auto info) {
-      std::stringstream ss;
-      ss << info.param;
-      return ss.str();
-    });
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser

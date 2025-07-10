@@ -636,12 +636,11 @@ class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
     check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
     if (to->hasRoot()) {
       // propagate untracked property through root->logical transforms
-      for (Expr* e : std::ranges::views::reverse(
-               StmtSort::getExprsBetween(
-                   {to->getMaybeRootDomain().begin(),
-                    to->getMaybeRootDomain().end()},
-                   {to->getLogicalDomain().begin(),
-                    to->getLogicalDomain().end()}))) {
+      for (Expr* e : std::ranges::views::reverse(StmtSort::getExprsBetween(
+               {to->getMaybeRootDomain().begin(),
+                to->getMaybeRootDomain().end()},
+               {to->getLogicalDomain().begin(),
+                to->getLogicalDomain().end()}))) {
         bool has_unscheduled_output = std::any_of(
             e->outputs().begin(), e->outputs().end(), [&](Val* out_val) {
               auto* id = dynamic_cast<IterDomain*>(out_val);

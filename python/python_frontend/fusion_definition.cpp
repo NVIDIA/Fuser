@@ -736,6 +736,12 @@ std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
   return get_val_constants(preschedFusion(), args);
 }
 
+void FusionDefinition::validate_with_auto_inferred_outputs(
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& args) {
+  return testValidate(preschedFusion(), fusion_outputs, args);
+}
+
 int64_t FusionDefinition::setupSegmentation(const KernelArgumentHolder& args) {
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
