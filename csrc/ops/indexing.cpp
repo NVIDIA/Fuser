@@ -179,12 +179,12 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-TensorView* scatterOp(
-    ScatterOpType type,
+TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src) {
+    TensorView* src,
+    std::optional<BinaryOpType> accumulate_op) {
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
   auto src_dom = TensorDomain::noReductions(src->getLogicalDomain());
@@ -214,16 +214,21 @@ TensorView* scatterOp(
           TensorDomain::getContiguityFilledWith(out_logical, true)),
       self->getDataType().value());
 
-  IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
-  return out_tensor->as<TensorView>();
-}
+  if (accumulate_op.has_value()) {
+    NVF_ERROR(
+        accumulate_op.value() == BinaryOpType::Add ||
+            accumulate_op.value() == BinaryOpType::Mul ||
+            accumulate_op.value() == BinaryOpType::Max ||
+            accumulate_op.value() == BinaryOpType::Min,
+        "Unsupported accumulation op: ",
+        accumulate_op.value());
+    IrBuilder::create<ScatterOp>(
+        out_tensor, self, dim, index, src, true, accumulate_op.value());
+  } else {
+    IrBuilder::create<ScatterOp>(out_tensor, self, dim, index, src);
+  }
 
-TensorView* scatter(
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    TensorView* src) {
-  return scatterOp(ScatterOpType::Set, self, dim, index, src);
+  return out_tensor->as<TensorView>();
 }
 
 TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
