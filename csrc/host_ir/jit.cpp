@@ -74,22 +74,36 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
-enum class PtrType {  
+enum class DataType {  
   void_ptr,
-  void_array_ptr
+  void_array_ptr,
+  int64_t
 };
 
-llvm::Type* getPtrType(PtrType type, llvm::LLVMContext& ctx) {
+llvm::Type* getType(PtrType type, llvm::LLVMContext& ctx) {
   switch(type) {
     case PtrType::void_ptr:
       return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
     case PtrType::void_array_ptr:
       return llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
+    case DataType::int64_t:
+      return llvm::Type::getInt64Ty(ctx);
     default:
       NVF_ERROR("Invalid pointer type");
   }
   return nullptr;
 }
+
+void compileLoadStoreOp(
+    LoadStoreOp* load_store_op,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
+    llvm::LLVMContext& ctx = builder.getContext();
+      
+    // bind input aten tensor sizes to val2llvmMap
+}
+
 
 void compileMainFuncInputs(
     const hir::HostIrContainer* container,
@@ -171,6 +185,22 @@ void compileMainFuncOutputs(
     }
 }
 
+
+void compileFunctionDeclarations(
+    llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& ctx = builder.getContext();
+  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
+
+  // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
+  llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(getType(DataType::int64_t, ctx), {getType(DataType::void_ptr, ctx), getType(DataType::int64_t, ctx)}, false);
+  llvm::Function::Create(tensor_size_type, llvm::Function::ExternalLinkage, "tensor_size", mod);
+
+  // main function: at::Tensor** main(at::Tensor** input_tensors)
+  llvm::FunctionType* main_type = llvm::FunctionType::get(getType(DataType::void_array_ptr, ctx), {getType(DataType::void_array_ptr, ctx)}, false);
+  llvm::Function::Create(main_type, llvm::Function::ExternalLinkage, "main", mod);
+
+}
+
 void compile(HostIrJitImpl* pimpl) {
   FUSER_PERF_SCOPE("HostIrJit::compile");
   NVF_ERROR(
@@ -181,14 +211,12 @@ void compile(HostIrJitImpl* pimpl) {
   llvm::IRBuilder<> builder(*ctx);
   std::unordered_map<Val*, llvm::Value*> val2llvmMap;
   std::unordered_map<TensorView*, llvm::Value*> tv2atenMap;
-  
-  // Create the main function signature
-  llvm::Type* aten_tensor_array_type = getPtrType(PtrType::void_array_ptr, *ctx);
-  llvm::FunctionType* func_type = llvm::FunctionType::get(aten_tensor_array_type, aten_tensor_array_type, false);
-  llvm::Function* main_func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", mod.get());
-  
+
+  // compile external functions and main function declarations
+  compileFunctionDeclarations(builder);
+
   // Create entry block and set insertion point
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", main_func);
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction("main"));
   builder.SetInsertPoint(entry);
      
   // bind the constants
@@ -196,6 +224,9 @@ void compile(HostIrJitImpl* pimpl) {
   
   // Collect output tensors and garbage collect intermediate tensors
   compileMainFuncOutputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
+
+
+  // verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(
