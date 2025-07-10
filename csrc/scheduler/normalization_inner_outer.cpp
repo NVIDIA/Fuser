@@ -222,7 +222,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   FUSER_PERF_SCOPE(
       "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
-      
+
   for (auto tv : fusion->allTvs()) {
     if (dataTypeSizeBit(tv->dtype()) % 8 != 0) {
       scheduler_debug_utils::canScheduleRejectReason(

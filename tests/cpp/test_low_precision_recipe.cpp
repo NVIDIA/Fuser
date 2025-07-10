@@ -152,7 +152,9 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)).to(data_type_to_aten(data_hp_dtype)));
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype)));
   auto outputs = fec.runFusionWithInputs(inputs);
 }
 
@@ -212,7 +214,9 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)).to(data_type_to_aten(data_hp_dtype)));
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype)));
   inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
   auto outputs = fec.runFusionWithInputs(inputs);
 }
