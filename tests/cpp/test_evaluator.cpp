@@ -865,4 +865,60 @@ TEST_F(ExprEvalTest, TernaryOpsWhere) {
   at::Tensor out3 = evaluator.evaluate(tv5).as<at::Tensor>();
   at::Tensor out4 = evaluator.evaluate(tv6).as<at::Tensor>();
 }
+
+TEST_F(ExprEvalTest, Pow) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Test all combinations of pow operations
+  // tensor, scalar (int64_t)
+  auto tv2 = pow(tv0, IrBuilder::create<Val>(2L));
+  // tensor, scalar (double)
+  auto tv3 = pow(tv0, IrBuilder::create<Val>(2.0));
+  // tensor, tensor
+  auto tv4 = pow(tv0, tv1);
+  // scalar, scalar (int64_t, int64_t)
+  auto tv5 = pow(IrBuilder::create<Val>(3L), IrBuilder::create<Val>(2L));
+  // scalar, scalar (double, double)
+  auto tv6 = pow(IrBuilder::create<Val>(3.0), IrBuilder::create<Val>(2.0));
+  // scalar, scalar (int64_t, double)
+  auto tv7 = pow(IrBuilder::create<Val>(3L), IrBuilder::create<Val>(2.0));
+  // scalar, scalar (double, int64_t)
+  auto tv8 = pow(IrBuilder::create<Val>(3.0), IrBuilder::create<Val>(2L));
+  // avoid non-tensor output which is not supported yet
+  auto tv9 = add(tv0, add(add(add(tv5, tv6), tv7), tv8));
+  fusion.addOutput(tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+  fusion.addOutput(tv9);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({3, 2}, options);
+  auto t1 = at::randn({3, 2}, options);
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+
+  // Evaluate all outputs
+  at::Tensor out1 = evaluator.evaluate(tv2).as<at::Tensor>();
+  at::Tensor out2 = evaluator.evaluate(tv3).as<at::Tensor>();
+  at::Tensor out3 = evaluator.evaluate(tv4).as<at::Tensor>();
+  at::Tensor out9 = evaluator.evaluate(tv9).as<at::Tensor>();
+  EXPECT_TRUE(at::allclose(out1, at::pow(t0, 2)));
+  EXPECT_TRUE(at::allclose(out2, at::pow(t0, 2.0)));
+  // Needs explicit equal_nan=true
+  EXPECT_TRUE(at::allclose(out3, at::pow(t0, t1), 1e-5, 1e-8, true));
+  EXPECT_TRUE(at::allclose(
+      out9,
+      t0.add(std::pow(3L, 2L))
+          .add(std::pow(3.0, 2.0))
+          .add(std::pow(3L, 2.0))
+          .add(std::pow(3.0, 2L))));
+}
 } // namespace nvfuser
