@@ -356,10 +356,8 @@ void IndexLowering::handle(const GatherOp* top) {
 }
 
 void IndexLowering::handle(const ScatterOp* sop) {
-  auto lowered_index = IrBuilder::create<kir::TensorIndex>(
-      sop->index()->as<TensorView>(), GpuLower::current()->kernel()->zeroVal());
-  auto lowered_src = IrBuilder::create<kir::TensorIndex>(
-      sop->src()->as<TensorView>(), GpuLower::current()->kernel()->zeroVal());
+  auto lowered_index = lowerSrcIndex(sop->index(), sop->out());
+  auto lowered_src = lowerSrcIndex(sop->src(), sop->out());
 
   const std::unordered_map<IterDomain*, Val*> override_index = {
       {sop->getIndexedID(), lowered_index}};
