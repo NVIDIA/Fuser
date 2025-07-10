@@ -54,7 +54,6 @@ TEST_F(ReshardingTest, SplitingView) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(2, d);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));
@@ -80,7 +79,6 @@ TEST_F(ReshardingTest, MergingView) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(2, d);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h / d, e}, at::Device(at::kCUDA));
