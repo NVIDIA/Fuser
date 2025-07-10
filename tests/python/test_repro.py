@@ -280,8 +280,8 @@ class TestRepro(NVFuserTest):
             T101 = fd.ops.broadcast_in_dim(
                 T94, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
             )
-            T102 = fd.ops.mul(T1, T1)
-            T103 = fd.ops.mul(T1, T102)
+            S102 = fd.define_scalar(3.00000, dtype=DataType.Double)
+            T103 = fd.ops.pow(T1, S102)
             S104 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T105 = fd.ops.mul(S104, T101)
             T106 = fd.ops.mul(T26, T92)
