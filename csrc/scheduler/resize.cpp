@@ -67,6 +67,14 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  for (auto tv : fusion->allTvs()) {
+    if (dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   if (!scheduler_tools::hasResizeBasedOps(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No resize op to schedule");

@@ -25,7 +25,15 @@
 
 namespace nvfuser {
 
-bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {
+bool MatmulScheduler::canScheduleCompileTime(Fusion* fusion) {  
+  for (auto tv : fusion->allTvs()) {
+    if (dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   const auto msg = matmul_utils::getMatmulCompileTimeRejectReason(fusion);
   if (!msg.empty()) {
     scheduler_debug_utils::canScheduleRejectReason(schedulerType(), msg);
