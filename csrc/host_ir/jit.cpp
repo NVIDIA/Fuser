@@ -44,6 +44,18 @@ namespace nvfuser {
 
 using main_func_t = std::function<at::Tensor**(at::Tensor**)>;
 
+llvm::Value* generateTensorSizeExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder);
+llvm::Value* generateTensorStrideExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder);
+
+
+
+
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
   public:
@@ -82,14 +94,14 @@ void compileMainFuncInputs(
   llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "main", mod);
 
   // Create entry block and set insertion point
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(ctx, "entry", func);
   builder.SetInsertPoint(entry);
   llvm::Value* aten_tensor_array_ptr = func->getArg(0);
   // bind input aten tensor sizes to val2llvmMap
-  for(auto* i : arange(container->inputs().size())) {
+  for(auto i : arange(container->inputs().size())) {
     auto* input = container->inputs()[i];
-    if(auto* tv = dynamic_cast<const TensorView*>(input)) {
-      llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_ptr, builder.getInt64(i));
+    if(TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(0), builder.getInt64(i)});
       aten_tensor_ptr->setName("input_aten_tensor_" + std::to_string(i));
       // bind input aten tensor sizes to val2llvmMap
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
@@ -120,12 +132,12 @@ void compileMainFuncOutputs(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
+    int num_outputs = container->outputs().size();
     llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& ctx = builder.getContext();
     llvm::Type* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
     llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(void_ptr_type, num_outputs);
-    
-    int num_outputs = container->outputs().size();
+
     llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
         *mod, 
         aten_tensor_array_type, 
@@ -135,9 +147,9 @@ void compileMainFuncOutputs(
         "output_array"
     );
 
-    for(auto* i : arange(container->outputs().size())) {
+    for(auto i : arange(container->outputs().size())) {
       auto* output = container->outputs()[i];
-      if(auto* tv = dynamic_cast<const TensorView*>(output)) {
+      if(TensorView* tv = dynamic_cast<TensorView*>(output)) {
         llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, 
         {builder.getInt64(0), builder.getInt64(i)});
         aten_tensor_ptr->setName("output_aten_tensor_" + std::to_string(i)); 
@@ -200,6 +212,33 @@ void compile(HostIrJitImpl* pimpl) {
   auto main_func_addr = throwIfError(pimpl->jit->lookup("main"));
   pimpl->main_func = reinterpret_cast<main_func_t>(main_func_addr.getValue());
 }
+
+// Helper function to generate LLVM IR that extracts tensor size for a given dimension
+llvm::Value* generateTensorSizeExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& context = builder.getContext();
+  auto mod = builder.GetInsertBlock()->getParent()->getParent();
+  // Look up the tensor_size wrapper function
+  llvm::Function* tensor_size_func = mod->getFunction("tensor_size");
+  if (!tensor_size_func) {
+    // Create function declaration
+    llvm::FunctionType* func_type = llvm::FunctionType::get(
+      llvm::Type::getInt64Ty(context),
+      {llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context)), llvm::Type::getInt64Ty(context)},
+      false
+    );
+    tensor_size_func = llvm::Function::Create(
+      func_type, llvm::Function::ExternalLinkage, "tensor_size", mod
+    );
+  }
+  
+  llvm::Value* dim_val = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), dim);
+  return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
+}
+
+
 
 // NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
 // find complete type of LlvmJitImpl
