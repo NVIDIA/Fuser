@@ -1326,10 +1326,18 @@ void validate1dTmaLoad(Fusion* fusion) {
   }
 }
 
-void validateInplaceScatter(Fusion* fusion) {
+void validateScatter(Fusion* fusion) {
   for (auto sop : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
     auto in_tv = sop->in()->as<TensorView>();
     auto out_tv = sop->out()->as<TensorView>();
+
+    // TensorIndexer currently only supports scatter with 1D tensors
+    // due to the non-exactness of non-indexed IDs.
+    NVF_ERROR_EQ(
+        out_tv->getLogicalDomain().size(),
+        1,
+        "Scatter with multi-dimensional tensors is not yet supported: ",
+        sop->toString());
 
     // Scatter is implemented as an in-place op. To lower it safely, it
     // needs to be able to alias each other. Here are the conditions to

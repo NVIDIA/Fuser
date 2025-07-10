@@ -595,8 +595,8 @@ void GpuLower::analysis(Fusion* fusion) {
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
 
-  validateInplaceScatter(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateInplaceScatter");
+  validateScatter(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateScatter");
 
   // Find trivial global to global broadcast, squeeze, and set operations and
   // mark their outputs as aliases of their inputs.

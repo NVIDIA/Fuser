@@ -76,6 +76,6 @@ void validateReductions(Fusion* fusion);
 //! else branch to load the tailing elements.
 void validate1dTmaLoad(Fusion* fusion);
 
-void validateInplaceScatter(Fusion* fusion);
+void validateScatter(Fusion* fusion);
 
 } // namespace nvfuser
