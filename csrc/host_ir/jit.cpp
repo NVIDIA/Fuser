@@ -396,10 +396,11 @@ KernelArgumentHolder HostIrJit::runWithInputs(
     auto* output = pimpl_->container->outputs()[i];
     if(output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
+      // Clean up the individual tensor object (not the array)
+      delete output_aten_tensors[i];
     }
   }
-  // free the output_aten_tensors
-  delete[] output_aten_tensors;
+  // Note: output_aten_tensors points to a global array managed by JIT, don't delete the array itself
   return outputs;
 }
 
@@ -426,10 +427,11 @@ KernelArgumentHolder HostIrJit::runWithInput(
     auto* output = pimpl_->container->outputs()[i];
     if(output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
+      // Clean up the individual tensor object (not the array)
+      delete output_aten_tensors[i];
     }
   }
-  // free the output_aten_tensors
-  delete[] output_aten_tensors;
+  // Note: output_aten_tensors points to a global array managed by JIT, don't delete the array itself
   return outputs;
 }
 
