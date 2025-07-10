@@ -915,10 +915,10 @@ BufferProjectionStrategy isProjectBufferToInputs(
   if (scheduler_type == SchedulerType::InnerPersistent) {
     bool is_high_bandwidth_flops_ratio =
         scheduler_utils::isHighBandwidthFlopsRatio();
-    int64_t buffer_per_block =
-        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 : 6 * 4 * 1024;
+    int64_t buffer_per_block_bit =
+        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 * 8 : 6 * 4 * 1024 * 8;
     if (persistent_buffer_size_info.persistent_buffer_size_bit <=
-        buffer_per_block) {
+        buffer_per_block_bit) {
       return BufferProjectionStrategy::NoProjectToAvoidRecompute;
     }
   }
