@@ -47,7 +47,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets):
     m = x.size(0)
     k = x.size(1)
     g = g_sf.size(0)
-    padded_m_size = blockscale_offsets[g-1] + m - offsets[g-1]
+    padded_m_size = blockscale_offsets[g-1] + round_up(m - offsets[g-1], 128)
     block_scale = torch.empty((padded_m_size, k // BLOCK_SIZE), dtype=torch.float8_e4m3fn, device='cuda:0')
     v_scaled = torch.empty((m, k // 2), dtype=torch.float4_e2m1fn_x2, device='cuda:0')
     for i in range(len(g_sf)):
@@ -57,7 +57,7 @@ def activation_scale_to_nvfp4(x, g_sf, offsets, blockscale_offsets):
         else:
             r = offsets[i+1]
         l_sf = blockscale_offsets[i]
-        r_sf = l_sf + m - l
+        r_sf = l_sf + r - l
         v_scaled[l:r], block_scale[l_sf:r_sf] = scale_to_nvfp4(x[l:r], g_sf[i])
     return v_scaled, block_scale
 
@@ -69,8 +69,8 @@ class TestAlias(NVFuserTest):
         m = 1024
         n = 128
         k = 256
-        # each expert needs to have multiple of 128 tokens to avoid padding on block scaling factor
-        tokens_per_expert = [256, 256, 256, 256]
+        tokens_per_expert = [115, 144, 8]
+        tokens_per_expert.append(m - sum(tokens_per_expert))
         g = len(tokens_per_expert)
         
         mat1 = torch.testing.make_tensor((m, k), dtype=torch.float32, device='cuda:0')
@@ -147,20 +147,21 @@ class TestAlias(NVFuserTest):
         o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device='cuda:0')
         for i in range(g):
             l = offsets[i]
+            l_sf = blockscale_offsets[i]
             if i == g-1:
                 r = m
             else:
                 r = offsets[i+1]
-            o_decomposed_ref[l:r] = torch._scaled_mm(mat1[l:r], mat2_scaled[i].transpose(-1, -2), scale1[l:r], scale2[i], None, None, torch.bfloat16) * mat2_gs[i]
-            # for some reason I cannot feed alpha in the torch kernel. this triggers a cublas invalid value error
-            #o_decomposed_ref[l:r] = torch._scaled_mm(mat1[l:r], mat2_scaled[i].transpose(-1, -2), scale1[l:r], scale2[i], None, mat2_gs[i], torch.bfloat16)
+            r_sf = round_up(tokens_per_expert[i], 128) + l_sf
+            # for some reason I cannot feed mat2_gs[i] as alpha in the torch kernel. this triggers a cublas invalid value error
+            o_decomposed_ref[l:r] = torch._scaled_mm(mat1[l:r], mat2_scaled[i].transpose(-1, -2), scale1[l_sf:r_sf], scale2[i], None, None, torch.bfloat16) * mat2_gs[i]
         
         # I think we have higher error because we are not fusing the scaling factor
-        assert torch.allclose(o_decomposed_ref, o, atol=1e-2, rtol=1e-2):
+        assert torch.allclose(o_decomposed_ref, o, atol=1e-2, rtol=1e-2)
 
-        # # TODO: remove this guy, it shouldn't be done here.
-        # o_ref = torch.empty(m, n, dtype=torch.bfloat16, device='cuda:0')
-        # import nvfuser_direct
-        # nvfuser_direct.nvf_cutlass.nvfp4_scaled_grouped_mm(o_ref, mat1.view(INPUT_DTYPE), mat2_scaled.view(INPUT_DTYPE), scale1, scale2, mat2_gs, ab_strides, c_strides, problem_sizes, offsets, blockscale_offsets)
-        # assert torch.allclose(o_ref, o_decomposed_ref, atol=1e-3, rtol=1e-3):
-        
+
+        # TODO: remove this, it's not relevant here.
+        o_ref = torch.empty(m, n, dtype=torch.bfloat16, device='cuda:0')
+        import nvfuser_direct
+        nvfuser_direct.nvf_cutlass.nvfp4_scaled_grouped_mm(o_ref, mat1.view(INPUT_DTYPE), mat2_scaled.view(INPUT_DTYPE), scale1, scale2, mat2_gs, ab_strides, c_strides, problem_sizes, offsets, blockscale_offsets)
+        assert torch.allclose(o_ref, o_decomposed_ref, atol=1e-3, rtol=1e-3)
