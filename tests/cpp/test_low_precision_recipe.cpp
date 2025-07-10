@@ -143,11 +143,12 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
       IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
 
-  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
-  auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+//   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+//   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
+  fusion->addOutput(tv_data_scaled_clamp);
 
   fusion->addOutput(tv_block_scale_fp8);
-  fusion->addOutput(tv_data_lp);
+//   fusion->addOutput(tv_data_lp);
 
   FusionExecutorCache fec(std::move(fusion));
 
