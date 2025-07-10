@@ -1442,8 +1442,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         kernel_->summary()
             .circular_buffer_info.hasIndependentComputeWarpGroups() &&
         is_within_warp_specialized_compute_loop_) {
-      // NOTE If there are independent compute warp groups, assume there is 128
-      // active threads per warp group.
       ParallelType wspt =
           kernel_->summary().circular_buffer_info.getWarpSpecializedOn();
       const std::string xdim = wspt == ParallelType::TIDx

@@ -258,11 +258,10 @@ namespace {
 
 bool hasHopperMatmulConsumer(const TensorView* tv) {
   NVF_ERROR(tv != nullptr);
-  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
-  Expr* definition = consumer->definition();
-  NVF_ERROR(definition != nullptr);
-  if (auto mma = dynamic_cast<const MmaOp*>(definition)) {
-    return mma->isHopper();
+  for (Expr* use : tv->uses()) {
+    if (auto mma = dynamic_cast<const MmaOp*>(use)) {
+      return mma->isHopper();
+    }
   }
   return false;
 }
