@@ -111,9 +111,9 @@ def test_layernorm_fwd_baseline_benchmark(
         clear_dynamo_cache()
     batch_size, hidden_size = size
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
-        torch.randn(hidden_size, device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(hidden_size, device="cuda", dtype=dtype, requires_grad=True),
     ]
 
     benchmark_fn = with_executor(executor, layernorm)
