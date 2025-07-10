@@ -927,8 +927,8 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
   };
 
   const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
-    reference_tv->getLogicalDomain().begin() + break_point,
-    reference_tv->getLogicalDomain().end()});
+      reference_tv->getLogicalDomain().begin() + break_point,
+      reference_tv->getLogicalDomain().end()});
 
   // For each of Resize exprs, if it's reachable from the reference
   // vectorized IDs without visiting the Resize expr itself, its
