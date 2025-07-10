@@ -40,8 +40,8 @@ bool isTvContiguous(const TensorView* tv) {
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim()) {
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (!id->isDeviceDim()) {
       continue;
     }
 
@@ -53,7 +53,7 @@ bool isSharded(const TensorView* tv) {
     //   ```
     //
     // is considered an allreduce and the output is replicated.
-    if (alloc_id->isReduction()) {
+    if (id->isReduction()) {
       continue;
     }
 
