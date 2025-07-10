@@ -794,9 +794,9 @@ std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
 
-// Returns the number of bytes of data types of the producer and
+// Returns the number of bits of data types of the producer and
 // consumer tensors of a cast unary op
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
+std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensorsBit(
     UnaryOp* cast_op);
 
 // Get the <size> in the PTX instruction of TMem load/store:
