@@ -150,6 +150,8 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   fusion->addOutput(tv_block_scale_fp8);
 //   fusion->addOutput(tv_data_lp);
 
+  fusion->print();
+
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
