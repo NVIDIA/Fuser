@@ -33,6 +33,8 @@ TEST_F(HostIrJitTest, TestHostIrJit) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
+  hic->pushBackTopLevelExprs(hic_out->definition());
+
   HostIrJit jit(std::move(hic));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
