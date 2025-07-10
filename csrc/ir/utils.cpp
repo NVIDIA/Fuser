@@ -1577,7 +1577,8 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-    primDataTypeSizeByte(*inp_prim_type), primDataTypeSizeByte(*out_prim_type));
+      primDataTypeSizeByte(*inp_prim_type),
+      primDataTypeSizeByte(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
