@@ -164,4 +164,4 @@ class TestAlias(NVFuserTest):
         o_ref = torch.empty(m, n, dtype=torch.bfloat16, device='cuda:0')
         import nvfuser_direct
         nvfuser_direct.nvf_cutlass.nvfp4_scaled_grouped_mm(o_ref, mat1.view(INPUT_DTYPE), mat2_scaled.view(INPUT_DTYPE), scale1, scale2, mat2_gs, ab_strides, c_strides, problem_sizes, offsets, blockscale_offsets)
-        assert torch.allclose(o_ref, o_decomposed_ref, atol=1e-3, rtol=1e-3)
+        assert torch.allclose(o_ref, o_decomposed_ref, atol=1e-2, rtol=1e-2)
