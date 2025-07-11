@@ -43,10 +43,10 @@
 namespace nvfuser {
 
 using main_func_t = std::function<at::Tensor**(const at::Tensor**)>;
-constexpr std::string_view main_func_name = "main";
-constexpr std::string_view tensor_size_func_name = "tensor_size";
-constexpr std::string_view allocate_tensor_func_name = "allocate_tensor";
-constexpr std::string_view set_tensor_func_name = "set_tensor";
+constexpr std::string_view kMainFuncName = "main";
+constexpr std::string_view kTensorSizeFuncName = "tensor_size";
+constexpr std::string_view kAllocateTensorFuncName = "allocate_tensor";
+constexpr std::string_view kSetTensorFuncName = "set_tensor";
 
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
@@ -237,7 +237,7 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
   llvm::Function::Create(
       tensor_size_type,
       llvm::Function::ExternalLinkage,
-      tensor_size_func_name,
+      kTensorSizeFuncName,
       mod);
 
   llvm::FunctionType* allocate_tensor_type =
@@ -245,7 +245,7 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
   llvm::Function::Create(
       allocate_tensor_type,
       llvm::Function::ExternalLinkage,
-      allocate_tensor_func_name,
+      kAllocateTensorFuncName,
       mod);
 
   // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor*
@@ -255,14 +255,14 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
   llvm::Function::Create(
       set_tensor_type,
       llvm::Function::ExternalLinkage,
-      set_tensor_func_name,
+      kSetTensorFuncName,
       mod);
 
   // main function: at::Tensor** main(at::Tensor** input_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(
       void_array_ptr_type, {void_array_ptr_type}, false);
   llvm::Function::Create(
-      main_type, llvm::Function::ExternalLinkage, main_func_name, mod);
+      main_type, llvm::Function::ExternalLinkage, kMainFuncName, mod);
 }
 
 void compile(HostIrJitImpl* pimpl) {
@@ -281,7 +281,7 @@ void compile(HostIrJitImpl* pimpl) {
 
   // Create entry block and set insertion point
   llvm::BasicBlock* entry =
-      llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction(main_func_name));
+      llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction(kMainFuncName));
   builder.SetInsertPoint(entry);
 
   // bind the constants
@@ -313,7 +313,7 @@ void compile(HostIrJitImpl* pimpl) {
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
 
   // Look up the main function
-  auto main_func_addr = throwIfError(pimpl->jit->lookup(main_func_name));
+  auto main_func_addr = throwIfError(pimpl->jit->lookup(kMainFuncName));
   using main_func_ptr_t = at::Tensor** (*)(const at::Tensor**);
   pimpl->main_func =
       reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
@@ -328,7 +328,7 @@ llvm::Value* generateTensorSizeExtraction(
   auto* mod = builder.GetInsertBlock()->getParent()->getParent();
 
   // Look up the tensor_size wrapper function
-  llvm::Function* tensor_size_func = mod->getFunction(tensor_size_func_name);
+  llvm::Function* tensor_size_func = mod->getFunction(kTensorSizeFuncName);
   llvm::Value* dim_val = builder.getInt64(dim);
 
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
@@ -362,7 +362,7 @@ HostIrJit::HostIrJit(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
         NVF_ERROR(
             tensor_ptr != nullptr,
-            tensor_size_func_name,
+            kTensorSizeFuncName,
             " tensor_ptr is nullptr");
         return tensor_ptr->size(dim);
       });
@@ -376,11 +376,11 @@ HostIrJit::HostIrJit(
       +[](at::Tensor* tensor_ptr, at::Tensor* other_tensor_ptr) -> void {
         NVF_ERROR(
             tensor_ptr != nullptr,
-            set_tensor_func_name,
+            kSetTensorFuncName,
             " tensor_ptr is nullptr");
         NVF_ERROR(
             other_tensor_ptr != nullptr,
-            set_tensor_func_name,
+            kSetTensorFuncName,
             " other_tensor_ptr is nullptr");
         *tensor_ptr = other_tensor_ptr->clone(); // Clone the input tensor
       });
@@ -393,11 +393,11 @@ HostIrJit::HostIrJit(
   auto set_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(set_tensor_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler(tensor_size_func_name)] = llvm::orc::ExecutorSymbolDef(
+  symbolMap[mangler(kTensorSizeFuncName)] = llvm::orc::ExecutorSymbolDef(
       extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler(allocate_tensor_func_name)] = llvm::orc::ExecutorSymbolDef(
+  symbolMap[mangler(kAllocateTensorFuncName)] = llvm::orc::ExecutorSymbolDef(
       allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler(set_tensor_func_name)] = llvm::orc::ExecutorSymbolDef(
+  symbolMap[mangler(kSetTensorFuncName)] = llvm::orc::ExecutorSymbolDef(
       set_tensor_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
