@@ -46,24 +46,24 @@ int64_t partialOuterReductionBufferSizeBit(
     if (scheduler_utils::isFastestDimReduction(buffer)) {
       continue;
     }
-    int64_t buffer_size = -1;
+    int64_t buffer_size_bit = -1;
     for (auto id : buffer->getLogicalDomain()) {
       if (id->isReduction() || id->isBroadcast()) {
         continue;
       }
       auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
       NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-      if (buffer_size == -1) {
-        buffer_size = id_size.as<int64_t>();
+      if (buffer_size_bit == -1) {
+        buffer_size_bit = id_size.as<int64_t>();
       } else {
-        buffer_size *= id_size.as<int64_t>();
+        buffer_size_bit *= id_size.as<int64_t>();
       }
     }
-    buffer_size = (buffer_size == -1) ? 0
-                                      : buffer_size *
+    buffer_size_bit = (buffer_size_bit == -1) ? 0
+                                              : buffer_size_bit *
             dataTypeSizeBit(buffer->getDataType().value(),
                              runtime_info.getIndexType());
-    partial_reduction_buffer_size_bit += buffer_size;
+    partial_reduction_buffer_size_bit += buffer_size_bit;
   }
   return partial_reduction_buffer_size_bit;
 }
