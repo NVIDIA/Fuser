@@ -184,7 +184,7 @@ void compileMainFuncInputs(
       aten_tensor_ptr->setName("input_aten_tensor");
       // bind input aten tensor sizes to val_to_value
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-      // TODO: We should validate const size and strides here
+      // TODO: We should validate const size and strides here, ie. dim check
       for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
         if (logical_domain[dim]->isBroadcast()) {
           val_to_value[logical_domain[dim]->extent()] = builder.getInt64(1);
