@@ -2750,6 +2750,165 @@ TEST_F(NVFuserTest, Fp8CastOps) {
   }
 }
 
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+
+// FP4 reference values
+namespace fp4ref {
+
+// Reference:
+// https://nvidia.glean.com/go/fp4-values
+
+std::array<uint8_t, 8> fp4_values = {
+    0b00000001,
+    0b00100011,
+    0b01000101,
+    0b01100111,
+    0b10001001,
+    0b10101011,
+    0b11001101,
+    0b11101111,
+};
+
+std::array<float, 16> float_values = {
+    0.5,
+    0.0,
+    1.5,
+    1.0,
+    3.0,
+    2.0,
+    6.0,
+    4.0,
+    -0.5,
+    -0.0,
+    -1.5,
+    -1.0,
+    -3.0,
+    -2.0,
+    -6.0,
+    -4.0,
+};
+
+} // namespace fp4ref
+
+// High precision type, vectorization factor of castOp
+using Fp4CastParams = std::tuple<DataType, int64_t>;
+
+class Fp4CastTest : public NVFuserTest,
+                    public ::testing::WithParamInterface<Fp4CastParams> {
+ public:
+  void SetUp() override {
+    std::tie(dtype_highp, vectorization_factor) = GetParam();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  }
+
+ protected:
+  DataType dtype_highp;
+  int64_t vectorization_factor;
+};
+
+TEST_P(Fp4CastTest, Fp4ToHighPrecision) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({16}, DataType::Float4_e2m1fn);
+  TensorView* tv1 = castOp(dtype_highp, tv0);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  TensorView* tv0_cache = tv0->cacheAfter();
+  TensorView* tv1_cache = tv1->cacheBefore();
+
+  tv0_cache->axis(0)->parallelize(ParallelType::Vectorize);
+  tv1_cache->split(0, vectorization_factor);
+  tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
+
+  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
+                         .to(at::kCUDA)
+                         .view(torch::kFloat4_e2m1fn_x2);
+  at::Tensor expect =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().to(at::kFloat).equal(expect));
+}
+
+TEST_P(Fp4CastTest, HighPrecisionToFp4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({16}, dtype_highp);
+  TensorView* tv1 = castOp(DataType::Float4_e2m1fn, tv0);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->cacheAfter();
+  TensorView* tv1_cache = tv1->cacheBefore();
+
+  tv1->axis(0)->parallelize(ParallelType::Vectorize);
+  tv1_cache->split(0, vectorization_factor);
+  tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
+
+  at::Tensor input =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA)
+          .to(data_type_to_aten(dtype_highp));
+  at::Tensor expect =
+      at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte).to(at::kCUDA);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(at::kByte).equal(expect));
+}
+
+std::string fp4CastTestName(const testing::TestParamInfo<Fp4CastParams>& info) {
+  const auto& [dtype_highp, vectorization_factor] = info.param;
+  std::stringstream ss;
+  ss << dtype_highp << "_Vectorize_" << vectorization_factor;
+  return ss.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Fp4CastTest,
+    testing::Combine(
+        testing::Values(
+            DataType::Float,
+            DataType::Double,
+            DataType::BFloat16,
+            DataType::Half),
+        testing::Values(2, 4, 8, 16)),
+    fp4CastTestName);
+
+TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024 * 1024}, options)
+                         .view(torch::kFloat4_e2m1fn_x2);
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
+}
+
+#endif
+
 TEST_F(NVFuserTest, BitCeilKernel) {
   Fusion fusion;
   FusionGuard fg(&fusion);

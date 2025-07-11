@@ -6,7 +6,7 @@ import torch
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
+from python.utils import create_sdpa_rng_tensors, define_sdpa_rng_state, is_pre_ampere
 from nvfuser.testing.benchmark_utils import get_benchmark_fns
 
 
@@ -393,7 +393,7 @@ def _assert_shape_dtype(
 
 
 @pytest.mark.skipif(
-    nvfuser.testing.utils.is_pre_ampere(),
+    is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
@@ -980,7 +980,7 @@ class TransformerBackwardFusion(FusionDefinition):
 
 
 @pytest.mark.skipif(
-    nvfuser.testing.utils.is_pre_ampere(),
+    is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi

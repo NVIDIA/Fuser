@@ -64,7 +64,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       }
 
       // find and push discontiguous stride
-      int64_t dtype_size = dataTypeSizeByte(input_tv->dtype());
+      int64_t dtype_size_bit = dataTypeSizeBit(input_tv->dtype());
       input_discontig_strides_[fusion_inp] = {};
       auto dims = static_cast<int64_t>(alloc_strides.size());
       int64_t expected_stride = 1;
@@ -79,7 +79,11 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         }
 
         if (stride != expected_stride) {
-          input_discontig_strides_[fusion_inp].push_back(stride * dtype_size);
+          int64_t new_stride_bit = stride * dtype_size_bit;
+          NVF_ERROR(
+              new_stride_bit % 8 == 0,
+              "Stride must be a multiple of 8 bits (one byte)");
+          input_discontig_strides_[fusion_inp].push_back(new_stride_bit / 8);
           expected_stride = stride;
         }
         expected_stride *= size;

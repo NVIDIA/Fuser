@@ -682,7 +682,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType")
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -732,7 +732,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 
@@ -1461,6 +1462,38 @@ void initNvFuserPythonBindings(PyObject* module) {
         return self.getValTolerances(args);
       },
       py::return_value_policy::reference);
+
+  fusion_def.def(
+      "validate_with_auto_inferred_outputs",
+      [](FusionDefinition& self,
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
+        KernelArgumentHolder fusion_outputs_holder;
+        for (py::handle obj : fusion_outputs) {
+          fusion_outputs_holder.push(
+              torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        KernelArgumentHolder inputs_holder;
+        for (py::handle obj : inputs) {
+          inputs_holder.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.validate_with_auto_inferred_outputs(
+            fusion_outputs_holder, inputs_holder);
+      },
+      py::return_value_policy::reference,
+      R"doc(
+    Validates the fusion outputs against the inputs with auto-inferred outputs.
+
+    Parameters
+    ----------
+    fusion_outputs : iterable
+        The outputs of the fusion to validate.
+    inputs : iterable
+        The inputs to the fusion.
+    Example
+    -------
+    >>> fd.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+    )doc");
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.

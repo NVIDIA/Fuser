@@ -11,26 +11,28 @@
 
 namespace nvfuser::cutlass_kernels {
 
-bool nvfp4_scaled_mm_check(
-    at::ScalarType output,
+// Performs scaled matrix multiplication using NVFP4 format
+//
+// This function implements a scaled matrix multiplication C = alpha * (A @ B)
+// where A and B are matrices in NVFP4 format with per-block scaling factors.
+// The function uses CUTLASS kernels optimized for NVIDIA GPUs with SM100+
+// architecture.
+//
+// Parameters:
+//   a: Input matrix A in Float4_e2m1fn_x2 format (M x K/2)
+//   b: Input matrix B in Float4_e2m1fn_x2 format (N x K/2)
+//   scales_a: Per-block scaling factors for matrix A in FP8_E4M3 format
+//   scales_b: Per-block scaling factors for matrix B in FP8_E4M3 format
+//   alpha: Global scaling factor in FP32 format
+//   out_dtype: Output data type (Half, BFloat16, or Float)
+//
+// Returns: Matrix C = alpha * (A @ B) in the specified output dtype
+torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& alpha);
-
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
-    const torch::Tensor& a,
-    const torch::Tensor& b,
-    const torch::Tensor& scales_a,
-    const torch::Tensor& scales_b,
-    const torch::Tensor& alpha);
-
-void nvfp4_quantize(
-    torch::Tensor& output,
-    torch::Tensor& output_scale,
-    const torch::Tensor& input,
-    const torch::Tensor& input_scale);
+    const torch::Tensor& alpha,
+    at::ScalarType out_dtype);
 
 } // namespace nvfuser::cutlass_kernels

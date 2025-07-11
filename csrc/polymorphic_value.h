@@ -34,18 +34,19 @@ struct DataType;
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  int64_t size_;
+  int64_t size_bit_;
 
  public:
   template <typename T>
-  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
+  Pointer(T* ptr)
+      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
 
   inline Pointer(void* ptr, DataType dtype);
 
-  Pointer() : ptr_(nullptr), size_(-1) {}
+  Pointer() : ptr_(nullptr), size_bit_(-1) {}
 
-  int64_t size() const {
-    return size_;
+  int64_t sizeBit() const {
+    return size_bit_;
   }
 
   template <typename T>
@@ -54,23 +55,27 @@ class Pointer {
   }
 
   Pointer& operator+=(int64_t offset) {
-    ptr_ += offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ += offset_bit / 8;
     return *this;
   }
 
   Pointer& operator-=(int64_t offset) {
-    ptr_ -= offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ -= offset_bit / 8;
     return *this;
   }
 
   Pointer& operator++() {
-    ptr_ += size_;
-    return *this;
+    return *this += 1;
   }
 
   Pointer& operator--() {
-    ptr_ -= size_;
-    return *this;
+    return *this -= 1;
   }
 
   Pointer operator++(int) {
@@ -98,8 +103,8 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    NVF_ERROR(size_ == other.size_);
-    return (ptr_ - other.ptr_) / (int64_t)size_;
+    NVF_ERROR(size_bit_ == other.size_bit_, "Size must be the same");
+    return (int64_t)((ptr_ - other.ptr_) * 8) / size_bit_;
   }
 
   bool operator==(const Pointer& other) const {
@@ -422,6 +427,35 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
     return (c10::complex<double>)x.as<std::complex<double>>();
   } else {
     return (c10::Scalar)x;
+  }
+}
+
+inline PolymorphicValue where(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  if (!a.is<at::Tensor>()) {
+    return a.as<bool>() ? b : c;
+  }
+  // dispatch to at::where with appropriate overload
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), c.as<at::Tensor>()));
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), toScalar(c)));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), c.as<at::Tensor>()));
+  } else {
+    // Both are scalars
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), toScalar(c)));
   }
 }
 

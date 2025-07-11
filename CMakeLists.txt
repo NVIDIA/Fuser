@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
+enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
 
@@ -63,6 +64,7 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 find_package(Torch REQUIRED)
 find_package(Python REQUIRED Development.Module Interpreter)
 find_package(pybind11 REQUIRED)
+find_package(CUDAToolkit REQUIRED)
 
 # need this since the pytorch execution uses a different name
 set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
@@ -80,11 +82,6 @@ if(TORCH_CUDA_ARCH_LIST)
 endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
-
-# TODO: fix MSVC
-if(NOT MSVC)
-  find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
-endif()
 
 set(CUTLASS_STATUS "N/A")
 if(BUILD_CUTLASS)
@@ -405,7 +402,6 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/distributed_tensor.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
@@ -413,6 +409,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
     ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
+    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
     ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
     ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
@@ -454,7 +451,6 @@ target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
-  ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
   ${CUDA_INCLUDE_DIRS}
 )
 target_include_directories(codegen_internal PUBLIC
@@ -479,7 +475,7 @@ set_target_properties(codegen_internal PROPERTIES
 list(FILTER TORCH_LIBRARIES EXCLUDE REGEX "libcuda\.so")
 target_link_libraries(codegen_internal PUBLIC
   dynamic_type
-  ${LIBCUPTI}
+  CUDA::cupti
   ${TORCH_LIBRARIES}
   dl
 )
@@ -507,7 +503,7 @@ target_include_directories(nvfuser_codegen PUBLIC
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
-  ${LIBCUPTI}
+  CUDA::cupti
   ${TORCH_LIBRARIES}
   dl
 )
@@ -577,6 +573,74 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
 # installing dynamic_type headers
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
+
+set(CUTLASS_STATUS "N/A")
+if(BUILD_CUTLASS)
+  enable_language(CUDA)
+
+  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
+    message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
+    set(CUTLASS_STATUS "DISABLED")
+  else()
+    add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
+    set(CUTLASS_STATUS "ENABLED")
+
+    find_package(CUDAToolkit REQUIRED)
+    include(FetchContent)
+
+    # cutlass
+    FetchContent_Declare(
+      repo-cutlass
+      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
+      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+      GIT_SHALLOW    OFF
+    )
+    FetchContent_Populate(repo-cutlass)
+
+    include(ProcessorCount)
+    ProcessorCount(NPROC)
+
+    set(NVF_CUTLASS_CUDA_FLAGS
+      "-DCUTE_USE_PACKED_TUPLE=1"
+      "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
+      "-DCUTLASS_VERSIONS_GENERATED"
+      "-DCUTLASS_TEST_LEVEL=0"
+      "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
+      "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
+      "--expt-relaxed-constexpr"
+      "--expt-extended-lambda"
+      "--threads=${NPROC}"
+      # Suppress warnings
+      "-Xcompiler=-Wconversion"
+      "-Xcompiler=-fno-strict-aliasing"
+    )
+
+    set(NVFUSER_CUTLASS_SRCS)
+    list(APPEND NVFUSER_CUTLASS_SRCS
+	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/cutlass_utils.cpp
+        )
+    add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
+    set_target_properties(nvf_cutlass PROPERTIES
+        CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+        CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+        POSITION_INDEPENDENT_CODE Yes
+    )
+    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
+    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
+    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
+    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+    target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
+    if(NOT MSVC)
+      set(NVF_LIB_SUFFIX ".so")
+    else()
+      set(NVF_LIB_SUFFIX ".pyd")
+    endif()
+    set_target_properties(nvf_cutlass PROPERTIES CUDA_ARCHITECTURES "100a")
+    target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
+    install(TARGETS nvf_cutlass DESTINATION lib)
+  endif()
+endif()
 
 if(BUILD_PYTHON)
   # -----------------------------
@@ -689,6 +753,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/bindings.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/runtime.cpp
@@ -812,6 +877,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp

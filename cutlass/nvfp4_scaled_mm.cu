@@ -22,20 +22,17 @@
 
 namespace nvfuser::cutlass_kernels {
 
+namespace {
+
 using namespace cute;
 
 #if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
-// Kernel Perf config
+// Kernel configuration traits for different output data types
+// Defines tile shapes and cluster configurations.
 template <typename T>
 struct KernelTraits;
 
-template <>
-struct KernelTraits<float> {
-  using MmaTileShape = Shape<_128, _128, _256>;
-  using ClusterShape = Shape<_1, _1, _1>;
-  using PerSmTileShape_MNK = Shape<_128, _128, _256>;
-};
-
+// Kernel traits for FP16 output
 template <>
 struct KernelTraits<cutlass::half_t> {
   using MmaTileShape = Shape<_256, _256, _256>;
@@ -43,6 +40,7 @@ struct KernelTraits<cutlass::half_t> {
   using PerSmTileShape_MNK = Shape<_128, _256, _256>;
 };
 
+// Kernel traits for BF16 output
 template <>
 struct KernelTraits<cutlass::bfloat16_t> {
   using MmaTileShape = Shape<_256, _256, _256>;
@@ -50,6 +48,9 @@ struct KernelTraits<cutlass::bfloat16_t> {
   using PerSmTileShape_MNK = Shape<_128, _256, _256>;
 };
 
+// Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
+// Defines all the types, layouts, and configurations needed for the CUTLASS
+// kernel
 template <typename T>
 struct Fp4GemmSm100 {
   // A matrix configuration
@@ -131,6 +132,22 @@ struct Fp4GemmSm100 {
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
 };
 
+// Constructs CUTLASS GEMM arguments from PyTorch tensors and dimensions
+//
+// This function converts PyTorch tensor data and metadata into the format
+// expected by CUTLASS GEMM kernels, including proper stride calculations
+// and layout configurations for the scaled matrix multiplication.
+//
+// Parameters:
+//   output: Output tensor for storing results
+//   a: Input matrix A in NVFP4 format
+//   b: Input matrix B in NVFP4 format
+//   scales_a: Per-block scaling factors for matrix A
+//   scales_b: Per-block scaling factors for matrix B
+//   alpha: Global scaling factor
+//   M, N, K: Matrix dimensions
+//
+// Returns: CUTLASS GEMM arguments structure ready for kernel execution
 template <typename T>
 typename T::Gemm::Arguments args_from_options(
     at::Tensor& output,
@@ -189,6 +206,19 @@ typename T::Gemm::Arguments args_from_options(
   return arguments;
 }
 
+// Executes the FP4 scaled matrix multiplication using CUTLASS kernels
+//
+// This function orchestrates the GEMM operation by setting up the kernel,
+// allocating workspace memory, and running the computation on the GPU.
+// It handles the complete lifecycle from kernel initialization to execution.
+//
+// Parameters:
+//   output: Output tensor to store the result
+//   a, b: Input matrices in FP4 format
+//   scales_a, scales_b: Per-block scaling factors
+//   alpha: Global scaling factor
+//   m, n, k: Matrix dimensions
+//   stream: CUDA stream for asynchronous execution
 template <typename T>
 void runGemm(
     at::Tensor& output,
@@ -223,6 +253,8 @@ void runGemm(
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 #else
+// Fallback implementation for unsupported CUTLASS versions
+// Throws an error when SM100+ CUTLASS support is not available
 template <typename T>
 void runGemm(
     at::Tensor& output,
@@ -235,162 +267,153 @@ void runGemm(
     int64_t n,
     int64_t k,
     cudaStream_t stream) {
-  NVF_CHECK(
-      false,
-      "Unsupported CUTLASS version. Set VLLM_CUTLASS_SRC_DIR to "
-      "a CUTLASS 3.8 source directory to enable support.");
+  NVF_THROW("Unsupported CUTLASS version.");
 }
 #endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
-#define CHECK_TYPE(x, st, m) \
-  NVF_CHECK(x.scalar_type() == st, "Inconsistency of Tensor type:", m)
-#define CHECK_TH_CUDA(x, m) NVF_CHECK(x.is_cuda(), m, "must be a CUDA tensor")
-#define CHECK_CONTIGUOUS(x, m) \
-  NVF_CHECK(x.is_contiguous(), m, "must be contiguous")
-#define CHECK_INPUT(x, st, m) \
-  CHECK_TH_CUDA(x, m);        \
-  CHECK_CONTIGUOUS(x, m);     \
-  CHECK_TYPE(x, st, m)
+// Helper function to round up to the nearest multiple of y
+inline int64_t roundUp(int64_t x, int64_t y) {
+  return (x + y - 1) / y * y;
+}
 
-constexpr auto FLOAT4_E2M1X2 = at::ScalarType::Byte;
-constexpr auto SF_DTYPE = at::ScalarType::Float8_e4m3fn;
+// Validates all input parameters and tensor properties for NVFP4 scaled matrix
+// multiplication
+//
+// This function performs comprehensive validation of input tensors including:
+// - CUDA device and contiguity checks
+// - Data type validation for all inputs
+// - Matrix dimension and shape compatibility
+// - Alignment requirements for optimal performance
+// - Scale matrix shape validation
+//
+// Parameters:
+//   a, b: Input matrices to validate
+//   scales_a, scales_b: Scale matrices to validate
+//   alpha: Alpha scaling factor to validate
+//
+// Returns: Tuple of (m, n, k) dimensions for the GEMM operation
+//
+// Throws: NVF_CHECK exceptions for any validation failures
+std::tuple<int64_t, int64_t, int64_t> validateInputs(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha) {
+  // Check CUDA device and contiguity for all input tensors
+  for (const torch::Tensor& t : {a, b, scales_a, scales_b, alpha}) {
+    NVF_CHECK(
+        t.is_cuda() && t.is_contiguous(),
+        "Input argument must be a CUDA tensor and contiguous.")
+  }
 
-void nvfp4_scaled_mm_assert(
-    at::ScalarType out_dtype,
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
-  CHECK_INPUT(a, FLOAT4_E2M1X2, "a");
-  CHECK_INPUT(b, FLOAT4_E2M1X2, "b");
+  // Validate data types
+  NVF_CHECK(
+      a.scalar_type() == at::ScalarType::Float4_e2m1fn_x2,
+      "Expected Float4_e2m1fn_x2 for Operand A.")
+  NVF_CHECK(
+      b.scalar_type() == at::ScalarType::Float4_e2m1fn_x2,
+      "Expected Float4_e2m1fn_x2 for Operand B.")
+  NVF_CHECK(
+      scales_a.scalar_type() == at::ScalarType::Float8_e4m3fn,
+      "Expected FP8_E4M3 for Blockscale scale_a.")
+  NVF_CHECK(
+      scales_b.scalar_type() == at::ScalarType::Float8_e4m3fn,
+      "Expected FP8_E4M3 for Blockscale scale_b.")
+  NVF_CHECK(
+      alpha.scalar_type() == at::ScalarType::Float,
+      "Expected FP32 for alpha scalar.")
 
-  CHECK_INPUT(scales_a, SF_DTYPE, "scale_a");
-  CHECK_INPUT(scales_b, SF_DTYPE, "scale_b");
-
-  CHECK_INPUT(alpha, at::ScalarType::Float, "alpha");
-
-  NVF_CHECK(a.dim() == 2, "a must be a matrix");
-  NVF_CHECK(b.dim() == 2, "b must be a matrix");
+  // Validate matrix dimensions
+  NVF_CHECK(a.dim() == 2, "Operand A must be a matrix.");
+  NVF_CHECK(b.dim() == 2, "Operand B must be a matrix.");
   NVF_CHECK(
       a.sizes()[1] == b.sizes()[1],
-      "a and b shapes cannot be multiplied (",
+      "A and B shapes cannot be multiplied (",
       a.sizes()[0],
-      "x",
+      ",",
       a.sizes()[1],
       " and ",
       b.sizes()[0],
-      "x",
+      ",",
       b.sizes()[1],
       ")");
 
-  auto const m = a.sizes()[0];
-  auto const n = b.sizes()[0];
-  auto const k = a.sizes()[1] * 2;
+  const int64_t m = a.sizes()[0];
+  const int64_t n = b.sizes()[0];
+  const int64_t k = a.sizes()[1] * 2;
 
-  constexpr int alignment = 32;
+  // Check alignment requirements
+  constexpr int64_t alignment = 32;
   NVF_CHECK(
       k % alignment == 0,
-      "Expected k to be divisible by ",
-      alignment,
-      ", but got a shape: (",
-      a.sizes()[0],
-      "x",
-      a.sizes()[1],
-      "), k: ",
+      "The K dimension",
       k,
-      ".");
+      "is not divisible by ",
+      alignment)
   NVF_CHECK(
       n % alignment == 0,
-      "Expected n to be divisible by ",
-      alignment,
-      ", but got b shape: (",
-      b.sizes()[0],
-      "x",
-      b.sizes()[1],
-      ").");
+      "The N dimension",
+      n,
+      "is not divisible by ",
+      alignment)
 
-  auto round_up = [](int x, int y) { return (x + y - 1) / y * y; };
-  int rounded_m = round_up(m, 128);
-  int rounded_n = round_up(n, 128);
-  // Since k is divisible by 32 (alignment), k / 16 is guaranteed to be an
-  // integer.
-  int rounded_k = round_up(k / 16, 4);
+  // Calculate rounded dimensions for scale matrix validation
+  int64_t rounded_m = roundUp(m, 128);
+  int64_t rounded_n = roundUp(n, 128);
+  int64_t rounded_k = roundUp(k / 16, 4);
 
-  NVF_CHECK(scales_a.dim() == 2, "scale_a must be a matrix");
-  NVF_CHECK(scales_b.dim() == 2, "scale_b must be a matrix");
+  // Validate scale matrix properties
+  NVF_CHECK(scales_a.dim() == 2, "Blockscale scale_a must be a matrix.");
+  NVF_CHECK(scales_b.dim() == 2, "Blockscale scale_b must be a matrix.");
   NVF_CHECK(
       scales_a.sizes()[1] == scales_b.sizes()[1],
-      "scale_a and scale_b shapes cannot be multiplied (",
-      scales_a.sizes()[0],
-      "x",
-      scales_a.sizes()[1],
-      " and ",
-      scales_b.sizes()[0],
-      "x",
-      scales_b.sizes()[1],
-      ")");
+      "scale_a and scale_b shapes cannot be multiplied because the inner-most "
+      "dimensions are not equal.")
   NVF_CHECK(
       scales_a.sizes()[0] == rounded_m && scales_a.sizes()[1] == rounded_k,
       "scale_a must be padded and swizzled to a shape (",
       rounded_m,
-      "x",
+      ",",
       rounded_k,
       "), but got a shape (",
       scales_a.sizes()[0],
-      "x",
+      ",",
       scales_a.sizes()[1],
       ")");
   NVF_CHECK(
       scales_b.sizes()[0] == rounded_n && scales_b.sizes()[1] == rounded_k,
       "scale_b must be padded and swizzled to a shape (",
       rounded_n,
-      "x",
+      ",",
       rounded_k,
       "), but got a shape (",
       scales_b.sizes()[0],
-      "x",
+      ",",
       scales_b.sizes()[1],
       ")");
 
-  NVF_CHECK(
-      out_dtype == at::ScalarType::Half ||
-          out_dtype == at::ScalarType::BFloat16 ||
-          out_dtype == at::ScalarType::Float,
-      "unsupported dtype on output: ",
-      out_dtype)
+  return {m, n, k};
 }
 
-bool nvfp4_scaled_mm_check(
-    at::ScalarType out_dtype,
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
-  try {
-    nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-void nvfp4_scaled_mm(
-    torch::Tensor& output,
-    torch::Tensor const& a,
-    torch::Tensor const& b,
-    torch::Tensor const& scales_a,
-    torch::Tensor const& scales_b,
-    torch::Tensor const& alpha) {
-  auto out_dtype = output.scalar_type();
-  nvfp4_scaled_mm_assert(out_dtype, a, b, scales_a, scales_b, alpha);
+} // namespace
 
-  auto const m = a.sizes()[0];
-  auto const n = b.sizes()[0];
-  auto const k = a.sizes()[1] * 2;
+torch::Tensor nvfp4_scaled_mm(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    const at::ScalarType out_dtype) {
+  // Validate all inputs and get matrix dimensions
+  auto [m, n, k] = validateInputs(a, b, scales_a, scales_b, alpha);
 
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
+
+  auto options =
+      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
+  torch::Tensor output = at::empty({a.sizes()[0], b.sizes()[0]}, options);
 
   if (out_dtype == at::ScalarType::Half) {
     runGemm<cutlass::half_t>(
@@ -398,11 +421,10 @@ void nvfp4_scaled_mm(
   } else if (out_dtype == at::ScalarType::BFloat16) {
     runGemm<cutlass::bfloat16_t>(
         output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
-  } else if (out_dtype == at::ScalarType::Float) {
-    runGemm<float>(output, a, b, scales_a, scales_b, alpha, m, n, k, stream);
   } else {
-    NVF_CHECK(false, "Unsupported output data type of nvfp4 mm");
+    NVF_THROW("Unsupported output data type of nvfp4 scaled_mm.");
   }
+  return output;
 }
 
 } // namespace nvfuser::cutlass_kernels
