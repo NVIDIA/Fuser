@@ -184,6 +184,7 @@ void compileMainFuncInputs(
       aten_tensor_ptr->setName("input_aten_tensor");
       // bind input aten tensor sizes to val_to_value
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+      // TODO: We should validate const size and strides here
       for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
         if (logical_domain[dim]->isBroadcast()) {
           val_to_value[logical_domain[dim]->extent()] = builder.getInt64(1);
@@ -227,11 +228,12 @@ void compileMainFuncOutputs(
       llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(
           aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
       aten_tensor_ptr_addr->setName("output_aten_tensor_addr");
-      
-      // Get the tensor pointer from val_to_value and store it in the output array
+
+      // Get the tensor pointer from val_to_value and store it in the output
+      // array
       llvm::Value* tensor_from_val_to_value = val_to_value[tv->as<Val>()];
       builder.CreateStore(tensor_from_val_to_value, aten_tensor_ptr_addr);
-      
+
     } else {
       NVF_THROW("Unsupported expression type: ", output);
     }
@@ -279,7 +281,9 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
 
   // main function: void main(void** input_tensors, void** output_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(
-      llvm::Type::getVoidTy(ctx), {void_array_ptr_type, void_array_ptr_type}, false);
+      llvm::Type::getVoidTy(ctx),
+      {void_array_ptr_type, void_array_ptr_type},
+      false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, mod);
 }
@@ -332,7 +336,8 @@ void compile(HostIrJitImpl* pimpl) {
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup(kMainFuncName));
   using main_func_ptr_t = void (*)(const void**, void**);
-  auto main_func_ptr = reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
+  auto main_func_ptr =
+      reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
   pimpl->main_func = main_func_ptr;
 }
 

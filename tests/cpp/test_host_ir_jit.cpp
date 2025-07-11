@@ -37,17 +37,15 @@ TEST_F(HostIrJitTest, Set) {
 
   HostIrJit jit(std::move(hic));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  int run_iterations = 10;
-  for (int i = 0; i < run_iterations; i++) {
-    int dim0 = std::rand() % 100 + 1;
-    int dim1 = std::rand() % 100 + 1;
-    at::Tensor t0 = at::randn({dim0, dim1}, options);
-    auto output_args = jit.runWithInput({{hic_in, t0}});
-    auto output = output_args[0].as<at::Tensor>();
+  at::Tensor in = at::randn({32, 16}, options);
+  KernelArgumentHolder outs = jit.runWithInput({{hic_in, in}});
+  auto out = outs[0].as<at::Tensor>();
 
-    EXPECT_EQ(output.sizes(), t0.sizes());
-    EXPECT_EQ(output.strides(), t0.strides());
-  }
+  EXPECT_EQ(out.sizes(), in.sizes());
+  EXPECT_EQ(out.strides(), in.strides());
+  EXPECT_EQ(at::equal(out, in), true) << "Tensors are not equal:\n"
+                                      << "in = " << in << "\n"
+                                      << "out = " << out;
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
