@@ -38,14 +38,33 @@ TEST_F(HostIrJitTest, Set) {
   HostIrJit jit(std::move(hic));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in = at::randn({32, 16}, options);
-  KernelArgumentHolder outs = jit.runWithInput({{hic_in, in}});
-  auto out = outs[0].as<at::Tensor>();
+  KernelArgumentHolder outs1 = jit.runWithInput({{hic_in, in}});
+  auto out1 = outs1[0].as<at::Tensor>();
 
-  EXPECT_EQ(out.sizes(), in.sizes());
-  EXPECT_EQ(out.strides(), in.strides());
-  EXPECT_EQ(at::equal(out, in), true) << "Tensors are not equal:\n"
+  EXPECT_EQ(out1.sizes(), in.sizes()) << "Sizes are not equal:\n"
+                                     << "in = " << in << "\n"
+                                     << "out1 = " << out1;
+  EXPECT_EQ(out1.strides(), in.strides()) << "Strides are not equal:\n"
+                                         << "in = " << in << "\n"
+                                         << "out1 = " << out1;
+  EXPECT_EQ(at::equal(out1, in), true) << "Tensors are not equal:\n"
                                       << "in = " << in << "\n"
-                                      << "out = " << out;
+                                      << "out1 = " << out1;
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in);
+  KernelArgumentHolder outs2 = jit.runWithInputs(in_args);
+  auto out2 = outs2[0].as<at::Tensor>();
+  EXPECT_EQ(out2.sizes(), in.sizes()) << "Sizes are not equal:\n"
+                                      << "in = " << in << "\n"
+                                      << "out2 = " << out2;
+  EXPECT_EQ(out2.strides(), in.strides()) << "Strides are not equal:\n"
+                                         << "in = " << in << "\n"
+                                         << "out2 = " << out2;
+  EXPECT_EQ(at::equal(out2, in), true) << "Tensors are not equal:\n"
+                                      << "in = " << in << "\n"
+                                      << "out2 = " << out2;
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
