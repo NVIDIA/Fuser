@@ -29,7 +29,7 @@ namespace nvfuser::cutlass_kernels {
 // Returns: Tuple of (m, n, k) dimensions for the GEMM operation
 //
 // Throws: NVF_CHECK exceptions for any validation failures
-std::tuple<int64_t, int64_t, int64_t> validateInputs(
+std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
