@@ -423,7 +423,7 @@ class TestRepro(NVFuserTest):
             nvfuser_fusion_id0(fd)
 
         inputs = []
-        fd.execute(inputs)
+        fd.validate(inputs)
 
     def test_ws_tma_normalization1(self):
         # Bug 5374765: Gemma-7b model fail with "Found two vectorized domains ... only one is allowed"
