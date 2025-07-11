@@ -830,7 +830,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
-      return {a.as<bool>() ? b : c};
+      return {where(a, b, c)};
       break;
     default:
       NVF_CHECK(
