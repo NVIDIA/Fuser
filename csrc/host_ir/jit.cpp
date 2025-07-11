@@ -41,7 +41,7 @@
 
 namespace nvfuser {
 
-using main_func_t = std::function<at::Tensor**(const at::Tensor**)>;
+using main_func_t = std::function<void**(const void**)>;
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kAllocateTensorFuncName = "allocate_tensor";
@@ -126,17 +126,17 @@ void registerExternalFunction(
 void compileLoadStoreOp(
     LoadStoreOp* load_store_op,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
+    std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   NVF_ERROR(
       load_store_op->opType() == LoadStoreOpType::Set ||
       load_store_op->opType() == LoadStoreOpType::SegmenterSet);
   NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-  auto* in_tv = load_store_op->in()->as<TensorView>();
-  auto* out_tv = load_store_op->out()->as<TensorView>();
-  auto it = tv2atenMap.find(in_tv);
-  NVF_ERROR(it != tv2atenMap.end(), "input tensor is not found in tv2atenMap");
+  auto* in_tv = load_store_op->in()->as<Val>();
+  auto* out_tv = load_store_op->out()->as<Val>();
+  auto it = val_to_value.find(in_tv);
+  NVF_ERROR(
+      it != val_to_value.end(), "input tensor is not found in val_to_value");
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Value* in_tensor_ptr = it->second;
 
@@ -150,8 +150,8 @@ void compileLoadStoreOp(
   llvm::Function* set_tensor_func = mod->getFunction(kSetTensorFuncName);
   builder.CreateCall(set_tensor_func, {out_tensor_ptr, in_tensor_ptr});
 
-  // bind the output tensor to tv2atenMap
-  tv2atenMap[out_tv] = out_tensor_ptr;
+  // bind the output tensor to val_to_value
+  val_to_value[out_tv] = out_tensor_ptr;
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     auto* func = builder.GetInsertBlock()->getParent();
@@ -163,8 +163,7 @@ void compileLoadStoreOp(
 void compileMainFuncInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
+    std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& ctx = builder.getContext();
 
   // Get the current function (main) and its first argument
@@ -172,7 +171,7 @@ void compileMainFuncInputs(
   llvm::Value* aten_tensor_array_ptr = func->getArg(0);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(ctx);
-  // bind input aten tensor sizes to val2llvmMap
+  // bind input aten tensor sizes to val_to_value
   for (size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
     if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
@@ -183,22 +182,22 @@ void compileMainFuncInputs(
       llvm::Value* aten_tensor_ptr =
           builder.CreateLoad(getInt8PtrType(ctx), aten_tensor_ptr_addr);
       aten_tensor_ptr->setName("input_aten_tensor");
-      // bind input aten tensor sizes to val2llvmMap
+      // bind input aten tensor sizes to val_to_value
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
       for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
         if (logical_domain[dim]->isBroadcast()) {
-          val2llvmMap[logical_domain[dim]->extent()] = builder.getInt64(1);
+          val_to_value[logical_domain[dim]->extent()] = builder.getInt64(1);
           if (logical_domain[dim]->hasExpandedExtent()) {
-            val2llvmMap[logical_domain[dim]->expandedExtent()] =
+            val_to_value[logical_domain[dim]->expandedExtent()] =
                 generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
           }
         } else {
-          val2llvmMap[logical_domain[dim]->extent()] =
+          val_to_value[logical_domain[dim]->extent()] =
               generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
         }
       }
-      // bind input aten tensor to tv2atenMap
-      tv2atenMap[tv] = aten_tensor_ptr;
+      // bind input aten tensor to val_to_value
+      val_to_value[tv->as<Val>()] = aten_tensor_ptr;
     } else {
       NVF_THROW("Unsupported expression type: ", input);
     }
@@ -213,8 +212,7 @@ void compileMainFuncInputs(
 void compileMainFuncOutputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
-    std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
+    std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   int num_outputs = container->outputs().size();
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::LLVMContext& ctx = builder.getContext();
@@ -235,7 +233,7 @@ void compileMainFuncOutputs(
       llvm::Value* aten_tensor_ptr = builder.CreateGEP(
           aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
       aten_tensor_ptr->setName("output_aten_tensor");
-      builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
+      builder.CreateStore(val_to_value[tv->as<Val>()], aten_tensor_ptr);
     } else {
       NVF_THROW("Unsupported expression type: ", output);
     }
@@ -283,7 +281,7 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
       kSetTensorFuncName,
       mod);
 
-  // main function: at::Tensor** main(at::Tensor** input_tensors)
+  // main function: void** main(void** input_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(
       void_array_ptr_type, {void_array_ptr_type}, false);
   llvm::Function::Create(
@@ -298,8 +296,7 @@ void compile(HostIrJitImpl* pimpl) {
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
   llvm::IRBuilder<> builder(*ctx);
-  std::unordered_map<Val*, llvm::Value*> val2llvmMap;
-  std::unordered_map<TensorView*, llvm::Value*> tv2atenMap;
+  std::unordered_map<Val*, llvm::Value*> val_to_value;
 
   // compile external functions and main function declarations
   compileFunctionDeclarations(mod.get(), *ctx);
@@ -310,22 +307,19 @@ void compile(HostIrJitImpl* pimpl) {
   builder.SetInsertPoint(entry);
 
   // bind the constants
-  compileMainFuncInputs(
-      pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
+  compileMainFuncInputs(pimpl->container.get(), builder, val_to_value);
 
   // compile all top level expressions in host ir container
   for (auto* expr : pimpl->container->topLevelExprs()) {
     if (expr->isA<LoadStoreOp>()) {
-      compileLoadStoreOp(
-          expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
+      compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val_to_value);
     } else {
       NVF_THROW("Unsupported expression type: ", expr);
     }
   }
 
   // Collect output tensors and garbage collect intermediate tensors
-  compileMainFuncOutputs(
-      pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
+  compileMainFuncOutputs(pimpl->container.get(), builder, val_to_value);
 
   // verify the module
   std::string error;
@@ -341,7 +335,7 @@ void compile(HostIrJitImpl* pimpl) {
 
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup(kMainFuncName));
-  using main_func_ptr_t = at::Tensor** (*)(const at::Tensor**);
+  using main_func_ptr_t = void** (*)(const void**);
   pimpl->main_func =
       reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
 }
@@ -417,7 +411,7 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
   NVF_ERROR_EQ(std::ssize(pimpl_->container->inputs()), args.size());
 
-  std::vector<const at::Tensor*> input_aten_tensors;
+  std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
   for (auto&& [in_val, arg] : zip(pimpl_->container->inputs(), args)) {
     if (arg.is<at::Tensor>()) {
@@ -430,17 +424,18 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors =
-      pimpl_->main_func(input_aten_tensors.data());
+  void** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
   for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
     auto* output = pimpl_->container->outputs()[i];
     if (output->isA<TensorView>()) {
-      outputs.push(at::Tensor(*output_aten_tensors[i]));
+      // Cast void* to at::Tensor* first, then dereference
+      at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
+      outputs.push(*tensor_ptr);
       // Clean up the individual tensor object (not the array)
-      delete output_aten_tensors[i];
+      delete tensor_ptr;
     } else {
       NVF_THROW("Unsupported output type: ", output);
     }
@@ -454,7 +449,7 @@ KernelArgumentHolder HostIrJit::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::runWithInput");
   // Bind the inputs to the tensor map
-  std::vector<const at::Tensor*> input_aten_tensors;
+  std::vector<const void*> input_aten_tensors;
   for (auto&& [in_val, arg] : val_to_PValue) {
     if (arg.is<at::Tensor>()) {
       input_aten_tensors.push_back(&arg.as<at::Tensor>());
@@ -466,17 +461,18 @@ KernelArgumentHolder HostIrJit::runWithInput(
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors =
-      pimpl_->main_func(input_aten_tensors.data());
+  void** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
   for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
     auto* output = pimpl_->container->outputs()[i];
     if (output->isA<TensorView>()) {
-      outputs.push(at::Tensor(*output_aten_tensors[i]));
+      // Cast void* to at::Tensor* first, then dereference
+      at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
+      outputs.push(*tensor_ptr);
       // Clean up the individual tensor object (not the array)
-      delete output_aten_tensors[i];
+      delete tensor_ptr;
     } else {
       NVF_THROW("Unsupported output type: ", output);
     }
