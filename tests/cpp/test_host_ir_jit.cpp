@@ -50,6 +50,25 @@ TEST_F(HostIrJitTest, Set) {
   }
 }
 
+TEST_F(HostIrJitTest, HostIrContainer) {
+  auto hic = std::make_unique<HostIrContainer>(1);
+  FusionGuard::setCurFusion(hic.get());
+
+  int num_inputs = std::rand() % 10 + 1;
+  for (int i = 0; i < num_inputs; i++) {
+    auto hic_in = makeSymbolicTensor(2);
+    auto hic_out = set(hic_in);
+    hic->addInput(hic_in);
+    hic->addOutput(hic_out);
+    hic->pushBackTopLevelExprs(hic_out->definition());
+  }
+  HostIrJit jit(std::move(hic));
+  EXPECT_EQ(jit.getHostIrContainer().inputs().size(), num_inputs);
+  EXPECT_EQ(jit.getHostIrContainer().outputs().size(), num_inputs);
+  EXPECT_EQ(jit.inputs().size(), num_inputs);
+  EXPECT_EQ(jit.outputs().size(), num_inputs);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
