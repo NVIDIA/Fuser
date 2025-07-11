@@ -55,7 +55,7 @@ llvm::Value* generateTensorSizeExtraction(
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
-  public:
+ public:
   std::unique_ptr<llvm::orc::LLJIT> jit;
   std::unique_ptr<hir::HostIrContainer> container;
   main_func_t main_func;
@@ -78,18 +78,15 @@ T throwIfError(llvm::Expected<T>&& E) {
   return std::move(*E);
 }
 
-enum class JitDataType {  
-  void_ptr,
-  void_array_ptr,
-  int64_t
-};
+enum class JitDataType { void_ptr, void_array_ptr, int64_t };
 
 llvm::Type* getType(JitDataType type, llvm::LLVMContext& ctx) {
-  switch(type) {
+  switch (type) {
     case JitDataType::void_ptr:
       return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx));
     case JitDataType::void_array_ptr:
-      return llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
+      return llvm::PointerType::getUnqual(
+          llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(ctx)));
     case JitDataType::int64_t:
       return llvm::Type::getInt64Ty(ctx);
     default:
@@ -98,8 +95,9 @@ llvm::Type* getType(JitDataType type, llvm::LLVMContext& ctx) {
   return nullptr;
 }
 
-// NOTE: this is just a simple example of allocate a output tensor and set it to input tensor
-// The whole concept to to demonstrate llvm jit works, we will change this in the future
+// NOTE: this is just a simple example of allocate a output tensor and set it to
+// input tensor The whole concept to to demonstrate llvm jit works, we will
+// change this in the future
 void compileLoadStoreOp(
     LoadStoreOp* load_store_op,
     llvm::IRBuilder<>& builder,
@@ -118,8 +116,10 @@ void compileLoadStoreOp(
   llvm::Value* in_tensor_ptr = it->second;
 
   // allocate a new tensor
-  llvm::Function* allocate_tensor_func = mod->getFunction(allocate_tensor_func_name);
-  llvm::Value* out_tensor_ptr = builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
+  llvm::Function* allocate_tensor_func =
+      mod->getFunction(allocate_tensor_func_name);
+  llvm::Value* out_tensor_ptr =
+      builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
 
   // set the output tensor to the input tensor
   llvm::Function* set_tensor_func = mod->getFunction(set_tensor_func_name);
@@ -134,7 +134,6 @@ void compileLoadStoreOp(
     llvm::outs() << "=== LLVM IR Generation for LoadStoreOp ===\n";
     func->print(llvm::outs(), nullptr);
   }
-
 }
 
 void compileMainFuncInputs(
@@ -142,21 +141,24 @@ void compileMainFuncInputs(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
-    llvm::LLVMContext& ctx = builder.getContext();
-    
-    // Get the current function (main) and its first argument
-    llvm::Function* func = builder.GetInsertBlock()->getParent();
-    llvm::Value* aten_tensor_array_ptr = func->getArg(0);
-    
-    llvm::Type* aten_tensor_array_type = getType(JitDataType::void_array_ptr, ctx);
+  llvm::LLVMContext& ctx = builder.getContext();
+
+  // Get the current function (main) and its first argument
+  llvm::Function* func = builder.GetInsertBlock()->getParent();
+  llvm::Value* aten_tensor_array_ptr = func->getArg(0);
+
+  llvm::Type* aten_tensor_array_type =
+      getType(JitDataType::void_array_ptr, ctx);
   // bind input aten tensor sizes to val2llvmMap
-    for(size_t i = 0; i < container->inputs().size(); ++i) {
+  for (size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
-    if(TensorView* tv = dynamic_cast<TensorView*>(input)) {
-      llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
+      llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(
+          aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
       aten_tensor_ptr_addr->setName("input_aten_tensor_addr");
       // Load the actual tensor pointer from the array
-      llvm::Value* aten_tensor_ptr = builder.CreateLoad(getType(JitDataType::void_ptr, ctx), aten_tensor_ptr_addr);
+      llvm::Value* aten_tensor_ptr = builder.CreateLoad(
+          getType(JitDataType::void_ptr, ctx), aten_tensor_ptr_addr);
       aten_tensor_ptr->setName("input_aten_tensor");
       // bind input aten tensor sizes to val2llvmMap
       auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
@@ -164,10 +166,12 @@ void compileMainFuncInputs(
         if (logical_domain[dim]->isBroadcast()) {
           val2llvmMap[logical_domain[dim]->extent()] = builder.getInt64(1);
           if (logical_domain[dim]->hasExpandedExtent()) {
-            val2llvmMap[logical_domain[dim]->expandedExtent()] = generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
+            val2llvmMap[logical_domain[dim]->expandedExtent()] =
+                generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
           }
         } else {
-          val2llvmMap[logical_domain[dim]->extent()] = generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
+          val2llvmMap[logical_domain[dim]->extent()] =
+              generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
         }
       }
       // bind input aten tensor to tv2atenMap
@@ -187,64 +191,78 @@ void compileMainFuncOutputs(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     std::unordered_map<TensorView*, llvm::Value*>& tv2atenMap) {
-    int num_outputs = container->outputs().size();
-    llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
-    llvm::LLVMContext& ctx = builder.getContext();
-    llvm::Type* aten_tensor_array_type = llvm::ArrayType::get(getType(JitDataType::void_ptr, ctx), num_outputs);
+  int num_outputs = container->outputs().size();
+  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::LLVMContext& ctx = builder.getContext();
+  llvm::Type* aten_tensor_array_type =
+      llvm::ArrayType::get(getType(JitDataType::void_ptr, ctx), num_outputs);
 
-    llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
-        *mod, 
-        aten_tensor_array_type, 
-        false,
-        llvm::GlobalValue::InternalLinkage,
-        llvm::ConstantAggregateZero::get(aten_tensor_array_type),
-        "output_array"
-    );
+  llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
+      *mod,
+      aten_tensor_array_type,
+      false,
+      llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantAggregateZero::get(aten_tensor_array_type),
+      "output_array");
 
-    for(size_t i = 0; i < container->outputs().size(); ++i) {
-      auto* output = container->outputs()[i];
-      if(TensorView* tv = dynamic_cast<TensorView*>(output)) {
-        llvm::Value* aten_tensor_ptr = builder.CreateGEP(aten_tensor_array_type, aten_tensor_array_ptr, 
-        {builder.getInt64(i)});
-        aten_tensor_ptr->setName("output_aten_tensor"); 
-        builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
-      }
+  for (size_t i = 0; i < container->outputs().size(); ++i) {
+    auto* output = container->outputs()[i];
+    if (TensorView* tv = dynamic_cast<TensorView*>(output)) {
+      llvm::Value* aten_tensor_ptr = builder.CreateGEP(
+          aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+      aten_tensor_ptr->setName("output_aten_tensor");
+      builder.CreateStore(tv2atenMap[tv], aten_tensor_ptr);
     }
-    llvm::Value* result = builder.CreateBitCast(aten_tensor_array_ptr, getType(JitDataType::void_array_ptr, ctx));
-    builder.CreateRet(result);
+  }
+  llvm::Value* result = builder.CreateBitCast(
+      aten_tensor_array_ptr, getType(JitDataType::void_array_ptr, ctx));
+  builder.CreateRet(result);
 
-    const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
-    if (debug_print) {
-      llvm::outs() << "=== LLVM IR Generation for Main Function Outputs ===\n";
-      mod->print(llvm::outs(), nullptr);
-    }
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
+    llvm::outs() << "=== LLVM IR Generation for Main Function Outputs ===\n";
+    mod->print(llvm::outs(), nullptr);
+  }
 }
 
-
-void compileFunctionDeclarations(
-    llvm::Module* mod,
-    llvm::LLVMContext& ctx) {
-
+void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
   // get the types
   auto* void_ptr_type = getType(JitDataType::void_ptr, ctx);
   auto* void_array_ptr_type = getType(JitDataType::void_array_ptr, ctx);
   auto* int64_t_type = getType(JitDataType::int64_t, ctx);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
-  llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(int64_t_type, {void_ptr_type, int64_t_type}, false);
-  llvm::Function::Create(tensor_size_type, llvm::Function::ExternalLinkage, tensor_size_func_name, mod);
+  llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(
+      int64_t_type, {void_ptr_type, int64_t_type}, false);
+  llvm::Function::Create(
+      tensor_size_type,
+      llvm::Function::ExternalLinkage,
+      tensor_size_func_name,
+      mod);
 
-  llvm::FunctionType* allocate_tensor_type = llvm::FunctionType::get(void_ptr_type, {}, false);
-  llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, allocate_tensor_func_name, mod);
+  llvm::FunctionType* allocate_tensor_type =
+      llvm::FunctionType::get(void_ptr_type, {}, false);
+  llvm::Function::Create(
+      allocate_tensor_type,
+      llvm::Function::ExternalLinkage,
+      allocate_tensor_func_name,
+      mod);
 
-  // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor* other_tensor)
-  llvm::FunctionType* set_tensor_type = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), {void_ptr_type, void_ptr_type}, false);
-  llvm::Function::Create(set_tensor_type, llvm::Function::ExternalLinkage, set_tensor_func_name, mod);
+  // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor*
+  // other_tensor)
+  llvm::FunctionType* set_tensor_type = llvm::FunctionType::get(
+      llvm::Type::getVoidTy(ctx), {void_ptr_type, void_ptr_type}, false);
+  llvm::Function::Create(
+      set_tensor_type,
+      llvm::Function::ExternalLinkage,
+      set_tensor_func_name,
+      mod);
 
   // main function: at::Tensor** main(at::Tensor** input_tensors)
-  llvm::FunctionType* main_type = llvm::FunctionType::get(void_array_ptr_type, {void_array_ptr_type}, false);
-  llvm::Function::Create(main_type, llvm::Function::ExternalLinkage, main_func_name, mod);
-
+  llvm::FunctionType* main_type = llvm::FunctionType::get(
+      void_array_ptr_type, {void_array_ptr_type}, false);
+  llvm::Function::Create(
+      main_type, llvm::Function::ExternalLinkage, main_func_name, mod);
 }
 
 void compile(HostIrJitImpl* pimpl) {
@@ -262,40 +280,47 @@ void compile(HostIrJitImpl* pimpl) {
   compileFunctionDeclarations(mod.get(), *ctx);
 
   // Create entry block and set insertion point
-  llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction(main_func_name));
+  llvm::BasicBlock* entry =
+      llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction(main_func_name));
   builder.SetInsertPoint(entry);
-     
+
   // bind the constants
-  compileMainFuncInputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
-  
+  compileMainFuncInputs(
+      pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
+
   // compile all top level expressions in host ir container
-  for(auto* expr : pimpl->container->topLevelExprs()) {
-    if(expr->isA<LoadStoreOp>()) {
-      compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
+  for (auto* expr : pimpl->container->topLevelExprs()) {
+    if (expr->isA<LoadStoreOp>()) {
+      compileLoadStoreOp(
+          expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
     }
   }
 
   // Collect output tensors and garbage collect intermediate tensors
-  compileMainFuncOutputs(pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
+  compileMainFuncOutputs(
+      pimpl->container.get(), builder, val2llvmMap, tv2atenMap);
 
   // verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
   NVF_ERROR(
       !llvm::verifyModule(*mod, &error_stream),
-      "LLVM module verification failed: ", error);
+      "LLVM module verification failed: ",
+      error);
 
   // Add the module to the JIT
   throwIfError(pimpl->jit->addIRModule(
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
- 
+
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup(main_func_name));
-  using main_func_ptr_t = at::Tensor**(*)(const at::Tensor**);
-  pimpl->main_func = reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
+  using main_func_ptr_t = at::Tensor** (*)(const at::Tensor**);
+  pimpl->main_func =
+      reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
 }
 
-// Helper function to generate LLVM IR that extracts tensor size for a given dimension
+// Helper function to generate LLVM IR that extracts tensor size for a given
+// dimension
 llvm::Value* generateTensorSizeExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
@@ -309,13 +334,13 @@ llvm::Value* generateTensorSizeExtraction(
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
 }
 
-
-
 // NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
 // find complete type of LlvmJitImpl
 HostIrJit::~HostIrJit() = default;
 
-HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_threads)
+HostIrJit::HostIrJit(
+    std::unique_ptr<hir::HostIrContainer> container,
+    int num_threads)
     : pimpl_(new HostIrJitImpl) {
   // Initialize params with passed parameters
   pimpl_->container = std::move(container);
@@ -335,36 +360,45 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   // tensor size and stride extraction functions
   void* extract_tensor_size_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        NVF_ERROR(tensor_ptr != nullptr, tensor_size_func_name, " tensor_ptr is nullptr");
+        NVF_ERROR(
+            tensor_ptr != nullptr,
+            tensor_size_func_name,
+            " tensor_ptr is nullptr");
         return tensor_ptr->size(dim);
       });
 
   // raw tensor allocation, we only allocate a wrapper here
   void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
-      +[]() -> at::Tensor* {
-        return new at::Tensor();
-      });
+      +[]() -> at::Tensor* { return new at::Tensor(); });
 
   // in place tensor update
   void* set_tensor_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor_ptr, at::Tensor* other_tensor_ptr) -> void {
-        NVF_ERROR(tensor_ptr != nullptr, set_tensor_func_name, " tensor_ptr is nullptr");
-        NVF_ERROR(other_tensor_ptr != nullptr, set_tensor_func_name, " other_tensor_ptr is nullptr");
-        *tensor_ptr = other_tensor_ptr->clone();  // Clone the input tensor
+        NVF_ERROR(
+            tensor_ptr != nullptr,
+            set_tensor_func_name,
+            " tensor_ptr is nullptr");
+        NVF_ERROR(
+            other_tensor_ptr != nullptr,
+            set_tensor_func_name,
+            " other_tensor_ptr is nullptr");
+        *tensor_ptr = other_tensor_ptr->clone(); // Clone the input tensor
       });
 
   // Register wrapper functions in JIT
-  auto extract_tensor_size_addr = llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
-  auto allocate_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(allocate_tensor_func_ptr);
+  auto extract_tensor_size_addr =
+      llvm::orc::ExecutorAddr::fromPtr(extract_tensor_size_func_ptr);
+  auto allocate_tensor_addr =
+      llvm::orc::ExecutorAddr::fromPtr(allocate_tensor_func_ptr);
   auto set_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(set_tensor_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
-  symbolMap[mangler(tensor_size_func_name)] = 
-      llvm::orc::ExecutorSymbolDef(extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler(allocate_tensor_func_name)] = 
-      llvm::orc::ExecutorSymbolDef(allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
-  symbolMap[mangler(set_tensor_func_name)] = 
-      llvm::orc::ExecutorSymbolDef(set_tensor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler(tensor_size_func_name)] = llvm::orc::ExecutorSymbolDef(
+      extract_tensor_size_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler(allocate_tensor_func_name)] = llvm::orc::ExecutorSymbolDef(
+      allocate_tensor_addr, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler(set_tensor_func_name)] = llvm::orc::ExecutorSymbolDef(
+      set_tensor_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
@@ -383,26 +417,28 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   for (auto&& [in_val, arg] : zip(pimpl_->container->inputs(), args)) {
     if (arg.is<at::Tensor>()) {
       input_aten_tensors.push_back(&arg.as<at::Tensor>());
-    }
-    else{
-      // TODO: handle other primitive types so we can just align them to input of main function
+    } else {
+      // TODO: handle other primitive types so we can just align them to input
+      // of main function
     }
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
+  at::Tensor** output_aten_tensors =
+      pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for(size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
+  for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
     auto* output = pimpl_->container->outputs()[i];
-    if(output->isA<TensorView>()) {
+    if (output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
       // Clean up the individual tensor object (not the array)
       delete output_aten_tensors[i];
     }
   }
-  // Note: output_aten_tensors points to a global array managed by JIT, don't delete the array itself
+  // Note: output_aten_tensors points to a global array managed by JIT, don't
+  // delete the array itself
   return outputs;
 }
 
@@ -414,26 +450,28 @@ KernelArgumentHolder HostIrJit::runWithInput(
   for (auto&& [in_val, arg] : val_to_PValue) {
     if (arg.is<at::Tensor>()) {
       input_aten_tensors.push_back(&arg.as<at::Tensor>());
-    }
-    else{
-      // TODO: handle other primitive types so we can just align them to input of main function
+    } else {
+      // TODO: handle other primitive types so we can just align them to input
+      // of main function
     }
   }
 
   // Run the main function
-  at::Tensor** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
+  at::Tensor** output_aten_tensors =
+      pimpl_->main_func(input_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for(size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
+  for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
     auto* output = pimpl_->container->outputs()[i];
-    if(output->isA<TensorView>()) {
+    if (output->isA<TensorView>()) {
       outputs.push(at::Tensor(*output_aten_tensors[i]));
       // Clean up the individual tensor object (not the array)
       delete output_aten_tensors[i];
     }
   }
-  // Note: output_aten_tensors points to a global array managed by JIT, don't delete the array itself
+  // Note: output_aten_tensors points to a global array managed by JIT, don't
+  // delete the array itself
   return outputs;
 }
 
@@ -456,7 +494,5 @@ const hir::HostIrContainer& HostIrJit::getHostIrContainer() const {
 std::ostream& HostIrJit::print(std::ostream& os) const {
   return pimpl_->container->print(os);
 }
-
-
 
 } // namespace nvfuser

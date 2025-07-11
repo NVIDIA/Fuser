@@ -21,8 +21,7 @@ class HostIrJit {
       std::unique_ptr<hir::HostIrContainer> container,
       int num_threads = kHostIrJitCompileThreads);
 
-  KernelArgumentHolder runWithInputs(
-      const KernelArgumentHolder& args);
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   KernelArgumentHolder runWithInput(
       const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
