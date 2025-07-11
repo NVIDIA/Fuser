@@ -752,7 +752,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     }
     if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
       std::string sass_str =
-          disassembleBinary(compiled_kernel->cubin, "-fun 1 -c");
+          disassembleBinary(compiled_kernel->cubin, "-c");
       compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
       compiled_kernel->sass_filename =
           dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
@@ -1413,7 +1413,7 @@ std::string CompiledKernel::getStructuredCode() const {
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
-  return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
+  return disassembleBinary(compiled_kernel_->cubin, "-c");
 }
 
 void CompiledKernel::createKernelId() {
