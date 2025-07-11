@@ -280,8 +280,8 @@ class TestRepro(NVFuserTest):
             T101 = fd.ops.broadcast_in_dim(
                 T94, shape=[4, 32, 1, 1, 1], broadcast_dims=[0, 1]
             )
-            T102 = fd.ops.mul(T1, T1)
-            T103 = fd.ops.mul(T1, T102)
+            S102 = fd.define_scalar(3.00000, dtype=DataType.Double)
+            T103 = fd.ops.pow(T1, S102)
             S104 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T105 = fd.ops.mul(S104, T101)
             T106 = fd.ops.mul(T26, T92)
@@ -487,7 +487,7 @@ class TestRepro(NVFuserTest):
             T30 = fd.ops.sum(T29, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T35 = fd.ops.broadcast_in_dim(T30, shape=[1, 4096, 1], broadcast_dims=[1])
             S36 = fd.define_scalar(3.00000, dtype=DataType.Float)
-            T37 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
+            T37 = fd.ops.pow(T4, S36)
             S38 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T39 = fd.ops.mul(S38, T35)
             T40 = fd.ops.mul(T39, T37)
@@ -609,7 +609,7 @@ class TestRepro(NVFuserTest):
                 T4, shape=[288, 512, 128], broadcast_dims=[0, 1, 2]
             )
             S42 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T43 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
+            T43 = fd.ops.pow(T4, S42)
             S44 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T45 = fd.ops.mul(S44, T36)
             T46 = fd.ops.mul(T41, T28)
@@ -742,7 +742,7 @@ class TestRepro(NVFuserTest):
             T20 = fd.ops.sum(T19, dims=[0, 2], keepdim=False, dtype=DataType.Null)
             T25 = fd.ops.broadcast_in_dim(T20, shape=[1, 4096, 1], broadcast_dims=[1])
             S26 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T27 = fd.ops.mul(T3, fd.ops.mul(T3, T3))
+            T27 = fd.ops.pow(T3, S26)
             S28 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T29 = fd.ops.mul(S28, T25)
             T30 = fd.ops.mul(T29, T27)
@@ -842,7 +842,7 @@ class TestRepro(NVFuserTest):
                 T19, shape=[14, 2048, 1], broadcast_dims=[0, 1]
             )
             S25 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T26 = fd.ops.mul(T3, fd.ops.mul(T3, T3))
+            T26 = fd.ops.pow(T3, S25)
             S27 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T28 = fd.ops.mul(S27, T24)
             T29 = fd.ops.mul(T28, T26)
@@ -980,7 +980,7 @@ class TestRepro(NVFuserTest):
                 T6, shape=[1, 16384, 2560], broadcast_dims=[2]
             )
             S55 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T56 = fd.ops.mul(T4, fd.ops.mul(T4, T4))
+            T56 = fd.ops.pow(T4, S55)
             S57 = fd.define_scalar(-0.500000, dtype=DataType.Double)
             T58 = fd.ops.mul(S57, T39)
             T59 = fd.ops.mul(T44, T31)

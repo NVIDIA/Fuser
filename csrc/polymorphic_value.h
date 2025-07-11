@@ -459,6 +459,43 @@ inline PolymorphicValue where(
   }
 }
 
+inline PolymorphicValue pow(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor && b_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), b.as<at::Tensor>()));
+  } else if (a_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), toScalar(b)));
+  } else if (b_is_tensor) {
+    return PolymorphicValue(at::pow(toScalar(a), b.as<at::Tensor>()));
+  } else {
+    // no tensor involved, use std::pow, at::pow doesn't support scalar^scalar
+    if (a.is<int64_t>()) {
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<int64_t>()));
+      }
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<double>()));
+      }
+    }
+    if (a.is<double>()) {
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<double>()));
+      }
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<int64_t>()));
+      }
+    }
+    NVF_THROW(
+        "PolymorphicValue pow not implemented for ",
+        a.type().name(),
+        " , ",
+        b.type().name());
+  }
+}
+
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 
 inline bool isScalar(const PolymorphicValue& x);
