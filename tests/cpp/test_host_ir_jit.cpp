@@ -23,7 +23,7 @@ namespace hir {
 
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
-TEST_F(HostIrJitTest, TestHostIrJit) {
+TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
@@ -37,12 +37,17 @@ TEST_F(HostIrJitTest, TestHostIrJit) {
 
   HostIrJit jit(std::move(hic));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({32, 32}, options);
-  auto output_args = jit.runWithInput({{hic_in, t0}});
-  auto output = output_args[0].as<at::Tensor>();
+  int run_iterations = 10;
+  for (int i = 0; i < run_iterations; i++) {
+    int dim0 = std::rand() % 100 + 1;
+    int dim1 = std::rand() % 100 + 1;
+    at::Tensor t0 = at::randn({dim0, dim1}, options);
+    auto output_args = jit.runWithInput({{hic_in, t0}});
+    auto output = output_args[0].as<at::Tensor>();
 
-  EXPECT_EQ(output.sizes(), t0.sizes());
-  EXPECT_EQ(output.strides(), t0.strides());
+    EXPECT_EQ(output.sizes(), t0.sizes());
+    EXPECT_EQ(output.strides(), t0.strides());
+  }
 }
 
 } // namespace hir
