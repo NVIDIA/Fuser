@@ -17,8 +17,6 @@
 
 namespace nvfuser {
 
-using FP4RecipeTest = NVFuserTest;
-
 // Testing the following function:
 // https://github.com/pytorch/ao/blob/b1163dc63dfa22d403586672fd3648cd661c5003/torchao/prototype/mx_formats/nvfp4_tensor.py#L545-L617
 //
@@ -105,7 +103,7 @@ constexpr double F4_E2M1_MAX = 6.0;
 constexpr double E4M3_EPS = 0.015625;
 constexpr double F8E4M3_MAX = 448.0;
 
-class NVFP4QuantizeTest : public FP4RecipeTest,
+class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
