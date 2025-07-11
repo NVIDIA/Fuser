@@ -6228,14 +6228,15 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
       bool cutlass_can_run = true;
       // NOTE: this felt ugly. I should go fix up the validate input
       try {
-        cutlass_kernels::validateInputsNvfp4ScaledMm(mat1_view, mat2_view, scale1, scale2, alpha);
-      } catch(...) {
+        cutlass_kernels::validateInputsNvfp4ScaledMm(
+            mat1_view, mat2_view, scale1, scale2, alpha);
+      } catch (...) {
         cutlass_can_run = false;
       }
 
       if (cutlass_can_run) {
         return {cutlass_kernels::nvfp4_scaled_mm(
-              mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type)};
+            mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type)};
       }
     }
   }
