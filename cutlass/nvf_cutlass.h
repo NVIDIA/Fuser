@@ -48,4 +48,14 @@ void nvfp4_scaled_grouped_mm(
     const torch::Tensor& expert_offsets,
     const torch::Tensor& sf_offsets);
 
+void grouped_mm(
+    torch::Tensor& output,
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& alphas,
+    const torch::Tensor& ab_strides,
+    const torch::Tensor& c_strides,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets);
+
 } // namespace nvfuser::cutlass_kernels

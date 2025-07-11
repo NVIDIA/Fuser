@@ -32,6 +32,10 @@ void bindGroupedGemm(py::module_& cutlass) {
       "nvfp4_scaled_grouped_mm",
       &cutlass_kernels::nvfp4_scaled_grouped_mm,
       nvfp4_scaled_grouped_mm_docstring);
+  const char* grouped_mm_docstring =
+      R"(grouped_mm(Tensor! output, Tensor a, Tensor b, Tensor alphas, Tensor "
+         "ab_strides, Tensor c_strides, Tensor problem_sizes, Tensor expert_offsets) -> ())";
+  cutlass.def("grouped_mm", &cutlass_kernels::grouped_mm, grouped_mm_docstring);
 }
 
 } // namespace
