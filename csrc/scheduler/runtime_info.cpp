@@ -65,7 +65,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
       // find and push discontiguous stride
       int64_t dtype_size_bit = dataTypeSizeBit(input_tv->dtype());
-      input_discontig_strides_[fusion_inp] = {};
+      input_discontig_strides_bytes_[fusion_inp] = {};
       auto dims = static_cast<int64_t>(alloc_strides.size());
       int64_t expected_stride = 1;
       for (int64_t dim = dims - 1; dim >= 0; dim--) {
@@ -83,7 +83,8 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
           NVF_ERROR(
               new_stride_bit % 8 == 0,
               "Stride must be a multiple of 8 bits (one byte)");
-          input_discontig_strides_[fusion_inp].push_back(new_stride_bit / 8);
+          input_discontig_strides_bytes_[fusion_inp].push_back(
+              new_stride_bit / 8);
           expected_stride = stride;
         }
         expected_stride *= size;
@@ -98,7 +99,7 @@ size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
     return input_ptrs_.at(tv);
   }
-  return max_alignment_size_in_byte;
+  return max_alignment_size_in_bit / 8;
 }
 
 std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
@@ -114,34 +115,37 @@ std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
   return ee;
 }
 
-size_t SchedulerRuntimeInfo::computeAlignmentSize(size_t ptr_address) {
-  size_t alignment_size = 1;
-  size_t next_alignment_size = 2;
+size_t SchedulerRuntimeInfo::computeAlignmentSizeBit(size_t ptr_address) {
+  ptr_address *= 8; // Convert to bits
+  size_t alignment_size_bit = 1;
+  size_t next_alignment_size_bit = 2;
 
-  while (next_alignment_size <= max_alignment_size_in_byte &&
-         ptr_address % next_alignment_size == 0) {
-    alignment_size = next_alignment_size;
-    next_alignment_size *= 2;
+  while (next_alignment_size_bit <= max_alignment_size_in_bit &&
+         ptr_address % next_alignment_size_bit == 0) {
+    alignment_size_bit = next_alignment_size_bit;
+    next_alignment_size_bit *= 2;
   }
-  return alignment_size;
+  return alignment_size_bit;
 }
 
-size_t SchedulerRuntimeInfo::getAlignmentSize(TensorView* tv) {
-  auto alignment_entry = alignment_map_.find(tv);
-  if (alignment_entry != alignment_map_.end()) {
+size_t SchedulerRuntimeInfo::getAlignmentSizeBit(TensorView* tv) {
+  auto alignment_entry = alignment_map_bit_.find(tv);
+  if (alignment_entry != alignment_map_bit_.end()) {
     return alignment_entry->second;
   }
 
-  auto alignment_size = SchedulerRuntimeInfo::computeAlignmentSize(ptrOf(tv));
-  auto strides_it = input_discontig_strides_.find(tv);
-  if (strides_it != input_discontig_strides_.end()) {
+  auto alignment_size_bit =
+      SchedulerRuntimeInfo::computeAlignmentSizeBit(ptrOf(tv));
+  auto strides_it = input_discontig_strides_bytes_.find(tv);
+  if (strides_it != input_discontig_strides_bytes_.end()) {
     for (auto stride : strides_it->second) {
-      alignment_size = std::min(
-          alignment_size, SchedulerRuntimeInfo::computeAlignmentSize(stride));
+      alignment_size_bit = std::min(
+          alignment_size_bit,
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(stride));
     }
   }
-  alignment_map_[tv] = alignment_size;
-  return alignment_size;
+  alignment_map_bit_[tv] = alignment_size_bit;
+  return alignment_size_bit;
 }
 
 } // namespace nvfuser
