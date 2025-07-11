@@ -42,14 +42,14 @@ TEST_F(HostIrJitTest, Set) {
   auto out1 = outs1[0].as<at::Tensor>();
 
   EXPECT_EQ(out1.sizes(), in.sizes()) << "Sizes are not equal:\n"
-                                     << "in = " << in << "\n"
-                                     << "out1 = " << out1;
-  EXPECT_EQ(out1.strides(), in.strides()) << "Strides are not equal:\n"
-                                         << "in = " << in << "\n"
-                                         << "out1 = " << out1;
-  EXPECT_EQ(at::equal(out1, in), true) << "Tensors are not equal:\n"
                                       << "in = " << in << "\n"
                                       << "out1 = " << out1;
+  EXPECT_EQ(out1.strides(), in.strides()) << "Strides are not equal:\n"
+                                          << "in = " << in << "\n"
+                                          << "out1 = " << out1;
+  EXPECT_EQ(at::equal(out1, in), true) << "Tensors are not equal:\n"
+                                       << "in = " << in << "\n"
+                                       << "out1 = " << out1;
 
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
@@ -60,11 +60,11 @@ TEST_F(HostIrJitTest, Set) {
                                       << "in = " << in << "\n"
                                       << "out2 = " << out2;
   EXPECT_EQ(out2.strides(), in.strides()) << "Strides are not equal:\n"
-                                         << "in = " << in << "\n"
-                                         << "out2 = " << out2;
+                                          << "in = " << in << "\n"
+                                          << "out2 = " << out2;
   EXPECT_EQ(at::equal(out2, in), true) << "Tensors are not equal:\n"
-                                      << "in = " << in << "\n"
-                                      << "out2 = " << out2;
+                                       << "in = " << in << "\n"
+                                       << "out2 = " << out2;
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
