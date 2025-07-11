@@ -1971,6 +1971,7 @@ F8E4M3_MAX_VAL = torch.finfo(torch.float8_e4m3fn).max
 # exponent bias of `torch.float8_e8m0fnu`
 F8E8M0_EXP_BIAS = 127
 
+F4E2M1_MAX_VAL = 6.0
 
 def data_to_mxfp8_scale(x, block_size):
     # simple implementation of https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf
@@ -1996,7 +1997,14 @@ def data_to_mxfp8(x, block_size):
     min_val = -1 * max_val
     x = (x.reshape(-1, block_size) / x_scale.reshape(-1, 1).float()).reshape(-1, K)
     x = x.clamp(min=min_val, max=max_val).to(torch.float8_e4m3fn)
-    return x, x_scale
+    return x, x_scale, None
+
+def data_to_nvfp4(x):
+    x_global_scale = ((F8E4M3_MAX_VAL * F4E2M1_MAX_VAL) / x.max()).to(torch.float32)
+
+    from nvfuser_direct import cutlass_nvfp4_quantize
+    x_u8, x_scale = cutlass_nvfp4_quantize(t0_ref, t0_global_scale)
+    return x_u8, x_scale, x_global_scale
 
 
 def scaled_mm_input_generator(
@@ -2027,18 +2035,23 @@ def scaled_mm_input_generator(
     # Test various group sizes and matrix dimensions
     # configs: list(m, k, n, output_dtype)
     configs = (
-        (128, 256, 512, torch.bfloat16),
-        (128, 128, 128, torch.bfloat16),
+        (128, 256, 512),
+        (128, 128, 128),
     )
 
-    # TODO: support nvfp4
-    assert dtype == torch.float8_e4m3fn
-    quantization = partial(data_to_mxfp8, block_size=32)
+    if dtype == torch.float8_e4m3fn:
+        quantization = partial(data_to_mxfp8, block_size=32)
+    elif dtype == torch.float4_e2m1fn_x2:
+        quantization = data_to_nvfp4
 
     for config in configs:
-        m, k, n, dtype = config
-        mat1_ref = make_arg((m, k))
-        mat2_ref = make_arg((n, k))
-        mat1, scale1 = quantization(mat1_ref)
-        mat2, scale2 = quantization(mat2_ref)
-        yield SampleInput(mat1, mat2.t(), scale1, scale2, None, None, None, dtype)
+        for out_dtype in [torch.float16, torch.bfloat_16]:
+            m, k, n = config
+            mat1_ref = make_arg((m, k))
+            mat2_ref = make_arg((n, k))
+            mat1, scale1, global_sf1 = quantization(mat1_ref)
+            mat2, scale2, global_sf2 = quantization(mat2_ref)
+            alpha = None if global_sf1 is None else 1.0 / (global_sf1 * global_sf2)
+            yield SampleInput(mat1, mat2.t(), scale1, scale2, alpha, None, None, out_dtype)
+
+    # TODO: support normal fp8 as requested by Masaki

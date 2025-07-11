@@ -24,6 +24,9 @@
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+#include <nvf_cutlass.h>
+#endif
 
 #include <torch/nn/options/embedding.h>
 
@@ -6163,9 +6166,6 @@ std::string ScaledMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
-  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
-  // we'll fallback with aten kernels
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& scale1 = inputs[2].as<at::Tensor>();
@@ -6205,6 +6205,46 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     beta = inputs[beta_offset].as<at::Tensor>();
   }
 
+  at::Tensor result;
+  at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  {
+    at::Tensor mat1_view = mat1;
+    // nvfp4_scaled_mm expected layout
+    at::Tensor mat2_view = mat2.t();
+
+    DataType in_dtype = matrix1()->dtype();
+
+    // TODO: check for contiguity
+    // nvfp4_scaled_mm expected Byte input dtype for fp4
+    if (in_dtype == DataType::Float4_e2m1fn ||
+        in_dtype == DataType::Float4_e2m1fn_x2) {
+      mat1_view = mat1_view.view(at::ScalarType::Byte);
+      mat2_view = mat2_view.view(at::ScalarType::Byte);
+    }
+
+    // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
+    if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
+      bool cutlass_can_run = true;
+      // NOTE: this felt ugly. I should go fix up the validate input
+      try {
+        cutlass_kernels::validateInputsNvfp4ScaledMm(
+            mat1_view, mat2_view, scale1, scale2, alpha);
+      } catch (...) {
+        cutlass_can_run = false;
+      }
+
+      if (cutlass_can_run) {
+        return {cutlass_kernels::nvfp4_scaled_mm(
+            mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type)};
+      }
+    }
+  }
+#endif
+
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
+  // we'll fallback with aten kernels
   // at::_scaled_mm has implementation limitations:
   NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
   NVF_CHECK(
@@ -6213,7 +6253,7 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   NVF_CHECK(
       outGamma() == nullptr,
       "output global scaling factor in ScaledMmaOp is not supported yet");
-  auto result = at::_scaled_mm(
+  result = at::_scaled_mm(
       mat1,
       mat2,
       scale1,
@@ -6228,10 +6268,9 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   return {result};
-
-#else
-  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
 #endif
+
+  NVF_THROW("Couldn't find fallback kernel for scaled_mm");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)

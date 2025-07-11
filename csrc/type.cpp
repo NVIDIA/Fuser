@@ -1738,6 +1738,10 @@ int64_t dataTypeSizeBit(DataType type) {
 
 int64_t dataTypeSizeByte(DataType type) {
   int64_t bits = dataTypeSizeBit(type);
+  // FIXME: this isn't right
+  if (bits < 8) {
+    return 1;
+  }
   NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
   return bits / 8;
 }
@@ -1755,6 +1759,10 @@ int64_t dataTypeSizeBit(DataType type, DataType index_type) {
 
 int64_t dataTypeSizeByte(DataType type, DataType index_type) {
   int64_t bits = dataTypeSizeBit(type, index_type);
+  // FIXME: this isn't right
+  if (bits < 8) {
+    return 1;
+  }
   NVF_CHECK(bits % 8 == 0, "Size is not a multiple of 8 bits.");
   return bits / 8;
 }
