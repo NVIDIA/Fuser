@@ -38,10 +38,10 @@ int64_t roundUpSharedMemory(
   return max_smem;
 }
 
-int64_t partialOuterReductionBufferSize(
+int64_t partialOuterReductionBufferSizeBit(
     const std::vector<TensorView*>& reduction_tvs,
     SchedulerRuntimeInfo& runtime_info) {
-  int64_t partial_reduction_buffer_size = 0;
+  int64_t partial_reduction_buffer_size_bit = 0;
   for (auto buffer : reduction_tvs) {
     if (scheduler_utils::isFastestDimReduction(buffer)) {
       continue;
@@ -61,11 +61,11 @@ int64_t partialOuterReductionBufferSize(
     }
     buffer_size = (buffer_size == -1) ? 0
                                       : buffer_size *
-            dataTypeSizeByte(buffer->getDataType().value(),
+            dataTypeSizeBit(buffer->getDataType().value(),
                              runtime_info.getIndexType());
-    partial_reduction_buffer_size += buffer_size;
+    partial_reduction_buffer_size_bit += buffer_size;
   }
-  return partial_reduction_buffer_size;
+  return partial_reduction_buffer_size_bit;
 }
 
 std::vector<TensorView*> sortProjectableBufferInputs(
@@ -215,7 +215,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         ? buffer_size_regs_bit
         : roundUpSharedMemory(
               buffer_size_regs_bit,
-              dataTypeSizeByte(buffer->getDataType().value()),
+              dataTypeSizeBit(buffer->getDataType().value()),
               vectorize_factor,
               threads_per_block_min,
               threads_per_block_max,
@@ -226,7 +226,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   }
   buffer_params.smem_buffer_size_bit = total_smem_buffer_size_bit;
   buffer_params.regs_buffer_size_bit +=
-      partialOuterReductionBufferSize(reduction_tvs, runtime_info);
+      partialOuterReductionBufferSizeBit(reduction_tvs, runtime_info);
   buffer_params.circular_buffered_smem_size_bit =
       buffer_params.smem_buffer_size_bit -
       buffer_params.non_circular_buffered_smem_size_bit;

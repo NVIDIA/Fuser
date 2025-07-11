@@ -32,7 +32,7 @@ int64_t roundUpSharedMemory(
 
 // Size of buffers storing intermediate outer reduction results
 // TODO: check if we can directly start with [buffer_size = 1]
-int64_t partialOuterReductionBufferSize(
+int64_t partialOuterReductionBufferSizeBit(
     const std::vector<TensorView*>& reduction_tvs,
     SchedulerRuntimeInfo& runtime_info);
 
