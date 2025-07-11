@@ -23,7 +23,8 @@ namespace nvfuser {
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("TransposeScheduler::canScheduleCompileTime");
   for (auto tv : fusion->allTvs()) {
-    if (dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(), "Does not support sub-byte data types.");
       return false;
