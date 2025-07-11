@@ -1372,7 +1372,6 @@ void DynamicTransformConcretizer::mutate(IterDomain* id) {
     IterDomain* new_mut_id =
         IterDomainBuilder(mut_id).iter_type(IterType::Iteration).build();
     registerConcretization(id, new_mut_id);
-    registerConcretization(mut_id, new_mut_id);
   }
 }
 
