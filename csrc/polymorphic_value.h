@@ -430,6 +430,35 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
   }
 }
 
+inline PolymorphicValue where(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  if (!a.is<at::Tensor>()) {
+    return a.as<bool>() ? b : c;
+  }
+  // dispatch to at::where with appropriate overload
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), c.as<at::Tensor>()));
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), toScalar(c)));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), c.as<at::Tensor>()));
+  } else {
+    // Both are scalars
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), toScalar(c)));
+  }
+}
+
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 
 inline bool isScalar(const PolymorphicValue& x);

@@ -433,7 +433,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         // If outer broadcast, or balanced broadcast:
         if (lhs_bit_multiple <= rhs_bit_multiple &&
             // If right transfer size is bigger than half of L2
-            at::cuda::getCurrentDeviceProperties()->l2CacheSize <
+            at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
                 right_transfer_size_bit * 2) {
           // flip BIDx and BIDy bindings
           flip_grid_binding = true;
