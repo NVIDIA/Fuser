@@ -28,7 +28,7 @@ class HostIrJit {
 
   const std::vector<Val*>& inputs() const;
   const std::vector<Val*>& outputs() const;
-  auto* container() const;
+  hir::HostIrContainer* container() const;
   const hir::HostIrContainer& getHostIrContainer() const;
   std::ostream& print(std::ostream& os) const;
 

@@ -289,7 +289,6 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
 }
 
 void compile(HostIrJitImpl* pimpl) {
-  FUSER_PERF_SCOPE("HostIrJit::compile");
   NVF_ERROR(
       pimpl->container != nullptr,
       "container is nullptr during host ir JIT compilation");
@@ -349,6 +348,7 @@ HostIrJit::HostIrJit(
     std::unique_ptr<hir::HostIrContainer> container,
     int num_threads)
     : pimpl_(new HostIrJitImpl) {
+  FUSER_PERF_SCOPE("HostIrJit::HostIrJit");
   // Initialize params with passed parameters
   pimpl_->container = std::move(container);
 
@@ -493,7 +493,7 @@ const std::vector<Val*>& HostIrJit::outputs() const {
   return pimpl_->container->outputs();
 }
 
-auto* HostIrJit::container() const {
+hir::HostIrContainer* HostIrJit::container() const {
   return pimpl_->container.get();
 }
 

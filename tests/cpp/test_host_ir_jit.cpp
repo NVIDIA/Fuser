@@ -80,6 +80,8 @@ TEST_F(HostIrJitTest, HostIrContainer) {
     hic->pushBackTopLevelExprs(hic_out->definition());
   }
   HostIrJit jit(std::move(hic));
+  EXPECT_EQ(jit.container()->inputs().size(), num_inputs);
+  EXPECT_EQ(jit.container()->outputs().size(), num_inputs);
   EXPECT_EQ(jit.getHostIrContainer().inputs().size(), num_inputs);
   EXPECT_EQ(jit.getHostIrContainer().outputs().size(), num_inputs);
   EXPECT_EQ(jit.inputs().size(), num_inputs);
