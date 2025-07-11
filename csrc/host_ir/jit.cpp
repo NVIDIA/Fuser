@@ -41,7 +41,7 @@
 
 namespace nvfuser {
 
-using main_func_t = std::function<void**(const void**)>;
+using main_func_t = std::function<void(const void**, void**)>;
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kAllocateTensorFuncName = "allocate_tensor";
@@ -213,38 +213,34 @@ void compileMainFuncOutputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
-  int num_outputs = container->outputs().size();
-  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::LLVMContext& ctx = builder.getContext();
-  llvm::Type* aten_tensor_array_type =
-      getInt8PtrStaticArrayType(ctx, num_outputs);
 
-  llvm::GlobalVariable* aten_tensor_array_ptr = new llvm::GlobalVariable(
-      *mod,
-      aten_tensor_array_type,
-      false,
-      llvm::GlobalValue::InternalLinkage,
-      llvm::ConstantAggregateZero::get(aten_tensor_array_type),
-      "output_array");
+  // Get the current function (main) and its second argument
+  llvm::Function* func = builder.GetInsertBlock()->getParent();
+  llvm::Value* aten_tensor_array_ptr = func->getArg(1);
 
+  llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(ctx);
+  // Store output tensor pointers from val_to_value into the output array
   for (size_t i = 0; i < container->outputs().size(); ++i) {
     auto* output = container->outputs()[i];
     if (TensorView* tv = dynamic_cast<TensorView*>(output)) {
-      llvm::Value* aten_tensor_ptr = builder.CreateGEP(
+      llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(
           aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
-      aten_tensor_ptr->setName("output_aten_tensor");
-      builder.CreateStore(val_to_value[tv->as<Val>()], aten_tensor_ptr);
+      aten_tensor_ptr_addr->setName("output_aten_tensor_addr");
+      
+      // Get the tensor pointer from val_to_value and store it in the output array
+      llvm::Value* tensor_from_val_to_value = val_to_value[tv->as<Val>()];
+      builder.CreateStore(tensor_from_val_to_value, aten_tensor_ptr_addr);
+      
     } else {
       NVF_THROW("Unsupported expression type: ", output);
     }
   }
-  llvm::Value* result = builder.CreateBitCast(
-      aten_tensor_array_ptr, getInt8PtrDynamicArrayType(ctx));
-  builder.CreateRet(result);
-
+  builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     llvm::outs() << "=== LLVM IR Generation for Main Function Outputs ===\n";
-    mod->print(llvm::outs(), nullptr);
+    llvm::Function* func = builder.GetInsertBlock()->getParent();
+    func->getParent()->print(llvm::outs(), nullptr);
   }
 }
 
@@ -281,9 +277,9 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
       kSetTensorFuncName,
       mod);
 
-  // main function: void** main(void** input_tensors)
+  // main function: void main(void** input_tensors, void** output_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(
-      void_array_ptr_type, {void_array_ptr_type}, false);
+      llvm::Type::getVoidTy(ctx), {void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, mod);
 }
@@ -335,9 +331,9 @@ void compile(HostIrJitImpl* pimpl) {
 
   // Look up the main function
   auto main_func_addr = throwIfError(pimpl->jit->lookup(kMainFuncName));
-  using main_func_ptr_t = void** (*)(const void**);
-  pimpl->main_func =
-      reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
+  using main_func_ptr_t = void (*)(const void**, void**);
+  auto main_func_ptr = reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
+  pimpl->main_func = main_func_ptr;
 }
 
 // NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
@@ -424,7 +420,8 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   }
 
   // Run the main function
-  void** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
+  std::vector<void*> output_aten_tensors(pimpl_->container->outputs().size());
+  pimpl_->main_func(input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
@@ -461,7 +458,8 @@ KernelArgumentHolder HostIrJit::runWithInput(
   }
 
   // Run the main function
-  void** output_aten_tensors = pimpl_->main_func(input_aten_tensors.data());
+  std::vector<void*> output_aten_tensors(pimpl_->container->outputs().size());
+  pimpl_->main_func(input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
