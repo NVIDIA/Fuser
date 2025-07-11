@@ -6224,19 +6224,19 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     }
 
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
-    if (!bias.defined() && !beta.defined() && outputs().size() == 1 &&
-        cutlass_kernels::nvfp4_scaled_mm_check(
-            out_scalar_type, mat1_view, mat2_view, scale1, scale2, alpha)) {
-      // NOTE: this doesn't feel very flexible. We probably want to relax this
-      // when the kernel is fixed up.
-      int m = mat1_view.sizes().at(0);
-      int n = mat2_view.sizes().at(0);
-      const auto options =
-          at::TensorOptions().device(mat1_view.device()).dtype(out_scalar_type);
-      result = at::empty({m, n}, options);
-      cutlass_kernels::nvfp4_scaled_mm(
-          result, mat1_view, mat2_view, scale1, scale2, alpha);
-      return {result};
+    if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
+      bool check_failed = true;
+      // NOTE: this felt ugly. I should go fix up the validate input
+      try {
+        cutlass_kernels::validateInputs(mat1_view, mat2_view, scal1, scale2, alpha);
+      } catch(...) {
+        cutlass_can_run = false;
+      }
+
+      if (cutlass_can_run) {
+        return {cutlass_kernels::nvfp4_scaled_mm(
+              mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type)};
+      }
     }
   }
 #endif
