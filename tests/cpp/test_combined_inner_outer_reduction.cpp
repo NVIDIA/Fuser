@@ -1,10 +1,7 @@
-// clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION &
+ * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format on
 #include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -1547,4 +1544,137 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
 
   testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
 }
+
+// https://nvbugspro.nvidia.com/bug/5374765
+// Avoid setting 2 vectorization loop domains for a single tensor.
+// Test different broadcast positions for tensors with non-concretized
+// dimensions
+class NonConcretizedDomainTest : public NVFuserFixtureParamTest<int> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<int>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::WarpSpecializedNormalization);
+  }
+};
+
+// combined_inner_outer scheduler can handle this case.
+TEST_P(NonConcretizedDomainTest, OnNonReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create tv1 shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv1_shape;
+  if (non_concretized_pos == 0) {
+    tv1_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv1_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv1_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+
+  auto tv0 = makeContigConcreteTensor({2048, 32});
+  auto tv1 = makeContigConcreteTensor(tv1_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = sum(tv0, {0});
+
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv1_shape.size(); i++) {
+    broadcast_pattern.push_back(tv1_shape[i] == 1);
+  }
+  auto tv6 = broadcast(tv4, broadcast_pattern);
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv7);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2048, 32}, options);
+  auto t1 = at::randn(tv1_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  EXPECT_TRUE(heur->as<ReductionParams>()->combined_inner_outer);
+  EXPECT_TRUE(heur->as<ReductionParams>()->tma_warp_specialized);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+// Segmented due to non-concretized dimensions on reduction tensor.
+// Ideally, the scheduler should be able to handle this case.
+// TODO: modify canSchedule check to allow this case.
+TEST_P(NonConcretizedDomainTest, OnReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create tv1 shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv0_shape;
+  if (non_concretized_pos == 0) {
+    tv0_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv0_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv0_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv0_shape.size(); i++) {
+    broadcast_pattern.push_back(tv0_shape[i] == 1);
+  }
+
+  auto tv0 = makeContigConcreteTensor(tv0_shape);
+  auto tv1 = makeContigConcreteTensor(tv0_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, broadcast_pattern);
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = sum(tv0, {0});
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(tv0_shape, options);
+  auto t1 = at::randn(tv0_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    NonConcretizedDomainTest,
+    testing::Values(0, 1, 2),
+    [](const testing::TestParamInfo<int>& info) -> std::string {
+      std::stringstream ss;
+      ss << "non_concretized_pos_" << info.param;
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
