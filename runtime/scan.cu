@@ -6,6 +6,18 @@
  */
 // clang-format on
 
+// Internally, CUB uses std::is_pointer, not
+// cuda::std::is_pointer, and it fails to compile as nvrtc does not
+// have <type_traits>. This doesn't seem to be the case with nvcc. A
+// WAR for nvrtc is to provide std::is_pointer as an alias of
+// cuda::std::is_pointer.
+#ifndef __NVCC__
+#include <cuda/std/type_traits>
+namespace std {
+using cuda::std::is_pointer;
+} // namespace std
+#endif
+
 #include <cub/block/block_scan.cuh>
 
 namespace nvf {
