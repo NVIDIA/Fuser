@@ -1093,11 +1093,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
         if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
           break;
-        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
-          reason << "Indirect indexing of consumer ID not supported: "
-                 << tv->toString() << ", " << id->toString() << ", "
-                 << tv->definition()->toString();
-          break;
         }
       }
     }
