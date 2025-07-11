@@ -1486,7 +1486,7 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
 
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
-  int64_t max_dtype_size_bit_for_vectorization = 1;
+  int64_t max_dtype_size_bit_for_vectorization = 0;
 
   // TODO: This might be better if it was the larger of input or outputs. Would
   // be even better if we had better analysis as not all unrolled elements have
@@ -1501,6 +1501,14 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
       continue;
     }
     n_tensor_inputs++;
+  }
+
+  // If max_dtype_size_bit_for_vectorization is 0, it means there
+  // is no vectorizable input/output. For this case, we set it to 8
+  // as a default value to prevent having a too large vectorization factor.
+  // TODO: run a benchmark and see if there is a better default value.
+  if (max_dtype_size_bit_for_vectorization == 0) {
+    max_dtype_size_bit_for_vectorization = 8;
   }
 
   // Protect heuristics div by 0:
