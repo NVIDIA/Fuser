@@ -455,7 +455,9 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
   // Test concretization
   DynamicTransform::concretizeFusion(&fusion, &conc_info);
 
-  Val* out_extent = fusion.outputs().at(0)->as<TensorView>()->axis(0)->extent();
+  IterDomain* out_id = fusion.outputs().at(0)->as<TensorView>()->axis(0);
+  EXPECT_TRUE(out_id->isIteration());
+  Val* out_extent = out_id->extent();
   EXPECT_TRUE(out_extent->isZeroInt())
       << "Expected output extent to concretize to constant zero but found "
       << out_extent->toInlineString();
