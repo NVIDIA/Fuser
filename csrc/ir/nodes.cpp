@@ -6225,10 +6225,10 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
     if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
-      bool check_failed = true;
+      bool cutlass_can_run = true;
       // NOTE: this felt ugly. I should go fix up the validate input
       try {
-        cutlass_kernels::validateInputs(mat1_view, mat2_view, scal1, scale2, alpha);
+        cutlass_kernels::validateInputs(mat1_view, mat2_view, scale1, scale2, alpha);
       } catch(...) {
         cutlass_can_run = false;
       }
