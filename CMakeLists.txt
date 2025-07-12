@@ -875,25 +875,23 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
 
-  # Only build scan tests for CUDA 12.0 and above for C++20 compatibility
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "12.0")
-    set(SCAN_TEST_KERNELS "scan_test_kernels")
-    add_library(${SCAN_TEST_KERNELS} SHARED
-      ${NVFUSER_ROOT}/tests/cpp/scan_test_kernels.cu
-      ${NVFUSER_ROOT}/tests/cpp/scan_test_helper.cpp
-    )
+  set(SCAN_TEST_KERNELS "scan_test_kernels")
+  add_library(${SCAN_TEST_KERNELS} SHARED
+    ${NVFUSER_ROOT}/tests/cpp/scan_test_kernels.cu
+    ${NVFUSER_ROOT}/tests/cpp/scan_test_helper.cpp
+  )
 
-    set_property(TARGET ${SCAN_TEST_KERNELS} PROPERTY CXX_STANDARD 20)
-    target_link_libraries(${SCAN_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} dynamic_type)
-    target_include_directories(${SCAN_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
-    target_include_directories(${SCAN_TEST_KERNELS} PRIVATE
-      ${CMAKE_SOURCE_DIR}/csrc
-    )
-    target_include_directories(${SCAN_TEST_KERNELS} SYSTEM PRIVATE
-      ${NVFUSER_ROOT}/third_party/googletest/googletest/include
-      ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
-    )
-  endif()
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${SCAN_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${SCAN_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${SCAN_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${SCAN_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
+  target_include_directories(${SCAN_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
 endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
@@ -950,16 +948,13 @@ if(BUILD_TEST)
   add_test(test_argsort "${ARGSORT_TEST_SRCS}" ${ARGSORT_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_argsort)
 
-  # Only build scan tests for CUDA 12.0 and above
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL "12.0")
-    set(SCAN_TEST_SRCS)
-    list(APPEND SCAN_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/test_scan.cpp
-      ${NVFUSER_ROOT}/tests/cpp/test_scan_device_func.cpp
-    )
-    add_test(test_scan "${SCAN_TEST_SRCS}" ${SCAN_TEST_KERNELS})
-    list(APPEND TEST_BINARIES test_scan)
-  endif()
+  set(SCAN_TEST_SRCS)
+  list(APPEND SCAN_TEST_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_scan.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_scan_device_func.cpp
+  )
+  add_test(test_scan "${SCAN_TEST_SRCS}" ${SCAN_TEST_KERNELS})
+  list(APPEND TEST_BINARIES test_scan)
 
   set(TOPK_TEST_SRCS)
   list(APPEND TOPK_TEST_SRCS
