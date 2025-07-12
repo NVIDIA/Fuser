@@ -29,8 +29,6 @@ TEST_F(ScanTest, BasicScanAdd) {
   auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add);
   fusion.addOutput(tv_result);
 
-  fusion.printMath();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
 
