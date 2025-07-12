@@ -18,10 +18,6 @@ namespace nvf {
 
 #include <runtime/scan.cu>
 
-// Include BinaryOpType enum definition - placed after runtime includes
-// to avoid dependency issues while ensuring enum values are available
-#include <csrc/type.h>
-
 // Standard C++ headers
 #include <cstdint>
 
@@ -68,19 +64,19 @@ __device__ void dispatchBinaryOp(
     DataT* input,
     DataT* output,
     DataT init_value,
-    BinaryOpType binary_op_type,
+    const ScanBinaryOpType binary_op_type,
     KernelFunc kernel_func) {
   switch (binary_op_type) {
-    case BinaryOpType::Add:
+    case ScanBinaryOpType::Add:
       kernel_func(input, output, init_value, AddOp<DataT>{});
       break;
-    case BinaryOpType::Max:
+    case ScanBinaryOpType::Max:
       kernel_func(input, output, init_value, MaxOp<DataT>{});
       break;
-    case BinaryOpType::Min:
+    case ScanBinaryOpType::Min:
       kernel_func(input, output, init_value, MinOp<DataT>{});
       break;
-    case BinaryOpType::Mul:
+    case ScanBinaryOpType::Mul:
       kernel_func(input, output, init_value, MulOp<DataT>{});
       break;
     default: // Default to Add
@@ -128,7 +124,7 @@ __global__ void basicScanTestKernel(
     DataT* input,
     DataT* output,
     DataT init_value,
-    BinaryOpType binary_op_type) {
+    ScanBinaryOpType binary_op_type) {
   // Use lambda to capture template parameters and create callable for
   // dispatcher
   auto kernel_func = [=] __device__(
@@ -152,7 +148,7 @@ void launchBasicScanTestKernel(
     DataT* output,
     DataT init_value,
     int block_size,
-    BinaryOpType binary_op_type) {
+    ScanBinaryOpType binary_op_type) {
   // Dispatch based on block size
   if (block_size == 4) {
     basicScanTestKernel<4, DataT, ITEMS_PER_THREAD>
@@ -177,30 +173,6 @@ void launchBasicScanTestKernel(
   }
 }
 
-template <typename DataT, int ITEMS_PER_THREAD>
-void launchMultiDim2dScanTestKernel(
-    cudaStream_t stream,
-    DataT* input,
-    DataT* output,
-    DataT init_value,
-    BinaryOpType binary_op_type) {
-  dim3 block_dim(8, 1, 1);
-  multiDim2dScanTestKernel<DataT, ITEMS_PER_THREAD>
-      <<<1, block_dim, 0, stream>>>(input, output, init_value, binary_op_type);
-}
-
-template <typename DataT, int ITEMS_PER_THREAD>
-void launchMultiDim3dScanTestKernel(
-    cudaStream_t stream,
-    DataT* input,
-    DataT* output,
-    DataT init_value,
-    BinaryOpType binary_op_type) {
-  dim3 block_dim(8, 1, 1);
-  multiDim3dScanTestKernel<DataT, ITEMS_PER_THREAD>
-      <<<1, block_dim, 0, stream>>>(input, output, init_value, binary_op_type);
-}
-
 //============================================================================
 // Explicit template instantiations for common types
 //============================================================================
@@ -212,21 +184,21 @@ template void launchBasicScanTestKernel<float, 1>(
     float* output,
     float init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 template void launchBasicScanTestKernel<float, 2>(
     cudaStream_t stream,
     float* input,
     float* output,
     float init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 template void launchBasicScanTestKernel<float, 4>(
     cudaStream_t stream,
     float* input,
     float* output,
     float init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 // double instantiations
 template void launchBasicScanTestKernel<double, 1>(
@@ -235,14 +207,14 @@ template void launchBasicScanTestKernel<double, 1>(
     double* output,
     double init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 template void launchBasicScanTestKernel<double, 2>(
     cudaStream_t stream,
     double* input,
     double* output,
     double init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 // int instantiations
 template void launchBasicScanTestKernel<int, 1>(
@@ -251,14 +223,14 @@ template void launchBasicScanTestKernel<int, 1>(
     int* output,
     int init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 template void launchBasicScanTestKernel<int, 2>(
     cudaStream_t stream,
     int* input,
     int* output,
     int init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 // int64_t instantiations
 template void launchBasicScanTestKernel<int64_t, 1>(
@@ -267,13 +239,13 @@ template void launchBasicScanTestKernel<int64_t, 1>(
     int64_t* output,
     int64_t init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 template void launchBasicScanTestKernel<int64_t, 2>(
     cudaStream_t stream,
     int64_t* input,
     int64_t* output,
     int64_t init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 } // namespace nvfuser

@@ -14,11 +14,12 @@
 
 namespace nvfuser {
 
-// Forward declaration to avoid heavy include dependencies
-enum class BinaryOpType;
-
 // nvFuser index type
 using nvfuser_index_t = int64_t;
+
+// Definition just used inside the scan tests to avoid including
+// <csrc/type.h>, which isn't straightforward
+enum class ScanBinaryOpType { Add, Mul, Max, Min };
 
 // Function declarations for launching scan test kernels
 
@@ -30,16 +31,13 @@ void launchBasicScanTestKernel(
     DataT* output,
     DataT init_value,
     int block_size,
-    BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 // Validate scan operation correctness
 // Compares scan output against PyTorch reference implementation
-bool validateScanResult(
+void validateScanResult(
     at::Tensor input_tensor,
     at::Tensor output_tensor,
-    BinaryOpType binary_op_type);
-
-// Helper to get string name for binary operation type
-const char* getBinaryOpName(BinaryOpType binary_op_type);
+    ScanBinaryOpType binary_op_type);
 
 } // namespace nvfuser

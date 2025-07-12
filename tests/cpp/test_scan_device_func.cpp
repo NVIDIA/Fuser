@@ -25,7 +25,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanAdd) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Add;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Add;
 
   auto input_tensor = at::tensor(
       {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f},
@@ -43,7 +43,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanAdd) {
       BLOCK_SIZE,
       binary_op_type);
 
-  EXPECT_TRUE(validateScanResult(input_tensor, output_tensor, binary_op_type));
+  validateScanResult(input_tensor, output_tensor, binary_op_type);
 }
 
 // Basic functionality test for Max operation (cummax)
@@ -51,7 +51,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanMax) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Max;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Max;
 
   auto input_tensor = at::tensor(
       {5.0f, 2.0f, 8.0f, 1.0f, 9.0f, 3.0f, 4.0f, 7.0f},
@@ -69,7 +69,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanMax) {
       BLOCK_SIZE,
       binary_op_type);
 
-  EXPECT_TRUE(validateScanResult(input_tensor, output_tensor, binary_op_type));
+  validateScanResult(input_tensor, output_tensor, binary_op_type);
 }
 
 // Basic functionality test for Min operation (cummin)
@@ -77,7 +77,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanMin) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Min;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Min;
 
   auto input_tensor = at::tensor(
       {5.0f, 2.0f, 8.0f, 1.0f, 9.0f, 3.0f, 4.0f, 7.0f},
@@ -95,7 +95,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanMin) {
       BLOCK_SIZE,
       binary_op_type);
 
-  EXPECT_TRUE(validateScanResult(input_tensor, output_tensor, binary_op_type));
+  validateScanResult(input_tensor, output_tensor, binary_op_type);
 }
 
 // Basic functionality test for Mul operation (cumprod)
@@ -103,7 +103,7 @@ TEST_F(ScanDeviceFuncTest, BasicScanMul) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Mul;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Mul;
 
   auto input_tensor = at::tensor(
       {1.0f, 2.0f, 0.5f, 3.0f, 0.25f, 4.0f, 0.1f, 2.0f},
@@ -121,13 +121,13 @@ TEST_F(ScanDeviceFuncTest, BasicScanMul) {
       BLOCK_SIZE,
       binary_op_type);
 
-  EXPECT_TRUE(validateScanResult(input_tensor, output_tensor, binary_op_type));
+  validateScanResult(input_tensor, output_tensor, binary_op_type);
 }
 
 // Variable block sizes test
 TEST_F(ScanDeviceFuncTest, VariableBlockSizes) {
   const int ITEMS_PER_THREAD = 2;
-  const BinaryOpType binary_op_type = BinaryOpType::Add;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Add;
 
   // Test different block sizes: 4, 8, 16, 32
   for (int block_size : {4, 8, 16, 32}) {
@@ -152,8 +152,7 @@ TEST_F(ScanDeviceFuncTest, VariableBlockSizes) {
         block_size,
         binary_op_type);
 
-    EXPECT_TRUE(validateScanResult(input_tensor, output_tensor, binary_op_type))
-        << "Failed for block_size=" << block_size;
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 }
 
@@ -162,7 +161,7 @@ TEST_F(ScanDeviceFuncTest, DataTypeSupport) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Add;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Add;
 
   // Test double
   {
@@ -183,8 +182,7 @@ TEST_F(ScanDeviceFuncTest, DataTypeSupport) {
         BLOCK_SIZE,
         binary_op_type);
 
-    EXPECT_TRUE(
-        validateScanResult(input_tensor, output_tensor, binary_op_type));
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 
   // Test int
@@ -206,8 +204,7 @@ TEST_F(ScanDeviceFuncTest, DataTypeSupport) {
         BLOCK_SIZE,
         binary_op_type);
 
-    EXPECT_TRUE(
-        validateScanResult(input_tensor, output_tensor, binary_op_type));
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 
   // Test int64_t
@@ -229,8 +226,7 @@ TEST_F(ScanDeviceFuncTest, DataTypeSupport) {
         BLOCK_SIZE,
         binary_op_type);
 
-    EXPECT_TRUE(
-        validateScanResult(input_tensor, output_tensor, binary_op_type));
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 }
 
@@ -239,7 +235,7 @@ TEST_F(ScanDeviceFuncTest, EdgeCases) {
   const int BLOCK_SIZE = 4;
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
-  const BinaryOpType binary_op_type = BinaryOpType::Add;
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Add;
 
   // Test all same values
   {
@@ -259,8 +255,7 @@ TEST_F(ScanDeviceFuncTest, EdgeCases) {
         BLOCK_SIZE,
         binary_op_type);
 
-    EXPECT_TRUE(
-        validateScanResult(input_tensor, output_tensor, binary_op_type));
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 
   // Test zeros
@@ -281,8 +276,7 @@ TEST_F(ScanDeviceFuncTest, EdgeCases) {
         BLOCK_SIZE,
         binary_op_type);
 
-    EXPECT_TRUE(
-        validateScanResult(input_tensor, output_tensor, binary_op_type));
+    validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
 }
 
