@@ -10,7 +10,6 @@
 #include <fusion.h>
 #include <global_allocator.h>
 #include <host_ir/container.h>
-#include <host_ir/executor.h>
 #include <host_ir/jit.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
@@ -24,7 +23,7 @@ namespace hir {
 
 using HostIrJitTest = NVFuserTest;
 // Build with: python setup.py install --build-with-host-ir-jit
-TEST_F(HostIrJitTest, Allocate) {
+TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
@@ -34,29 +33,47 @@ TEST_F(HostIrJitTest, Allocate) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
-  // Adjust the number of allocates and calls to each allocate
-  int num_allocates = 10;
-  int num_calls_per_allocate = 10;
-  for (int i = 0; i < num_allocates; i++) {
-    auto* allocate =
-        IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-    hic->pushBackTopLevelExprs(allocate);
-  }
+  hic->pushBackTopLevelExprs(hic_out->definition());
 
-  HostIrJit jit(hic.get());
-  for (auto* expr : hic->topLevelExprs()) {
-    if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
-      for (int i = 0; i < num_calls_per_allocate; i++) {
-        int first_dim = std::rand() % 100;
-        int second_dim = std::rand() % 100;
-        auto allocated_t =
-            jit.allocate(allocate, {first_dim, second_dim}, {second_dim, 1});
-        EXPECT_EQ(
-            allocated_t.sizes(), at::IntArrayRef({first_dim, second_dim}));
-        EXPECT_EQ(allocated_t.strides(), at::IntArrayRef({second_dim, 1}));
-      }
-    }
+  HostIrJit jit(std::move(hic));
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in = at::randn({32, 16}, options);
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  auto out = outs[0].as<at::Tensor>();
+  EXPECT_EQ(out.sizes(), in.sizes()) << "Sizes are not equal:\n"
+                                     << "in = " << in << "\n"
+                                     << "out = " << out;
+  EXPECT_EQ(out.strides(), in.strides()) << "Strides are not equal:\n"
+                                         << "in = " << in << "\n"
+                                         << "out = " << out;
+  EXPECT_EQ(at::equal(out, in), true) << "Tensors are not equal:\n"
+                                      << "in = " << in << "\n"
+                                      << "out = " << out;
+}
+
+TEST_F(HostIrJitTest, HostIrContainer) {
+  auto hic = std::make_unique<HostIrContainer>(1);
+  FusionGuard::setCurFusion(hic.get());
+
+  int num_inputs = std::rand() % 10 + 1;
+  for (int i = 0; i < num_inputs; i++) {
+    auto hic_in = makeSymbolicTensor(2);
+    auto hic_out = set(hic_in);
+    hic->addInput(hic_in);
+    hic->addOutput(hic_out);
+    hic->pushBackTopLevelExprs(hic_out->definition());
   }
+  HostIrJit jit(std::move(hic));
+  EXPECT_EQ(jit.container()->inputs().size(), num_inputs);
+  EXPECT_EQ(jit.container()->outputs().size(), num_inputs);
+  EXPECT_EQ(jit.getHostIrContainer().inputs().size(), num_inputs);
+  EXPECT_EQ(jit.getHostIrContainer().outputs().size(), num_inputs);
+  EXPECT_EQ(jit.inputs().size(), num_inputs);
+  EXPECT_EQ(jit.outputs().size(), num_inputs);
 }
 
 } // namespace hir

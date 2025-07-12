@@ -168,9 +168,6 @@ class HostIrEvaluator final : public OptOutDispatch {
   }
 
   std::unique_ptr<HostIrContainer> container_;
-#ifdef NVFUSER_HOST_IR_JIT
-  std::unique_ptr<HostIrJit> jit_;
-#endif
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
   // Stores concrete computed values

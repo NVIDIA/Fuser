@@ -13,24 +13,25 @@
 namespace nvfuser {
 
 constexpr int64_t kHostIrJitCompileThreads = 4;
+struct HostIrJitImpl;
 
-constexpr std::string_view kHostIrJitAtEmptyStridedCudaFuncName =
-    "at_empty_strided_cuda";
 class HostIrJit {
  public:
-  at::Tensor allocate(
-      const kir::Allocate* allocate,
-      const std::vector<int64_t>& input_sizes,
-      const std::vector<int64_t>& input_strides);
-
   HostIrJit(
-      hir::HostIrContainer* container,
+      std::unique_ptr<hir::HostIrContainer> container,
       int num_threads = kHostIrJitCompileThreads);
+
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+
+  const std::vector<Val*>& inputs() const;
+  const std::vector<Val*>& outputs() const;
+  hir::HostIrContainer* container() const;
+  const hir::HostIrContainer& getHostIrContainer() const;
+  std::ostream& print(std::ostream& os) const;
 
   ~HostIrJit();
 
  private:
-  struct LlvmJitImpl;
-  std::unique_ptr<LlvmJitImpl> pimpl_;
+  std::unique_ptr<HostIrJitImpl> pimpl_;
 };
 } // namespace nvfuser
