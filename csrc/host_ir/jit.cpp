@@ -120,8 +120,8 @@ void registerExternalFunction(
       llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
 }
 
-// NOTE: this is just a simple example of allocate a output tensor and set it to
-// input tensor The whole concept to to demonstrate llvm jit works, we will
+// NOTE: this is just a simple example of allocate a output tensor and set it
+// to input tensor. The whole concept is to demonstrate llvm jit works, we will
 // change this in the future
 void compileLoadStoreOp(
     LoadStoreOp* load_store_op,
@@ -138,20 +138,20 @@ void compileLoadStoreOp(
   NVF_ERROR(
       it != val_to_value.end(), "input tensor is not found in val_to_value");
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Value* in_tensor_ptr = it->second;
+  llvm::Value* in_tensor = it->second;
 
   // allocate a new tensor
   llvm::Function* allocate_tensor_func =
       mod->getFunction(kAllocateTensorFuncName);
-  llvm::Value* out_tensor_ptr =
+  llvm::Value* out_tensor =
       builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
 
   // set the output tensor to the input tensor
   llvm::Function* set_tensor_func = mod->getFunction(kSetTensorFuncName);
-  builder.CreateCall(set_tensor_func, {out_tensor_ptr, in_tensor_ptr});
+  builder.CreateCall(set_tensor_func, {out_tensor, in_tensor});
 
   // bind the output tensor to val_to_value
-  val_to_value[out_tv] = out_tensor_ptr;
+  val_to_value[out_tv] = out_tensor;
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     auto* func = builder.GetInsertBlock()->getParent();
@@ -160,7 +160,7 @@ void compileLoadStoreOp(
   }
 }
 
-void compileMainFuncInputs(
+void unpackInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
@@ -174,34 +174,32 @@ void compileMainFuncInputs(
   // bind input aten tensor sizes to val_to_value
   for (size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
-    if (TensorView* tv = dynamic_cast<TensorView*>(input)) {
-      llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(
-          aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
-      aten_tensor_ptr_addr->setName("input_aten_tensor_addr");
-      // Load the actual tensor pointer from the array
-      llvm::Value* aten_tensor_ptr =
-          builder.CreateLoad(getInt8PtrType(ctx), aten_tensor_ptr_addr);
-      aten_tensor_ptr->setName("input_aten_tensor");
-      // bind input aten tensor sizes to val_to_value
-      auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-      // TODO: We should validate const size and strides here, ie. dim check
-      for (size_t dim = 0; dim < logical_domain.size(); ++dim) {
-        if (logical_domain[dim]->isBroadcast()) {
-          val_to_value[logical_domain[dim]->extent()] = builder.getInt64(1);
-          if (logical_domain[dim]->hasExpandedExtent()) {
-            val_to_value[logical_domain[dim]->expandedExtent()] =
-                generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
-          }
-        } else {
-          val_to_value[logical_domain[dim]->extent()] =
-              generateTensorSizeExtraction(aten_tensor_ptr, dim, builder);
+    auto* tv = dynamic_cast<TensorView*>(input);
+    NVF_ERROR(tv != nullptr, "Unsupported expression type: ", input);
+    llvm::Value* tensor_addr = builder.CreateGEP(
+        aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+    tensor_addr->setName("input_aten_tensor_addr");
+    // Load the actual tensor pointer from the array
+    llvm::Value* tensor = builder.CreateLoad(getInt8PtrType(ctx), tensor_addr);
+    tensor->setName("input_aten_tensor");
+    // bind input aten tensor sizes to val_to_value
+    const std::vector<IterDomain*> logical_domain =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    // TODO: We should validate const size and strides here, ie. dim check
+    for (const auto& [dim_idx, id] : enumerate(logical_domain)) {
+      if (id->isBroadcast()) {
+        val_to_value[id->extent()] = builder.getInt64(1);
+        if (id->hasExpandedExtent()) {
+          val_to_value[id->expandedExtent()] =
+              generateTensorSizeExtraction(tensor, dim_idx, builder);
         }
+      } else {
+        val_to_value[id->extent()] =
+            generateTensorSizeExtraction(tensor, dim_idx, builder);
       }
-      // bind input aten tensor to val_to_value
-      val_to_value[tv->as<Val>()] = aten_tensor_ptr;
-    } else {
-      NVF_THROW("Unsupported expression type: ", input);
     }
+    // bind input aten tensor to val_to_value
+    val_to_value[tv] = tensor;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
@@ -210,7 +208,7 @@ void compileMainFuncInputs(
   }
 }
 
-void compileMainFuncOutputs(
+void packOutputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
@@ -224,19 +222,16 @@ void compileMainFuncOutputs(
   // Store output tensor pointers from val_to_value into the output array
   for (size_t i = 0; i < container->outputs().size(); ++i) {
     auto* output = container->outputs()[i];
-    if (TensorView* tv = dynamic_cast<TensorView*>(output)) {
-      llvm::Value* aten_tensor_ptr_addr = builder.CreateGEP(
-          aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
-      aten_tensor_ptr_addr->setName("output_aten_tensor_addr");
+    auto* tv = dynamic_cast<TensorView*>(output);
+    NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
+    llvm::Value* tensor_addr = builder.CreateGEP(
+        aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+    tensor_addr->setName("output_aten_tensor_addr");
 
-      // Get the tensor pointer from val_to_value and store it in the output
-      // array
-      llvm::Value* tensor_from_val_to_value = val_to_value[tv->as<Val>()];
-      builder.CreateStore(tensor_from_val_to_value, aten_tensor_ptr_addr);
-
-    } else {
-      NVF_THROW("Unsupported expression type: ", output);
-    }
+    // Get the tensor pointer from val_to_value and store it in the output
+    // array
+    llvm::Value* tensor_from_val_to_value = val_to_value[tv];
+    builder.CreateStore(tensor_from_val_to_value, tensor_addr);
   }
   builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
@@ -305,11 +300,12 @@ void compile(HostIrJitImpl* pimpl) {
       llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction(kMainFuncName));
   builder.SetInsertPoint(entry);
 
-  // bind the constants
-  compileMainFuncInputs(pimpl->container.get(), builder, val_to_value);
+  // compile inputs in llvm ir
+  unpackInputs(pimpl->container.get(), builder, val_to_value);
 
   // compile all top level expressions in host ir container
   for (auto* expr : pimpl->container->topLevelExprs()) {
+    // TODO: support more expression types
     if (expr->isA<LoadStoreOp>()) {
       compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val_to_value);
     } else {
@@ -317,8 +313,8 @@ void compile(HostIrJitImpl* pimpl) {
     }
   }
 
-  // Collect output tensors and garbage collect intermediate tensors
-  compileMainFuncOutputs(pimpl->container.get(), builder, val_to_value);
+  // compile outputs in llvm ir
+  packOutputs(pimpl->container.get(), builder, val_to_value);
 
   // verify the module
   std::string error;
@@ -365,13 +361,10 @@ HostIrJit::HostIrJit(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
   // tensor size and stride extraction functions
-  void* extract_tensor_size_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor_ptr, int64_t dim) -> int64_t {
-        NVF_ERROR(
-            tensor_ptr != nullptr,
-            kTensorSizeFuncName,
-            " tensor_ptr is nullptr");
-        return tensor_ptr->size(dim);
+  void* extract_tensor_size_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
+        NVF_ERROR(tensor != nullptr, kTensorSizeFuncName, " tensor is nullptr");
+        return tensor->size(dim);
       });
 
   // raw tensor allocation, we only allocate a wrapper here
@@ -379,28 +372,29 @@ HostIrJit::HostIrJit(
       +[]() -> at::Tensor* { return new at::Tensor(); });
 
   // in place tensor update
-  void* set_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor_ptr, at::Tensor* other_tensor_ptr) -> void {
-        NVF_ERROR(
-            tensor_ptr != nullptr,
-            kSetTensorFuncName,
-            " tensor_ptr is nullptr");
-        NVF_ERROR(
-            other_tensor_ptr != nullptr,
-            kSetTensorFuncName,
-            " other_tensor_ptr is nullptr");
-        *tensor_ptr = other_tensor_ptr->clone(); // Clone the input tensor
+  void* set_tensor_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* out, at::Tensor* in) -> void {
+        NVF_ERROR(out != nullptr, kSetTensorFuncName, " out is nullptr");
+        NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
+        *out = in->clone(); // Clone the input tensor
       });
 
   // Register wrapper functions in JIT
-  llvm::orc::SymbolMap symbolMap;
+  llvm::orc::SymbolMap name_to_symbol;
   registerExternalFunction(
-      extract_tensor_size_func_ptr, symbolMap, mangler, kTensorSizeFuncName);
+      extract_tensor_size_func_ptr,
+      name_to_symbol,
+      mangler,
+      kTensorSizeFuncName);
   registerExternalFunction(
-      allocate_tensor_func_ptr, symbolMap, mangler, kAllocateTensorFuncName);
+      allocate_tensor_func_ptr,
+      name_to_symbol,
+      mangler,
+      kAllocateTensorFuncName);
   registerExternalFunction(
-      set_tensor_func_ptr, symbolMap, mangler, kSetTensorFuncName);
-  throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
+      set_tensor_func_ptr, name_to_symbol, mangler, kSetTensorFuncName);
+  throwIfError(
+      dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
   // Compile the module
   compile(pimpl_.get());
 }
@@ -415,13 +409,8 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
   for (auto&& [in_val, arg] : zip(pimpl_->container->inputs(), args)) {
-    if (arg.is<at::Tensor>()) {
-      input_aten_tensors.push_back(&arg.as<at::Tensor>());
-    } else {
-      // TODO: handle other primitive types so we can just align them to input
-      // of main function
-      NVF_THROW("Unsupported argument type: ", arg);
-    }
+    NVF_ERROR(arg.is<at::Tensor>(), "Unsupported argument type: ", arg);
+    input_aten_tensors.push_back(&arg.as<at::Tensor>());
   }
 
   // Run the main function
@@ -432,53 +421,12 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   KernelArgumentHolder outputs;
   for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
     auto* output = pimpl_->container->outputs()[i];
-    if (output->isA<TensorView>()) {
-      // Cast void* to at::Tensor* first, then dereference
-      at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
-      outputs.push(*tensor_ptr);
-      // Clean up the individual tensor object (not the array)
-      delete tensor_ptr;
-    } else {
-      NVF_THROW("Unsupported output type: ", output);
-    }
-  }
-  // Note: output_aten_tensors points to a global array managed by JIT, don't
-  // delete the array itself
-  return outputs;
-}
-
-KernelArgumentHolder HostIrJit::runWithInput(
-    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
-  FUSER_PERF_SCOPE("HostIrJit::runWithInput");
-  // Bind the inputs to the tensor map
-  std::vector<const void*> input_aten_tensors;
-  for (auto&& [in_val, arg] : val_to_PValue) {
-    if (arg.is<at::Tensor>()) {
-      input_aten_tensors.push_back(&arg.as<at::Tensor>());
-    } else {
-      // TODO: handle other primitive types so we can just align them to input
-      // of main function
-      NVF_THROW("Unsupported argument type: ", arg);
-    }
-  }
-
-  // Run the main function
-  std::vector<void*> output_aten_tensors(pimpl_->container->outputs().size());
-  pimpl_->main_func(input_aten_tensors.data(), output_aten_tensors.data());
-
-  // Collect the outputs
-  KernelArgumentHolder outputs;
-  for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
-    auto* output = pimpl_->container->outputs()[i];
-    if (output->isA<TensorView>()) {
-      // Cast void* to at::Tensor* first, then dereference
-      at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
-      outputs.push(*tensor_ptr);
-      // Clean up the individual tensor object (not the array)
-      delete tensor_ptr;
-    } else {
-      NVF_THROW("Unsupported output type: ", output);
-    }
+    NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output);
+    // Cast void* to at::Tensor* first, then dereference
+    at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
+    outputs.push(*tensor_ptr);
+    // Clean up the individual tensor object (not the array)
+    delete tensor_ptr;
   }
   // Note: output_aten_tensors points to a global array managed by JIT, don't
   // delete the array itself

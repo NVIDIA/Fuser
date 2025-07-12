@@ -23,9 +23,6 @@ class HostIrJit {
 
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
-  KernelArgumentHolder runWithInput(
-      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
-
   const std::vector<Val*>& inputs() const;
   const std::vector<Val*>& outputs() const;
   hir::HostIrContainer* container() const;
