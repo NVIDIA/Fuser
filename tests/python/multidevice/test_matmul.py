@@ -479,7 +479,6 @@ def test_issue4729(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
     y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
