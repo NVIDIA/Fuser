@@ -3345,7 +3345,7 @@ class ScanOp : public Expr {
     return attribute<BinaryOpType>(1);
   }
 
-  int64_t scanDim() const {
+  int64_t dim() const {
     return attribute<int64_t>(2);
   }
 

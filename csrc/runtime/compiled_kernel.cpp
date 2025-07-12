@@ -81,6 +81,7 @@
 #include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
+#include <nvfuser_resources/scan.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tensor_memory.h>
 #include <nvfuser_resources/topk.h>
@@ -1151,9 +1152,19 @@ std::string _getStructuredCode(
     PrimDataType index_type,
     std::string kernel_name,
     bool has_argsort = false,
-    bool has_topk = false) {
+    bool has_topk = false,
+    bool has_scan = false) {
   // generating cuda code;
   std::string code = "";
+
+  // scan.cu uses CUB, which may include a header file that define
+  // macros like INFINITY, which are also defined in our
+  // complex_number.cu. In order to avoid duplicated definitions, the
+  // CUB header file needs to be included before including complex_number.cu
+  if (has_scan) {
+    code += nvfuser_resources::scan_cu;
+  }
+
   code += defineStdComplex();
   code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
@@ -1228,6 +1239,7 @@ NVF_API CompiledKernel::CompiledKernel(
   // this is a temporary measure. CUB header files need to be
   // installed as part of the nvFuser installation.
   if (lowered_->kernel()->summary().has_argsort ||
+      lowered_->kernel()->summary().has_scan ||
       lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
     // As of CUDA 13, the CUB header files are moved to the cccl
@@ -1409,7 +1421,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->indexType(),
       kernelName(),
       kernel()->summary().has_argsort,
-      kernel()->summary().has_topk);
+      kernel()->summary().has_topk,
+      kernel()->summary().has_scan);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
