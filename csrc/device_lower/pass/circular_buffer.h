@@ -182,6 +182,109 @@ class TmaCircularBufferInfo {
   std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
 };
 
+//! Assumptions:
+//!  1. The padding is one for warp specialized axis.
+//!  2. The number of warp groups is 2.
+//!  3. Persistent outer for-loop exists to overlap TensorCores and Epilogue.
+//!  4. Hopper WGMMA operation is detected.
+//!  5. Independent warp groups are detected.
+//!
+//! Analysis Circular Buffering:
+//!  * If the conditions for ping-pong, persistent warp-specialized matmul exist
+//!    then create HopperPingPongMbarriers.
+//!
+//! Allocation pass:
+//!  * Create mbarriers for ordered synchronization between warp groups when
+//!   accessing TensorCores and CUDA Epilogue.
+//!
+//! Circular Buffering pass:
+//!  * In persistent for_loop, after adding short-circuit but before
+//!    TensorCores, mbarrier::wait for TensorCores to be available for this warp
+//!    group.
+//!
+//!  ReadAfterWriteSyncs pass:
+//!   * In persistent for_loop, after inserting RAW wgmma::wait_all, insert a
+//!     mbarrier::arrive to next warp group to release TensorCores and
+//!     mbarrier::wait for CUDA epilogue for this warp group.
+//!
+//!  WarAsyncWaitInserter pass:
+//!   * In persistent for_loop, after inserting WAR tma_store::wait_all, insert
+//!   a mbarrier::arrive to next warp group to release CUDA Epilogue.
+class HopperPingPongMbarriers {
+ public:
+  HopperPingPongMbarriers(int64_t num_warp_groups, ParallelType ws_axis);
+
+  //! Get the number of warp groups.
+  int64_t getNumWarpGroups() const {
+    return num_warp_groups_;
+  }
+
+  //! Track persistent for-loop. Its index variable determines the phase of
+  //! ping-pong mbarriers.
+  void trackPersistentForLoop(ForLoop* loop) {
+    persistent_for_loop_ = loop;
+  }
+
+  //! This helper function initializes ping-pong mbarriers.
+  //!
+  //! for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+  //!   if (warp_id == 0 && electSync()()) {
+  //!     mbarrier::init(...);
+  //!   }
+  //! }
+  ForLoop* initializePingPongMbarrier();
+
+  //! This helper function invalidates ping-pong mbarriers.
+  //!
+  //! for (unsigned i = 0; i < num_ping_pong_mbarriers; ++i) {
+  //!   if (warp_id == 0 && electSync()()) {
+  //!     mbarrier::inval(...);
+  //!   }
+  //! }
+  ForLoop* invalidatePingPongMbarrier();
+
+  //! This helper function allocates, initializes and invalidates ping-pong
+  //! mbarriers.
+  std::tuple<kir::Allocate*, ForLoop*, ForLoop*> createPingPongMbarrier();
+
+  //! Create a IfThenElse where the last warp group releases the TensorCore and
+  //! Epilogue mbarriers for the first independent warp group.
+  //!
+  //! Pseudo-code:
+  //! if (ws_axis == (all_compute_id - 1)) {
+  //!   // offset 0 is the TensorCores mbarrier whereas offset 1 is the Cuda
+  //!   // Epilogue mbarrier.
+  //!   mbarrier::arrive(ping_pong_mbarriers[0]);
+  //!   mbarrier::arrive(ping_pong_mbarriers[1]);
+  //! }
+  kir::IfThenElse* createPrefetchIfThenElse();
+
+  //! Select mbarrier for the given computation phase and independent warp
+  //! group.
+  Val* getMbarrierIndex(bool next_warp_group, bool is_epilogue);
+
+  //! Create mbarrier::wait to pause warp group until the computation phase is
+  //! unused by the other warp groups.
+  //!
+  //! Pseudo-code:
+  //!   mbarrier::wait(ping_pong_mbarriers[indexByComputeType(is_epilogue)],
+  //!                  persistent_for_loop->index() % 2)
+  Expr* createMbarrierWait(bool next_warp_group, bool is_epilogue);
+
+  //! Create mbarrier::arrive to release given computation phase to the other
+  //! warp groups.
+  //!
+  //! Pseudo-code:
+  //!   mbarrier::arrive(ping_pong_mbarriers[indexByComputeType(is_epilogue)])
+  Expr* createMbarrierArrive(bool next_warp_group, bool is_epilogue);
+
+ private:
+  int64_t num_warp_groups_ = 0;
+  ParallelType ws_axis_ = ParallelType::Serial;
+  TensorView* mbarriers_ = nullptr;
+  ForLoop* persistent_for_loop_ = nullptr;
+};
+
 class CircularBufferPass {
  public:
   //! Apply circular buffering transformations
