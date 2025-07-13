@@ -1015,3 +1015,178 @@ __device__ __inline__ Array<__half, n, align> __e8m02half(
     const Array<__e8m0, n, align>& input) {
   return __float2half(__e8m02float(input));
 }
+
+// e2m1 casts
+
+// clang-format off
+// Disable clang-format because it tries to put the _Pragma("unroll")
+// and the for loop on the same line, which doesn't make sense.
+#define DEFINE_CAST_VECN_WITH_VEC4(name, from_type, to_type)            \
+  template <int n, int align>                                           \
+  __device__ __inline__ Array<to_type, n, align> name(                  \
+      const Array<from_type, n, align>& input) {                        \
+    using InputX2 = Array<from_type, 2, 2>;                             \
+    using InputX4 = Array<from_type, 4, 2>;                             \
+    static_assert(                                                      \
+        sizeof(InputX4) == sizeof(InputX2) * 2,                         \
+        "sizeof(InputX4) must be InputX2 * 2");                         \
+    using ResultX2 = Array<to_type, 2, 2>;                              \
+    using ResultX4 = Array<to_type, 4, 2>;                              \
+    static_assert(                                                      \
+        sizeof(ResultX4) == sizeof(ResultX2) * 2,                       \
+        "sizeof(ResultX4) must be ResultX2 * 2");                       \
+    using InputArrayX2 = Array<InputX2, n / 2, align / 2>;              \
+    static_assert(                                                      \
+        sizeof(InputArrayX2) == sizeof(input),                          \
+        "sizeof(InputArrayX2) must be input size");                     \
+    using ResultArrayX2 = Array<ResultX2, n / 2, align / 2>;            \
+    const InputArrayX2& inputx2 =                                       \
+        reinterpret_cast<const InputArrayX2&>(input);                   \
+    Array<to_type, n, align> result;                                    \
+    static_assert(                                                      \
+        sizeof(ResultArrayX2) == sizeof(result),                        \
+        "sizeof(ResultArrayX2) must be result size");                   \
+    ResultArrayX2& resultx2 = reinterpret_cast<ResultArrayX2&>(result); \
+    _Pragma("unroll")                                                   \
+    for (int i = 0; i < n / 2; i += 2) {                                \
+      if (i + 1 < n / 2) {                                              \
+        Array<InputX2, 2, 1> pair = {inputx2[i], inputx2[i + 1]};       \
+        static_assert(                                                  \
+            sizeof(pair) == sizeof(InputX4),                            \
+            "sizeof(pair) must be InputX4 size");                       \
+        InputX4& quad = reinterpret_cast<InputX4&>(pair);               \
+        ResultX4 res_quad = name(quad);                                 \
+        const Array<ResultX2, 2, 1>& res_pair =                         \
+            reinterpret_cast<const Array<ResultX2, 2, 1>&>(res_quad);   \
+        static_assert(                                                  \
+            sizeof(Array<ResultX2, 2, 1>) == sizeof(ResultX4),          \
+            "sizeof(Array<ResultX2, 2, 1>) must be ResultX4 size");     \
+        resultx2[i] = res_pair[0];                                      \
+        resultx2[i + 1] = res_pair[1];                                  \
+      } else {                                                          \
+        resultx2[i] = name(inputx2[i]);                                 \
+      }                                                                 \
+    }                                                                   \
+    return result;                                                      \
+  }
+// clang-format on
+
+template <int align>
+__device__ __inline__ Array<__e2m1, 2, 2> __float2e2m1(
+    const Array<float, 2, align>& input) {
+  // Note: Inline PTX can not pass 8-bit register as parameter
+  // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
+  Array<__e2m1, 2, 2> result[2];
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0;\n"
+      "cvt.rn.satfinite.e2m1x2.f32   byte0, %2, %1;\n"
+      "mov.b16 %0, {byte0, byte0};\n"
+      "}"
+      : "=h"(result_scalar)
+      : "f"(input[0]), "f"(input[1]));
+  return result[0];
+}
+
+template <int align>
+__device__ __inline__ Array<__e2m1, 4, align> __float2e2m1(
+    const Array<float, 4, align>& input) {
+  // Note: Inline PTX can not pass 8-bit register as parameter
+  // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
+  Array<__e2m1, 4, align> result;
+  uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0, byte1;\n"
+      "cvt.rn.satfinite.e2m1x2.f32   byte0, %2, %1;\n"
+      "cvt.rn.satfinite.e2m1x2.f32   byte1, %4, %3;\n"
+      "mov.b16 %0, {byte0, byte1};\n"
+      "}"
+      : "=h"(result_scalar)
+      : "f"(input[0]), "f"(input[1]), "f"(input[2]), "f"(input[3]));
+  return result;
+}
+
+DEFINE_CAST_VECN_WITH_VEC4(__float2e2m1, float, __e2m1);
+
+template <int n, int align>
+__device__ __inline__ Array<__e2m1, n, align> __double2e2m1(
+    const Array<double, n, align>& input) {
+  return __float2e2m1(__to_float(input));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e2m1, n, align> __half2e2m1(
+    const Array<__half, n, align>& input) {
+  return __float2e2m1(__half2float(input));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__e2m1, n, align> __bfloat2e2m1(
+    const Array<__bfloat, n, align>& input) {
+  return __float2e2m1(__bfloat2float(input));
+}
+
+__device__ __inline__ Array<__half, 2, 2> __e2m12half(
+    const Array<__e2m1, 2, 2>& input) {
+  // Note: Inline PTX can not pass 8-bit register as parameter
+  // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
+  Array<Array<__e2m1, 2, 2>, 2, 1> inputx2 = {input, input};
+  const uint16_t& input_scalar = *reinterpret_cast<const uint16_t*>(&inputx2);
+  Array<__half, 2, 2> result;
+  uint32_t& result_scalar = *reinterpret_cast<uint32_t*>(&result);
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0, byte1;\n"
+      "mov.b16 {byte0, byte1}, %1;\n"
+      "cvt.rn.f16x2.e2m1x2 %0, byte0;\n"
+      "}\n"
+      : "=r"(result_scalar)
+      : "h"(input_scalar));
+  return result;
+}
+
+template <int align>
+__device__ __inline__ Array<__half, 4, align> __e2m12half(
+    Array<__e2m1, 4, align> input) {
+  // Note: Inline PTX can not pass 8-bit register as parameter
+  // https://docs.nvidia.com/cuda/inline-ptx-assembly/index.html#constraints
+  uint16_t input_scalar;
+  memcpy(&input_scalar, &input, sizeof(input_scalar));
+  Array<__half, 4, align> result;
+  uint32_t result_scalar0;
+  uint32_t result_scalar1;
+  asm volatile(
+      "{\n"
+      ".reg .b8 byte0, byte1;\n"
+      "mov.b16 {byte0, byte1}, %2;\n"
+      "cvt.rn.f16x2.e2m1x2 %0, byte0;\n"
+      "cvt.rn.f16x2.e2m1x2 %1, byte1;\n"
+      "}\n"
+      : "=r"(result_scalar0), "=r"(result_scalar1)
+      : "h"(input_scalar));
+  memcpy(&result[0], &result_scalar0, sizeof(result_scalar0));
+  memcpy(&result[2], &result_scalar1, sizeof(result_scalar1));
+  return result;
+}
+
+DEFINE_CAST_VECN_WITH_VEC4(__e2m12half, __e2m1, __half);
+
+template <int n, int align>
+__device__ __inline__ Array<float, n, align> __e2m12float(
+    const Array<__e2m1, n, align>& input) {
+  return __half2float(__e2m12half(input));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<double, n, align> __e2m12double(
+    const Array<__e2m1, n, align>& input) {
+  return __to_double(__e2m12float(input));
+}
+
+template <int n, int align>
+__device__ __inline__ Array<__bfloat, n, align> __e2m12bfloat(
+    const Array<__e2m1, n, align>& input) {
+  return __half2bfloat(__e2m12half(input));
+}

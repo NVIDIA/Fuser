@@ -5,7 +5,7 @@
 import torch
 
 from nvfuser import FusionDefinition
-from nvfuser.testing.utils import NVFuserTest
+from python.utils import NVFuserTest
 
 
 class TestAlias(NVFuserTest):

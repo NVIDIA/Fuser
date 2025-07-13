@@ -733,11 +733,11 @@ INSTANTIATE_TEST_SUITE_P(
 namespace {
 int64_t getUnrollFactor(int64_t n_inputs_factor, int64_t computation_factor) {
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  int64_t required_bytes_per_thread =
-      scheduler_utils::getRequiredBytesInFlight() /
+  int64_t required_bits_per_thread =
+      scheduler_utils::getRequiredBitsInFlight() /
       (int64_t)dev_prop->maxThreadsPerMultiProcessor;
-  constexpr int64_t vect_bytes = 16L;
-  int64_t unroll_factor = std::max(1L, required_bytes_per_thread / vect_bytes);
+  constexpr int64_t vect_bits = 128L;
+  int64_t unroll_factor = std::max(1L, required_bits_per_thread / vect_bits);
   if (unroll_factor > 1) {
     unroll_factor *= computation_factor;
     unroll_factor /= n_inputs_factor;

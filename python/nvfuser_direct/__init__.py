@@ -3,10 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
+import warnings
 
-assert (
-    "nvfuser" not in sys.modules
-), "Cannot import nvfuser_direct if nvfuser module is already imported."
+if "nvfuser" in sys.modules:
+    warnings.warn(
+        "Be careful! You've imported nvfuser_direct when the nvfuser module is already imported.",
+        UserWarning,
+    )
 
 import os
 import torch
@@ -19,6 +22,42 @@ if pytorch_lib_dir not in sys.path:
 
 from . import _C_DIRECT  # noqa: F401,F403
 from ._C_DIRECT import *  # noqa: F401,F403
+
+
+def execute_with_dtensors(fd, in_dtensors):
+    """
+    Execute a fusion on a list of DTensor inputs.
+
+    Parameters
+    ----------
+    fd : FusionDefinition
+        The fusion definition to execute
+    in_dtensors : list of DTensor
+        The list of DTensor inputs to the fusion
+
+    Returns
+    -------
+    list of DTensor
+        The list of DTensor outputs from the fusion
+    """
+    import torch.distributed as dist
+    from torch.distributed.tensor import DTensor
+    from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
+
+    inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
+    out_tensors = self.execute(inputs, auto_schedule=True)
+    out_shardings = self.fec.get_output_shardings()
+    assert len(out_tensors) == len(out_shardings)
+
+    out_dtensors: list[DTensor] = []
+    for out_tensor, out_sharding in zip(out_tensors, out_shardings):
+        mesh = dist.device_mesh.init_device_mesh("cuda", (out_sharding.mesh.size,))
+        placements: list[Placement] = []
+        for parallel_type in [_C_DIRECT.ParallelType.mesh_x]:
+            axis: int = out_sharding.axis_sharded_on(parallel_type)
+            placements.append(Replicate() if axis == -1 else Shard(axis))
+        out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
+    return out_dtensors
 
 
 class FusionDefinition:

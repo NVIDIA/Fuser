@@ -13,6 +13,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -119,12 +120,6 @@ NVF_API TensorView* reductionOpRaw(
     TensorView* v1,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
-
-struct ScaledTensorView {
-  TensorView* tv;
-  TensorView* block_scaling_factor = nullptr;
-  TensorView* global_scaling_factor = nullptr;
-};
 
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview

@@ -7,15 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <macros.h>
-#include <visibility.h>
-
-#include <c10/core/ScalarType.h>
-// #include <c10/util/Float4_e2m1fn_x2.h>
-
-#include <polymorphic_value.h>
-
 #include <array>
 #include <complex>
 #include <cstdint>
@@ -27,6 +18,25 @@
 #include <typeinfo>
 #include <unordered_set>
 #include <variant>
+
+#include <cuda_runtime_api.h>
+
+#include <c10/core/ScalarType.h>
+
+#include <exceptions.h>
+#include <macros.h>
+#include <polymorphic_value.h>
+#include <visibility.h>
+
+#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
+
+#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
+  TORCH_VERSION_MAJOR > major ||                                      \
+      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
+       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
 
 namespace nvfuser {
 
@@ -385,8 +395,11 @@ DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::BFloat16, at::BFloat16);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e4m3fn, at::Float8_e4m3fn);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e5m2, at::Float8_e5m2);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float8_e8m0fnu, at::Float8_e8m0fnu);
-// DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Float4_e2m1fn_x2,
-// at::Float4_e2m1fn_x2);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+DEFINE_DATATYPE_TO_NATIVE_TYPE(
+    DataType::Float4_e2m1fn_x2,
+    at::Float4_e2m1fn_x2);
+#endif
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Char, int8_t);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Short, int16_t);
 DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::Int32, int);
@@ -492,7 +505,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     auto ptr = std::get<PointerType>(dtype.type);
-    return dataTypeSizeByte(*ptr.type) == value.as<Pointer>().size();
+    return dataTypeSizeBit(*ptr.type) == value.as<Pointer>().sizeBit();
   } else if (std::holds_alternative<ArrayType>(dtype.type)) {
     if (!value.is<std::vector>()) {
       return false;
@@ -1109,7 +1122,8 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSizeByte(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)),
+      size_bit_(dataTypeSizeBit(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,
@@ -1159,5 +1173,7 @@ enum class TMemRegisterDataPath {
 };
 
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
+
+std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
 
 } // namespace nvfuser
