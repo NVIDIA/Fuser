@@ -15,7 +15,6 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <random>
 
 namespace nvfuser {
 
@@ -44,15 +43,10 @@ TEST_F(HostIrJitTest, Set) {
   in_args.push(in);
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   auto out = outs[0].as<at::Tensor>();
-  EXPECT_EQ(out.sizes(), in.sizes()) << "Sizes are not equal:\n"
-                                     << "in = " << in << "\n"
-                                     << "out = " << out;
-  EXPECT_EQ(out.strides(), in.strides()) << "Strides are not equal:\n"
-                                         << "in = " << in << "\n"
-                                         << "out = " << out;
-  EXPECT_EQ(at::equal(out, in), true) << "Tensors are not equal:\n"
-                                      << "in = " << in << "\n"
-                                      << "out = " << out;
+  EXPECT_TRUE(at::equal(out, in)) << "Tensors are not equal:\n"
+                                  << "in = " << in << "\n"
+                                  << "out = " << out;
+  EXPECT_EQ(out.strides(), in.strides());
 }
 
 TEST_F(HostIrJitTest, HostIrContainer) {
@@ -68,10 +62,9 @@ TEST_F(HostIrJitTest, HostIrContainer) {
     hic->pushBackTopLevelExprs(hic_out->definition());
   }
   HostIrJit jit(std::move(hic));
-  EXPECT_EQ(jit.container()->inputs().size(), num_inputs);
-  EXPECT_EQ(jit.container()->outputs().size(), num_inputs);
-  EXPECT_EQ(jit.getHostIrContainer().inputs().size(), num_inputs);
-  EXPECT_EQ(jit.getHostIrContainer().outputs().size(), num_inputs);
+  EXPECT_EQ(jit.container().inputs().size(), num_inputs);
+  EXPECT_EQ(jit.container().outputs().size(), num_inputs);
+  EXPECT_EQ(jit.container().topLevelExprs().size(), num_inputs);
   EXPECT_EQ(jit.inputs().size(), num_inputs);
   EXPECT_EQ(jit.outputs().size(), num_inputs);
 }

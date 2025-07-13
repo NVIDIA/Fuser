@@ -155,7 +155,7 @@ void compileLoadStoreOp(
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     auto* func = builder.GetInsertBlock()->getParent();
-    llvm::outs() << "=== LLVM IR Generation for LoadStoreOp ===\n";
+    llvm::outs() << "=== LLVM IR After Generating LoadStoreOp ===\n";
     func->print(llvm::outs(), nullptr);
   }
 }
@@ -203,7 +203,7 @@ void unpackInputs(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-    llvm::outs() << "=== LLVM IR Generation for Main Function Inputs ===\n";
+    llvm::outs() << "=== LLVM IR After Generating Main Function Inputs ===\n";
     func->getParent()->print(llvm::outs(), nullptr);
   }
 }
@@ -235,7 +235,7 @@ void packOutputs(
   }
   builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-    llvm::outs() << "=== LLVM IR Generation for Main Function Outputs ===\n";
+    llvm::outs() << "=== LLVM IR After Generating Main Function Outputs ===\n";
     llvm::Function* func = builder.GetInsertBlock()->getParent();
     func->getParent()->print(llvm::outs(), nullptr);
   }
@@ -441,16 +441,8 @@ const std::vector<Val*>& HostIrJit::outputs() const {
   return pimpl_->container->outputs();
 }
 
-hir::HostIrContainer* HostIrJit::container() const {
-  return pimpl_->container.get();
-}
-
-const hir::HostIrContainer& HostIrJit::getHostIrContainer() const {
+const hir::HostIrContainer& HostIrJit::container() const {
   return *pimpl_->container;
-}
-
-std::ostream& HostIrJit::print(std::ostream& os) const {
-  return pimpl_->container->print(os);
 }
 
 } // namespace nvfuser
