@@ -157,6 +157,16 @@ class NvrtcCompileDriver {
 
   std::string invoke(nvrtcProgram program, const std::string& src) const {
     FUSER_PERF_SCOPE("executor_utils::Nvrtc::CompileProgram");
+
+    // Print compilation parameters when CompilationParams is enabled
+    if (isDebugDumpEnabled(DebugDumpOption::CompilationParams)) {
+      debug() << "NVRTC Compilation Parameters:" << std::endl;
+      for (const auto& opt : options_) {
+        debug() << "  " << opt << std::endl;
+      }
+      debug() << std::endl;
+    }
+
     auto opts = getOptions();
     auto result = nvrtcCompileProgram(
         program, static_cast<int>(opts.size()), opts.data());

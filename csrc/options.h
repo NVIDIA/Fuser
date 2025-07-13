@@ -60,6 +60,7 @@ enum class DebugDumpOption {
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
+  CompilationParams, //!< Print the compilation parameters (NVRTC options)
   BufferReuseInfo, //!< Dump the analysis details of local/shared buffer re-use
   SchedulerDebug, //! Dump scheduler heuristic parameters
   SchedulerVerbose, //! Dump detailed scheduler logging

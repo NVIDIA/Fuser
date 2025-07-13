@@ -102,6 +102,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"bank_conflict", DebugDumpOption::BankConflictInfo},
       {"buffer_reuse_verbose", DebugDumpOption::BufferReuseInfo},
       {"ca_map", DebugDumpOption::ComputeAtMap},
+      {"compilation_params", DebugDumpOption::CompilationParams},
       {"cubin", DebugDumpOption::Cubin},
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
