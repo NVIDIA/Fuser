@@ -182,36 +182,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
           (tv->definition()->isA<MmaOp>() &&
            isHopper(tv->definition()->as<MmaOp>()->macro()))) {
         use_set_allocation_domain = true;
-      } else if (tv->getMemoryType() == MemoryType::Shared) {
-        // If it's a shared memory tensor, the set domain is likely
-        // valid if Swizzle or Bulk is used. Also, if the allocation
-        // domain is just a permutation of the loop domain, use the
-        // set allocation domain. This seems to happen only with
-        // AllocationDomainTest.TransposedIntermediate.
-        if (std::any_of(
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end(),
-                [](IterDomain* allocation_domain) {
-                  return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr ||
-                      allocation_domain->getParallelType() ==
-                      ParallelType::Bulk;
-                }) ||
-            std::is_permutation(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end())) {
-          use_set_allocation_domain = true;
-        }
-
-        // Honor the set allocation domain if the tensor is used by a
-        // TMA store or MmaOp
-        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
-              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
-            })) {
-          use_set_allocation_domain = true;
-        }
       }
     }
 
