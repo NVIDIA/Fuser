@@ -297,7 +297,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       }
       encoding_.push_back('a');
       encodeBuffer(
-          SchedulerRuntimeInfo::computeAlignmentSize(
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(
               (size_t)input_tensor.data_ptr()),
           encoding_);
     } else {
