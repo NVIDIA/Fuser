@@ -69,6 +69,41 @@ TEST_F(HostIrJitTest, HostIrContainer) {
   EXPECT_EQ(jit.outputs().size(), num_inputs);
 }
 
+TEST_F(HostIrJitTest, ConstantSizedTensorAllocate) {
+  std::vector<std::vector<int64_t>> sizes;
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  int num_tensors = std::rand() % 10 + 1;
+  // random size generation
+  for (int i = 0; i < num_tensors; i++) {
+    std::vector<int64_t> size;
+    for (int j = 0; j < std::rand() % 7 + 1; j++) {
+      size.push_back(std::rand() % 64 + 1);
+    }
+    sizes.push_back(size);
+  }
+
+  for (int i = 0; i < num_tensors; i++) {
+    TensorView* tv = makeConcreteTensor(sizes[i]);
+    tv->setMemoryType(MemoryType::Global);
+    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+    hic->pushBackTopLevelExprs(allocate);
+    hic->addOutput(tv);
+  }
+
+  HostIrJit jit(std::move(hic));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), num_tensors);
+  for (int i = 0; i < num_tensors; i++) {
+    auto out = outs[i].as<at::Tensor>();
+    EXPECT_EQ(out.sizes(), sizes[i])
+        << "Tensor " << i << " sizes are not equal";
+  }
+}
+
 TEST_F(HostIrJitTest, Deallocate) {
   const std::vector<int64_t> sizes = {8, 64};
   c10::DeviceIndex device_index = 0;
