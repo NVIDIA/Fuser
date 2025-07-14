@@ -44,6 +44,7 @@ namespace nvfuser {
 using main_func_t = std::function<void(const void**, void**)>;
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
+constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
 constexpr std::string_view kAllocateTensorFuncName = "allocate_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kHostIrJitEmptyStridedCudaFuncName =
@@ -124,6 +125,17 @@ llvm::Value* generateTensorSizeExtraction(
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
 }
 
+llvm::Value* generateTensorStrideExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder) {
+  auto* mod = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* tensor_stride_func = mod->getFunction(kTensorStrideFuncName);
+  llvm::Value* dim_val = builder.getInt64(dim);
+
+  return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
+}
+
 // Helper function to register external functions in JIT
 void registerExternalFunction(
     void* func_ptr,
@@ -133,6 +145,48 @@ void registerExternalFunction(
   auto addr = llvm::orc::ExecutorAddr::fromPtr(func_ptr);
   symbolMap[mangler(func_name)] =
       llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
+}
+
+// Infer Tensor Shape and Strides without reordering
+std::pair<
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim>>
+inferShapeAndStridesNoReorder(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
+  return std::make_pair(sizes, strides);
+}
+
+// Infer Tensor Strides with reordering
+llvm::SmallVector<llvm::Value*, kMaxTensorDim>
+inferTensorStridesReordered(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
+  return strides;
+}
+
+// Non Aliased Tensor Shape and Strides Inference
+std::pair<
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
+    llvm::SmallVector<llvm::Value*, kMaxTensorDim>>
+inferTensorShapesAndStridesNonAliased(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
+  // Without allocation, we can directly get the size and stride
+  auto allocation_size_stride = inferShapeAndStridesNoReorder(tv, val_to_value, builder);
+  if (!tv->hasAllocation()) {
+    return {allocation_size_stride.first, allocation_size_stride.second};
+  }
+  // With allocation, we need to reorder the size and stride
+  return std::make_pair(allocation_size_stride.first, inferTensorStridesReordered(tv, val_to_value,builder));
 }
 
 // Helper function to infer tensor shapes and strides
@@ -149,17 +203,35 @@ inferTensorShapesAndStrides(
     llvm::IRBuilder<>& builder) {
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
-  llvm::Value* stride = builder.getInt64(1);
-  for (const auto& id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-    NVF_ERROR(id->extent()->isConst(), "Extent is not constant");
-    llvm::Value* extent_value =
-        builder.getInt64(id->extent()->evaluate().as<int64_t>());
-    val_to_value[id->extent()] = extent_value;
-    sizes.push_back(val_to_value[id->extent()]);
-    strides.push_back(stride);
-    stride = builder.CreateMul(stride, extent_value);
+  // llvm::Value* stride = builder.getInt64(1);
+  // for (const auto& id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+  //   NVF_ERROR(id->extent()->isConst(), "Extent is not constant");
+  //   llvm::Value* extent_value =
+  //       builder.getInt64(id->extent()->evaluate().as<int64_t>());
+  //   val_to_value[id->extent()] = extent_value;
+  //   sizes.push_back(val_to_value[id->extent()]);
+  //   strides.push_back(stride);
+  //   stride = builder.CreateMul(stride, extent_value);
+  // }
+  // llvm::LLVMContext& context = builder.getContext();
+  // auto mod = builder.GetInsertBlock()->getParent()->getParent();
+  // llvm::Type* void_ptr_type = getInt8PtrType(context);
+  auto alias_info = tv->fusion()->getOutputAlias(tv);
+  if (alias_info.type != AllocationType::New) {
+    // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tv = alias_info.aliased_io->as<TensorView>();
+    }    
+    llvm::Value* tensor_ptr = val_to_value[tv];
+    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+    for(int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++){
+      sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
+      strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
+    }
+    return std::make_pair(sizes, strides);
   }
-  return std::make_pair(sizes, strides);
+
+  return inferTensorShapesAndStridesNonAliased(tv, val_to_value, builder);
 }
 
 // Allocation Function LLVM IR Generation
@@ -554,11 +626,18 @@ HostIrJit::HostIrJit(
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           pimpl_->jit->getDataLayout().getGlobalPrefix())));
 
-  // tensor size and stride extraction functions
+  // tensor size extraction function
   void* extract_tensor_size_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
         NVF_ERROR(tensor != nullptr, kTensorSizeFuncName, " tensor is nullptr");
         return tensor->size(dim);
+      });
+
+  // tensor stride extraction function
+  void* extract_tensor_stride_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
+        NVF_ERROR(tensor != nullptr, kTensorStrideFuncName, " tensor is nullptr");
+        return tensor->stride(dim);
       });
 
   // raw tensor allocation, we only allocate a wrapper here
@@ -607,6 +686,11 @@ HostIrJit::HostIrJit(
       name_to_symbol,
       mangler,
       kTensorSizeFuncName);
+  registerExternalFunction(
+      extract_tensor_stride_func_ptr,
+      name_to_symbol,
+      mangler,
+      kTensorStrideFuncName);
   registerExternalFunction(
       allocate_tensor_func_ptr,
       name_to_symbol,
