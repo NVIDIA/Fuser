@@ -14,10 +14,12 @@ namespace nvfuser {
 
 constexpr int64_t kHostIrJitCompileThreads = 4;
 struct HostIrJitImpl;
+struct HostIrJitImpl;
 
 class HostIrJit {
  public:
   HostIrJit(
+      std::unique_ptr<hir::HostIrContainer> container,
       std::unique_ptr<hir::HostIrContainer> container,
       int num_threads = kHostIrJitCompileThreads);
 
@@ -26,9 +28,15 @@ class HostIrJit {
   const std::vector<Val*>& inputs() const;
   const std::vector<Val*>& outputs() const;
   const hir::HostIrContainer& container() const;
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+
+  const std::vector<Val*>& inputs() const;
+  const std::vector<Val*>& outputs() const;
+  const hir::HostIrContainer& container() const;
   ~HostIrJit();
 
  private:
+  std::unique_ptr<HostIrJitImpl> pimpl_;
   std::unique_ptr<HostIrJitImpl> pimpl_;
 };
 } // namespace nvfuser
