@@ -125,6 +125,8 @@ llvm::Value* generateTensorSizeExtraction(
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
 }
 
+// Helper function to generate LLVM IR that extracts tensor stride for a given
+// dimension
 llvm::Value* generateTensorStrideExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
@@ -147,6 +149,140 @@ void registerExternalFunction(
       llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
 }
 
+// Helper function to traverse the extent of a Val and generate LLVM IR
+llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  if (val_to_value.find(val) != val_to_value.end()) {
+    return val_to_value[val];
+  }
+  if (val->definition() != nullptr) {
+    auto* def = val->definition();
+    if(auto* binary_op = def->as<BinaryOp>()) {
+      auto* left = binary_op->lhs()->as<Val>();
+      auto* right = binary_op->rhs()->as<Val>();
+      if(left->isConst() && val_to_value.find(left) == val_to_value.end()) {
+        val_to_value[left] = builder.getInt64(left->value().as<int64_t>());
+      }
+      else if(!left->isConst() && val_to_value.find(left) == val_to_value.end()) {
+        traverseExtentDFS(left, val_to_value, builder);
+      }
+      if(right->isConst() && val_to_value.find(right) == val_to_value.end()) {
+        val_to_value[right] = builder.getInt64(right->value().as<int64_t>());
+      }
+      else if(!right->isConst() && val_to_value.find(right) == val_to_value.end()) {
+        traverseExtentDFS(right, val_to_value, builder);
+      }
+      if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
+        val_to_value[val] = builder.CreateAdd(val_to_value[left], val_to_value[right]);
+      }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::Sub) {
+        val_to_value[val] = builder.CreateSub(val_to_value[left], val_to_value[right]);
+      }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
+        val_to_value[val] = builder.CreateMul(val_to_value[left], val_to_value[right]);
+      }
+      else if(binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
+        // Implement ceilDiv as (a + b - 1) / b
+        llvm::Value* numerator = builder.CreateAdd(val_to_value[left], val_to_value[right]);
+        llvm::Value* one = builder.getInt64(1);
+        numerator = builder.CreateSub(numerator, one);
+        val_to_value[val] = builder.CreateUDiv(numerator, val_to_value[right]);
+      }
+    }
+  }
+  else if(val->isConst()) {
+    val_to_value[val] = builder.getInt64(val->value().as<int64_t>());
+  }
+  else{
+    // NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val.");
+    std::cout << "LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val." << std::endl;
+    val_to_value[val] = builder.getInt64(1);
+  }
+  return val_to_value[val];
+}
+
+// Infer Tensor Shape
+llvm::SmallVector<llvm::Value*, kMaxTensorDim>
+inferShape(
+    const TensorView* tv,
+    std::vector<Val*> symbolic_sizes,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> concrete_sizes;
+  for (const auto i : arange(symbolic_sizes.size())) {
+    auto symbolic_size = symbolic_sizes.at(i);
+    traverseExtentDFS(symbolic_size, val_to_value, builder);
+    auto* inferred_val = val_to_value[symbolic_size];
+    NVF_ERROR(inferred_val != nullptr, "LLVM Lowering Error: inferred_val is nullptr for ", symbolic_size);
+    concrete_sizes.at(i) = inferred_val;
+  }
+  return concrete_sizes;
+}
+
+// Infer Tensor Stride
+llvm::SmallVector<llvm::Value*, kMaxTensorDim>
+inferStride(
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes,
+  std::vector<bool> expand_flags,
+  llvm::IRBuilder<>& builder) {
+  llvm::LLVMContext& context = builder.getContext();
+  NVF_ERROR(sizes.size() == expand_flags.size());
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides(sizes.size());
+  llvm::Value* cur_stride = builder.getInt64(1);
+  for (auto i = sizes.size(); i > 0; --i) {
+    llvm::Value* size = sizes.at(i - 1);
+    llvm::Value* stride = cur_stride;
+    // If expanded, stride is 0
+    if (expand_flags.at(i - 1)) {
+      stride = builder.getInt64(0);
+    } else {
+      // Handle null size values by treating them as size 1 (safety check)
+      if (size == nullptr) {
+        size = builder.getInt64(1);
+      }
+      // Create comparison: size == 0
+      llvm::Value* is_zero = builder.CreateICmpEQ(size, builder.getInt64(0));
+      
+      // Get current function for creating basic blocks
+      llvm::Function* current_function = builder.GetInsertBlock()->getParent();
+      
+      // Create basic blocks
+      llvm::BasicBlock* zero_block = llvm::BasicBlock::Create(context, "size_zero", current_function);
+      llvm::BasicBlock* nonzero_block = llvm::BasicBlock::Create(context, "size_nonzero", current_function);
+      llvm::BasicBlock* merge_block = llvm::BasicBlock::Create(context, "stride_merge", current_function);
+      
+      // Conditional branch
+      builder.CreateCondBr(is_zero, zero_block, nonzero_block);
+      
+      // Handle size == 0 case
+      builder.SetInsertPoint(zero_block);
+      llvm::Value* stride_if_zero = builder.getInt64(1);
+      builder.CreateBr(merge_block);
+      
+      // Handle size != 0 case
+      builder.SetInsertPoint(nonzero_block);
+      llvm::Value* new_cur_stride = builder.CreateMul(cur_stride, size);
+      builder.CreateBr(merge_block);
+      
+      // Merge the results
+      builder.SetInsertPoint(merge_block);
+      llvm::PHINode* stride_phi = builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      stride_phi->addIncoming(stride_if_zero, zero_block);
+      stride_phi->addIncoming(cur_stride, nonzero_block);
+      stride = stride_phi;
+      
+      // Update cur_stride for next iteration
+      llvm::PHINode* cur_stride_phi = builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      cur_stride_phi->addIncoming(cur_stride, zero_block);  // Don't update if size is 0
+      cur_stride_phi->addIncoming(new_cur_stride, nonzero_block);  // Update if size != 0
+      cur_stride = cur_stride_phi;
+    }
+
+    strides.at(i - 1) = stride;
+  }
+  return strides;
+}
+
 // Infer Tensor Shape and Strides without reordering
 std::pair<
     llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
@@ -155,9 +291,38 @@ inferShapeAndStridesNoReorder(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
-  return std::make_pair(sizes, strides);
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // Allocate the allocation domain
+  for (const auto id : tv->getMaybeAllocationDomain()) {
+    if (id->isReduction() || id->isStride()) {
+      continue;
+    }
+
+    // Skip DIDx parallel domains to match inferTensorStrides filtering
+    if (id->getParallelType() == ParallelType::DIDx || id->getParallelType() == ParallelType::DIDy || id->getParallelType() == ParallelType::DIDz) {
+      continue;
+    }
+
+    if (id->isDeviceDim()) {
+      symbolic_sizes.push_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    }
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+  auto shapes = inferShape(tv, symbolic_sizes, val_to_value, builder);
+  auto strides = inferStride(shapes, expand_flags, builder);
+  return std::make_pair(shapes, strides);
 }
 
 // Infer Tensor Strides with reordering
@@ -178,12 +343,10 @@ inferTensorShapesAndStridesNonAliased(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
   // Without allocation, we can directly get the size and stride
   auto allocation_size_stride = inferShapeAndStridesNoReorder(tv, val_to_value, builder);
   if (!tv->hasAllocation()) {
-    return {allocation_size_stride.first, allocation_size_stride.second};
+    return allocation_size_stride;
   }
   // With allocation, we need to reorder the size and stride
   return std::make_pair(allocation_size_stride.first, inferTensorStridesReordered(tv, val_to_value,builder));
@@ -221,8 +384,9 @@ inferTensorShapesAndStrides(
     // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
     if (alias_info.type == AllocationType::ReuseBuffer) {
       tv = alias_info.aliased_io->as<TensorView>();
-    }    
-    llvm::Value* tensor_ptr = val_to_value[tv];
+    } 
+    auto tv_val = tv->as<Val>();
+    llvm::Value* tensor_ptr = val_to_value[tv_val];
     auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
     for(int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++){
       sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
