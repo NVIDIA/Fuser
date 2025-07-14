@@ -69,6 +69,38 @@ TEST_F(HostIrJitTest, HostIrContainer) {
   EXPECT_EQ(jit.outputs().size(), num_inputs);
 }
 
+TEST_F(HostIrJitTest, Deallocate) {
+  const std::vector<int64_t> sizes = {8, 64};
+  c10::DeviceIndex device_index = 0;
+
+  resetPeakMemoryStats(device_index);
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  for (int i = 0; i < 10; i++) {
+    TensorView* tv = makeConcreteTensor(sizes);
+    tv->setMemoryType(MemoryType::Global);
+    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+    auto* deallocate = IrBuilder::create<Deallocate>(tv);
+
+    hic->pushBackTopLevelExprs(allocate);
+    hic->pushBackTopLevelExprs(deallocate);
+  }
+
+  HostIrJit jit(std::move(hic));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 0);
+
+  EXPECT_EQ(memoryAllocated(device_index), 0);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
