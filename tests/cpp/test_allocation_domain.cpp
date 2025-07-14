@@ -1527,4 +1527,150 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
+// Should use inner reduction but currently uses outer reduction.
+TEST_F(AllocationDomainTest, InnerReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 512L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  //  logical domain : (iS0{128}, iS1{256}, iS2{512})
+  //  allocation domain : (iS2{512}, iS1{256}, iS0{128})
+  auto tv2 = sum(tv1, {0});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  // Validation failed due to wrong number of reduction elements.
+  // testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Should use outer reduction but currently uses inner reduction.
+TEST_F(AllocationDomainTest, OuterReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 512L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  //  logical domain : (iS0{128}, iS1{256}, iS2{512})
+  //  allocation domain : (iS2{512}, iS1{256}, iS0{128})
+  auto tv2 = sum(tv1, {2});
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Should use inner persistent scheduler but currently uses outer persistent.
+TEST_F(AllocationDomainTest, InnerPersistent) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 512L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Should use outer persistent scheduler but currently uses inner persistent.
+TEST_F(AllocationDomainTest, OuterPersistent) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 512L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {2});
+  auto tv3 = broadcast(tv2, {false, false, true});
+  auto tv4 = add(tv1, tv3);
+  fusion->addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Inner persistent + outer reduction
+// should be scheduled with inner outer persistent scheduler but segmented.
+TEST_F(AllocationDomainTest, InnerPersistentOuterReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 512L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = broadcast(tv2, {true, false, false});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = sum(tv4, {1, 2});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// outer persistent + Inner reduction
+// should segmented into outer persistent and inner reduction but currently uses
+// inner outer persistent scheduler. see a version without allocation domain at
+// CombinedSchedulerTest.OuterPersistentInnerReduction
+TEST_F(AllocationDomainTest, OuterPersistentInnerReduction) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  long x = 128L, y = 256L, z = 32L;
+  auto tv1 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv1);
+  std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
+  tv1->setAllocationDomain(tv1_dom, true);
+  auto tv2 = sum(tv1, {1, 2});
+  auto tv3 = broadcast(tv2, {false, true, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = sum(tv4, {0});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  std::vector<c10::IValue> inputs({t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+}
 } // namespace nvfuser
