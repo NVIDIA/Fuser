@@ -434,6 +434,10 @@ IterDomain* getIndexedProducerID(const Expr* expr);
 // indirectly accessed.
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr);
 
+// Return the output tv of the indexSelect op that consumes the given tv.
+// A nullptr is returned if the given tv is not consumed by an indexSelect op.
+TensorView* getIndexSelectOutputTv(const TensorView* tv);
+
 // Check if the given tv is first argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectLookupTv(const TensorView* tv);
 
