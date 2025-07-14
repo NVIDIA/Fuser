@@ -210,12 +210,13 @@ inferShape(
 
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> concrete_sizes;
   for (const auto i : arange(symbolic_sizes.size())) {
-    auto symbolic_size = symbolic_sizes.at(i);
+    auto symbolic_size = symbolic_sizes[i];
     traverseExtentDFS(symbolic_size, val_to_value, builder);
     auto* inferred_val = val_to_value[symbolic_size];
     NVF_ERROR(inferred_val != nullptr, "LLVM Lowering Error: inferred_val is nullptr for ", symbolic_size);
-    concrete_sizes.at(i) = inferred_val;
+    concrete_sizes.push_back(inferred_val);
   }
+  NVF_ERROR(concrete_sizes.size() == symbolic_sizes.size());
   return concrete_sizes;
 }
 
@@ -230,7 +231,7 @@ inferStride(
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides(sizes.size());
   llvm::Value* cur_stride = builder.getInt64(1);
   for (auto i = sizes.size(); i > 0; --i) {
-    llvm::Value* size = sizes.at(i - 1);
+    llvm::Value* size = sizes[i - 1];
     llvm::Value* stride = cur_stride;
     // If expanded, stride is 0
     if (expand_flags.at(i - 1)) {
@@ -278,7 +279,7 @@ inferStride(
       cur_stride = cur_stride_phi;
     }
 
-    strides.at(i - 1) = stride;
+    strides[i - 1] = stride;
   }
   return strides;
 }
@@ -382,12 +383,12 @@ inferTensorShapesAndStrides(
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
     // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
+    const TensorView* tensor_to_use = tv;
     if (alias_info.type == AllocationType::ReuseBuffer) {
-      tv = alias_info.aliased_io->as<TensorView>();
+      tensor_to_use = alias_info.aliased_io->as<TensorView>();
     } 
-    auto tv_val = tv->as<Val>();
-    llvm::Value* tensor_ptr = val_to_value[tv_val];
-    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+    llvm::Value* tensor_ptr = val_to_value[const_cast<Val*>(tensor_to_use->as<Val>())];
+    auto logical_domain = TensorDomain::noReductions(tensor_to_use->getLogicalDomain());
     for(int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++){
       sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
       strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
