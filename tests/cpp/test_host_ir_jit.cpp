@@ -101,6 +101,16 @@ TEST_F(HostIrJitTest, ConstantSizedTensorAllocate) {
     auto out = outs[i].as<at::Tensor>();
     EXPECT_EQ(out.sizes(), sizes[i])
         << "Tensor " << i << " sizes are not equal";
+
+    std::deque<int64_t> strides;
+    strides.push_back(1);
+    for (size_t j = sizes[i].size() - 1; j > 0; j--) {
+      strides.push_front(strides.front() * out.sizes()[j]);
+    }
+    for (size_t j = 0; j < out.strides().size(); j++) {
+      EXPECT_EQ(out.strides()[j], strides[j])
+          << "Tensor " << i << " strides are not equal";
+    }
   }
 }
 
@@ -135,6 +145,8 @@ TEST_F(HostIrJitTest, Deallocate) {
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
 }
+
+
 
 } // namespace hir
 
