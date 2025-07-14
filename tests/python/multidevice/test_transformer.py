@@ -89,6 +89,16 @@ def test_grouped_mlp(multidevice_test):
     fd = Model()
     (out,), _ = fd.execute([inp, sharded_gate_w, sharded_up_w, sharded_down_w, offsets])
 
+    # Unfortunately, I couldn't come up with meaningful thresholds to pass the
+    # comparison even with one GPU. I manually examined the results. They are
+    # not completely off, which is good.
+    #
+    # I tried several easy things:
+    # 1. run the reference implementation on GPU,
+    # 2. upcast tensors to `float` here and there in the reference implementation.
+    #
+    # None of them significantly reduce the error. It could be a problem in the
+    # grouped gemm kernel.
     torch.testing.assert_close(out.cpu(), expected_out, rtol=1.0, atol=float("inf"))
 
 
