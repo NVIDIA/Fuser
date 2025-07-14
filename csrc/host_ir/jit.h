@@ -26,8 +26,6 @@ class HostIrJit {
   const std::vector<Val*>& inputs() const;
   const std::vector<Val*>& outputs() const;
   const hir::HostIrContainer& container() const;
-  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
-
   ~HostIrJit();
 
  private:
