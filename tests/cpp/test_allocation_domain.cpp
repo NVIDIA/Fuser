@@ -1542,7 +1542,8 @@ TEST_F(AllocationDomainTest, InnerReduction) {
   fusion->addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
+  // shape: (x, y, z), alloc: (z, y, x), alloc_stride: (xy, x, 1)
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {x * y, x, 1});
   std::vector<c10::IValue> inputs({t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));

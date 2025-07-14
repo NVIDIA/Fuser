@@ -188,20 +188,21 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // domain is just a permutation of the loop domain, use the
         // set allocation domain. This seems to happen only with
         // AllocationDomainTest.TransposedIntermediate.
-        if (std::any_of(
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end(),
-                [](IterDomain* allocation_domain) {
-                  return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr ||
-                      allocation_domain->getParallelType() ==
-                      ParallelType::Bulk;
-                }) ||
-            std::is_permutation(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end())) {
+        if (!ir_utils::isCpAsyncBulk1D(tv->definition()) &&
+            (std::any_of(
+                 tv->getAllocationDomain().begin(),
+                 tv->getAllocationDomain().end(),
+                 [](IterDomain* allocation_domain) {
+                   return dynamic_cast<Swizzle*>(
+                              allocation_domain->definition()) != nullptr ||
+                       allocation_domain->getParallelType() ==
+                       ParallelType::Bulk;
+                 }) ||
+             std::is_permutation(
+                 tv->getLoopDomain().begin(),
+                 tv->getLoopDomain().end(),
+                 tv->getAllocationDomain().begin(),
+                 tv->getAllocationDomain().end()))) {
           use_set_allocation_domain = true;
         }
 
@@ -229,10 +230,12 @@ class AllocationDomainSetup : private kir::IrVisitor {
         contiguity = tv->domain()->contiguity();
       } else {
         std::unordered_set<IterDomain*> exclude_ca_ids;
+        std::cout << "allocation_pos: " << allocation_pos << std::endl;
         for (auto i : arange(allocation_pos)) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
+            std::cout << "exclude_ca_ids: " << ca_id->toString() << std::endl;
             exclude_ca_ids.insert(ca_id);
           }
         }
@@ -243,6 +246,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                     tv->getMemoryType(), id->getParallelType())) {
               continue;
             }
+            std::cout << "allocation_domains: " << id->toString() << std::endl;
             allocation_domains.push_back(id);
             contiguity.push_back(tv->domain()->contiguity()[i]);
           } else {
