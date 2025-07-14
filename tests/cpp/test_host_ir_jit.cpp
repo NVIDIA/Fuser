@@ -147,13 +147,11 @@ TEST_F(HostIrJitTest, Deallocate) {
 }
 
 TEST_F(HostIrJitTest, DynamicSizedTensorAllocate) {
-  std::vector<std::vector<int64_t>> sizes;
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
   TensorView* hic_in = makeSymbolicTensor(2);
   TensorView* hic_out = hic_in->split(0, 16)->split(0, 2);
-  hic_out->commitLeafToLogical();
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
@@ -168,8 +166,8 @@ TEST_F(HostIrJitTest, DynamicSizedTensorAllocate) {
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 1);
   auto out = outs[0].as<at::Tensor>();
-  std::cout << "out.sizes() = " << out.sizes() << std::endl;
-  std::cout << "out.strides() = " << out.strides() << std::endl;
+  EXPECT_EQ(out.sizes(), std::vector<int64_t>({64, 32}));
+  EXPECT_EQ(out.strides(), std::vector<int64_t>({32, 1}));
 }
 
 } // namespace hir

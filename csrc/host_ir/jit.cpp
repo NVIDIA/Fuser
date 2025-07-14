@@ -278,7 +278,6 @@ inferStride(
       cur_stride_phi->addIncoming(new_cur_stride, nonzero_block);  // Update if size != 0
       cur_stride = cur_stride_phi;
     }
-
     strides[i - 1] = stride;
   }
   return strides;
@@ -783,6 +782,7 @@ HostIrJit::HostIrJit(
   void* extract_tensor_size_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
         NVF_ERROR(tensor != nullptr, kTensorSizeFuncName, " tensor is nullptr");
+        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
         return tensor->size(dim);
       });
 
@@ -790,6 +790,7 @@ HostIrJit::HostIrJit(
   void* extract_tensor_stride_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
         NVF_ERROR(tensor != nullptr, kTensorStrideFuncName, " tensor is nullptr");
+        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
         return tensor->stride(dim);
       });
 
