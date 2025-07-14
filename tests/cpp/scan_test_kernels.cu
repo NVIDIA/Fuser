@@ -17,6 +17,7 @@ namespace nvf {
 } // namespace nvf
 
 #include <runtime/cub_utils.cu>
+
 #include <runtime/scan.cu>
 
 // Standard C++ headers

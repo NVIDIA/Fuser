@@ -18,6 +18,7 @@ namespace nvf {
 } // namespace nvf
 
 #include <runtime/cub_utils.cu>
+
 #include <runtime/topk.cu>
 
 // Standard C++ headers
