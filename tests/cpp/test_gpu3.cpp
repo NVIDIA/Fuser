@@ -9102,6 +9102,39 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
 }
 
+// Repro issue #4741
+TEST_F(NVFuserTest, SyncthreadsWithGmem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // [TIDx, TIDy]
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDy);
+
+  // [TIDy, TIDx]
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  GpuLower lower(&fusion);
+  lower.run();
+  auto kernel = lower.kernel();
+  auto it = std::ranges::find_if(kernel->topLevelExprs(), [](Expr* expr) {
+    return expr->isA<kir::BlockSync>();
+  });
+  EXPECT_NE(it, kernel->topLevelExprs().end());
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
