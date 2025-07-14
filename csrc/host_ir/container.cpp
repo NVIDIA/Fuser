@@ -20,8 +20,8 @@ namespace nvfuser {
 
 namespace hir {
 
-HostIrContainer::HostIrContainer(int64_t num_kernel_executors)
-    : kernel_executors_(num_kernel_executors) {}
+HostIrContainer::HostIrContainer(int64_t num_groups)
+    : kernel_executors_(num_groups) {}
 
 HostIrContainer::~HostIrContainer() = default;
 
@@ -35,13 +35,6 @@ Stream* HostIrContainer::getDefaultStream() {
 std::ostream& HostIrContainer::print(std::ostream& os) const {
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
-  if (alias_.size() > 0) {
-    os << "Aliases:{";
-    for (const auto& alias : alias_) {
-      os << "\n  " << alias.first << " -> " << alias.second;
-    }
-    os << "\n}\n";
-  }
   return os;
 }
 
@@ -58,15 +51,20 @@ void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   top_level_exprs_.push_back(expr);
 }
 
-void HostIrContainer::setKernelExecutor(
-    int64_t index,
-    std::unique_ptr<KernelExecutor> ke) {
-  NVF_ERROR(kernel_executors_.at(index) == nullptr);
-  kernel_executors_.at(index) = std::move(ke);
+void HostIrContainer::addKernelExecutor(std::unique_ptr<KernelExecutor> ke) {
+  const int64_t group_id = ke->groupId();
+  NVF_ERROR(
+      kernel_executors_.at(group_id) == nullptr,
+      "KernelExecutor with the same group ID (",
+      group_id,
+      " already exists. You may have forgotten to KernelExecutor::setGroupId "
+      "before calling HostIrContainer::addKernelExecutor.");
+  kernel_executors_.at(group_id) = std::move(ke);
 }
 
-KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
-  return kernel_executors_.at(index).get();
+KernelExecutor* HostIrContainer::getKernelExecutor(
+    const int64_t group_id) const {
+  return kernel_executors_.at(group_id).get();
 }
 
 } // namespace hir

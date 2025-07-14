@@ -71,8 +71,9 @@ void ArgumentManager::updateWithSegmentOutputs(
     const KernelArgumentHolder& group_runtime_outputs,
     const int64_t group_id) {
   // Insert graph segment output to tensor map
-  NVF_ERROR(
-      group_outputs.size() == group_runtime_outputs.size(),
+  NVF_ERROR_EQ(
+      std::ssize(group_outputs),
+      group_runtime_outputs.size(),
       "Output size does not match.");
   for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
@@ -204,7 +205,8 @@ void prepareRuntimeOrder(
     }
     NVF_ERROR(
         one_ran,
-        "Couldn't run all groups, something must have gone wrong in segmentation.");
+        "Couldn't run all groups, something must have gone wrong in "
+        "segmentation.");
   }
 }
 
@@ -295,7 +297,7 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
       }
       encoding_.push_back('a');
       encodeBuffer(
-          SchedulerRuntimeInfo::computeAlignmentSize(
+          SchedulerRuntimeInfo::computeAlignmentSizeBit(
               (size_t)input_tensor.data_ptr()),
           encoding_);
     } else {

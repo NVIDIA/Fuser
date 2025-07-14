@@ -6,13 +6,13 @@
  */
 // clang-format on
 #include <debug.h>
+#include <distributed_tensor.h>
 #include <fusion_profiler.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <instrumentation.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -27,41 +27,6 @@
 using namespace nvfuser::inst;
 
 namespace nvfuser::python_frontend {
-
-const char* dtypeToPyString(PrimDataType t) {
-  switch (t) {
-    case DataType::Bool:
-      return "DataType.Bool";
-    case DataType::Double:
-      return "DataType.Double";
-    case DataType::Float:
-      return "DataType.Float";
-    case DataType::Half:
-      return "DataType.Half";
-    case DataType::BFloat16:
-      return "DataType.BFloat16";
-    case DataType::Float8_e4m3fn:
-      return "DataType.Float8_e4m3fn";
-    case DataType::Float8_e5m2:
-      return "DataType.Float8_e5m2";
-    case DataType::Int:
-      return "DataType.Int";
-    case DataType::Int32:
-      return "DataType.Int32";
-    case DataType::ComplexFloat:
-      return "DataType.ComplexFloat";
-    case DataType::ComplexDouble:
-      return "DataType.ComplexDouble";
-    case DataType::Null:
-      return "DataType.Null";
-    case DataType::UInt64:
-      return "DataType.UInt64";
-    default:
-      break;
-  }
-  NVF_THROW("No string found for data type.");
-  return nullptr;
-}
 
 FusionDefinition::FusionDefinition(
     std::optional<size_t> id,
@@ -160,7 +125,8 @@ void FusionDefinition::finalizeDefinition() {
 
   NVF_ERROR(
       num_recording_states_presched_ == 0,
-      "Expected number of recording states for prescheduled fusion to be uninitialized.");
+      "Expected number of recording states for prescheduled fusion to be "
+      "uninitialized.");
   num_recording_states_presched_ = (int64_t)recording_state_.size();
 }
 
@@ -236,7 +202,8 @@ void FusionDefinition::verifyTensorDimensions() {
     const int64_t tv_ndims = v->as<TensorView>()->nDims();
     NVF_ERROR(
         tv_ndims == (int64_t)t.dims,
-        "Expected TensorView to have same number of dimensions as Tensor but got: ",
+        "Expected TensorView to have same number of dimensions as Tensor but "
+        "got: ",
         tv_ndims,
         " and ",
         t.dims);
@@ -353,45 +320,6 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
-namespace {
-// Returns the output shardings of the given fusion. As a short cut, if none of
-// the outputs have a device mesh, returns an empty vector indicating single-GPU
-// execution.
-std::vector<Sharding> getOutputShardings(Fusion* fusion) {
-  std::vector<TensorView*> all_tvs = fusion->allTvs();
-  if (std::none_of(
-          all_tvs.begin(),
-          all_tvs.end(),
-          std::mem_fn(&TensorView::hasDeviceMesh))) {
-    return {};
-  }
-
-  std::vector<Sharding> output_shardings;
-  output_shardings.reserve(fusion->outputs().size());
-  for (Val* out_val : fusion->outputs()) {
-    if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {
-      if (fusion->getOutputAlias(out_tv).hide_output) {
-        continue;
-      }
-      const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      Sharding& output_sharding = output_shardings.emplace_back(mesh);
-      if (mesh.size() > 0) {
-        for (const ParallelType parallel_type : kParallelTypeDIDs) {
-          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
-              axis != -1) {
-            output_sharding.setAxisIsShardedOn(axis, parallel_type);
-          }
-        }
-      }
-    } else {
-      output_shardings.emplace_back(DeviceMesh());
-    }
-  }
-
-  return output_shardings;
-}
-} // namespace
-
 std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
     execute(
         KernelArgumentHolder args,
@@ -453,10 +381,6 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
       if (scheds->multi_device_executor == nullptr) {
         MultiDeviceExecutorParams params;
         params.lower.communicator_backend = backend_type_;
-        // Disable StreamParallelType pass temporarily as proper stream lowering
-        // gets implemented
-        preseg_passes::OptimizationPassGuard<hir::StreamParallelType> guard(
-            false);
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
             std::make_unique<Fusion>(*scheds->preschedFusion()),
             Communicator::getInstance(),
@@ -531,9 +455,10 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
               ->completeFusion();
     output_shardings = getOutputShardings(fusion);
     NVF_ERROR(
-        output_shardings.empty() || output_shardings.size() == outputs.size(),
+        output_shardings.empty() ||
+            std::ssize(output_shardings) == outputs.size(),
         "Found ",
-        output_shardings.size(),
+        std::ssize(output_shardings),
         " output shardings but expected ",
         outputs.size(),
         " or 0.");
@@ -688,7 +613,8 @@ Scalar FusionDefinition::defineScalar() {
   FUSER_PERF_SCOPE("FusionDefinition::defineScalar");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_scalar() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_scalar() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Scalar out(recording_state_.size(), this);
   recording_state_.emplace_back(out(), serde::StateType::Scalar);
   return out;
@@ -698,7 +624,8 @@ Tensor FusionDefinition::addTensor(TensorView* tv) {
   FUSER_PERF_SCOPE("FusionDefinition::addTensor");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "addTensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "addTensor() must be called from an initialized definition via a python "
+      "context manager or a child class' definition() method.");
   Tensor output = defineTensor(tv->nDims());
   NVF_CHECK(
       output.index == numFusionStates(),
@@ -711,7 +638,8 @@ Tensor FusionDefinition::defineTensor(size_t dims) {
   FUSER_PERF_SCOPE("FusionDefinition::defineTensor");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_tensor() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_tensor() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Tensor out(recording_state_.size(), dims, this);
   recording_state_.emplace_back(out(), serde::StateType::Tensor);
   return out;
@@ -721,7 +649,8 @@ Vector FusionDefinition::defineVector(size_t size) {
   FUSER_PERF_SCOPE("FusionDefinition::defineVector");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "define_vector() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "define_vector() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   Vector out(recording_state_.size(), size, this);
   recording_state_.emplace_back(out(), serde::StateType::Vector);
   return out;
@@ -731,7 +660,8 @@ void FusionDefinition::defineRecord(RecordFunctor* record) {
   FUSER_PERF_SCOPE("FusionDefinition::defineRecord");
   NVF_CHECK(
       trie_node_ != nullptr,
-      "defineRecord() must be called from an initialized definition via a python context manager or a child class' definition() method.");
+      "defineRecord() must be called from an initialized definition via a "
+      "python context manager or a child class' definition() method.");
   NVF_CHECK(
       (recording_.size() + 1) <= max_length_,
       "The fusion definition has exceeded ",
@@ -804,6 +734,12 @@ std::vector<Tensor> FusionDefinition::tensors() {
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
     const KernelArgumentHolder& args) {
   return get_val_constants(preschedFusion(), args);
+}
+
+void FusionDefinition::validate_with_auto_inferred_outputs(
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& args) {
+  return testValidate(preschedFusion(), fusion_outputs, args);
 }
 
 int64_t FusionDefinition::setupSegmentation(const KernelArgumentHolder& args) {

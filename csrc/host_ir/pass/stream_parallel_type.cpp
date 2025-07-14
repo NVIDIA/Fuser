@@ -18,7 +18,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 
-namespace nvfuser::hir {
+namespace nvfuser::hir_pass {
 
 namespace {
 
@@ -170,6 +170,7 @@ struct TensorSlicingCache {
     auto td = IrBuilder::create<TensorDomain>(
         new_root, TensorDomain::getContiguityFilledWith(new_root, true));
     auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+    out->setDeviceMesh(tensor->getDeviceMesh());
     auto result = IrBuilder::create<hir::HirAliasSelect>(
         tensor, out, stream_axis_index, index);
 
@@ -306,15 +307,117 @@ std::vector<Expr*> processForLoopBodies(
     };
 
     for (auto* body_expr : for_loop->body().exprs()) {
+      // We have a special handling for when an axis pass from DIDx to Stream
+      // parallel type in one expression. This case should be lowered to a P2P
+      // Communication. For now, we only allow the "Linear Allgather" case,
+      // where tv0 [DIDx(i0), ...] and tv1=set(tv0) [Stream(i0), ...]. In this
+      // case, the set should be lowered to something like
+      //
+      // FOR StreamIdx in range(i0):
+      //   [...]
+      //   SetCurrentStream to Stream ( StreamIdx % numberOfStreams )
+      //   IF StreamIdx == rank: // This is the local copy
+      //     Tv1[StreamIdx, ...].copy_(Tv0[0, ...]) // the index 0 because Tv0
+      //     is sharded
+      //   ELSE:
+      //     Recv (buffer=Tv1[StreamIdx, ...], peer=StreamIdx)
+      //     Send (buffer=Tv0[0, ...], peer=StreamIdx)
+      //   [...]
+      bool needs_p2p_handling = false;
+
+      // Check if any input needs P2P handling
       for (auto* input :
            ir_utils::filterByType<TensorView>(body_expr->inputs())) {
-        processTensor(body_expr, input);
+        if (auto stream_idx =
+                findStreamAxisIndex(input, for_loop->iterDomain(), id_model);
+            stream_idx != -1) {
+          if (input->getLogicalDomain()[stream_idx]->isDeviceDim()) {
+            needs_p2p_handling = true;
+            break;
+          }
+        }
       }
-      for (auto* output :
-           ir_utils::filterByType<TensorView>(body_expr->outputs())) {
-        processTensor(body_expr, output);
+
+      if (needs_p2p_handling) {
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>() &&
+                body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
+            "expected a set operation but got ",
+            body_expr);
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>(),
+            "expected a Tv operation but got ",
+            body_expr);
+        auto* set_op = body_expr->as<LoadStoreOp>();
+        auto* input_tv = set_op->in()->as<TensorView>();
+        auto* output_tv = set_op->out()->as<TensorView>();
+        NVF_ERROR(
+            input_tv->axis(0)->isDeviceDim(),
+            "expected a sharded first axis on the input but got ",
+            input_tv);
+        NVF_ERROR(
+            output_tv->axis(0)->getParallelType() == ParallelType::Stream,
+            "expected a stream parallelized first axis on the output but got ",
+            output_tv);
+
+        auto* peer = for_loop->index();
+        auto* my_device_id =
+            IrBuilder::create<NamedScalar>("rank", DataType::Int);
+        auto* is_sending_to_self =
+            IrBuilder::create<kir::Predicate>(eq(peer, my_device_id));
+        auto if_then_else =
+            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+
+        auto [slicing_input, is_new] = tensor_slicing_cache.get(
+            input_tv,
+            /*dim=*/0,
+            /*index=*/FusionGuard::getCurFusion()->zeroVal());
+        auto [slicing_output, is_new_] = tensor_slicing_cache.get(
+            output_tv, /*dim=*/0, /*index=*/for_loop->index());
+
+        auto* local_copy = IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+
+        if_then_else->thenBody().push_back(slicing_input);
+        if_then_else->thenBody().push_back(local_copy);
+
+        // Using Start/EndCoalescing here is important to 1) avoid hangs because
+        // of a wrong global order of send/recv and 2) enjoy full bi-directional
+        // bandwith.
+        auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+        auto recv = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::RECV,
+            slicing_output->out(),
+            /*peer*/ for_loop->index(),
+            CommunicatorBackend::kNccl);
+        auto send = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::SEND,
+            input_tv,
+            /*peer*/ for_loop->index(),
+            CommunicatorBackend::kNccl);
+        auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+        auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+        if_then_else->elseBody().push_back(start_coalescing);
+        if_then_else->elseBody().push_back(recv);
+        if_then_else->elseBody().push_back(send);
+        if_then_else->elseBody().push_back(end_coalescing);
+        if_then_else->elseBody().push_back(wait);
+
+        new_loop_body.push_back(slicing_output);
+        new_loop_body.push_back(if_then_else);
+      } else {
+        // Process inputs and outputs normally
+        for (auto* input :
+             ir_utils::filterByType<TensorView>(body_expr->inputs())) {
+          processTensor(body_expr, input);
+        }
+        for (auto* output :
+             ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+          processTensor(body_expr, output);
+        }
+        new_loop_body.push_back(body_expr);
       }
-      new_loop_body.push_back(body_expr);
     }
 
     for_loop->body().clear();
@@ -328,20 +431,36 @@ std::vector<Expr*> processForLoopBodies(
 
 // Step 4: Add stream management and synchronization
 std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
+  std::vector<Expr*> new_top_level_exprs;
+
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
     // Skip non-for-loop expressions
     if (!top_level_expr->isA<ForLoop>()) {
+      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
 
     auto* for_loop = top_level_expr->as<ForLoop>();
-    std::vector<Expr*> new_loop_body;
 
     // Get the current stream before entering the loop
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
     hir::Stream* original_stream = get_current_stream->stream();
-    new_loop_body.push_back(get_current_stream);
+    new_top_level_exprs.push_back(get_current_stream);
+
+    // Create a new for-loop for getting the current stream
+    auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
+        for_loop->iterDomain(),
+        for_loop->index(),
+        for_loop->start(),
+        for_loop->stop(),
+        for_loop->step(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
+        /*unroll_required=*/false,
+        CircularBufferLoopStage::NotApplicable,
+        /*circular_buffer_loop_stage_depth=*/0);
+    new_top_level_exprs.push_back(for_loop_initial_sync);
 
     // Set up a new stream for this iteration based on the loop index
     auto* number_of_streams =
@@ -349,14 +468,19 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     auto* stream_index = mod(for_loop->index(), number_of_streams);
     auto* stream = IrBuilder::create<hir::Stream>(stream_index);
     auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
-    new_loop_body.push_back(set_stream);
-
     // Synchronize with the original stream before starting computation
     auto* initial_sync_stream =
         IrBuilder::create<hir::Synchronize>(original_stream);
-    new_loop_body.push_back(initial_sync_stream);
 
-    // Add all the expressions to the loop body
+    for_loop_initial_sync->body().push_back(set_stream);
+    for_loop_initial_sync->body().push_back(initial_sync_stream);
+
+    // create the new body of the current for-loop
+    std::vector<Expr*> new_loop_body;
+    // When entering the loop, set the stream
+    new_loop_body.push_back(set_stream);
+
+    // Add all the current for-loop body expressions to the new loop body
     for (auto* expr : for_loop->body().exprs()) {
       new_loop_body.push_back(expr);
     }
@@ -373,9 +497,10 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
+    new_top_level_exprs.push_back(for_loop);
   }
 
-  return top_level_exprs;
+  return new_top_level_exprs;
 }
 
 } // anonymous namespace
@@ -399,7 +524,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
 // linear structure of the HostIrContainer::topLevelExpr to greedily merge the
 // adjacent compatible stream for-loop bodies. Ideally we should look at the dag
 // and use the segmenter.
-void StreamParallelType::runPass(Fusion* fusion) {
+void StreamParallelType::passImplementation(Fusion* fusion) {
   // Verify that input tensors don't have stream axes
   NVF_CHECK(
       std::all_of(
@@ -437,4 +562,4 @@ void StreamParallelType::runPass(Fusion* fusion) {
   hic->resetTopLevelExprs(top_level_exprs);
 }
 
-} // namespace nvfuser::hir
+} // namespace nvfuser::hir_pass

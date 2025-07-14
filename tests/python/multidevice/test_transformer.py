@@ -6,25 +6,8 @@ import torch
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
-
-
-def get_benchmark_fn(func, /, profile: bool):
-    def wrapper(*args, **kwargs):
-        if profile:
-            torch.cuda.cudart().cudaProfilerStart()
-        result = func(*args, **kwargs)
-        torch.cuda.synchronize()
-        if profile:
-            torch.cuda.cudart().cudaProfilerStop()
-        return result
-
-    return wrapper
-
-
-# Returns two functors, one with profiler off and the other with profiler on.
-def get_benchmark_fns(func):
-    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=True)
+from python.utils import create_sdpa_rng_tensors, define_sdpa_rng_state, is_pre_ampere
+from nvfuser.testing.benchmark_utils import get_benchmark_fns
 
 
 def _sharded_linear_all_reduce(
@@ -410,7 +393,7 @@ def _assert_shape_dtype(
 
 
 @pytest.mark.skipif(
-    nvfuser.testing.utils.is_pre_ampere(),
+    is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
@@ -997,7 +980,7 @@ class TransformerBackwardFusion(FusionDefinition):
 
 
 @pytest.mark.skipif(
-    nvfuser.testing.utils.is_pre_ampere(),
+    is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi

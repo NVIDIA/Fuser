@@ -22,7 +22,7 @@ using PersistentKernelProperties =
 
 namespace {
 
-std::pair<int64_t, int64_t> getPersistentBufferSize(
+std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
@@ -37,7 +37,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
 
-  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_info = scheduler_utils::persistentBufferSizeBit(
       fusion, runtime_info, persistent_buffer_info, data_cache);
 
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
@@ -53,12 +53,12 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
       (project_strategy ==
        normalization_scheduler_utils::BufferProjectionStrategy::
            ProjectToInputs);
-  auto persistent_buffer_size = project_persistent_buffers
-      ? persistent_buffer_size_info.projected_persistent_buffer_size
-      : persistent_buffer_size_info.persistent_buffer_size;
+  auto persistent_buffer_size_bit = project_persistent_buffers
+      ? persistent_buffer_size_info.projected_persistent_buffer_size_bit
+      : persistent_buffer_size_info.persistent_buffer_size_bit;
 
-  int64_t available_persistent_buffer_size = normalization_scheduler_utils::
-      getMaxRegOrSharedMemorySizeForPersistentBuffer(
+  int64_t available_persistent_buffer_size_bit = normalization_scheduler_utils::
+      getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
           fusion,
           runtime_info,
           reduction_tvs,
@@ -66,7 +66,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           can_use_smem_persistent,
           project_persistent_buffers);
   return std::make_pair(
-      persistent_buffer_size, available_persistent_buffer_size);
+      persistent_buffer_size_bit, available_persistent_buffer_size_bit);
 }
 
 // Return the maximum register count each thread can use and achieved occupancy.
@@ -79,7 +79,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
 // Para [target_warps_per_sm]: required occupancy to saturate memory bandwidth.
 // Para [register_overhead]: registers except those for persistent buffers.
 std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
-    const int64_t buffer_size_per_thread,
+    const int64_t buffer_size_per_thread_bit,
     const int64_t threads_per_block,
     const int64_t target_warps_per_sm,
     const int64_t register_overhead) {
@@ -96,7 +96,7 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
   }
   // minimum register each thread should use to avoid spills
   const int64_t register_per_thread_min =
-      buffer_size_per_thread / scheduler_utils::bytes_per_register +
+      buffer_size_per_thread_bit / scheduler_utils::bits_per_register +
       register_overhead;
 
   // (1) use register calculated from target occupancy
@@ -124,17 +124,17 @@ std::pair<int64_t, int64_t> getMaxRegisterCountPerThreadAndOccupancy(
 // Returns the maximum persistent batch size.
 // For example: assuming we have 64K registers per SM and 28 warps (864 threads)
 // per SM. Each thread can use up to 72 registers. Then minus the register
-// overhead 16, there are 56 registers or 224 bytes to store the persistent
-// buffer.
+// overhead 16, there are 56 registers or 224 * 8 = 1792 bits to store the
+// persistent buffer.
 // (1) If each reduction element has 1 fp32 buffer and vectorized by 8,
-//     [buffer_bytes_per_batch] = 4 * 8 = 32. Then the maximum persistent
-//      batch size is 224 / 32 = 7
+//     [buffer_bits_per_batch] = 4 * 8 * 8 = 256. Then the maximum persistent
+//      batch size is 1792 / 256 = 7
 // (2) If each reduction element has 1 fp16 buffer and vectorized by 8,
-//     [buffer_bytes_per_batch] = 2 * 8 = 16. Then the maximum persistent
-//      batch size is 224 / 16 = 14, which is then capped to
+//     [buffer_bits_per_batch] = 2 * 8 * 8 = 128. Then the maximum persistent
+//      batch size is 1792 / 128 = 14, which is then capped to
 //      [max_batches_per_block] whose value is 10.
 int64_t getMaxPersistentBatch(
-    const int64_t buffer_bytes_per_batch,
+    const int64_t buffer_bits_per_batch,
     const int64_t target_threads_per_sm,
     const int64_t register_overhead,
     const bool is_high_bandwidth_flops_ratio = false) {
@@ -145,8 +145,8 @@ int64_t getMaxPersistentBatch(
 
   // (2) calculate the maximum persistent batch size using the register count.
   int64_t batch_size = scheduler_utils::safeDiv(
-      register_for_buffer * scheduler_utils::bytes_per_register,
-      buffer_bytes_per_batch);
+      register_for_buffer * scheduler_utils::bits_per_register,
+      buffer_bits_per_batch);
 
   // (3) Avoid using very large persistent buffer size, which may lead to low
   // occupancy due to the limitation of the current heuristics. TODO: remove
@@ -187,7 +187,7 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
     const int64_t total_iteration_numel,
     const int64_t max_multi_reduction_factor,
     const int64_t min_threads_per_block,
-    const int64_t buffer_bytes_per_batch,
+    const int64_t buffer_bits_per_batch,
     const int64_t target_warps_per_sm,
     const int64_t register_overhead,
     const int64_t persistent_batch_size) {
@@ -220,10 +220,10 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
   int64_t threads_per_block = params.is_pad_bdimx
       ? params.padded_bdimx * params.bdimy
       : params.bdimx * params.bdimy;
-  int64_t persistent_buffer_size =
-      buffer_bytes_per_batch * persistent_batch_size;
+  int64_t persistent_buffer_size_bit =
+      buffer_bits_per_batch * persistent_batch_size;
   auto reg_occ = getMaxRegisterCountPerThreadAndOccupancy(
-      persistent_buffer_size,
+      persistent_buffer_size_bit,
       threads_per_block,
       target_warps_per_sm,
       register_overhead);
@@ -233,7 +233,7 @@ NormInnerParams getNormInnerParamsGivenPerisisentBatchSize(
       params.occupancy * device_warp_size, threads_per_block);
   params.n_wave = ceilDiv(total_iteration_numel, sm_count * blocks_per_sm);
   params.non_buffer_registers = params.register_per_thread -
-      persistent_buffer_size / scheduler_utils::bytes_per_register;
+      persistent_buffer_size_bit / scheduler_utils::bits_per_register;
   // (4) Calculate other quantities reflecting the quality of the heuristic.
   // when [reduction_count_after_vectorize] is not divisible by
   // [persistent_val], the last batch is not be fully utilized, the wasted
@@ -361,7 +361,7 @@ void innerPersistentHeuristic2D(
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
-  // persistent_buffer_size / bytes_per_register
+  // persistent_buffer_size_bit / bits_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
@@ -407,12 +407,13 @@ void innerPersistentHeuristic2D(
   const int64_t pbs_max_1 =
       ceilDiv(parallel_after_vectorize, min_threads_per_block);
   // (2) derived the maximum persistent batch size from the target occupancy
-  const int64_t buffer_bytes_per_batch = properties.max_persistent_buffer_size /
+  const int64_t buffer_bits_per_batch =
+      properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * properties.vectorize_factor;
   const int64_t target_threads_per_sm =
       std::min(target_warps_per_sm * threads_per_warp, max_threads_per_sm);
   const int64_t pbs_max_2 = getMaxPersistentBatch(
-      buffer_bytes_per_batch,
+      buffer_bits_per_batch,
       target_threads_per_sm,
       register_overhead,
       is_high_bandwidth_flops_ratio);
@@ -424,8 +425,8 @@ void innerPersistentHeuristic2D(
   // SMs.
   const int64_t max_multi_reduction_factor = std::min(
       scheduler_utils::safeDiv(
-          scheduler_utils::register_file_size,
-          properties.max_persistent_buffer_size),
+          scheduler_utils::register_file_size_bit,
+          properties.max_persistent_buffer_size_bit),
       ceilDiv(properties.total_iteration_numel, device_multiprocessor_count));
 
   // Generate a heuristic for each possible persistent batch size.
@@ -445,7 +446,7 @@ void innerPersistentHeuristic2D(
         properties.total_iteration_numel,
         max_multi_reduction_factor,
         min_threads_per_block,
-        buffer_bytes_per_batch,
+        buffer_bits_per_batch,
         target_warps_per_sm,
         register_overhead,
         pbs));
@@ -538,7 +539,8 @@ void innerPersistentHeuristicSharedMemory(
   int64_t bdimx = dev_prop->maxThreadsPerBlock;
   NVF_ERROR(
       properties.total_reduction_numel >= vectorize_factor * bdimx,
-      "total_reduction_numel should be larger than or equal to vectorize_factor * bdimx.\n",
+      "total_reduction_numel should be larger than or equal to "
+      "vectorize_factor * bdimx.\n",
       "total_reduction_numel= ",
       properties.total_reduction_numel,
       ", vectorize_factor= ",
@@ -574,7 +576,7 @@ void innerPersistentHeuristic3D(
   // Define two free parameters used in this heuristic.
   // register_overhead is all registers except those for the persistent
   // buffers. The register in each thread = register_overhead +
-  // persistent_buffer_size / bytes_per_register
+  // persistent_buffer_size_bit / bits_per_register
   // Current values are based on tests of sofmax, layer_norm, softmax_dropout,
   // dropout_layer_norm on A100 & H100. It directly affects maxregcount passed
   // to NVRTC and influences the occupancy.
@@ -603,12 +605,12 @@ void innerPersistentHeuristic3D(
 
   auto const max_unroll = ceilDiv(
       // Available unrolling based on size of data type
-      16l / properties.max_dtype_size,
+      128l / properties.max_dtype_size_bit,
       // Reduce unrolling if we have many inputs, start reduction at 4 inputs
       scheduler_utils::lastPow2(std::max(properties.n_tensor_inputs >> 2, 1l)));
 
   // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache = 32l * 1024l;
+  constexpr int64_t l1_cache_bit = 32l * 1024l * 8;
   // Could change per generation, but for l1 we want to consider active threads,
   // not resident
   constexpr int64_t active_threads = 1024;
@@ -617,14 +619,14 @@ void innerPersistentHeuristic3D(
   // we can use a smaller warp size. While thread local data fits in l1, and
   // reduction dim is really small, we can use <32 threads per warp.
   const bool fits_in_l2 =
-      n_elems * properties.max_dtype_size * properties.n_tensor_inputs <
-      dev_prop->l2CacheSize;
+      n_elems * properties.max_dtype_size_bit * properties.n_tensor_inputs <
+      dev_prop->l2CacheSize * 8;
 
-  // If it fits in l2, we just want to make sure each warp uses 32Bytes. Set
+  // If it fits in l2, we just want to make sure each warp uses 256Bits. Set
   // minimum warp as 16 threads instead of 32 as if we have a small reduction
   // dim going a bit smaller than 32 usually helps.
   const int64_t warp_size_based_on_l2 =
-      fits_in_l2 ? 32l / properties.max_dtype_size : 16l;
+      fits_in_l2 ? 256l / properties.max_dtype_size_bit : 16l;
 
   // Check how many elements it would take per thread to start thrashing l1
   // set that to minimum number we want to reduce per thread.
@@ -632,8 +634,8 @@ void innerPersistentHeuristic3D(
       ceilDiv(
           properties.total_reduction_numel,
           scheduler_utils::safeDiv(
-              l1_cache,
-              properties.n_tensor_inputs * properties.max_dtype_size *
+              l1_cache_bit,
+              properties.n_tensor_inputs * properties.max_dtype_size_bit *
                   active_threads)),
       16l);
 
@@ -651,7 +653,7 @@ void innerPersistentHeuristic3D(
   // communication is slow so it shouldn't be done for every element in the
   // reduction.
   int64_t min_target_iterations =
-      scheduler_utils::safeDiv(32, properties.max_dtype_size);
+      scheduler_utils::safeDiv(256, properties.max_dtype_size_bit);
 
   // Start trying to break parallelization up across threads,
   // unrolling/iterations, and blocks.
@@ -728,8 +730,8 @@ void innerPersistentHeuristic3D(
   // SMs.
   const int64_t max_multi_reduction_factor = std::min(
       scheduler_utils::safeDiv(
-          scheduler_utils::register_file_size,
-          properties.max_persistent_buffer_size),
+          scheduler_utils::register_file_size_bit,
+          properties.max_persistent_buffer_size_bit),
       ceilDiv(properties.total_iteration_numel, device_multiprocessor_count));
   // To get to target threads:
   // Prioritize
@@ -804,10 +806,11 @@ void innerPersistentHeuristic3D(
   }
 
   // calculate the maximum persistent buffer size
-  const int64_t buffer_bytes_per_batch = properties.max_persistent_buffer_size /
+  const int64_t buffer_bits_per_batch =
+      properties.max_persistent_buffer_size_bit /
       properties.total_reduction_numel * inner_reduction_unroll_factor;
   const int64_t batches_per_block_inner_reduction_max = getMaxPersistentBatch(
-      buffer_bytes_per_batch,
+      buffer_bits_per_batch,
       target_warps_per_sm * dev_prop->warpSize,
       register_overhead);
 
@@ -961,8 +964,8 @@ void innerPersistentHeuristic3D(
 
   // estimate register usage and occupancy raito.
   // If occupancy raito is less than a preset occupancy_ratio, reduce register
-  // usage register per thread is estimated as overhead + buffer_size /
-  // bytes_per_register
+  // usage register per thread is estimated as overhead + buffer_size_bit /
+  // bits_per_register
   int64_t nvrtc_register_per_thread = scheduler_utils::max_registers_per_thread;
   const int64_t blocksPerKernel = godim;
   // register estimation is only valid for vectorized gmem access
@@ -978,8 +981,8 @@ void innerPersistentHeuristic3D(
     // total buffer size divide by inner_most_dimension_numel. Each thread will
     // hold batches_per_block_inner_reduction * inner_reduction_unroll_factor
     // elements.
-    const int64_t persistent_buffer_size =
-        properties.max_persistent_buffer_size /
+    const int64_t persistent_buffer_size_bit =
+        properties.max_persistent_buffer_size_bit /
         properties.inner_most_dimension_numel *
         batches_per_block_inner_reduction * inner_reduction_unroll_factor;
     const int64_t threads_per_block =
@@ -987,7 +990,7 @@ void innerPersistentHeuristic3D(
 
     // Calculate the max register count each thread can use.
     nvrtc_register_per_thread = getMaxRegisterCountPerThreadAndOccupancy(
-                                    persistent_buffer_size,
+                                    persistent_buffer_size_bit,
                                     threads_per_block,
                                     target_warps_per_sm,
                                     register_overhead)
@@ -1075,7 +1078,8 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->cparams.index_type = prop.index_type;
 
   // specific heuristics for different cases
-  if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {
+  if (prop.max_persistent_buffer_size_bit >
+      scheduler_utils::register_file_size_bit) {
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory
@@ -1131,21 +1135,27 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   bool can_use_smem_persistent =
       properties.total_reduction_numel == properties.inner_most_dimension_numel;
 
-  // pair of persistent_buffer_size and available_persistent_buffer_size
-  const std::pair<int64_t, int64_t> buffer_size = getPersistentBufferSize(
-      fusion, runtime_info, data_cache, reduction_tvs, can_use_smem_persistent);
-  const int64_t persistent_buffer_size = buffer_size.first;
-  const int64_t available_persistent_buffer_size = buffer_size.second;
+  // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
+  const std::pair<int64_t, int64_t> buffer_size_bit =
+      getPersistentBufferSizeBit(
+          fusion,
+          runtime_info,
+          data_cache,
+          reduction_tvs,
+          can_use_smem_persistent);
+  const int64_t persistent_buffer_size_bit = buffer_size_bit.first;
+  const int64_t available_persistent_buffer_size_bit = buffer_size_bit.second;
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-  if (persistent_buffer_size > available_persistent_buffer_size) {
+  if (persistent_buffer_size_bit > available_persistent_buffer_size_bit) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         can_use_smem_persistent
             ? "not enough registers or shared memory for persistence."
-            : "not enough registers for persistence and shared memory persistence is not supported yet.");
+            : "not enough registers for persistence and shared memory "
+              "persistence is not supported yet.");
     return false;
   }
 
@@ -1153,8 +1163,8 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
       (int64_t)at::cuda::getCurrentDeviceProperties()
           ->maxThreadsPerMultiProcessor;
 
-  const int64_t required_sm_per_norm =
-      ceilDiv(persistent_buffer_size, scheduler_utils::register_file_size);
+  const int64_t required_sm_per_norm = ceilDiv(
+      persistent_buffer_size_bit, scheduler_utils::register_file_size_bit);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.

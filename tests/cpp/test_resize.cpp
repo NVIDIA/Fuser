@@ -1819,7 +1819,8 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
   auto kernel = ke->compiledKernel()->kernel();
   NVF_CHECK(
       !kernel->summary().has_cooperative_grid_reduction,
-      "Grid sync should not be used as slicing input should avoid input caching");
+      "Grid sync should not be used as slicing input should avoid input "
+      "caching");
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
@@ -6130,7 +6131,7 @@ TEST_F(ResizeTest, VectorizeOuterPad) {
 }
 
 // Repro of issue #4250
-TEST_F(ResizeTest, DISABLED_ReshapeAfterRef) {
+TEST_F(ResizeTest, ReshapeAfterRef) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

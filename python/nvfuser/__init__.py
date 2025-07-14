@@ -3,10 +3,13 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import sys
+import warnings
 
-assert (
-    "nvfuser_next" not in sys.modules
-), "Cannot import nvfuser if nvfuser_next module is already imported."
+if "nvfuser_direct" in sys.modules:
+    warnings.warn(
+        "Be careful! You've imported nvfuser when the nvfuser_direct module is already imported.",
+        UserWarning,
+    )
 
 import logging
 import os
@@ -380,8 +383,11 @@ class FusionDefinition(_C._FusionDefinition):
         except ImportError:
             raise ImportError("Unable to import pytorch_utils!")
 
-        if not tensor.is_cuda and len(tensor.size()) != 0:
-            raise ValueError("CPU non-scalar tensor is not supported!")
+        supported_tensor = tensor.is_cuda or (tensor.is_cpu and len(tensor.size()) == 0)
+        if not supported_tensor:
+            raise ValueError(
+                f"Found unsupported device {tensor.device}, only scalar CPU or CUDA tensors are supported"
+            )
 
         return self.define_tensor(
             sizes=tensor.size(),
@@ -574,7 +580,7 @@ class FusionDefinition(_C._FusionDefinition):
     def validate(
         self,
         inputs: list[torch.Tensor],
-        reference_outputs: list[torch.Tensor],
+        reference_outputs: list[torch.Tensor] = None,
         **kwargs,
     ):
         """
@@ -585,6 +591,10 @@ class FusionDefinition(_C._FusionDefinition):
             reference_outputs: A list of reference outputs to validate against
         """
         fusion_outputs = self.execute(inputs, **kwargs)
+
+        if reference_outputs is None:
+            return self.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+
         assert len(fusion_outputs) == len(
             reference_outputs
         ), f"Expected {len(fusion_outputs)} reference outputs for validation."

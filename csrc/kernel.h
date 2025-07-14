@@ -47,6 +47,9 @@ struct KernelSummary {
   //! Do we have any block reductions?
   bool has_block_reductions = false;
 
+  //! Are all block reduction warp reductions?
+  bool all_block_reductions_are_warp_reduction = true;
+
   //! Number of static grid reductions
   bool has_grid_reductions = false;
 
@@ -131,6 +134,15 @@ struct KernelSummary {
 
   //! adjusted register usage for tma load and computation warp groups
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! has mma op in fusion
+  bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
 };
 
 class KernelPerformanceProfile {

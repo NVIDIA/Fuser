@@ -29,6 +29,7 @@
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/python_bindings.h>
 #include <python_frontend/translation.h>
+#include <python_utils.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/registry.h>
@@ -78,7 +79,8 @@ Vector define_vector_fn(
           int_value,
           " at index ",
           idx,
-          " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
       Scalar out = self.defineScalar();
       self.defineRecord(new ScalarRecord(
           {self.recordingState(out())},
@@ -278,18 +280,6 @@ Tensor random_dist_op_fn(
   return output;
 }
 
-struct DimInfo {
-  int64_t index;
-  int64_t size;
-  int64_t stride;
-  int64_t stride_order;
-  std::optional<bool> contiguity = std::nullopt;
-
-  bool isBroadcast() {
-    return stride == 0 || size == 1;
-  }
-};
-
 template <class ShapeType>
 Tensor slice_fn(
     FusionDefinition::Operators& self,
@@ -342,7 +332,8 @@ Tensor slice_fn(
 
   NVF_CHECK(
       arg.dims == new_start.size,
-      "Number of tensor dimensions does not match slice dimensions! Tensor-dims: ",
+      "Number of tensor dimensions does not match slice dimensions! "
+      "Tensor-dims: ",
       arg.dims,
       " Slice-dims: ",
       new_start.size);
@@ -371,7 +362,8 @@ std::vector<std::optional<bool>> computeContiguity(
     const std::vector<int64_t>& strides) {
   NVF_CHECK(
       sizes.size() == strides.size(),
-      "compute_contiguity: Sizes and strides must have the same number of dimensions");
+      "compute_contiguity: Sizes and strides must have the same number of "
+      "dimensions");
   // Not a broadcast means neither the stride == 0 (size can be non-zero)
   // or the size == 1 that each can indicate a broadcast
   auto not_broadcast = [&](auto i) { return strides[i] != 0 && sizes[i] != 1; };
@@ -410,133 +402,6 @@ std::vector<std::optional<bool>> computeContiguity(
   return contiguity;
 }
 
-// [ Note stride order and contiguity vector ]
-//
-// for n-d tensor. we should have stride_order and contiguity both be a size n
-// vector.
-//
-// `stride order` vector corresponds to the order for each logical domain in
-//     physical memory; For any 0 <= i < n , we know the dimension i has the
-//     stride_order[i]-th smallest stride.
-//     An exception to this are implicit broadcast dimensions, i.e. dimensions
-//     with `stride == 0`, where we would maintain their semantical position
-// `contiguity` vector to whether or not indexing could be collaped
-//     corresponding to each physical domain;
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 2, 2, 2]
-//   strides = [8, 4, 2, 1]
-// Obviously the stride order as: [3, 2, 1, 0] for row-major order, i.e. stride
-// in descending order and contiguity flag will be [True, True, True, True]
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 1, 3, 1, 4]
-//   strides = [24, 4, 8, 4, 2]
-// Note that there are a few explicit broadcast dimensions, dimensions with size
-// == 1 and stride != 0. The stride for explicit broadcast dimensions
-// participates in stride order computation. The reason is that, frameworks
-// could assign meaningful stride to an explicit broadcast dimensions to hint
-// memory format, which could be used to deduce the desired output memory
-// format. We use stable sort to break tie when two dimension has equal stride,
-// i.e. try to preserve their semantical order. Hence, we would compute stride
-// order as: [4, 2, 3, 1, 0]. In the context of index, collapsing, how we
-// resolve that shouldn't matter. With sorted sizes & strides:
-//   sorted_size    = [2, 3, 1, 1, 4]
-//   sorted_strides = [24, 8, 4, 4, 2]
-// Here, we compute contiguity as: [True, True, None, None, False]
-//
-// e.g. Given size and stride as follow:
-//   sizes   = [2, 2, 2, 2]
-//   strides = [8, 4, 0, 2]
-// The stride of implicit broadcast dimensions, dimensions with stride == 0,
-// does not participate in stride order computation and preserves their
-// semantical position in stride order. The logic behind this is so that we
-// would not unnecessarily introduce permutated alloc_domain for a naive
-// unsqueeze/expanded operation when it doesn't improve indexing. For the given
-// example, computed stride_order would be: [3, 2, 1, 0] and contiguity would
-// be: [True, True, None, False]
-//
-// This function returns a pair of <contiguity, stride_order>
-std::pair<std::vector<std::optional<bool>>, std::vector<int64_t>>
-computeTensorDescriptor(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides) {
-  NVF_CHECK(
-      sizes.size() == strides.size(),
-      "compute_tensor_descriptor: "
-      "Sizes and strides must have the same number of dimensions");
-  std::vector<DimInfo> non_broadcast_dim_info_vec;
-  std::vector<DimInfo> stride_zero_dims;
-  for (auto i : arange(sizes.size())) {
-    // NOTE: not supporting negative stride yet, but we can probably allow it on
-    // broadcast dims
-    NVF_CHECK(
-        strides[i] >= 0,
-        "negative stride on tensor is not supported: strides[",
-        i,
-        "]=",
-        strides[i]);
-    DimInfo dim_info{(int64_t)i, sizes[i], strides[i]};
-    if (strides[i] != 0) {
-      non_broadcast_dim_info_vec.push_back(dim_info);
-    } else {
-      stride_zero_dims.push_back(dim_info);
-    }
-  }
-  // sort non-broadcast dimensions by stride
-  std::stable_sort(
-      non_broadcast_dim_info_vec.begin(),
-      non_broadcast_dim_info_vec.end(),
-      [](const auto& l, const auto& r) { return l.stride > r.stride; });
-
-  // combine dimensions while preserving the semantical position of broadcast
-  // dimensions
-  for (const auto& dim_info : stride_zero_dims) {
-    non_broadcast_dim_info_vec.insert(
-        non_broadcast_dim_info_vec.begin() + dim_info.index, dim_info);
-  }
-
-  // Dimensions are marked contiguous by inspecting the current dimension and
-  // one to the right towards the inner dimension while skipping over broadcast
-  // dimensions.
-  // The innermost dimension, that is not broadcasted, does not have any
-  // dimension to it's right and needs to have stride equal to 1 in order to be
-  // marked contiguous.
-  for (int64_t i = 0; i < (int64_t)sizes.size();) {
-    non_broadcast_dim_info_vec[i].stride_order = (int64_t)sizes.size() - 1 - i;
-    if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
-      auto l = i++;
-      int64_t expected = 1;
-      for (; i < (int64_t)sizes.size(); i++) {
-        non_broadcast_dim_info_vec[i].stride_order =
-            (int64_t)sizes.size() - 1 - i;
-        if (!non_broadcast_dim_info_vec[i].isBroadcast()) {
-          expected = non_broadcast_dim_info_vec[i].stride *
-              non_broadcast_dim_info_vec[i].size;
-          break;
-        }
-      }
-      non_broadcast_dim_info_vec[l].contiguity =
-          (non_broadcast_dim_info_vec[l].stride == expected);
-    } else {
-      i++;
-    }
-  }
-
-  std::vector<int64_t> stride_order_vec(sizes.size(), -1);
-  for (const auto& dim_info : non_broadcast_dim_info_vec) {
-    stride_order_vec[dim_info.index] = dim_info.stride_order;
-  }
-  std::vector<std::optional<bool>> contiguity_vec;
-  std::transform(
-      non_broadcast_dim_info_vec.begin(),
-      non_broadcast_dim_info_vec.end(),
-      std::back_inserter(contiguity_vec),
-      [](const DimInfo& val) { return val.contiguity; });
-
-  return std::make_pair(contiguity_vec, stride_order_vec);
-}
-
 // Copy definition from a FusionDefinion's pre-scheduled CPP fusion to a blank
 // FusionDefinition. Primarily for testing purposes to check that the
 // translation from CPP fusion is correct.
@@ -548,18 +413,6 @@ void clone(FusionDefinition& from, FusionDefinition& to) {
 }
 
 namespace {
-void verifyShape(const std::vector<int64_t>& shape) {
-  for (size_t i = 0; i < shape.size(); ++i) {
-    NVF_CHECK(
-        shape[i] >= -1,
-        "The value ",
-        shape[i],
-        " at index ",
-        i,
-        " was neither symbolic(-1), zero_element(0), broadcast(1), or static(>1).");
-  }
-}
-
 void defineHeuristicParamBindings(py::module& nvfuser) {
   py::class_<LaunchParams> launch_parameters(nvfuser, "LaunchParams");
   launch_parameters.def(
@@ -788,6 +641,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, async_gmem_load_operands)
       .PARAM(MatmulParams, grid_traversal_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
+      .PARAM(MatmulParams, use_ldst_matrix)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
       .PARAM(MatmulParams, tiling_strategy)
@@ -809,7 +663,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -820,12 +674,15 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
       .value("Float8_e5m2", DataType::Float8_e5m2)
+      .value("Float8_e8m0fnu", DataType::Float8_e8m0fnu)
+      .value("Float4_e2m1fn", DataType::Float4_e2m1fn)
+      .value("Float4_e2m1fn_x2", DataType::Float4_e2m1fn_x2)
       .value("ComplexFloat", DataType::ComplexFloat)
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType")
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -875,7 +732,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 
@@ -929,7 +787,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 
   py::class_<scheduler_utils::SchedulerHyperParameters> hyperparameters(
       nvfuser, "SchedulerHyperParameters");
-  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t>());
+  hyperparameters.def(py::init<int64_t, int64_t, int64_t, int64_t, bool>());
   hyperparameters.def_property(
       "vectorize_factor",
       [](scheduler_utils::SchedulerHyperParameters& self) {
@@ -964,7 +822,15 @@ void initNvFuserPythonBindings(PyObject* module) {
          int64_t threads_per_block_max_) {
         self.threads_per_block_max = threads_per_block_max_;
       });
-
+  hyperparameters.def_property(
+      "is_warp_specialized",
+      [](scheduler_utils::SchedulerHyperParameters& self) {
+        return self.is_warp_specialized;
+      },
+      [](scheduler_utils::SchedulerHyperParameters& self,
+         int64_t is_warp_specialized_) {
+        self.is_warp_specialized = is_warp_specialized_;
+      });
   //! KernelProfiles are encapsulated in FusionProfiles where each KP
   //! is associated with a segment.
   py::class_<KernelProfile> kernel_prof(nvfuser, "KernelProfile");
@@ -1056,7 +922,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   tensor_class.def_property_readonly(
       "index",
       [](Tensor& self) { return self.index; },
-      "Returns the index of the tensor as in FusionDefinition.sched.tensors().");
+      "Returns the index of the tensor as in "
+      "FusionDefinition.sched.tensors().");
   tensor_class.def("_get_fusion_definition", [](Tensor& self) {
     return self.fusion_definition;
   });
@@ -1108,7 +975,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           [](FusionDefinition& self) {
             self.finalizeDefinition();
             // Mark the end of a definition
-            inst::Trace::instance()->endEvent(nullptr);
+            inst::Trace::instance()->endEvent("FusionDefinition Definition");
           })
       .def(
           "_exist_schedule",
@@ -1374,12 +1241,14 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
             NVF_CHECK(
                 stride_order.empty() || output.dims == stride_order.size(),
-                "stride_order needs to be either empty or the same length of Tensor `output`");
+                "stride_order needs to be either empty or the same length of "
+                "Tensor `output`");
             int64_t duplicate_check = 0;
             for (const auto& v : stride_order) {
               NVF_CHECK(
                   v >= 0 && v < (int64_t)stride_order.size(),
-                  "stride_order elements need to be within [0, stride_order.size())");
+                  "stride_order elements need to be within [0, "
+                  "stride_order.size())");
               duplicate_check |= 1 << v;
             }
             NVF_CHECK(
@@ -1451,29 +1320,11 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "Attempting to add to a completed definition!");
 
             verifyShape(shape);
-
-            const auto rank = static_cast<int64_t>(shape.size());
-            std::vector<std::optional<bool>> contiguity_vec(rank);
-            // This duplicates some code around
-            // https://github.com/NVIDIA/Fuser/blob/b60f2341bbe2ec276b1fe60f4f25a4a5b093faa9/csrc/python_frontend/fusion_record.h#L1370.
-            // Alternatively, I can extend TensorRecord to allow contiguity as
-            // a boolean. If you think it's worth doing, I'm happy to pursue it
-            // in a separate PR.
-            for (const auto index : arange(rank)) {
-              const auto contig_index =
-                  stride_order.empty() ? index : rank - 1 - stride_order[index];
-              if (shape[index] == 1) {
-                contiguity_vec[contig_index] = std::nullopt;
-              } else {
-                contiguity_vec[contig_index] = contiguity;
-              }
-            }
-
             Tensor out = self.defineTensor(shape.size());
             self.defineRecord(new TensorRecord(
                 {self.recordingState(out())},
                 shape,
-                contiguity_vec,
+                getContiguityVec(shape, stride_order, contiguity),
                 dtype,
                 is_cpu,
                 stride_order));
@@ -1503,44 +1354,18 @@ void initNvFuserPythonBindings(PyObject* module) {
                 "The number of sizes does not match the number of strides.",
                 sizes.size(),
                 strides.size());
-
-            // TensorViewBuilder assumes any dim with a compile time constant
-            // size == 1 is a "maybe broadcast" axis, symbolic sizes are
-            // identified by -1, and size == 0 is not supported.
-
-            // Translate to TensorViewBuilder's view of the world.
-            std::vector<int64_t> dim_sizes;
-            dim_sizes.reserve(sizes.size());
-            for (const auto i : arange(sizes.size())) {
-              NVF_ERROR(
-                  sizes[i] >= 0,
-                  "Size of ",
-                  sizes[i],
-                  " is not supported in nvFuser. Expected size >= 0.");
-              if (static_sizes) {
-                dim_sizes.push_back(sizes[i]);
-              } else { // Symbolic defined tensor for dynamic shape usage
-                if (sizes[i] == 1) {
-                  dim_sizes.push_back(1);
-                } else {
-                  dim_sizes.push_back(-1);
-                }
-              }
-            }
-
             Tensor out = self.defineTensor(sizes.size());
             std::vector<std::optional<bool>> contiguity;
             std::vector<int64_t> stride_order;
             std::tie(contiguity, stride_order) =
-                computeTensorDescriptor(sizes, strides),
-                                 self.defineRecord(new TensorRecord(
-                                     {self.recordingState(out())},
-                                     std::move(dim_sizes),
-                                     contiguity,
-                                     dtype,
-                                     is_cpu,
-                                     stride_order));
-
+                computeTensorDescriptor(sizes, strides);
+            self.defineRecord(new TensorRecord(
+                {self.recordingState(out())},
+                getTensorViewBuilderSizes(sizes, static_sizes),
+                contiguity,
+                dtype,
+                is_cpu,
+                stride_order));
             return out;
           },
           py::arg("sizes"),
@@ -1585,7 +1410,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          std::optional<PrimDataType> dtype) -> Scalar {
         FUSER_PERF_SCOPE("FusionDefinition.define_contant");
         TORCH_WARN_ONCE(
-            "Deprecating define_constant functions in favor of define_scalar for constants.");
+            "Deprecating define_constant functions in favor of define_scalar "
+            "for constants.");
         Scalar out = self.defineScalar();
         self.defineRecord(
             new ScalarRecord({self.recordingState(out())}, value, dtype));
@@ -1636,6 +1462,38 @@ void initNvFuserPythonBindings(PyObject* module) {
         return self.getValTolerances(args);
       },
       py::return_value_policy::reference);
+
+  fusion_def.def(
+      "validate_with_auto_inferred_outputs",
+      [](FusionDefinition& self,
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
+        KernelArgumentHolder fusion_outputs_holder;
+        for (py::handle obj : fusion_outputs) {
+          fusion_outputs_holder.push(
+              torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        KernelArgumentHolder inputs_holder;
+        for (py::handle obj : inputs) {
+          inputs_holder.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.validate_with_auto_inferred_outputs(
+            fusion_outputs_holder, inputs_holder);
+      },
+      py::return_value_policy::reference,
+      R"doc(
+    Validates the fusion outputs against the inputs with auto-inferred outputs.
+
+    Parameters
+    ----------
+    fusion_outputs : iterable
+        The outputs of the fusion to validate.
+    inputs : iterable
+        The inputs to the fusion.
+    Example
+    -------
+    >>> fd.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+    )doc");
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
@@ -1798,7 +1656,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == stride_order.size(),
-            "Operator stride_order expects `stride_order` argument to have the same length as input!");
+            "Operator stride_order expects `stride_order` argument to have the "
+            "same length as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         fd->defineRecord(new DimsOpRecord<serde::RecordType::StrideOrderOp>(
@@ -3158,6 +3017,52 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "scatter",
+      [](FusionDefinition::Operators& self,
+         Tensor arg1,
+         Tensor index,
+         Tensor src,
+         int64_t dim) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.scatter");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        NVF_CHECK(
+            arg1.dims == index.dims && arg1.dims == src.dims,
+            "Tensor arguments have different dimensions ",
+            arg1.dims,
+            ", ",
+            index.dims,
+            " and ",
+            src.dims);
+        auto num_dims = (int64_t)arg1.dims;
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(num_dims);
+        fd->defineRecord(new ScatterOpRecord(
+            {
+                fd->recordingState(arg1()),
+                fd->recordingState(index()),
+                fd->recordingState(src()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "gather",
       [](FusionDefinition::Operators& self,
          Tensor arg1,
@@ -3308,7 +3213,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         NVF_CHECK(
             arg.dims == dims.size(),
-            "Operator permute expects `dims` argument to have the same length as input!");
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg.dims);
         self.fusion_definition->defineRecord(
@@ -3761,6 +3667,375 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("norm_type").none(true) = py::none(),
       py::arg("scale_grad_by_freq").none(true) = py::none(),
       py::arg("sparse").none(true) = py::none(),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "argsort",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         int64_t dim,
+         bool descending,
+         bool stable) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.argsort");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(arg.dims);
+        fd->defineRecord(new ArgsortOpRecord(
+            {fd->recordingState(arg())},
+            {fd->recordingState(output())},
+            dim,
+            descending,
+            stable));
+        return output;
+      },
+      py::arg("arg"),
+      py::arg("dim"),
+      py::arg("descending") = false,
+      py::arg("stable") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor offsets) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        // Calculate output dimensions based on mat1 & mat2 rank
+        size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
+        Tensor output = fd->defineTensor(output_dims);
+        fd->defineRecord(
+            new OpRecord<TensorView*, TensorView*, TensorView*, TensorView*>(
+                {fd->recordingState(mat1()),
+                 fd->recordingState(mat2()),
+                 fd->recordingState(offsets())},
+                {fd->recordingState(output())},
+                ("ops.grouped_mm"),
+                serde::RecordType::Ternary_TV,
+                static_cast<
+                    TensorView* (*)(TensorView*, TensorView*, TensorView*)>(
+                    [](TensorView* mat1,
+                       TensorView* mat2,
+                       TensorView* offsets) {
+                      ScaledTensorView scaled_out =
+                          grouped_mm(mat1, mat2, offsets);
+                      return scaled_out.tv;
+                    })));
+        return output;
+      },
+      R"(
+      Grouped matrix multiplication.
+
+      Performs matrix multiplication on grouped sets of matrices using offsets
+      to define variable-sized groups.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          offsets (Tensor): Offsets tensor defining group boundaries
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "grouped_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor offsets,
+         Tensor scale1,
+         Tensor scale2,
+         std::optional<Tensor> alpha,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
+        FUSER_PERF_SCOPE("Operators.grouped_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        // Calculate output dimensions based on mat1 & mat2 rank
+        size_t output_dims = mat1.dims == 2 && mat2.dims == 2 ? 3 : 2;
+        Tensor output = fd->defineTensor(output_dims);
+        std::optional<Tensor> out_scale = std::nullopt;
+        std::optional<Tensor> out_gamma = std::nullopt;
+        if (output_block_scale_size > 0) {
+          out_scale = fd->defineTensor(output_dims);
+        }
+        if (output_gamma) {
+          // TODO: would out_gamma should be a vector when both inputs are 2d.
+          out_gamma = fd->defineTensor(0);
+        }
+
+        fd->defineRecord(new ScaledGroupedMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(offsets()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             alpha.has_value()
+                 ? fd->recordingState(alpha.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             bias.has_value()
+                 ? fd->recordingState(bias.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             beta.has_value()
+                 ? fd->recordingState(beta.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            {fd->recordingState(output()),
+             out_scale.has_value()
+                 ? fd->recordingState(out_scale.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             out_gamma.has_value()
+                 ? fd->recordingState(out_gamma.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma));
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is "
+              "true");
+          return std::make_tuple(output, out_scale, out_gamma);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, out_scale, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      R"(
+      Scaled Grouped matrix multiplication.
+
+      Performs matrix multiplication on grouped sets of matrices using offsets
+      to define variable-sized groups.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          offsets (Tensor): Offsets tensor defining group boundaries
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor [optional]
+          bias (Tensor): Bias tensor [optional]
+          beta (Tensor): Beta tensor [optional]
+          dtype (ScalarType): Output tensor type [optional]
+          output_block_scale_size (int): Output block scale size [optional]
+          output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
+          output_gamma (bool): Output gamma [optional, default: False]
+
+      The math operation is roughly two steps:
+          out = alpha * grouped_mm(dequant(mat1, scale1), dequant(mat2, scale2), offsets) + beta * bias
+
+          (out_mat, out_scale, out_gamma) = Quantization(
+              out,
+              dtype,
+              output_block_scale_size,
+              output_block_scale_dtype,
+              output_gamma)
+
+      Note 1: The post quantization only applies when output_block_scale_size > 0,
+              which would produce out_scale tensor. Otherwise, None will be returned;
+      Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+              Otherwise, None will be returned.
+
+      Returns:
+          Tensor: Result of matrix multiplication
+          Tensor: Output block scale tensor [optional]
+          Tensor: Output gamma tensor [optional]
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("offsets"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha") = std::nullopt,
+      py::arg("bias") = std::nullopt,
+      py::arg("beta") = std::nullopt,
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "scaled_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor scale1,
+         Tensor scale2,
+         std::optional<Tensor> alpha,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
+        FUSER_PERF_SCOPE("Operators.scaled_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */
+        size_t out_ndims;
+        if (mat1.dims <= 2 && mat2.dims <= 2) {
+          out_ndims = mat1.dims + mat2.dims - 2;
+        } else {
+          /* batch matmul */
+          out_ndims = std::max(mat1.dims, mat2.dims);
+        }
+        Tensor output = fd->defineTensor(out_ndims);
+        //
+        std::optional<Tensor> out_scale = std::nullopt;
+        std::optional<Tensor> out_gamma = std::nullopt;
+        if (output_block_scale_size > 0) {
+          out_scale = fd->defineTensor(out_ndims);
+        }
+        if (output_gamma) {
+          // out_gamma is a scalar tensor
+          out_gamma = fd->defineTensor(0);
+        }
+
+        fd->defineRecord(new ScaledMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             alpha.has_value()
+                 ? fd->recordingState(alpha.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             bias.has_value()
+                 ? fd->recordingState(bias.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             beta.has_value()
+                 ? fd->recordingState(beta.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            {fd->recordingState(output()),
+             out_scale.has_value()
+                 ? fd->recordingState(out_scale.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             out_gamma.has_value()
+                 ? fd->recordingState(out_gamma.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma));
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is "
+              "true");
+          return std::make_tuple(output, out_scale, out_gamma);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, out_scale, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      R"(
+      Scaled matrix multiplication.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor [optional]
+          bias (Tensor): Bias tensor [optional]
+          beta (Tensor): Beta tensor [optional]
+          dtype (ScalarType): Output tensor type [optional]
+          output_block_scale_size (int): Output block scale size [optional, default 0]
+          output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
+          output_gamma (bool): Output gamma [optional, default: False]
+
+      Note 1: The post quantization only applies when output_block_scale_size > 0,
+              which would produce out_scale tensor. Otherwise, None will be returned;
+      Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+              Otherwise, None will be returned.
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+          Tensor: Output block scale tensor [optional]
+          Tensor: Output gamma tensor [optional]
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha") = std::nullopt,
+      py::arg("bias") = std::nullopt,
+      py::arg("beta") = std::nullopt,
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "topk",
+      [](FusionDefinition::Operators& self,
+         Tensor arg,
+         Scalar k,
+         int64_t dim,
+         bool largest,
+         bool sorted) -> py::tuple {
+        FUSER_PERF_SCOPE("Operators.topk");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        Tensor values = fd->defineTensor(arg.dims);
+        Tensor indices = fd->defineTensor(arg.dims);
+
+        fd->defineRecord(new TopKOpRecord(
+            {fd->recordingState(arg()), fd->recordingState(k())},
+            {fd->recordingState(values()), fd->recordingState(indices())},
+            dim,
+            largest,
+            sorted));
+
+        return py::make_tuple(values, indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
       py::return_value_policy::reference);
 
   bindSchedule(fusion_def);

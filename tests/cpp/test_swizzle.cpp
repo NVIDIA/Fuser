@@ -440,7 +440,8 @@ TEST_F(LegacySwizzleTest, TransposeBankConflictSwizzle1) {
         "Expecting no bank conflict after swizzle, but got ",
         bank_conflict_info.size(),
         "bank conflicting expressions.",
-        ". Something in our lowering or bank conflict checker must have changed, ",
+        ". Something in our lowering or bank conflict checker must have "
+        "changed, ",
         "please update them or this test consistently.");
   }
 }

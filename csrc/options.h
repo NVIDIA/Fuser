@@ -50,11 +50,13 @@ enum class DebugDumpOption {
   CudaFull, //!< Dump the complete CUDA C++ code
   CudaToFile, //!< Dump CUDA Strings to File
   LaunchParam, //!< Dump the Launch parameters of kernel
+  DynamicSharedMemory, //!< Dump the dynamic shared memory allocation
   FusionSegments, //!< Dump Segmented Fusion Graph
   FusionSegmenterLog, //!< Dump Detailed Segmenter Logging
   FusionArgs, //!< Print the runtime fusion arguments
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
+  HostIrJit, //!< Dump the LLVM IR lowered from Host IR
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
@@ -65,6 +67,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
+  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
@@ -85,6 +88,7 @@ enum class DebugDumpOption {
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
+  Communication, //! Print multi-GPU communications posted
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -133,6 +137,7 @@ enum class DisableOption {
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
                   //! matmul
+  NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
   ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel

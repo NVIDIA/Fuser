@@ -66,11 +66,11 @@ std::tuple<int64_t, int64_t, int64_t> computeSharedMemorySizes(
   const int64_t mk = gemm_tile.cta_tile.m * gemm_tile.cta_tile.k;
   const int64_t nk = gemm_tile.cta_tile.n * gemm_tile.cta_tile.k;
   const int64_t smem_a = ceilDiv(mk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[0]);
+      ab_factor * dataTypeSizeByte(data_types[0]);
   const int64_t smem_b = ceilDiv(nk, round_to_factor) * round_to_factor *
-      ab_factor * dataTypeSize(data_types[1]);
-  const int64_t smem_c =
-      gemm_tile.cta_tile.m * gemm_tile.cta_tile.n * dataTypeSize(data_types[2]);
+      ab_factor * dataTypeSizeByte(data_types[1]);
+  const int64_t smem_c = gemm_tile.cta_tile.m * gemm_tile.cta_tile.n *
+      dataTypeSizeByte(data_types[2]);
 
   return {smem_a, smem_b, smem_c};
 }
@@ -372,34 +372,31 @@ void scheduleContiguousVectorLoad(
   tv->axis(-4)->parallelize(ParallelType::TIDz);
 }
 
-void makeTile(
-    AbstractMatmulTensor& abten,
-    const std::vector<int64_t>& tile_sizes) {
-  NVF_CHECK(
-      abten.size() >= tile_sizes.size(),
-      "Tensor dimension less than tile dimension!");
-
+void makeTile(AbstractMatmulTensor& abten, const GemmTile& tile_sizes) {
+  std::unordered_set<MatmulDimRole> roles_split;
   // Split the inner dimensions
   size_t num_split_axes = 0;
   for (int64_t i = (int64_t)abten.size() - 1; i >= 0; --i) {
-    if (num_split_axes > 2) {
-      break;
-    }
     const std::optional<MatmulDimRole> id_role_opt = abten.getTag(i);
     if (!id_role_opt.has_value()) {
       continue;
     }
     const MatmulDimRole id_role = id_role_opt.value();
+    if (roles_split.count(id_role)) {
+      // Prevent doing multiple splits in case the roles are like M N M N
+      break;
+    }
+    roles_split.insert(id_role);
     // Assumes tile_sizes are given in m,n,k order
     switch (id_role) {
       case MatmulDimRole::M:
-        abten.split(i, tile_sizes.at(0));
+        abten.split(i, tile_sizes.m);
         break;
       case MatmulDimRole::N:
-        abten.split(i, tile_sizes.at(1));
+        abten.split(i, tile_sizes.n);
         break;
       case MatmulDimRole::K:
-        abten.split(i, tile_sizes.at(2));
+        abten.split(i, tile_sizes.k);
         break;
       default:
         continue;
@@ -448,32 +445,38 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // We will create an AbstractMatmulTensor so that we can use the abstract
   // makeTile implementation above.
 
+  NVF_ERROR(tile_sizes.size() <= 3);
+
   // Set tags for the innermost axes corresponding to m,n,k (omitting some
   // axes if tile_sizes.size() < 3
   std::vector<std::unordered_set<MatmulDimRole>> axis_roles(tv->nDims());
   NVF_ERROR(axis_roles.size() >= tile_sizes.size());
+  GemmTile mnk_tile_sizes{1, 1, 1};
   for (size_t i : arange(tile_sizes.size())) {
     size_t pos = axis_roles.size() - tile_sizes.size() + i;
     switch (i) {
       case 0:
         axis_roles[pos].insert(MatmulDimRole::M);
+        mnk_tile_sizes.m = tile_sizes.at(i);
         break;
       case 1:
         axis_roles[pos].insert(MatmulDimRole::N);
+        mnk_tile_sizes.n = tile_sizes.at(i);
         break;
       case 2:
         axis_roles[pos].insert(MatmulDimRole::K);
+        mnk_tile_sizes.k = tile_sizes.at(i);
         break;
       default:
         NVF_THROW("Length tile_sizes must be 3 or less");
     }
   }
   AbstractMatmulTensor abten(tv->getLoopDomain(), axis_roles);
-  makeTile(abten, tile_sizes);
+  makeTile(abten, mnk_tile_sizes);
   tv->setLoopDomain(abten.as<IterDomain*>());
 }
 
-void makeTile(
+std::vector<MatmulDimRole> makeTile(
     TensorView* tv,
     const GemmTile& mnk_tile_sizes,
     const std::vector<MatmulDimRole>& axis_roles) {
@@ -481,33 +484,22 @@ void makeTile(
       tv->getLoopDomain().size() == axis_roles.size(),
       "Tensor dimension must equal number of provided axis roles");
 
-  std::unordered_set<MatmulDimRole> axis_set(
-      axis_roles.begin(), axis_roles.end());
-  NVF_ERROR(
-      axis_set.size() == axis_roles.size(),
-      "Repeated axis roles are not allowed");
-  // Here we fill out tile_sizes to match the given axis roles. For example
-  // axis_roles might be something like [N, M], in which case we should use
-  // {mnk_tile_sizes.n, mnk_tile_sizes.m}.
-  std::vector<int64_t> tile_sizes;
-  for (MatmulDimRole role : axis_roles) {
-    switch (role) {
-      case MatmulDimRole::Batch:
-        NVF_ERROR(tile_sizes.empty(), "Batch dimension must be first");
-        break;
-      case MatmulDimRole::M:
-        tile_sizes.push_back(mnk_tile_sizes.m);
-        break;
-      case MatmulDimRole::N:
-        tile_sizes.push_back(mnk_tile_sizes.n);
-        break;
-      case MatmulDimRole::K:
-        tile_sizes.push_back(mnk_tile_sizes.k);
-        break;
-    }
+  std::vector<std::unordered_set<MatmulDimRole>> axis_role_sets;
+  for (const MatmulDimRole role : axis_roles) {
+    axis_role_sets.push_back({role});
+  }
+  AbstractMatmulTensor abten(tv->getLoopDomain(), axis_role_sets);
+
+  makeTile(abten, mnk_tile_sizes);
+  tv->setLoopDomain(abten.as<IterDomain*>());
+
+  std::vector<MatmulDimRole> new_axis_roles;
+  new_axis_roles.reserve(abten.size());
+  for (int64_t i : arange((int64_t)abten.size())) {
+    new_axis_roles.push_back(abten.getTag(i).value());
   }
 
-  makeTile(tv, tile_sizes);
+  return new_axis_roles;
 }
 
 namespace {
@@ -522,6 +514,10 @@ std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
         id = split->in();
         continue;
       }
+    } else if (auto merge = dynamic_cast<Merge*>(id->definition());
+               merge && id == merge->out()) {
+      id = merge->inner();
+      continue;
     }
     // Didn't pass the inner most check, return empty.
     return std::nullopt;
@@ -978,7 +974,7 @@ void MmaSwizzler::scheduleTMALoadForMma(
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1295,7 +1291,7 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
 
     // split the inner-dim
     // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
-    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
+    tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype));
 
     // [NO, K, NI] - the TMA Box is [K, NI]
     tv->reorder({{-2, -3}});
@@ -1326,7 +1322,7 @@ void scheduleLdStMatrixForMmaOutput(
       "We only support 16x16 and 16x16 stmatrix now");
 
   NVF_CHECK(
-      dataTypeSize(tv->dtype()) == 2,
+      dataTypeSizeByte(tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
   // NOTE: There can be iterDomains to left of the mma output if there is cta
@@ -1349,6 +1345,75 @@ void scheduleLdStMatrixForMmaOutput(
     // [2, 128(TIDx), 2, 2] -> [2, 128(TIDx), 4(vectorize)]
     tv->merge(-2);
   }
+}
+
+// Apply to the TensorView after block tiling and parallelization, but before
+// applying mma allocation to loop domain.
+AbstractTensor scheduleLdStMatrixSharedMemory(
+    TensorView* tv,
+    int64_t ldst_tile_m,
+    int64_t ldst_tile_n) {
+  // Assume the input TensorView is block tiled. e.g., The last two iterDomains
+  // are the warp tile except for k dimension.
+  // The CTA tile is (128, 256).
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  AbstractTensor abstract_tensor(tv->getLoopDomain());
+  // (GM, GN, cta_m * cta_n, warp_m, warp_n)
+
+  // Split by TMA shared memory box
+  abstract_tensor.split(-1, 64);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
+
+  // Split by (16, 16) matrix for LdStMatrix.x4
+  abstract_tensor.split(-2, ldst_tile_m);
+  abstract_tensor.split(-1, ldst_tile_n);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
+  // Omit (GM, GN, cta_m(2), cta_n(1)) after this for brevity.
+
+  // For shared memory addressing, each thread specifies a row for each (8, 8)
+  // matrix. e.g., For stmatrix.x4, 32 threads move a (16, 16) matrix.
+
+  // Inside the tile box [16, 16], we can think of it as 4 8x8 tiles:
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T0   *  T2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *  T1   *  T3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+
+  // Split inner-dimension by 8 to traverse the rows of the (8, 8) matrices.
+  abstract_tensor.split(-1, 8);
+  // (no(4), mo(4), nio(4), mi(16), niio(2), niii(8))
+
+  // The tile is stored in row-major order, so issue four stmatrix.x4
+  // operations along the M dimension for a 128 thread warp group.
+  // Also, traverse along 16 rows first before moving along column dimension.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}, {-3, -2}, {-2, -3}});
+  // (no(4), nio(4), mo(4), niio(2), mi(16), niii(8))
+
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (no(4), nio(4), (niio * mo * mi)(128), niii(8))
+
+  // Merge no and nio to create a single serial IterDomain
+  // This ^^^ is an artifact of matmul scheduling functions.
+  abstract_tensor.merge(-4, -3);
+  // (no * nio)(16), (niio * mo * mi)(128), niii(8))
+
+  return abstract_tensor;
 }
 
 MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
@@ -2182,7 +2247,8 @@ DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
       dim_roles[g] = MatmulDimRole::N;
     } else {
       NVF_THROW(
-          "IterDomain ValGroup should be concrete in at least two of A, B, output.",
+          "IterDomain ValGroup should be concrete in at least two of A, B, "
+          "output.",
           " concrete_flags: ",
           concrete_flags);
     }
@@ -2310,7 +2376,8 @@ std::vector<ValGroup> canonicalDimOrdering(
   // See https://github.com/NVIDIA/Fuser/pull/2303#discussion_r1626587836
   NVF_ERROR(
       n_inside_m,
-      "Currently N must be the innermost dimension. This constraint will be lifted in the future");
+      "Currently N must be the innermost dimension. This constraint will be "
+      "lifted in the future");
 
   // Insert the reverse-ordered groups in order
   std::vector<ValGroup> ordering;
@@ -2388,7 +2455,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   //  sized so that the swizzle function can be defined.
   NVF_ERROR(
       (int64_t)swizzle_domain.size() >= 2,
-      "At least 2D input (excluding consecutive reduction domains starting from the innermost dim) needed for swizzling, but get ",
+      "At least 2D input (excluding consecutive reduction domains starting "
+      "from the innermost dim) needed for swizzling, but get ",
       shared_mem_tv->toString());
   mma_utils::checkConcreteStaticDim(swizzle_domain[-2]);
   mma_utils::checkConcreteStaticDim(swizzle_domain[-1]);
@@ -2402,7 +2470,8 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
   // (i.e. float)
-  const int64_t data_type_size = dataTypeSize(*shared_mem_tv->getDataType());
+  const int64_t data_type_size =
+      dataTypeSizeByte(*shared_mem_tv->getDataType());
   NVF_ERROR(data_type_size == 2 || data_type_size == 4);
 
   // For main loop, ldmatrix loads a n_rows x n_cols = 8 x 8 matrix each time.
@@ -2641,9 +2710,9 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
       swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
 
   auto dtype = shared_mem_tv->getDataType().value();
-  const int64_t B128_elements = 128 / dataTypeSize(dtype);
-  const int64_t B64_elements = 64 / dataTypeSize(dtype);
-  const int64_t B32_elements = 32 / dataTypeSize(dtype);
+  const int64_t B128_elements = 128 / dataTypeSizeByte(dtype);
+  const int64_t B64_elements = 64 / dataTypeSizeByte(dtype);
+  const int64_t B32_elements = 32 / dataTypeSizeByte(dtype);
 
   if (inner_dim_size % B128_elements == 0) {
     return MmaInputSmemSwizzle::B128;

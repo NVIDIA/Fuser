@@ -17,3 +17,6 @@ sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev ninja-bui
 
 # Install minimal cuda toolkit.
 sudo apt-get -y install cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev
+
+# llvm-dev are for host IR compilation, which uses LLVM JIT.
+sudo apt-get -y install llvm-dev

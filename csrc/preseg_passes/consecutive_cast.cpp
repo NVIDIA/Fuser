@@ -37,8 +37,8 @@ bool shouldSwapMetaCast(Expr* cast) {
   // cast on index types.
   if (cast->input(0)->getDataType().value() == DataType::Index ||
       cast->output(0)->getDataType().value() == DataType::Index ||
-      (dataTypeSize(cast->input(0)->getDataType().value()) <
-       dataTypeSize(cast->output(0)->getDataType().value()))) {
+      (dataTypeSizeBit(cast->input(0)->getDataType().value()) <
+       dataTypeSizeBit(cast->output(0)->getDataType().value()))) {
     return false;
   }
 

@@ -36,7 +36,6 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
@@ -230,7 +229,20 @@ struct WarpSpecialized {
   ParallelType on = ParallelType::Serial;
   // The number of registers for load and compute warps respectively.
   std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
+  // The iterDomain position to define the shape of the circular buffer stage.
+  std::optional<int64_t> stage_slice_position = std::nullopt;
 
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers,
+      int64_t stage_slice_position)
+      : on(on),
+        num_registers(num_registers),
+        stage_slice_position(stage_slice_position) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on, int64_t stage_slice_position)
+      : on(on), stage_slice_position(stage_slice_position) {}
   explicit WarpSpecialized(
       ParallelType on,
       std::pair<int64_t, int64_t> num_registers)
@@ -261,7 +273,8 @@ struct WarpSpecialized {
   }
 
   bool operator==(const WarpSpecialized& other) const {
-    return on == other.on && num_registers == other.num_registers;
+    return on == other.on && num_registers == other.num_registers &&
+        stage_slice_position == other.stage_slice_position;
   }
 };
 
@@ -290,7 +303,14 @@ inline std::ostream& operator<<(
     s << "RegisterSharing_" << decrease_num_reg << "_" << increase_num_reg;
     num_registers = s.str();
   }
-  return os << "WarpSpecializedOn" << parallel_type_str << num_registers;
+  std::string slice_position = "StageSlicePosition_None";
+  if (warp_specialized.stage_slice_position.has_value()) {
+    std::stringstream s;
+    s << "StageSlicePosition_" << warp_specialized.stage_slice_position.value();
+    slice_position = s.str();
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str << num_registers
+            << slice_position;
 }
 
 using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
@@ -453,6 +473,11 @@ class NVF_API TensorView : public Val {
     return domain()->loop();
   };
 
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
+    return domain()->alternateLoop();
+  };
+
   const std::vector<IterDomain*>& getInitialLoopDomain() const {
     return domain()->initialLoop();
   };
@@ -465,6 +490,10 @@ class NVF_API TensorView : public Val {
 
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
     domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setAlternateLoopDomain(std::move(new_loop_domain));
   }
 
   void setAllocationDomain(

@@ -44,8 +44,8 @@ TensorView* view(TensorView* x, DataType dtype) {
   }
 
   auto input_type = x->getDataType().value();
-  auto input_size = dataTypeSize(input_type);
-  auto newsize = dataTypeSize(dtype);
+  auto input_size = dataTypeSizeByte(input_type);
+  auto newsize = dataTypeSizeByte(dtype);
 
   if (input_size == newsize) {
     return bitCastOp(dtype, x);
@@ -196,6 +196,24 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
   IrBuilder::createInContainer<ViewOp>(inp_tv->container(), out_tv, inp_tv);
 
+  return out_tv;
+}
+
+NVF_API TensorView* reshape(
+    TensorView* x,
+    std::function<void(AbstractTensor&)> transform) {
+  auto root_domain = ops::newOutputDomain({x});
+  AbstractTensor abst(root_domain);
+  transform(abst);
+  auto logical_domain = abst.as<IterDomain*>();
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      x->getDataType().value());
+  IrBuilder::create<ViewOp>(x, out_tv);
   return out_tv;
 }
 
@@ -743,7 +761,8 @@ TensorView* slice(
 
   NVF_CHECK(
       ndims == static_cast<int64_t>(ranges.size()),
-      "The range vector must have the same number of Slice descriptors. Given: ",
+      "The range vector must have the same number of Slice descriptors. "
+      "Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -976,7 +995,8 @@ TensorView* broadcast(
   NVF_CHECK(
       nBCastDims - n_broadcasts ==
           TensorDomain::noReductions(inp->getLogicalDomain()).size(),
-      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
+      "Invalid broadcast, number of false entries in is_broadcast_dim expected "
+      "to be ",
       TensorDomain::noReductions(inp->getLogicalDomain()).size(),
       " but received ",
       nBCastDims - n_broadcasts);
@@ -1125,7 +1145,8 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 
   NVF_CHECK(
       inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
+      "Invalid expand_as, dimensions of inp is higher than dimensions of "
+      "other, expected other to be at least ",
       inp_domain.size(),
       " but received ",
       other_domain.size());
@@ -1146,7 +1167,8 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
     if (!inp_id->isBroadcast()) {
       NVF_ERROR(
           !other_id->isBroadcast(),
-          "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
+          "Cannot expand as a tensor if other has broadcast dimensions that "
+          "don't map to broadcast dimensions in the input.");
       if (!inp_id->isConstInt() && other_id->isConstInt()) {
         out_id_builder.extent(
             ops::promoteSize(inp_id->extent(), other_id->extent()));

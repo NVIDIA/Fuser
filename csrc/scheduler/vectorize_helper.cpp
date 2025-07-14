@@ -12,6 +12,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -996,21 +997,22 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_bit;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    // factor <= max_factor / dtype_size
-    const auto dtype_size =
-        dataTypeSize(inp_or_out->dtype(), runtime_info.getIndexType());
+    // factor <= max_factor / dtype_size_bit
+    const auto dtype_size_bit =
+        dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
     max_vec_size = std::min(
         max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+        SchedulerRuntimeInfo::max_alignment_size_in_bit / dtype_size_bit);
 
-    // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    NVF_ERROR(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    // factor <= alignment / dtype_size_bit
+    int64_t alignment_size_bit =
+        (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
+    NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
+    max_vec_size = std::min(max_vec_size, alignment_size_bit / dtype_size_bit);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);

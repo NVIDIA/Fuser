@@ -11,11 +11,13 @@
 #include <ir/builder.h>
 #include <ir/builder_passkey.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <ops/all_ops.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -121,31 +123,30 @@ bool PostOnStream::sameAs(const Statement* other) const {
 
 LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
-    int64_t hic_executor_index,
+    int64_t group_id,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
-    const std::vector<Val*>& outputs)
+    const std::vector<Val*>& outputs,
+    Val* cache_id)
     : Expr(passkey, inputs, outputs, {}) {
-  addDataAttribute(hic_executor_index);
+  addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
+  addAttribute(cache_id);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "LaunchKernel("
-                          << "Inputs: {";
-  std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
-    ss << input->toString(0) << ", ";
-  });
-  ss << "}, Outputs: {";
-  std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
-    ss << output->toString(0) << ", ";
-  });
-  ss << "})" << std::endl;
+  indent(ss, indent_size) << "LaunchKernel(" << std::endl;
+  indent(ss, indent_size + 1) << "Group ID: " << groupId() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
+  indent(ss, indent_size + 1)
+      << "Outputs: {" << toDelimitedString(outputs()) << "}," << std::endl;
+  indent(ss, indent_size) << ")" << std::endl;
   return ss.str();
 }
 
@@ -342,7 +343,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
 
 std::string EndCoalescing::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "EndCoalescing" << std::endl;
+  indent(ss, indent_size) << "EndCoalescing " << name() << std::endl;
   return ss.str();
 }
 

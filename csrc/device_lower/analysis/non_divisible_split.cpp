@@ -14,7 +14,7 @@
 
 namespace nvfuser {
 
-void NonDivisibleSplitInfo::build(Fusion* fusion) {
+NonDivisibleSplitInfo::NonDivisibleSplitInfo(Fusion* fusion) {
   const auto vals = fusion->usedMathVals();
   auto tvs = ir_utils::filterByType<TensorView>(vals);
 
@@ -183,15 +183,239 @@ void NonDivisibleSplitInfo::removeRedundancy() {
 }
 
 void NonDivisibleSplitInfo::addValidations() {
-  const auto gpu_lower = GpuLower::current();
   for (auto split : splits_to_validate_) {
     auto extent = split->in()->extent();
     auto factor = split->factor();
     auto is_divisible = SimplifyingIrBuilder::eqExpr(
         SimplifyingIrBuilder::modExpr(extent, factor),
         extent->fusion()->zeroVal());
-    gpu_lower->validate(is_divisible, "Non-divisible split detected: ", split);
+    NVFUSER_LOWER_VALIDATE(
+        is_divisible, "Non-divisible split detected: ", split);
   }
+}
+
+bool NonDivisibleSplitInfo::hasPredicate(TensorView* tv) const {
+  auto it = splitsToPredicate().find(tv);
+  return it != splitsToPredicate().end() && !(it->second.empty());
+}
+
+NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
+  auto gpu_lower = GpuLower::current();
+  NVF_ERROR(gpu_lower != nullptr, "GpuLower is requred");
+  NVF_ERROR(gpu_lower->isTensorIndexerEnabled(), "TensorIndexer is required");
+
+  const auto& tensor_indexer = gpu_lower->tensorIndexer();
+
+  for (auto tv : fusion->allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    auto def = tv->definition();
+    if (def == nullptr) {
+      continue;
+    }
+
+    const auto path = tensor_indexer.getPredicateIndexingPath(tv, def);
+
+    ids_to_predicate_.emplace(
+        tv,
+        getNonDivisibleSplitsToPredicate(
+            tensor_indexer.traversalGraph(), path));
+  }
+}
+
+namespace {
+
+// Consider create a proper dispatcher for ExprPath (i.e., ValGroup + Direction)
+class IndexingPathAnalysis : public OptInDispatch {
+ public:
+  IndexingPathAnalysis(
+      const ValGraph& graph,
+      const ValGraphBFS::ExprPath& indexing_path)
+      : graph_(graph) {
+    // Keep track of unsafe IDs whose indices may not be in the valid
+    // range. When the extent of an unsafe ID is used in the index
+    // propagation, that ID needs to be predicated.
+    for (const auto& [expr_g, dir] : indexing_path) {
+      current_direction_ = dir;
+      dispatch(expr_g->front());
+      current_direction_ = Direction::Undefined;
+    }
+  }
+
+  void handle(Split* split) {
+    const auto in_group = graph_.toGroup(split->in());
+    const auto inner_group = graph_.toGroup(split->inner());
+    const auto outer_group = graph_.toGroup(split->outer());
+
+    if (currentDirection() == Direction::Forward) {
+      // In the case of propagating through a forward split, if the
+      // input is unsafe. The output is going to be unsafe, unless
+      // the input and inner output are mapped. See
+      // IdGraphIndexCompute::handle(Split*).
+      if (unsafe_groups_.contains(in_group)) {
+        if (in_group == inner_group) {
+          unsafe_groups_.emplace(inner_group);
+        } else {
+          unsafe_groups_.emplace(outer_group);
+        }
+      }
+    } else {
+      // As we are using the AlmostExact graph, the input ID should
+      // never be grouped together with any of output IDs since the
+      // BFS traversal should never pick up such expressions.
+      NVF_ERROR(in_group != inner_group);
+      NVF_ERROR(in_group != outer_group);
+
+      // In the case of backward traversal, if the inner ID is
+      // unsafe, it can no longer be kept unsafe but needs to be
+      // predicated
+      if (unsafe_groups_.contains(inner_group)) {
+        groups_to_predicate_.emplace_back(inner_group);
+      }
+
+      // Check if split->in is unsafe. It's unsafe when this split
+      // is not divisible. It's also unsafe when the outer output is
+      // unsafe. The inner output does not matter as it is
+      // predicated if it's unsafe.
+
+      auto gpu_lower = GpuLower::current();
+      NVF_ERROR(gpu_lower != nullptr);
+
+      bool is_divisible_split = gpu_lower->divisibleSplitSet().find(split) !=
+          gpu_lower->divisibleSplitSet().end();
+
+      if (!is_divisible_split) {
+        auto extent = split->in()->extent();
+        auto factor = split->factor();
+        if (extent->isConstScalar() && factor->isConstScalar() &&
+            (extent->evaluate().as<int64_t>() %
+                 factor->evaluate().as<int64_t>() ==
+             0)) {
+          is_divisible_split = true;
+        }
+      }
+
+      if (unsafe_groups_.contains(outer_group) || !is_divisible_split) {
+        unsafe_groups_.emplace(in_group);
+      }
+    }
+  }
+
+  void handle(Merge* merge) {
+    const auto inner_group = graph_.toGroup(merge->inner());
+    const auto outer_group = graph_.toGroup(merge->outer());
+    const auto out_group = graph_.toGroup(merge->out());
+
+    if (currentDirection() == Direction::Forward) {
+      // Similar to the backward split, these groups should not be the same
+      NVF_ERROR(out_group != inner_group);
+      NVF_ERROR(out_group != outer_group);
+
+      // In the case of propagating through a forward merge, if the
+      // inner is unsafe, it needs to be predicated as the inner
+      // output of the backward split case. The output of the merge
+      // is unsafe if the outer input is unsafe.
+      if (unsafe_groups_.contains(inner_group)) {
+        groups_to_predicate_.emplace_back(inner_group);
+      }
+      if (unsafe_groups_.contains(outer_group)) {
+        unsafe_groups_.emplace(out_group);
+      }
+    } else {
+      // In the case of propagating through a backward merge, if the
+      // merge output is unsafe, the outer input becomes unsafe,
+      // unless the inner input is mapped with the output.
+      if (unsafe_groups_.contains(out_group)) {
+        if (out_group == inner_group) {
+          unsafe_groups_.emplace(inner_group);
+        } else {
+          unsafe_groups_.emplace(outer_group);
+        }
+      }
+    }
+  }
+
+  // Just forwards the unsafe property
+  void handle(Resize* resize) {
+    const auto expr_g = graph_.toGroup(resize);
+    const auto inputs =
+        getInputsOfExprGroup(graph_, expr_g, currentDirection());
+    const auto outputs =
+        getOutputsOfExprGroup(graph_, expr_g, currentDirection());
+
+    NVF_ERROR_EQ(inputs.size(), 1);
+    NVF_ERROR_EQ(outputs.size(), 1);
+
+    if (unsafe_groups_.contains(inputs.at(0))) {
+      unsafe_groups_.emplace(outputs.at(0));
+    }
+  }
+
+  // Should be uncommon. Just predicate if unsafe
+  void handle(Swizzle* swizzle) {
+    const auto expr_g = graph_.toGroup(swizzle);
+    const auto inputs =
+        getInputsOfExprGroup(graph_, expr_g, currentDirection());
+    const auto outputs =
+        getOutputsOfExprGroup(graph_, expr_g, currentDirection());
+
+    for (const auto& inp : inputs) {
+      if (unsafe_groups_.contains(inp)) {
+        groups_to_predicate_.emplace_back(inp);
+      }
+    }
+  }
+
+  // Should be uncommon. Just predicate if unsafe
+  void handle(Swizzle2D* swizzle) {
+    const auto expr_g = graph_.toGroup(swizzle);
+    const auto inputs =
+        getInputsOfExprGroup(graph_, expr_g, currentDirection());
+    const auto outputs =
+        getOutputsOfExprGroup(graph_, expr_g, currentDirection());
+
+    for (const auto& inp : inputs) {
+      if (unsafe_groups_.contains(inp)) {
+        groups_to_predicate_.emplace_back(inp);
+      }
+    }
+  }
+
+  const std::vector<ValGroup>& groupsToPredicate() const {
+    return groups_to_predicate_;
+  }
+
+ private:
+  Direction currentDirection() const {
+    NVF_ERROR(current_direction_ != Direction::Undefined);
+    return current_direction_;
+  }
+
+ private:
+  const ValGraph& graph_;
+
+  // IDs whose indices are not guaranteed to be within the valid range
+  std::unordered_set<ValGroup> unsafe_groups_;
+  // IDs that need to be predicated
+  std::vector<ValGroup> groups_to_predicate_;
+
+  Direction current_direction_ = Direction::Undefined;
+};
+
+} // namespace
+
+std::vector<ValGroup> NonDivisiblePredicateInfo::
+    getNonDivisibleSplitsToPredicate(
+        const ValGraph& graph,
+        const ValGraphBFS::ExprPath& indexing_path) {
+  return IndexingPathAnalysis(graph, indexing_path).groupsToPredicate();
+}
+
+bool NonDivisiblePredicateInfo::hasPredicate(TensorView* tv) const {
+  auto it = idsToPredicate().find(tv);
+  return it != idsToPredicate().end() && !(it->second.empty());
 }
 
 } // namespace nvfuser

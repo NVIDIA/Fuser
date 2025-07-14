@@ -45,53 +45,6 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
 
 namespace ir_utils {
 
-TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
-    : tv_(tv), prev_domain_(tv_->domain()) {
-  tv_->setDomain(td);
-}
-
-TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
-    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
-  std::swap(tv_, guard.tv_);
-}
-
-TVDomainGuard::~TVDomainGuard() {
-  if (tv_ != nullptr) {
-    tv_->setDomain(prev_domain_);
-  }
-}
-
-ir_utils::TVDomainGuard overrideContiguityGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getAllocationDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getMaybeAllocationDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
-ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
-    TensorView* tv,
-    bool contiguity) {
-  // Use domain guard to ignore the contiguity of the given tv.
-  TensorDomain* domain_with_specified_contiguity =
-      IrBuilder::create<TensorDomain>(
-          tv->getRootDomain(),
-          tv->getLogicalDomain(),
-          tv->getLoopDomain(),
-          TensorDomain::getContiguityFilledWith(
-              tv->getLogicalDomain(), contiguity));
-
-  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
-}
-
 std::vector<IterDomain*> iterDomainInputsOf(
     const std::vector<IterDomain*>& input_ids,
     const std::vector<IterDomain*>& all_inputs) {
@@ -133,6 +86,10 @@ bool isTV(const Val* val) {
 bool isTvOp(const Expr* expr) {
   if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
+          ArgsortOp,
+          GroupedMmaOp,
+          ScaledMmaOp,
+          TopKOp,
           UnaryOp,
           BinaryOp,
           TernaryOp,
@@ -166,6 +123,7 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
+          ScanOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
@@ -239,6 +197,38 @@ bool isCpAsyncBulkLoad(const Expr* expr) {
 
 bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() ==
+      LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
+}
+bool isCpAsyncBulk1DStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
 }
 
 bool isLdStTMem(const Expr* expr) {
@@ -743,6 +733,35 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   return MmaInputSmemSwizzle::None;
 }
 
+std::optional<int64_t> getStageSlicePosition(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
+    return std::nullopt;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  if (!warp_specialized.stage_slice_position.has_value()) {
+    return std::nullopt;
+  }
+
+  return warp_specialized.stage_slice_position.value();
+}
+
+// Returns true if the for_loops contain a loop with the given
+// CircularBufferLoopStage.
+bool containsCircularBufferStage(
+    const std::vector<ForLoop*>& for_loops,
+    CircularBufferLoopStage stage_type) {
+  return std::any_of(
+      for_loops.begin(), for_loops.end(), [stage_type](const ForLoop* fl) {
+        return fl->circularBufferLoopStage() == stage_type;
+      });
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -765,21 +784,27 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
     return false;
   }
 
-  if (!(ir_utils::isReductionOp(expr) || expr->isA<BroadcastOp>() ||
-        expr->isA<kir::GridBroadcast>())) {
-    return false;
-  }
-
   // GroupedReductionOp can have multiple output TVs, but they must be
   // parallelized in the same way, so just checking one of them is enough.
   auto tv = ir_utils::getTvOutput(expr);
 
-  if (tv->hasBlockReduction() || tv->hasGridReduction()) {
+  if (ir_utils::isReductionOp(expr) &&
+      (tv->hasBlockReduction() || tv->hasGridReduction())) {
     return true;
-  } else if (expr->isA<BroadcastOp>()) {
-    const ParallelTypeBitmap pt_map =
-        GpuLower::current()->threadPredMap().getParallelBroadcastDomains(tv);
-    return pt_map.any();
+  }
+
+  if ((expr->isA<BroadcastOp>() &&
+       GpuLower::current()
+           ->threadPredMap()
+           .getParallelBroadcastDomains(tv)
+           .any()) ||
+      expr->isA<kir::GridBroadcast>()) {
+    return true;
+  }
+
+  // These ops currently use CUB, which uses syncthreads internally
+  if (expr->isOneOf<ArgsortOp, TopKOp>()) {
+    return true;
   }
 
   return false;
@@ -816,8 +841,13 @@ AllocPosInfo getAllocPosInfo(
 
   bool outer_alloc_found = false;
 
+  // Use stage_slice_position if it exists for TensorView. Otherwise, fallback
+  // to compute_at_position.
+  int64_t compute_position =
+      ir_utils::getStageSlicePosition(tv).value_or(tv->getComputeAtPosition());
+
   for (auto fl : for_loops) {
-    if (info.alloc_pos == tv->getComputeAtPosition()) {
+    if (info.alloc_pos == compute_position) {
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -828,7 +858,8 @@ AllocPosInfo getAllocPosInfo(
           std::find(outputs.begin(), outputs.end(), tv) != outputs.end(),
           "Invalid computeAt of T",
           tv->name(),
-          ". A reducation axis is detected outside computeAt point even though it is not an output tensor.");
+          ". A reducation axis is detected outside computeAt point even though "
+          "it is not an output tensor.");
       DEBUG_LOG("Break at info.alloc_pos = ", info.alloc_pos);
       break;
     }
@@ -1078,13 +1109,14 @@ bool predicateAtEnd(ForLoop* loop) {
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
   const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
+                                       ->idModel()
+                                       .idGraph(IdMappingMode::EXACT)
+                                       .toGroup(other_out_id);
 
   if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
+          other_id_exact_set->begin(), other_id_exact_set->end(), [](Val* val) {
+            return val->as<IterDomain>()->getParallelType() ==
+                ParallelType::Vectorize;
           })) {
     return false;
   }
@@ -2098,6 +2130,31 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
   return ir_utils::isCpAsyncBulkLoad(
              ir_utils::getTv(mma->inA())->definition()) &&
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
+}
+
+bool isWarpSpecializedLoop(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
+
+bool isCopyOnly(Expr* expr) {
+  return expr
+      ->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp, SliceOp, PadOp, ViewOp>();
+}
+
+bool isCopyOnly(Val* val) {
+  if (val->definition() != nullptr && !isCopyOnly(val->definition())) {
+    return false;
+  }
+  for (auto use : val->uses()) {
+    if (!isCopyOnly(use)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace lower_utils

@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser.testing.utils import NVFuserTest, is_pre_volta, verify_stride_order
+from python.utils import NVFuserTest, is_pre_volta, verify_stride_order
 from nvfuser import FusionDefinition, DataType
 import pytest
 from functools import partial

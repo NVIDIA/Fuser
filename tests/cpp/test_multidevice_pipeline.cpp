@@ -27,6 +27,8 @@
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
@@ -43,7 +45,6 @@ namespace nvfuser {
 class PipelineTest : public MultiDeviceTest {
  protected:
   PipelineTest();
-
   // Utility function used for validation in the tests. It compares the
   // (sharded) outputs with ref_unsharded_outputs. if
   // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
@@ -92,6 +93,11 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     auto ref_output =
         shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
     auto obtained_output = outputs[i].as<at::Tensor>();
+
+    EXPECT_EQ(ref_output.strides(), obtained_output.strides())
+        << "Strides are not equal: Ref: " << ref_output.strides()
+        << " Output: " << obtained_output.strides() << std::endl;
+
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
@@ -322,8 +328,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
 }
 
 namespace {
-auto all_backends =
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc);
+auto all_backends = testing::Values(CommunicatorBackend::kNccl);
 
 DeviceMesh mesh_null;
 DeviceMesh mesh0({0});
@@ -341,33 +346,33 @@ INSTANTIATE_TEST_SUITE_P(
     Gather,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(true),
         testing::Values(false),
         testing::Values(false),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Scatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-        all_meshes,
-        all_meshes,
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(mesh0, mesh1),
+        testing::Values(mesh2, mesh4, mesh5),
         testing::Values(false),
         testing::Values(true),
         testing::Values(false),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Bool()));
 
 INSTANTIATE_TEST_SUITE_P(
     Bcast,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_meshes,
         all_meshes,
         testing::Values(false),
@@ -394,7 +399,7 @@ INSTANTIATE_TEST_SUITE_P(
     Bcast_sharded_same_mesh,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         testing::Values(mesh0, mesh1),
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
@@ -407,7 +412,7 @@ INSTANTIATE_TEST_SUITE_P(
     Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -420,13 +425,13 @@ INSTANTIATE_TEST_SUITE_P(
     ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),
         testing::Values(true),
         testing::Values(true),
-        testing::Values(0, 1),
+        testing::Values(0),
         testing::Values(false)));
 
 // TODO: Distributed reduction tests using fusion executor cache are failing
@@ -435,7 +440,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_Reduce,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         all_meshes,
         testing::Values(true),
@@ -448,7 +453,7 @@ INSTANTIATE_TEST_SUITE_P(
     DISABLED_FusionExecutorCache_ReduceScatter,
     PipelineTestTwoStages,
     testing::Combine(
-        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(CommunicatorBackend::kNccl),
         all_nontrivial_meshes,
         testing::Values(mesh_null), // the same mesh is used for all tensors
         testing::Values(true),

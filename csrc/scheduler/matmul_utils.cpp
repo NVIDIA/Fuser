@@ -14,6 +14,7 @@
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
+#include <cuda_utils.h>
 #include <debug.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
@@ -23,6 +24,7 @@
 #include <mma_type.h>
 #include <options.h>
 #include <runtime/executor_utils.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
 #include <utils.h>
@@ -38,7 +40,6 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "matmul_heuristic.h"
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -117,19 +118,37 @@ inline std::optional<MmaMacro> getMmaOp(
 void limitCircularBufferingSmemOperands(
     MatmulParams* mparams,
     const ProblemShape& problem_shape) {
-  // Short-Circuit: Skip if matmul params do not use circular buffering
-  if (!mparams->circular_buffer_options.circular_buffer_smem_write) {
-    return;
-  }
-
   // The axes of the mma tensorviews are permuted to [B, M, N, K],
   // so K / cta_tile_k is the circular buffer axis for both operands.
   int64_t numerator =
       ceilDiv(problem_shape[(size_t)MatmulDimRole::K], mparams->splitk_factor);
-  int64_t k_stages = ceilDiv(numerator, mparams->tile_sizes.cta_tile.k);
+  int64_t k_stages_per_tile =
+      ceilDiv(numerator, mparams->tile_sizes.cta_tile.k);
+  int64_t num_tiles_per_cta = 1;
+  if (mparams->tiling_strategy ==
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+    // Each SM will compute multiple tiles and the circular buffer can wrap
+    // around
+    const int64_t tiles_m = ceilDiv(
+        problem_shape[(size_t)MatmulDimRole::M],
+        mparams->tile_sizes.cta_tile.m);
+    const int64_t tiles_n = ceilDiv(
+        problem_shape[(size_t)MatmulDimRole::N],
+        mparams->tile_sizes.cta_tile.n);
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    // NOTE: we don't account for swizzle here which might increase this number
+    // in rare cases
+    num_tiles_per_cta = ceilDiv(tiles_m * tiles_n, num_sms);
+  }
   int64_t stages = std::min(
-      k_stages,
-      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage);
+      (int64_t)mparams->circular_buffer_options.smem_circular_buffer_stage,
+      k_stages_per_tile * num_tiles_per_cta);
+
+  // Limit to 8 stages, even though in some cases we could use more. This is
+  // needed because mbarrier initialization has a penalty and we do not expect
+  // performance gains beyond a certain point.
+  stages = std::min(stages, 8L);
 
   mparams->circular_buffer_options.circular_buffer_smem_write = (stages != 1);
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
@@ -208,7 +227,8 @@ bool fillDefaultAmpereHeuristic(
     NVF_ERROR(op_it != tensor_roles.end());
     int64_t min_size_bytes = 128LL;
     for (const TensorView* operand : op_it->second) {
-      min_size_bytes = std::min(min_size_bytes, dataTypeSize(operand->dtype()));
+      min_size_bytes =
+          std::min(min_size_bytes, dataTypeSizeByte(operand->dtype()));
     }
     return min_size_bytes;
   };
@@ -255,9 +275,12 @@ void fillOptimalHopperTileSizes(
     GemmTile instr;
   };
 
+  const int64_t num_sms =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
   // Compute how many total bytes need to be computed, summed over all tiles in
   // the output
-  const auto bytes_transferred = [m, n, k](const GemmTile& cta) {
+  const auto bytes_transferred = [m, n, k, num_sms](const GemmTile& cta) {
     const int64_t tiles_m = ceilDiv(m, cta.m);
     const int64_t tiles_n = ceilDiv(n, cta.n);
     const int64_t tiles_k = ceilDiv(k, cta.k);
@@ -274,8 +297,6 @@ void fillOptimalHopperTileSizes(
     // is how we model it. Note that we also do not model L2 locality here at
     // all, so this number is meant as a very rough estimate of compute time for
     // memory-bound problems.
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
     const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
     return num_waves * num_sms * bytes_per_output_tile;
   };
@@ -283,6 +304,7 @@ void fillOptimalHopperTileSizes(
   TileConfig best_config{
       /*cta=*/{64, 64, 64}, /*warp=*/{64, 64, 64}, /*instr=*/{64, 64, 16}};
   int64_t best_bytes_tx = std::numeric_limits<int64_t>::max();
+  int64_t best_stages = std::numeric_limits<int64_t>::max();
 
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
@@ -298,12 +320,26 @@ void fillOptimalHopperTileSizes(
         const int64_t cta_m = m_ratio * 64;
         const int64_t cta_n = n_ratio * instr_n;
 
-        const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2;
+        // TODO: inspect output tensors for epilogue smem dtype
+        const int64_t epilogue_bytes = cta_m * cta_n * 2;
+        // operands plus outputs plus mbarriers
+        const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2 + 8 * 2;
         // Don't consider cases where we would need fewer than 3 load stages due
-        // to smem constraint (add 1K bytes overhead as fudge factor)
+        // to smem constraint
         const int64_t smem_bytes =
-            at::cuda::getCurrentDeviceProperties()->sharedMemPerMultiprocessor;
-        if (bytes_per_stage * 3L > smem_bytes - 1024L) {
+            at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+        int64_t min_stages = 3L;
+
+        // There might be fewer than min_stages stages needed to compute the
+        // whole problem.
+        const int64_t tiles_m = ceilDiv(m, cta_m);
+        const int64_t tiles_n = ceilDiv(n, cta_n);
+        const int64_t stages_per_tile = ceilDiv(k, cta_k);
+        const int64_t tiles_per_sm = ceilDiv(tiles_m * tiles_n, num_sms);
+        const int64_t stages_per_sm = stages_per_tile * tiles_per_sm;
+        min_stages = std::max(1L, std::min(min_stages, stages_per_sm));
+
+        if (bytes_per_stage * min_stages + epilogue_bytes > smem_bytes) {
           continue;
         }
 
@@ -317,9 +353,27 @@ void fillOptimalHopperTileSizes(
             .instr = {64L, instr_n, 16L},
         };
         const int64_t bytes_tx = bytes_transferred(cfg.cta);
-        if (bytes_tx < best_bytes_tx) {
+        bool new_best = bytes_tx < best_bytes_tx;
+        if (bytes_tx == best_bytes_tx) {
+          // Break ties by preferring more stages, up to a point. We don't
+          // want to choose a non-circular buffered solution (best_stages==1)
+          // over a circular buffered solution like stages_per_sm = 5, but it
+          // is also not ideal to use so low a cta_k that we need tons of
+          // stages
+          if (best_stages < 10) {
+            if (stages_per_sm > best_stages) {
+              new_best = true;
+            }
+          } else {
+            // best_stages is already at least 10. From here prefer fewer but
+            // larger stages
+            new_best = stages_per_sm >= 10 && stages_per_sm < best_stages;
+          }
+        }
+        if (new_best) {
           best_bytes_tx = bytes_tx;
           best_config = cfg;
+          best_stages = stages_per_sm;
         }
       }
     }
@@ -334,35 +388,34 @@ void fillOptimalHopperTileSizes(
       (uint16_t)16};
 }
 
-bool fillDefaultHopperHeuristic(
+void maximizeHopperOperandStages(
     MatmulParams* mparams,
-    const ProblemShape& problem_shape,
     const mma_utils::TensorRolesMap& tensor_roles,
     const size_t num_problems) {
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
-  // Use non-persistent kernel
-  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
-
-  fillOptimalHopperTileSizes(mparams, problem_shape);
-
   const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
-
-  // Use warp specialization on hopper by default
-  mparams->circular_buffering_strategy =
-      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
 
   // TODO: We should take the main loop structure into account here to get a
   // more accurate estimate in case of horizontal fusion
   int64_t operand_smem_per_stage =
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+  // warp specialized kernels require two mbarriers per stage
+  if (mparams->circular_buffering_strategy ==
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized) {
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#parallel-synchronization-and-communication-instructions-mbarrier-size-alignment
+    constexpr int64_t mbarrier_bytes = 8;
+    operand_smem_per_stage += 2 * mbarrier_bytes;
+  }
+
   // We leave a bit of space for semaphores.
   int64_t max_operand_smem =
-      (int64_t)device_prop->sharedMemPerMultiprocessor - (1L << 7);
+      (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+  // TODO: subtract additional space such as mbarriers used to synchronize the
+  // epilogue in ping-pong
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
     // We cannot reuse memory for smem epilogue in persistent kernels.
     for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
-      max_operand_smem -= dataTypeSize(out->dtype()) * cta_tile.m * cta_tile.n;
+      max_operand_smem -=
+          dataTypeSizeByte(out->dtype()) * cta_tile.m * cta_tile.n;
     }
   }
 
@@ -373,16 +426,12 @@ bool fillDefaultHopperHeuristic(
 
   mparams->circular_buffer_options.circular_buffer_smem_write =
       mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
+}
 
-  // Always use TMA on Hopper
-  mparams->async_gmem_load_operands = true;
-
-  // See here for more information:
-  // https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/
-
-  // We count the number of tiles in each dimension to determine the
-  // rasterization order. The fast rasterization axis is the shortest axis, to
-  // encourage L2 hits by looping over the same rows or cols more frequently.
+int64_t computeHopperBIDxTiles(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape) {
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
   int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
   int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
 
@@ -394,6 +443,87 @@ bool fillDefaultHopperHeuristic(
   mparams->cta_order = Mtiles <= Ntiles
       ? MatmulParams::TileRasterizationOrder::ColumnMajor
       : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  int64_t BIDx_tiles =
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+      ? Mtiles
+      : Ntiles;
+  if (mparams->grid_traversal_factor.first != 1) {
+    BIDx_tiles = BIDx_tiles * mparams->grid_traversal_factor.first;
+  }
+  return BIDx_tiles;
+}
+
+bool fillDefaultHopperHeuristic(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
+  // Use non-persistent kernel
+  mparams->tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+
+  fillOptimalHopperTileSizes(mparams, problem_shape);
+
+  maximizeHopperOperandStages(mparams, tensor_roles, num_problems);
+
+  // Use warp specialization on hopper by default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+
+  // Always use TMA on Hopper
+  mparams->async_gmem_load_operands = true;
+
+  // See here for more information:
+  // https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/
+
+  // We count the number of tiles in each dimension to determine the
+  // rasterization order. The fast rasterization axis is the shortest axis, to
+  // encourage L2 hits by looping over the same rows or cols more frequently.
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
+  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+  // When we choose the rasterization direction, that becomes the fast
+  // dimension. However, when we swizzle, we pull groups of a fixed size from
+  // the _other_ dimension to create a new inner dimension. We find the swizzle
+  // factor that is largest and has the least quantization when we divide that
+  // other dimension by the swizzle factor.
+  mparams->cta_order = Mtiles <= Ntiles
+      ? MatmulParams::TileRasterizationOrder::ColumnMajor
+      : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  // TODO: swizzle is computed at the level of CGA so we first set CGA size
+  // then set swizzle factor.
+  // For CGA size we pick the largest CGA up to size 4 such that the problem
+  // size is divisible by CGA
+  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
+      computeHopperBIDxTiles(mparams, problem_shape) % 2 == 0) {
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+
+    // TODO: When this does not divide num_sms evenly, we should penalize using
+    // large CGAs because they will leave some SMs idle.
+    int64_t largest_cga = -1L;
+    MatmulParams::ClusterDims largest_cga_cfg{1, 1, 1};
+    // Allow CGAs larger than 2 only for small problems
+    const int64_t max_cga_size =
+        Mtiles * Ntiles > ((double)num_sms * .75) ? 2L : 4L;
+    for (int64_t cx : arange(1L, 9L)) {
+      for (int64_t cy : arange(1L, 9L)) {
+        int64_t cga_size = cx * cy;
+        if (Mtiles % cx != 0 || Ntiles % cy != 0 || cga_size > max_cga_size) {
+          continue;
+        }
+        if (largest_cga == -1L || cga_size > largest_cga) {
+          largest_cga = cga_size;
+          largest_cga_cfg = {cx, cy, 1};
+        }
+      }
+    }
+
+    mparams->cluster_dims = largest_cga_cfg;
+  }
 
   // This is the size of the non-fast dimension before swizzling
   int64_t swizzled_tiles =
@@ -415,26 +545,8 @@ bool fillDefaultHopperHeuristic(
     grid_traversal_factor--;
   }
   // TODO: Use only 1D grid traversal factor for now
+  grid_traversal_factor = 1;
   mparams->grid_traversal_factor = {grid_traversal_factor, 1};
-
-  // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
-  // We always prefer {2, 1, 1}, but this is not always possible. It is only
-  // possible if the BIDx dimension will have even size. This is the case for
-  // any persistent kernel since the number of SMs is even.
-  // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
-  // for RowMajor. These dims are then multiplied by the grid_traversal_factor
-  // when swizzling.
-  int64_t BIDx_tiles =
-      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
-      ? Mtiles
-      : Ntiles;
-  if (grid_traversal_factor != 1) {
-    BIDx_tiles = BIDx_tiles * grid_traversal_factor;
-  }
-  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
-      BIDx_tiles % 2 == 0) {
-    mparams->cluster_dims = {2, 1, 1};
-  }
 
   return true;
 }
@@ -542,7 +654,8 @@ std::string isMatmulFusionDefinitionSupported(
               1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           } else {
-            return "There is more than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
+            return "There is more than one fusion input that can be MMA "
+                   "operand (enable fuse_multiple_matmuls)";
           }
         } else {
           return "No candidate in fusion inputs for MMA operand";
@@ -610,7 +723,8 @@ std::string isMatmulFusionDefinitionSupported(
           TensorDomain::noReductions(
               TensorDomain::noDevices(pattern.A->getLogicalDomain()))
               .size()) {
-        return "Implicit broadcast in MatmulOp causes new non-consecutive N dimension";
+        return "Implicit broadcast in MatmulOp causes new non-consecutive N "
+               "dimension";
       }
     }
   }
@@ -682,10 +796,11 @@ class VectorizationCalculator {
     // However, we might be provided an output tensor. We should verify once
     // preallocated outputs are fully plumbed in that misaligned pointers are
     // respected in this calculation.
-    const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
-    int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-    vec_size = std::min(vec_size, 16l);
-    vec_size /= dataTypeSize(tv->dtype());
+    const int64_t data_ptr_byte = (int64_t)runtime_info_.ptrOf(tv);
+    const int64_t data_ptr_bit = data_ptr_byte * 8;
+    int64_t vec_size_bit = scheduler_utils::maxVectorizationWidth(data_ptr_bit);
+    vec_size_bit = std::min(vec_size_bit, 128l);
+    int64_t vec_size = vec_size_bit / dataTypeSizeBit(tv->dtype());
     vec_size = std::max(vec_size, 1l);
     return vec_size;
   }
@@ -712,7 +827,8 @@ class VectorizationCalculator {
     }
     NVF_ERROR(
         tv->isFusionOutput(),
-        "getSizesAndStrides should only be called with fusion inputs or outputs. Found ",
+        "getSizesAndStrides should only be called with fusion inputs or "
+        "outputs. Found ",
         tv->toString());
     // For outputs, compute sizes using ExpressionEvaluator, then compute
     // strides based on allocation domain, assuming contiguity as marked in
@@ -966,7 +1082,83 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   return calc.compute();
 }
 
+const char* noopPtx = R"(
+.version 8.0
+.target sm_90
+.address_size 64
+
+.entry noopKernel()
+{
+  ret;
+}
+
+)";
+
 } // anonymous namespace
+
+//! Determine how many CGAs can launch in a single wave with the given cluster
+//! dimensions
+int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
+  // I don't think we'd ever use a cluster size larger than 8, but we can make
+  // space for 8 just to future-proof this
+  thread_local std::array<int64_t, 16> cached_results;
+
+  const int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
+  if (cached_results.at(cluster_size) != 0L) {
+    return cached_results.at(cluster_size);
+  }
+
+  CUmodule mod;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, mod, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/0));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
+
+  int32_t max_active_blocks;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
+
+  cudaLaunchConfig_t config{0};
+  cudaLaunchAttribute attribute[1];
+  attribute[0].id = cudaLaunchAttributeClusterDimension;
+  attribute[0].val.clusterDim.x = (uint32_t)cluster_size;
+  attribute[0].val.clusterDim.y = 1;
+  attribute[0].val.clusterDim.z = 1;
+
+  config.numAttrs = 1;
+  config.attrs = attribute;
+  config.blockDim.x = 128;
+  config.blockDim.y = 1;
+  config.blockDim.z = 1;
+
+  config.dynamicSmemBytes = maxDynamicSmemSize;
+
+  config.gridDim.x = (unsigned int)cluster_size;
+  config.gridDim.y = (unsigned int)max_active_blocks;
+  config.gridDim.z = 1;
+
+  int num_clusters;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaOccupancyMaxActiveClusters(&num_clusters, (CUfunction)func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(mod));
+
+  cached_results.at(cluster_size) = (int64_t)num_clusters;
+  return cached_results.at(cluster_size);
+}
 
 std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
@@ -1017,6 +1209,16 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
       id_model.idGraph(IdMappingMode::BROADCAST),
       runtime_info);
 
+  // Populate heuristic details
+  auto status = initCoreHeuristics(
+      mparams.get(),
+      problem_shape,
+      tensor_roles,
+      // TODO: this assumes all patterns will lie in the same main loop, which
+      // might be false
+      /*num_problems=*/patterns.size());
+  NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+
   if (matmul_heuristic_plugin::hasPlugin()) {
     const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
         mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
@@ -1033,6 +1235,25 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         problem_shape[(size_t)MatmulDimRole::Batch],
         inner_dims,
         tensor_roles);
+
+    if (mparams->splitk_factor > 1) {
+      // Disable persistent for split-K
+      mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
+      // Set cluster dims automatically, ignoring the value set by the plugin
+      // It is necessary to do this because we might switch between persistent
+      // and non-persistent after the plugin runs and this changes the launch
+      // grid.
+      // TODO: respect the cluster size given by plugin
+      if (mparams->tiling_strategy !=
+              MatmulParams::TilingStrategy::OneTilePerCTA ||
+          computeHopperBIDxTiles(mparams.get(), problem_shape) % 2 == 0) {
+        mparams->cluster_dims = {2, 1, 1};
+      } else {
+        mparams->cluster_dims = {1, 1, 1};
+      }
+    }
+
     // TODO: more sophisticated handling of multiple matmuls when using plugin
     mparams->tile_sizes.cta_tile.m /= (int64_t)patterns.size();
   } else {
@@ -1040,20 +1261,29 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
         "Scheduling a matmul without heuristic plugin. "
         "Specify plugin location like this: "
         "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
-    // Populate heuristic details
-    auto status = initCoreHeuristics(
-        mparams.get(),
-        problem_shape,
-        tensor_roles,
-        // TODO: this assumes all patterns will lie in the same main loop, which
-        // might be false
-        /*num_problems=*/patterns.size());
-    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  }
+
+  if (isHopper(mparams->mma_macro)) {
+    // Always maximize stages on hopper, for both default heuristic and plugin
+    maximizeHopperOperandStages(
+        mparams.get(), tensor_roles, /*num_problems=*/(size_t)patterns.size());
   }
 
   // Ensure that entire pipeline is filled for shared memory operands given
   // problem and heuristics.
   limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+
+  mparams->circular_buffer_options.circular_buffer_smem_write =
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
+  mparams->circular_buffer_options.circular_buffer_smem_read = false;
+  if (isHopper(mparams->mma_macro) &&
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1) {
+    mparams->circular_buffering_strategy =
+        MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  } else {
+    mparams->circular_buffering_strategy =
+        MatmulParams::CircularBufferingStrategy::Pipelined;
+  }
 
   // Disable magic zero for matmul kernels
   mparams->cparams.enable_magic_zero = false;
@@ -1083,7 +1313,12 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     // See https://github.com/NVIDIA/Fuser/issues/3963
     mparams->use_ldst_matrix =
         problem_shape[(size_t)MatmulDimRole::M] % 16L == 0L &&
-        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0;
+        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0L;
+
+    // Disable stmatrix when warp N is less than 32 bytes since this indicates
+    // we will not be swizzling.
+    mparams->use_ldst_matrix =
+        mparams->use_ldst_matrix && mparams->tile_sizes.warp_tile.n >= 16;
 
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
@@ -1101,7 +1336,8 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
                 std::numeric_limits<int32_t>::max() &&
             problem_shape[(size_t)MatmulDimRole::K] <=
                 std::numeric_limits<int32_t>::max(),
-        "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
+        "Cannot safely use TMA because one of the M, N, or K dimensions "
+        "overflows Int32");
     // TODO: Setting index type like this causes launch failure
     // mparams->cparams.index_type = PrimDataType::Int32;
   }
@@ -1169,7 +1405,8 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
                 " which is not a fusion input");
             if (!def->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()) {
               return "Operand " + operand->toString() +
-                  " must have only trivial prologue ops (set, broadcast, squeeze) but found " +
+                  " must have only trivial prologue ops (set, broadcast, "
+                  "squeeze) but found " +
                   def->toString();
             }
             tv = ir_utils::getTvInput(def);
@@ -1266,7 +1503,8 @@ std::string getMatmulRunTimeRejectReason(
         for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
           if (extent >= (1L << 31)) {
             std::stringstream ss;
-            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, "
+                  "but found "
                << extent;
             return ss.str();
           }

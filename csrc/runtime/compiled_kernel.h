@@ -12,7 +12,6 @@
 
 #include <c10/core/DeviceType.h>
 
-#include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -28,6 +27,8 @@
 #include <utils.h>
 
 namespace nvfuser {
+
+class GpuLower;
 
 //! Internal tests only. Compiles CUDA code with NVRTC directly from
 //! string. This util provides a path to test runtime code, i.e. the resource
@@ -60,6 +61,8 @@ class CompiledKernel : public NonCopyable {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   CompiledKernel() = delete;
+
+  NVF_API ~CompiledKernel();
 
   NVF_API CompiledKernel(
       Fusion* fusion,
@@ -111,10 +114,7 @@ class CompiledKernel : public NonCopyable {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const {
-    NVF_ERROR(lowered_);
-    return lowered_->kernel();
-  }
+  kir::Kernel* kernel() const;
 
   //! Returns the string of the compiled kernel
   NVF_API std::string kernelString() const {
@@ -154,6 +154,10 @@ class CompiledKernel : public NonCopyable {
 
   void createKernelId();
 
+  static std::string kernelNamespace() {
+    return "nvf";
+  }
+
   std::string kernelName() const {
     NVF_ERROR(!kernel_id_.empty(), "Invalid kernel name for fusion executor.");
     std::stringstream ss;
@@ -163,7 +167,7 @@ class CompiledKernel : public NonCopyable {
 
   //! Internal knob used for debugging/profiling only
   void disableLaunchParamCache() {
-    disable_parameter_cache_ = true;
+    launch_param_cache_disabled_ = true;
   }
 
   const int64_t& fusionId() const {
@@ -209,8 +213,8 @@ class CompiledKernel : public NonCopyable {
   const int64_t& maxrregcountHighWaterMark() const {
     return maxrregcount_high_water_mark_;
   }
-  bool& disablePaarameterCache() {
-    return disable_parameter_cache_;
+  bool launchParamCacheDisabled() const {
+    return launch_param_cache_disabled_;
   }
   std::string& kernelCode() {
     return kernel_code_;
@@ -274,7 +278,7 @@ class CompiledKernel : public NonCopyable {
   // Kernel name for fusion executor
   std::string kernel_id_;
 
-  std::unique_ptr<GpuLower> lowered_ = nullptr;
+  std::unique_ptr<GpuLower> lowered_;
 
   // Track the block size this kernel was compiled with. If the block size
   // increases, recompile to adjust maxregister count.
@@ -285,7 +289,7 @@ class CompiledKernel : public NonCopyable {
   // output allocation is also disable when output sizes are dependent on
   // runtime scalar inputs, such as for the case of tensor factory. see
   // https://github.com/csarofeen/pytorch/issues/2002
-  bool disable_parameter_cache_ = false;
+  bool launch_param_cache_disabled_ = false;
 
   // Profiling support: kept copy of the cuda kernel
   std::string kernel_code_;

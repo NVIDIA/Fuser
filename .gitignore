@@ -23,7 +23,7 @@ python/nvfuser_common/cmake
 **/__pycache__
 */*.so
 python/nvfuser/*.so
-python/nvfuser_next/*.so
+python/nvfuser_direct/*.so
 
 # Editor temporaries
 *.swa
@@ -59,3 +59,12 @@ foo.bin
 .DS_Store
 
 test_log*
+
+# Skip files created commonly during development
+.lintrunner.private.toml
+compile_commands.json
+
+# Skip nsight files that are created during perf debugging
+*.sqlite
+*.nsys-rep
+*.ncu-rep

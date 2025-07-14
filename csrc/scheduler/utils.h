@@ -23,6 +23,12 @@ class ComputeAtMap;
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
+//! Utility enum to signify which direction
+//! transform propagation passes will propagate the transforms.
+//! For example, in sharding propagation or
+//! BoundedDirectionalTransformPropagator.
+enum class PropagateDirection { kBackward = 0, kForward };
+
 namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,
@@ -30,14 +36,14 @@ namespace scheduler_utils {
 // with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
-constexpr int64_t register_file_size = register_file_size_full / 2;
-constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
+constexpr int64_t register_file_size_bit_full = (int64_t)256 * 1024 * 8;
+constexpr int64_t register_file_size_bit = register_file_size_bit_full / 2;
+constexpr int64_t register_file_size_bit_56k = (int64_t)56 * 4 * 1024 * 8;
 
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
-constexpr int64_t bytes_per_register = 4l;
+constexpr int64_t bits_per_register = 4l * 8;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
@@ -97,6 +103,10 @@ constexpr int64_t roundUpPow2(const int64_t x) {
 
 constexpr int64_t roundUpToN(const int64_t x, const int64_t n) {
   return x % n == 0 ? x : x + (n - x % n);
+}
+
+constexpr int64_t roundDownToN(const int64_t x, const int64_t n) {
+  return x % n == 0 ? x : x - x % n;
 }
 
 // Div x by y, but min at 1
@@ -220,11 +230,13 @@ struct SchedulerHyperParameters {
       int64_t vectorize_factor_,
       int64_t unroll_factor_,
       int64_t threads_per_block_min_,
-      int64_t threads_per_block_max_)
+      int64_t threads_per_block_max_,
+      bool is_warp_specialized_)
       : vectorize_factor(vectorize_factor_),
         unroll_factor(unroll_factor_),
         threads_per_block_min(threads_per_block_min_),
-        threads_per_block_max(threads_per_block_max_) {}
+        threads_per_block_max(threads_per_block_max_),
+        is_warp_specialized(is_warp_specialized_) {}
 
   //! Number of elements to load per vectorize load.
   int64_t vectorize_factor = 1;
@@ -237,6 +249,9 @@ struct SchedulerHyperParameters {
 
   //! Maximum number of threads per block.
   int64_t threads_per_block_max = 1;
+
+  //! Use warp specialized version
+  bool is_warp_specialized = false;
 };
 
 struct PersistentBufferInfo {
@@ -338,15 +353,15 @@ ReductionTvProperties getReductionProperties(
 // Struct to store persistent buffer sizes. also holds the persistent buffer
 // size of the buffers are projected to the inputs.
 struct PersistentBufferSizeReturn {
-  int64_t persistent_buffer_size = 0;
-  int64_t projected_persistent_buffer_size = 0;
+  int64_t persistent_buffer_size_bit = 0;
+  int64_t projected_persistent_buffer_size_bit = 0;
 };
 
 // Compute the amount of register space would be needed to perform this kernel
 // persistently, only based on buffers that must be persistent, and based on the
 // maximum of all minimum size requirement. i.e. if must be persistent, only
 // hold persistent dimension.
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
@@ -738,20 +753,19 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 //! Get the persistent buffer size of a tensor
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
 
-//! The required shared memory size for a block inclues two parts: (1) smem
-//! for persistent buffers and (2) overhead. The overhead includes space
-//! reserved by the CUDA driver and reduction workspace which depends on the
+//! The required shared memory size for a block includes two parts: (1) smem
+//! for persistent buffers and (2) reduction workspace which depends on the
 //! number of threads per block specified by the parameter threads_per_block.
 //! By default, the function uses the maximum allowed number of threads per
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
@@ -783,8 +797,8 @@ void moveNonConcretizedBroadcastInnermost(
 // predefined factor.
 int64_t getComputationCostFactor(Fusion* fusion);
 
-// Returns the required bytes in flight to saturate the memory bandwidth.
-int64_t getRequiredBytesInFlight();
+// Returns the required bits in flight to saturate the memory bandwidth.
+int64_t getRequiredBitsInFlight();
 
 // Returns true if the device has a high bandwidth to compute raito.
 bool isHighBandwidthFlopsRatio();
@@ -834,10 +848,8 @@ TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 //! See device_lower/analysis/tensor_producer_aliases.h
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
-//! Utility enum to signify which direction
-//! transform propagation passes will propagate the transforms.
-//! For example, in sharding propagation or
-//! BoundedDirectionalTransformPropagator.
-enum class PropagateDirection { kBackward = 0, kForward };
+// Returns true if any of the domains of the tensor is symbolic
+bool isSymbolicTensor(const TensorView* tv);
 } // namespace scheduler_utils
+
 } // namespace nvfuser

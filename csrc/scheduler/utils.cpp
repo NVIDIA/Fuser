@@ -976,11 +976,11 @@ bool canProjectToPersistentProducer(
   }
 }
 
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
-  int64_t buffer_bytes = -1;
+  int64_t buffer_bits = -1;
   bool is_input =
       std::find(
           persistent_buffer_info.projectable_buffer_inputs.begin(),
@@ -1004,10 +1004,10 @@ int64_t getPersistentBufferSizeOfTensor(
 
     auto id_size = runtime_info.expressionEvaluator().evaluate(id->extent());
     NVF_ERROR(id_size.hasValue(), "Could not infer persistent buffer size.");
-    if (buffer_bytes == -1) {
-      buffer_bytes = id_size.as<int64_t>();
+    if (buffer_bits == -1) {
+      buffer_bits = id_size.as<int64_t>();
     } else {
-      buffer_bytes *= id_size.as<int64_t>();
+      buffer_bits *= id_size.as<int64_t>();
     }
   }
   // If the persistent buffer is the output of an upcast op, scheduler will
@@ -1015,25 +1015,25 @@ int64_t getPersistentBufferSizeOfTensor(
   // project to inputs, not abosutely necessary but we always do it to
   // save register usage. So, need to compute the buffer size using the data
   // type before upcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   if (auto upcast_input = getUpCastInputOf(buffer)) {
-    dtype_size = dataTypeSize(
+    dtype_size_bit = dataTypeSizeBit(
         upcast_input->getDataType().value(), runtime_info.getIndexType());
   } else {
-    dtype_size = dataTypeSize(
+    dtype_size_bit = dataTypeSizeBit(
         buffer->getDataType().value(), runtime_info.getIndexType());
   }
 
-  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
-  return buffer_bytes;
+  buffer_bits = buffer_bits == -1 ? 0 : buffer_bits * dtype_size_bit;
+  return buffer_bits;
 }
 
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info,
     HeuristicDataCache* data_cache) {
-  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSize");
+  FUSER_PERF_SCOPE("scheduler_utils::persistentBufferSizeBit");
 
   if (persistent_buffer_info.persistent_buffers.empty()) {
     PersistentBufferSizeReturn empty_sizes;
@@ -1053,11 +1053,11 @@ PersistentBufferSizeReturn persistentBufferSize(
       projectable_buffers_inputs.begin(),
       projectable_buffers_inputs.end());
 
-  std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
+  std::vector<int64_t> persistent_buffer_sizes_bit(all_buffers.size(), -1);
 
   for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
-    persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
+    persistent_buffer_sizes_bit[buffer_i] = getPersistentBufferSizeBitOfTensor(
         buffer, runtime_info, persistent_buffer_info);
   }
 
@@ -1093,7 +1093,7 @@ PersistentBufferSizeReturn persistentBufferSize(
                                const std::vector<bool>& mask1,
                                const std::vector<int64_t>& sizes,
                                const std::vector<TensorView*>& all_buffers) {
-    int64_t buffer_size = 0;
+    int64_t buffer_size_bit = 0;
     NVF_ERROR(
         mask0.size() == mask1.size() && mask0.size() == sizes.size() &&
         mask0.size() == all_buffers.size());
@@ -1104,11 +1104,11 @@ PersistentBufferSizeReturn persistentBufferSize(
     for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
-        buffer_size += sizes[buffer_i];
+        buffer_size_bit += sizes[buffer_i];
         active_buffers.insert(all_buffers[buffer_i]);
       }
     }
-    return buffer_size;
+    return buffer_size_bit;
   };
 
   auto persistent_buffer_info_entry =
@@ -1121,26 +1121,33 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Go through all values, compute the size of the active persistent buffers,
   // do both without and with projection
-  int64_t max_persistence_size = 0;
-  int64_t max_proj_persistence_size = 0;
+  int64_t max_persistence_size_bit = 0;
+  int64_t max_proj_persistence_size_bit = 0;
   for (const auto& entry : scoped_persistence_factor) {
     auto active_buffers = entry.second;
-    auto persistent_buffer_size = masked_dot_product(
-        persistent_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_persistence_size =
-        std::max(max_persistence_size, persistent_buffer_size);
+    auto persistent_buffer_size_bit = masked_dot_product(
+        persistent_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
+    max_persistence_size_bit =
+        std::max(max_persistence_size_bit, persistent_buffer_size_bit);
 
-    auto projected_buffer_size = masked_dot_product(
-        projected_mask, active_buffers, persistent_buffer_sizes, all_buffers);
-    max_proj_persistence_size =
-        std::max(max_proj_persistence_size, projected_buffer_size);
+    auto projected_buffer_size_bit = masked_dot_product(
+        projected_mask,
+        active_buffers,
+        persistent_buffer_sizes_bit,
+        all_buffers);
+    max_proj_persistence_size_bit =
+        std::max(max_proj_persistence_size_bit, projected_buffer_size_bit);
   }
 
-  PersistentBufferSizeReturn persistent_buffer_size;
-  persistent_buffer_size.persistent_buffer_size = max_persistence_size;
-  persistent_buffer_size.projected_persistent_buffer_size =
-      max_proj_persistence_size;
-  return persistent_buffer_size;
+  PersistentBufferSizeReturn persistent_buffer_size_bit;
+  persistent_buffer_size_bit.persistent_buffer_size_bit =
+      max_persistence_size_bit;
+  persistent_buffer_size_bit.projected_persistent_buffer_size_bit =
+      max_proj_persistence_size_bit;
+  return persistent_buffer_size_bit;
 }
 
 std::pair<bool, bool> canonicalDimReduction(
@@ -1160,7 +1167,8 @@ std::pair<bool, bool> canonicalDimReduction(
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
           !tv->axis(0)->isBroadcast(),
-          "3D reduction with first two merged axes broadcast should be 2D reduction.");
+          "3D reduction with first two merged axes broadcast should be 2D "
+          "reduction.");
       tv->reorder({{0, 1}});
     }
     return {true, true};
@@ -1190,7 +1198,8 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
           [&seen_reduction_exprs](TensorView* tv) {
             NVF_ERROR(
                 tv->definition() != nullptr,
-                "Somehow a tensor view without a definition but a reduction snuck into the scheduler reduction list.");
+                "Somehow a tensor view without a definition but a reduction "
+                "snuck into the scheduler reduction list.");
             if (!seen_reduction_exprs.emplace(tv->definition()).second) {
               return true;
             }
@@ -1337,10 +1346,6 @@ IterDomain* projectIdToRoot(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo({reference_id});
   if (replay_exprs.empty()) {
     return reference_id;
@@ -1386,9 +1391,9 @@ IterDomain* projectIdToRoot(
 }
 
 // Take the inner most root id from innerMostAllocDim and project it to the
-// logical domain if the provided domain is on the logical domain. If vectorize,
-// will not project if not following the inner most path.
-IterDomain* projectIdToRFactor(
+// allocation domain if the provided reference_id is on the allocation domain.
+// If vectorize, will not project if not following the inner most path.
+IterDomain* projectIdToAllocation(
     TensorView* tv,
     IterDomain* reference_id,
     bool inner_only,
@@ -1397,12 +1402,10 @@ IterDomain* projectIdToRFactor(
     return nullptr;
   }
 
-  if (!tv->hasRoot()) {
-    return reference_id;
-  }
-
   auto replay_exprs = StmtSort::getExprsTo(
-      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()}, false);
+      {tv->getMaybeAllocationDomain().begin(),
+       tv->getMaybeAllocationDomain().end()},
+      false);
   if (replay_exprs.empty()) {
     return reference_id;
   }
@@ -1475,7 +1478,7 @@ FindAllMappedDims::FindAllMappedDims(
 void FindAllMappedDims::setUp() {
   mapped_root_ids_[starting_tv_] =
       projectIdToRoot(starting_tv_, starting_id_, inner_only_, vectorize_pass_);
-  mapped_logical_ids_[starting_tv_] = projectIdToRFactor(
+  mapped_logical_ids_[starting_tv_] = projectIdToAllocation(
       starting_tv_, starting_id_, inner_only_, vectorize_pass_);
 }
 
@@ -1487,7 +1490,11 @@ void FindAllMappedDims::propagateC2P(TensorView* from, TensorView* to) {
   if (p_it != c2p_map.end()) {
     mapped_root_ids_[to] =
         projectIdToRoot(to, p_it->second, inner_only_, vectorize_pass_);
-    mapped_logical_ids_[to] = p_it->second;
+    // Note, we want to project to allocation, since we could have
+    // transformation from logical to allocation. e.g. for multi-device, we
+    // could have DID related split between logical to allocation.
+    mapped_logical_ids_[to] =
+        projectIdToAllocation(to, p_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1502,7 +1509,7 @@ void FindAllMappedDims::propagateP2C(TensorView* from, TensorView* to) {
   if (c_it != p2c_map.end()) {
     mapped_root_ids_[to] = c_it->second;
     mapped_logical_ids_[to] =
-        projectIdToRFactor(to, c_it->second, inner_only_, vectorize_pass_);
+        projectIdToAllocation(to, c_it->second, inner_only_, vectorize_pass_);
   } else {
     mapped_root_ids_[to] = nullptr;
     mapped_logical_ids_[to] = nullptr;
@@ -1823,20 +1830,20 @@ BroadcastMultipleInformation getBroadcastMultiples(
     {
       bool rhs = false;
       bool lhs = false;
-      auto dtype_size =
-          dataTypeSize(in_out_tv->getDataType().value(), index_type);
+      auto dtype_size_bit =
+          dataTypeSizeBit(in_out_tv->getDataType().value(), index_type);
       for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
         if (lhs) {
-          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size;
+          multiples[lhs_i].lhs_multiple += (int64_t)dtype_size_bit;
         } else if (mapped_axes[lhs_i]) {
           lhs = true;
         }
 
         if (rhs || mapped_axes[rhs_i]) {
-          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size;
+          multiples[rhs_i].rhs_multiple += (int64_t)dtype_size_bit;
           rhs = true;
         }
       }
@@ -2651,7 +2658,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
   return tv_group;
 }
 
-int64_t getSharedMemoryOverheadPerBlock(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block) {
@@ -2660,24 +2667,22 @@ int64_t getSharedMemoryOverheadPerBlock(
   threads_per_block =
       threads_per_block > 0 ? threads_per_block : dev_prop->maxThreadsPerBlock;
   // (1) part-1, space for the reduction broadcast.
-  int64_t dtype_size = 1;
+  int64_t dtype_size_bit = 1;
   for (auto tv : reduction_tvs) {
-    dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
+    dtype_size_bit =
+        std::max(dtype_size_bit, dataTypeSizeBit(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
   // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {
-    dtype_size = std::max(dtype_size, (int64_t)sizeof(int64_t));
+    dtype_size_bit = std::max(dtype_size_bit, (int64_t)sizeof(int64_t) * 8);
   }
-  int64_t reduction_broadcast_workspace =
-      threads_per_block * dtype_size * welford_factor;
+  int64_t reduction_broadcast_workspace_bit =
+      threads_per_block * dtype_size_bit * welford_factor;
 
-  // (2) part-2, space reserved by the CUDA driver
-  int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
-
-  return reduction_broadcast_workspace + smem_overhead_driver;
+  return reduction_broadcast_workspace_bit;
 }
 
 bool isResharding(Fusion* fusion) {
@@ -2939,7 +2944,7 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 
 // Calculate hardware bandwidth and required bytes in flight based on
 // little's law. bytes_in_flight = bandwidth * latency
-int64_t getRequiredBytesInFlight() {
+int64_t getRequiredBitsInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
   const auto dev_idx = at::cuda::current_device();
@@ -2947,8 +2952,8 @@ int64_t getRequiredBytesInFlight() {
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)gpu_mem_clock_khz * 1000.f;
+  float hardware_bandwidth =
+      2.f * (float)dev_prop->memoryBusWidth * (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -3092,6 +3097,13 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
     tv = consumer;
   }
   return tv;
+}
+
+bool isSymbolicTensor(const TensorView* tv) {
+  return std::any_of(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
 } // namespace scheduler_utils

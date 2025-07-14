@@ -21,8 +21,6 @@ namespace nvfuser {
 namespace hir {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
@@ -39,12 +37,13 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
   auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
   ke->compile(&fusion, {t0});
 
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
-  hic->setKernelExecutor(0, std::move(ke));
+  hic->addKernelExecutor(std::move(ke));
 
   IrCloner ir_cloner(hic.get());
   auto hic_in = ir_cloner.clone(in);
@@ -54,12 +53,14 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
       CompileParams(),
       std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out});
+      std::vector<Val*>{hic_out},
+      cache_id);
 
   hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
@@ -108,6 +109,30 @@ TEST_F(HostIrIntegrationTest, Sum_Kernel) {
   fusion->addInput(in);
 
   TensorView* out = sum(in, {0});
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
+TEST_F(HostIrIntegrationTest, ExprEvalAndKernel) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  TensorView* out = permute(in, {1, 0});
+  out = segment_set(out);
+  out = sum(out, {0});
+  fusion->addInput(in);
   fusion->addOutput(out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -225,11 +250,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   auto hicExprs =
       runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(
-      hicExprs,
-      Contains(Property(&Expr::isA<Deallocate>, IsTrue()))
-          .Times(testing::Eq(3)))
-      << "host ir container should have 3 deallocate ops";
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
 
   testValidate(
       executor_cache.fusion(),
