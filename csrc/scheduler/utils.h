@@ -403,6 +403,9 @@ std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
 // that's "inner most".
 IterDomain* innerMostAllocDim(TensorView* tv);
 
+// Returns true if any fusion input has an allocation domain.
+bool inputHasAllocationDomain(Fusion* fusion);
+
 // Looks through fusion and finds all dims that match to the one provided in
 // the tensorview provided. Iter domain must be a root domain. If inner_only,
 // will only map dimensions if they're the inner most position. This is

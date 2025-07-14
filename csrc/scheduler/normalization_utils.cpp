@@ -1205,6 +1205,13 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  // Reject if input has allocation domain
+  if (scheduler_utils::inputHasAllocationDomain(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "input has allocation domain");
+    return false;
+  }
+
   // Reject when output IDs are not covered by reference tv. Assuming reduction
   // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
   // this needs to be changed. see issue

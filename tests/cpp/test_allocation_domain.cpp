@@ -1531,13 +1531,13 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
 TEST_F(AllocationDomainTest, InnerReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 512L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
   tv1->setAllocationDomain(tv1_dom, true);
-  //  logical domain : (iS0{128}, iS1{256}, iS2{512})
-  //  allocation domain : (iS2{512}, iS1{256}, iS0{128})
+  //  logical domain : (iS0{128}, iS1{2}, iS2{512})
+  //  allocation domain : (iS2{512}, iS1{2}, iS0{128})
   auto tv2 = sum(tv1, {0});
   fusion->addOutput(tv2);
 
@@ -1547,15 +1547,14 @@ TEST_F(AllocationDomainTest, InnerReduction) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
-  // Validation failed due to wrong number of reduction elements.
-  // testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
 }
 
 // Should use outer reduction but currently uses inner reduction.
 TEST_F(AllocationDomainTest, OuterReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 512L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
@@ -1578,7 +1577,7 @@ TEST_F(AllocationDomainTest, OuterReduction) {
 TEST_F(AllocationDomainTest, InnerPersistent) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 512L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
@@ -1601,7 +1600,7 @@ TEST_F(AllocationDomainTest, InnerPersistent) {
 TEST_F(AllocationDomainTest, OuterPersistent) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 512L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
@@ -1625,7 +1624,7 @@ TEST_F(AllocationDomainTest, OuterPersistent) {
 TEST_F(AllocationDomainTest, InnerPersistentOuterReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 512L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};
@@ -1647,13 +1646,13 @@ TEST_F(AllocationDomainTest, InnerPersistentOuterReduction) {
 }
 
 // outer persistent + Inner reduction
-// should segmented into outer persistent and inner reduction but currently uses
+// should segment into outer persistent and inner reduction but currently uses
 // inner outer persistent scheduler. see a version without allocation domain at
 // CombinedSchedulerTest.OuterPersistentInnerReduction
 TEST_F(AllocationDomainTest, OuterPersistentInnerReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 32L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   std::vector<IterDomain*> tv1_dom = {tv1->axis(2), tv1->axis(1), tv1->axis(0)};

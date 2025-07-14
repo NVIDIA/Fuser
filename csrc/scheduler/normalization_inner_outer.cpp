@@ -257,6 +257,13 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     }
   }
 
+  // Reject if input has allocation domain
+  if (scheduler_utils::inputHasAllocationDomain(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "input has allocation domain");
+    return false;
+  }
+
   // check connections between inner reduction and outer reduction tvs.
   if (!normalization_scheduler_utils::checkIfReductionsAreInnerOuter(
           inner_reduction_tvs, outer_reduction_tvs)) {

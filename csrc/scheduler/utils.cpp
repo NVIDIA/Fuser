@@ -3106,5 +3106,11 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
+bool inputHasAllocationDomain(Fusion* fusion) {
+  return std::any_of(
+      fusion->inputs().begin(), fusion->inputs().end(), [](Val* v) {
+        return v->isA<TensorView>() && v->as<TensorView>()->hasAllocation();
+      });
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

@@ -1555,7 +1555,7 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
 TEST_F(CombinedSchedulerTest, OuterPersistentInnerReduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  long x = 128L, y = 256L, z = 32L;
+  long x = 128L, y = 2L, z = 512L;
   auto tv1 = makeContigConcreteTensor({x, y, z});
   fusion->addInput(tv1);
   auto tv2 = sum(tv1, {0});
@@ -1564,7 +1564,6 @@ TEST_F(CombinedSchedulerTest, OuterPersistentInnerReduction) {
   auto tv5 = sum(tv4, {1, 2});
   fusion->addOutput(tv4);
   fusion->addOutput(tv5);
-  fusion->print();
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t1 = at::randn({x, y, z}, options);
   std::vector<c10::IValue> inputs({t1});
