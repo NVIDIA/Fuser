@@ -367,19 +367,7 @@ inferTensorShapesAndStrides(
     llvm::IRBuilder<>& builder) {
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
   llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
-  // llvm::Value* stride = builder.getInt64(1);
-  // for (const auto& id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-  //   NVF_ERROR(id->extent()->isConst(), "Extent is not constant");
-  //   llvm::Value* extent_value =
-  //       builder.getInt64(id->extent()->evaluate().as<int64_t>());
-  //   val_to_value[id->extent()] = extent_value;
-  //   sizes.push_back(val_to_value[id->extent()]);
-  //   strides.push_back(stride);
-  //   stride = builder.CreateMul(stride, extent_value);
-  // }
-  // llvm::LLVMContext& context = builder.getContext();
-  // auto mod = builder.GetInsertBlock()->getParent()->getParent();
-  // llvm::Type* void_ptr_type = getInt8PtrType(context);
+
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
     // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
