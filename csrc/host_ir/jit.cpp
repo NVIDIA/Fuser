@@ -256,8 +256,7 @@ void dispatchAllocate(
        raw_tensor_ptr});
   val_to_value[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
 
-  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
-  if (debug_print) {
+  if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     llvm::outs() << "=== LLVM IR After Generating Allocate Function ===\n";
     mod->print(llvm::outs(), nullptr);
   }
