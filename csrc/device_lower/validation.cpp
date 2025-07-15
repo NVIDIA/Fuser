@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -617,11 +618,17 @@ class VectorizeValidator : public OptInDispatch {
     if (tv_def->isA<LoadStoreOp>()) {
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+      if (SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() == 256) {
+        allowed_vector_sizes_bit.push_back(256);
+      }
       // TMem can vectorize up to 4096 bits.
       if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
           (ldst->opType() == LoadStoreOpType::LdTMem ||
            ldst->opType() == LoadStoreOpType::StTMem)) {
-        allowed_vector_sizes_bit.push_back(256);
+        if (allowed_vector_sizes_bit.back() != 256) {
+          allowed_vector_sizes_bit.push_back(256);
+        }
         allowed_vector_sizes_bit.push_back(512);
         allowed_vector_sizes_bit.push_back(1024);
         allowed_vector_sizes_bit.push_back(2048);

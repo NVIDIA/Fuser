@@ -840,4 +840,34 @@ INSTANTIATE_TEST_SUITE_P(
     all_vectorization_cast_params,
     vectorizeCastTestName);
 
+TEST_F(NVFuserTest, Vectorization256bit) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // float32 is 4 bytes or 32 bits, with 256 bits vectorization,
+  // we can r/w 8 elements at a time.
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(1, 8);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+    if (tv == tv1 || tv == tv3) {
+      tv->axis(2)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128, 256}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

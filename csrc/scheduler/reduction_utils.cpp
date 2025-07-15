@@ -1100,7 +1100,7 @@ void sharedMemoryConsumerVectorization(
         io_vectorization_factor);
     auto dtype_bits = dataTypeSizeBit(tv->getDataType().value());
     auto max_vect_factor =
-        SchedulerRuntimeInfo::max_alignment_size_in_bit / dtype_bits;
+        SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() / dtype_bits;
     // additional split is added if the innermost extent is greater than max
     // vectorization factor.
     if (innermost_extent > max_vect_factor) {

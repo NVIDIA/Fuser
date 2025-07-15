@@ -997,22 +997,22 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_bit;
+  int64_t max_vect_bits = SchedulerRuntimeInfo::getMaxVectorizationSizeInBit();
+  int64_t max_vect_factor = max_vect_bits;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size_bit
     const auto dtype_size_bit =
         dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vec_size = std::min(
-        max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_bit / dtype_size_bit);
+    max_vect_factor = std::min(max_vect_factor, max_vect_bits / dtype_size_bit);
 
     // factor <= alignment / dtype_size_bit
     int64_t alignment_size_bit =
         (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
     NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size_bit / dtype_size_bit);
+    max_vect_factor =
+        std::min(max_vect_factor, alignment_size_bit / dtype_size_bit);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
@@ -1032,9 +1032,9 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size: ",
         inner_size_it->second);
 
-    max_vec_size = std::min(
+    max_vect_factor = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
-        max_vec_size);
+        max_vect_factor);
   }
 
   // This is a WAR for vectorization through resize as the spanning
@@ -1051,10 +1051,10 @@ int64_t getVectorizationFactor(
     if (inferred_val_int == 0) {
       continue;
     }
-    max_vec_size = std::gcd(max_vec_size, inferred_val_int);
+    max_vect_factor = std::gcd(max_vect_factor, inferred_val_int);
   }
 
-  return max_vec_size;
+  return max_vect_factor;
 }
 
 int64_t getVectorizationFactorTransposeGroup(

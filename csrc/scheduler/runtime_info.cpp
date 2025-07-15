@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-// #include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
@@ -13,6 +13,10 @@
 #include <tensor_metadata.h>
 
 namespace nvfuser {
+
+// Static member definition
+std::optional<int64_t>
+    SchedulerRuntimeInfo::cached_max_vectorization_size_in_bit_ = std::nullopt;
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
@@ -93,13 +97,31 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   }
 }
 
+// with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+int64_t SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() {
+  if (cached_max_vectorization_size_in_bit_.has_value()) {
+    return cached_max_vectorization_size_in_bit_.value();
+  }
+  int64_t max_vec_bits = 128;
+  int sw_major, sw_minor;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&sw_major, &sw_minor));
+  if ((sw_major >= 12 && sw_minor >= 9) || (sw_major >= 13)) {
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major >= 10) {
+      max_vec_bits = 256;
+    }
+  }
+  cached_max_vectorization_size_in_bit_ = max_vec_bits;
+  return max_vec_bits;
+}
+
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
 size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
     return input_ptrs_.at(tv);
   }
-  return max_alignment_size_in_bit / 8;
+  return getMaxVectorizationSizeInBit() / 8;
 }
 
 std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
@@ -119,8 +141,8 @@ size_t SchedulerRuntimeInfo::computeAlignmentSizeBit(size_t ptr_address) {
   ptr_address *= 8; // Convert to bits
   size_t alignment_size_bit = 1;
   size_t next_alignment_size_bit = 2;
-
-  while (next_alignment_size_bit <= max_alignment_size_in_bit &&
+  size_t max_vec_bits = (size_t)getMaxVectorizationSizeInBit();
+  while (next_alignment_size_bit <= max_vec_bits &&
          ptr_address % next_alignment_size_bit == 0) {
     alignment_size_bit = next_alignment_size_bit;
     next_alignment_size_bit *= 2;
