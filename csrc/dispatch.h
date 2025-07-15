@@ -102,13 +102,13 @@ class Val;
   f(ViewOp);                      \
   f(CatOp);                       \
   f(PadOp);                       \
+  f(ScanOp);                      \
   f(SliceOp);                     \
   f(Split);                       \
   f(ArgsortOp);                   \
   f(GroupedMmaOp);                \
   f(ScaledMmaOp);                 \
   f(TopKOp);                      \
-  f(ScanOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \

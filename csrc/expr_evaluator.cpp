@@ -284,6 +284,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
       auto outputs = def->evaluate(*this, known_values);
+      NVF_ERROR(outputs.size() == def->outputs().size());
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
