@@ -1190,6 +1190,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
+  ${NVFUSER_ROOT}/runtime/cub_utils.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/fp4_support.cu
