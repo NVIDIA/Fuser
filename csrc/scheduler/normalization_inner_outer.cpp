@@ -115,12 +115,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       });
 
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info,
-      reduced_tv,
-      data_cache,
-      vec_break_point.get(),
-      {},
-      /*max_vectorization_size_in_bit=*/128);
+      runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::PersistentBufferInfo>(
@@ -415,9 +410,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       runtime_info,
       reduced_tv,
       data_cache,
-      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims),
-      {},
-      /*max_vectorization_size_in_bit=*/128);
+      (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
   auto scheduler_hyperparameters_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
