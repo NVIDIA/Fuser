@@ -55,11 +55,33 @@ constexpr size_t kMaxTensorDim = 8;
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
  public:
-  std::unique_ptr<llvm::orc::LLJIT> jit;
-  std::unique_ptr<hir::HostIrContainer> container;
-  main_func_t main_func;
-  HostIrJitImpl() = default;
+  HostIrJitImpl(
+      std::unique_ptr<hir::HostIrContainer> container,
+      int num_threads);
   ~HostIrJitImpl() = default;
+
+  // Main interface methods, these are the only methods that should be called by
+  // HostIrJit wrapper
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+  const std::vector<Val*>& inputs() const {
+    return container_->inputs();
+  }
+  const std::vector<Val*>& outputs() const {
+    return container_->outputs();
+  }
+  const hir::HostIrContainer& container() const {
+    return *container_;
+  }
+
+ private:
+  // Implementation methods
+  void compile();
+  void registerExternalFunctions();
+
+  // data members
+  std::unique_ptr<llvm::orc::LLJIT> jit_;
+  std::unique_ptr<hir::HostIrContainer> container_;
+  main_func_t main_func_;
 };
 
 // Helper function to check for and throw errors from LLVM
@@ -477,9 +499,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
 };
 
-void compile(HostIrJitImpl* pimpl) {
+void HostIrJitImpl::compile() {
   NVF_ERROR(
-      pimpl->container != nullptr,
+      container_ != nullptr,
       "container is nullptr during host ir JIT compilation");
   auto ctx = std::make_unique<llvm::LLVMContext>();
   auto mod = std::make_unique<llvm::Module>("host_ir_jit_module", *ctx);
@@ -495,15 +517,15 @@ void compile(HostIrJitImpl* pimpl) {
   builder.SetInsertPoint(entry);
 
   // compile inputs in llvm ir
-  unpackInputs(pimpl->container.get(), builder, val_to_value);
+  unpackInputs(container_.get(), builder, val_to_value);
   HostIrCompileDispatcher dispatcher(builder, val_to_value);
   // compile all top level expressions in host ir container
-  for (auto* expr : pimpl->container->topLevelExprs()) {
+  for (auto* expr : container_->topLevelExprs()) {
     dispatcher.dispatch(expr);
   }
 
   // compile outputs in llvm ir
-  packOutputs(pimpl->container.get(), builder, val_to_value);
+  packOutputs(container_.get(), builder, val_to_value);
 
   // verify the module
   std::string error;
@@ -514,40 +536,41 @@ void compile(HostIrJitImpl* pimpl) {
       error);
 
   // Add the module to the JIT
-  throwIfError(pimpl->jit->addIRModule(
+  throwIfError(jit_->addIRModule(
       llvm::orc::ThreadSafeModule(std::move(mod), std::move(ctx))));
 
   // Look up the main function
-  auto main_func_addr = throwIfError(pimpl->jit->lookup(kMainFuncName));
+  auto main_func_addr = throwIfError(jit_->lookup(kMainFuncName));
   using main_func_ptr_t = void (*)(const void**, void**);
   auto main_func_ptr =
       reinterpret_cast<main_func_ptr_t>(main_func_addr.getValue());
-  pimpl->main_func = main_func_ptr;
+  main_func_ = main_func_ptr;
 }
 
-// NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
-// find complete type of LlvmJitImpl
-HostIrJit::~HostIrJit() = default;
-
-HostIrJit::HostIrJit(
+// Implementation of HostIrJitImpl
+HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
     int num_threads)
-    : pimpl_(new HostIrJitImpl) {
-  FUSER_PERF_SCOPE("HostIrJit::HostIrJit");
-  // Initialize params with passed parameters
-  pimpl_->container = std::move(container);
+    : container_(std::move(container)) {
+  FUSER_PERF_SCOPE("HostIrJitImpl::HostIrJitImpl");
 
   // Initialize LLVM
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
-  pimpl_->jit = throwIfError(
+  jit_ = throwIfError(
       llvm::orc::LLJITBuilder().setNumCompileThreads(num_threads).create());
-  llvm::orc::JITDylib& dest_dynamic_lib = pimpl_->jit->getMainJITDylib();
+
+  registerExternalFunctions();
+  compile();
+}
+
+void HostIrJitImpl::registerExternalFunctions() {
+  llvm::orc::JITDylib& dest_dynamic_lib = jit_->getMainJITDylib();
   auto mangler = llvm::orc::MangleAndInterner(
-      dest_dynamic_lib.getExecutionSession(), pimpl_->jit->getDataLayout());
+      dest_dynamic_lib.getExecutionSession(), jit_->getDataLayout());
   dest_dynamic_lib.addGenerator(throwIfError(
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
-          pimpl_->jit->getDataLayout().getGlobalPrefix())));
+          jit_->getDataLayout().getGlobalPrefix())));
 
   // tensor size and stride extraction functions
   void* extract_tensor_size_func_ptr =
@@ -615,32 +638,30 @@ HostIrJit::HostIrJit(
       kAtEmptyStridedCudaWrapper);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
-  // Compile the module
-  compile(pimpl_.get());
 }
 
-KernelArgumentHolder HostIrJit::runWithInputs(
+KernelArgumentHolder HostIrJitImpl::runWithInputs(
     const KernelArgumentHolder& args) {
-  FUSER_PERF_SCOPE("HostIrJit::runWithInputs");
+  FUSER_PERF_SCOPE("HostIrJitImpl::runWithInputs");
   // Bind cache id to llvm global variable or align with main function inputs
   NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
-  NVF_ERROR_EQ(std::ssize(pimpl_->container->inputs()), args.size());
+  NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
 
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
-  for (auto&& [in_val, arg] : zip(pimpl_->container->inputs(), args)) {
+  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
     NVF_ERROR(arg.is<at::Tensor>(), "Unsupported argument type: ", arg);
     input_aten_tensors.push_back(&arg.as<at::Tensor>());
   }
 
   // Run the main function
-  std::vector<void*> output_aten_tensors(pimpl_->container->outputs().size());
-  pimpl_->main_func(input_aten_tensors.data(), output_aten_tensors.data());
+  std::vector<void*> output_aten_tensors(container_->outputs().size());
+  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for (size_t i = 0; i < pimpl_->container->outputs().size(); ++i) {
-    auto* output = pimpl_->container->outputs()[i];
+  for (size_t i = 0; i < container_->outputs().size(); ++i) {
+    auto* output = container_->outputs()[i];
     NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output);
     // Cast void* to at::Tensor* first, then dereference
     at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
@@ -653,16 +674,32 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   return outputs;
 }
 
+// NOTE: We have to keep the destructor here, otherwise the unique_ptr can't
+// find complete type of HostIrJitImpl
+HostIrJit::~HostIrJit() = default;
+
+// HostIrJit wrapper methods, these are the only methods that should be called
+// by the user
+HostIrJit::HostIrJit(
+    std::unique_ptr<hir::HostIrContainer> container,
+    int num_threads)
+    : pimpl_(new HostIrJitImpl(std::move(container), num_threads)) {}
+
+KernelArgumentHolder HostIrJit::runWithInputs(
+    const KernelArgumentHolder& args) {
+  return pimpl_->runWithInputs(args);
+}
+
 const std::vector<Val*>& HostIrJit::inputs() const {
-  return pimpl_->container->inputs();
+  return pimpl_->inputs();
 }
 
 const std::vector<Val*>& HostIrJit::outputs() const {
-  return pimpl_->container->outputs();
+  return pimpl_->outputs();
 }
 
 const hir::HostIrContainer& HostIrJit::container() const {
-  return *pimpl_->container;
+  return pimpl_->container();
 }
 
 } // namespace nvfuser
