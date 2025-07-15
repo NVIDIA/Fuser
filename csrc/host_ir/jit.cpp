@@ -207,6 +207,7 @@ Val* mapToInputDomain(
 ) {
   for(auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) { 
     auto* domain = it->first->as<IterDomain>();
+    // std::cout << "currentDomain: " << currentDomain->toString() << " domain: " << domain->toString() << std::endl;
     if(currentDomain->as<IterDomain>() == domain) {
       return it->first;
     }
@@ -508,24 +509,24 @@ void inferTensorStridesReordered(
 
   llvm::LLVMContext& context = builder.getContext();
   llvm::Value* running_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
-   std::unordered_map<Val*, bool> boundaryValVisited;
-   std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
-   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-   for(auto* val : logical_domain) {
+  std::unordered_map<Val*, bool> boundaryValVisited;
+  std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  for(auto* val : logical_domain) {
     boundaryValVisited[val] = false;
-   }
-   for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
-      auto iter_domain = *it;
-      if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
-          continue;
-      }
-      generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val_to_value, builder, running_stride, boundaryValVisited, boundaryValStrides);
+  }
+  for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
+    auto iter_domain = *it;
+    if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
+        continue;
     }
-    for(const auto& [dim_idx, id] : enumerate(logical_domain)) {
-      auto it = boundaryValStrides.find(id);
-      NVF_ERROR(it != boundaryValStrides.end(), "LLVM Lowering Error: boundaryValStrides is not found for ", id->toString());
-      strides.push_back(it->second);
-    }
+    generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val_to_value, builder, running_stride, boundaryValVisited, boundaryValStrides);
+  }
+  for(const auto& [dim_idx, id] : enumerate(logical_domain)) {
+    auto it = boundaryValStrides.find(id);
+    NVF_ERROR(it != boundaryValStrides.end(), "LLVM Lowering Error: boundaryValStrides is not found for ", id->toString());
+    strides.push_back(it->second);
+  }
   return;
 }
 

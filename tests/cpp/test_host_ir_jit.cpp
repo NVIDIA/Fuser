@@ -191,7 +191,7 @@ TEST_F(HostIrJitTest, Reorder) {
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 1);
   auto out = outs[0].as<at::Tensor>();
-  EXPECT_EQ(out.sizes(), std::vector<int64_t>({32, 64}));
+  EXPECT_EQ(out.sizes(), std::vector<int64_t>({64, 32}));
   EXPECT_EQ(out.strides(), std::vector<int64_t>({1, 64}));
 }
 
@@ -216,8 +216,8 @@ TEST_F(HostIrJitTest, Permute) {
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 1);
   auto out = outs[0].as<at::Tensor>();
-  EXPECT_EQ(out.sizes(), std::vector<int64_t>({64, 32}));
-  EXPECT_EQ(out.strides(), std::vector<int64_t>({1, 64}));
+  EXPECT_EQ(out.sizes(), std::vector<int64_t>({32, 64}));
+  EXPECT_EQ(out.strides(), std::vector<int64_t>({64, 1}));
 }
 
 TEST_F(HostIrJitTest, AllocationDomainReorder) {
