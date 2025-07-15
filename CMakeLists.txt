@@ -858,13 +858,37 @@ if(BUILD_TEST)
   )
 
   set(TOPK_TEST_KERNELS "topk_test_kernels")
-  add_library(${TOPK_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/topk_test_kernels.cu)
+  add_library(${TOPK_TEST_KERNELS} SHARED
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_kernels.cu
+    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
+  )
 
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${TOPK_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
   target_link_libraries(${TOPK_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${TOPK_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${TOPK_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
   target_include_directories(${TOPK_TEST_KERNELS} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/googletest/googletest/include
+    ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
+  )
+
+  set(SCAN_TEST_KERNELS "scan_test_kernels")
+  add_library(${SCAN_TEST_KERNELS} SHARED
+    ${NVFUSER_ROOT}/tests/cpp/scan_test_kernels.cu
+    ${NVFUSER_ROOT}/tests/cpp/scan_test_helper.cpp
+  )
+
+  # CUDA 11 does not support C++20, so hard code C++17 here
+  set_property(TARGET ${SCAN_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
+  target_link_libraries(${SCAN_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
+  target_include_directories(${SCAN_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
+  target_include_directories(${SCAN_TEST_KERNELS} PRIVATE
+    ${CMAKE_SOURCE_DIR}/csrc
+  )
+  target_include_directories(${SCAN_TEST_KERNELS} SYSTEM PRIVATE
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
@@ -872,7 +896,6 @@ endif()
 
 function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND TEST_SRC
-    ${NVFUSER_ROOT}/tests/cpp/topk_test_helper.cpp
     ${NVFUSER_ROOT}/tests/cpp/utils.cpp
     ${NVFUSER_ROOT}/tests/cpp/validator.cpp
   )
@@ -928,8 +951,9 @@ if(BUILD_TEST)
   set(SCAN_TEST_SRCS)
   list(APPEND SCAN_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_scan.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_scan_device_func.cpp
   )
-  add_test(test_scan "${SCAN_TEST_SRCS}" "")
+  add_test(test_scan "${SCAN_TEST_SRCS}" ${SCAN_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_scan)
 
   set(TOPK_TEST_SRCS)
@@ -1166,6 +1190,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
+  ${NVFUSER_ROOT}/runtime/cub_utils.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/fp4_support.cu

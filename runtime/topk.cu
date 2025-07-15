@@ -26,63 +26,6 @@ constexpr __device__ bool isIter(int STATE) {
   return STATE == 1;
 }
 
-// TODO: We have exactly the same code in argsort.cu, we should refactor it.
-// Type utils for interoperability between our own half types and the
-// CUDA standard types (identical to argsort implementation)
-template <typename T>
-struct CudaType {
-  using type = T;
-
-  __device__ inline static T get(const T& t) {
-    return t;
-  }
-};
-
-template <typename T>
-struct NvFuserType {
-  using type = T;
-
-  __device__ inline static T get(const T& t) {
-    return t;
-  }
-};
-
-#ifdef __NVFUSER_HAS_HALF__
-template <>
-struct CudaType<__half> {
-  using type = __nv_half;
-
-  __device__ inline static type get(const __half& t) {
-    return __ushort_as_half(__NVFUSER_HALF_TO_CUS(t));
-  }
-};
-template <>
-struct NvFuserType<__half> {
-  __device__ inline static __half get(
-      const typename CudaType<__half>::type& t) {
-    return *(reinterpret_cast<const __half*>(&t));
-  }
-};
-#endif // __NVFUSER_HAS_HALF__
-
-#ifdef __NVFUSER_HAS_BFLOAT__
-template <>
-struct CudaType<__bfloat> {
-  using type = __nv_bfloat16;
-
-  __device__ inline static type get(const __bfloat& t) {
-    return __ushort_as_bfloat16(__NVFUSER_BFLOAT_TO_CUS(t));
-  }
-};
-template <>
-struct NvFuserType<__bfloat> {
-  __device__ inline static __bfloat get(
-      const typename CudaType<__bfloat>::type& t) {
-    return *(reinterpret_cast<const __bfloat*>(&t));
-  }
-};
-#endif // __NVFUSER_HAS_BFLOAT__
-
 // Block-parallel topk using CUB BlockRadixSort
 // Following nvFuser dimensional template parameter pattern like
 // fused_reduction.cu and argsort.cu
@@ -123,16 +66,16 @@ __device__ void blockTopK(
       "For now, active TID dimensions must participate in sorting");
 
   // Create temporary buffer for CUB operations since input_data is const
-  typename CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
+  typename cub_utils::CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    temp_data[i] = CudaType<DataT>::get(input_data[i]);
+    temp_data[i] = cub_utils::CudaType<DataT>::get(input_data[i]);
   }
 
   // CUB BlockRadixSort setup - with proper multi-dimensional block support
   // CUB supports multi-dimensional blocks when BLOCK_DIM_Y and BLOCK_DIM_Z are
   // specified (identical to argsort configuration)
   using BlockRadixSort = cub::BlockRadixSort<
-      typename CudaType<DataT>::type, // Key type
+      typename cub_utils::CudaType<DataT>::type, // Key type
       BLOCK_DIM_X, // X dimension
       ITEMS_PER_THREAD, // Items per thread
       int64_t, // Value type (for key-value sorting)
@@ -173,7 +116,7 @@ __device__ void blockTopK(
   // Copy to outputs. This could be avoided if we used nv_bfloat16
   // instead of our own custom bfloat16
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    top_values[i] = NvFuserType<DataT>::get(temp_data[i]);
+    top_values[i] = cub_utils::NvFuserType<DataT>::get(temp_data[i]);
   }
 
   // IMPLEMENTATION NOTE: This test implementation populates ALL
