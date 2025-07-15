@@ -175,8 +175,8 @@ TEST_F(HostIrJitTest, Permute) {
   FusionGuard fg(hic.get());
 
   TensorView* hic_in = makeSymbolicTensor(2);
-  TensorView* hic_out = hic_in->permute({1, 0});
-  hic_out->setAllocationDomain(hic_in->getLoopDomain());
+  TensorView* hic_out = hic_in->reorder({1, 0});
+  hic_out->setAllocationDomain(hic_in->getLoopDomain(),true);
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);

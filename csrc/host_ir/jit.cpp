@@ -200,6 +200,178 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
   return val_to_value[val];
 }
 
+
+Val* mapToInputDomain(
+    Val* currentDomain,
+    std::unordered_map<Val*, bool>& boundaryVals
+) {
+  for(auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) { 
+    auto* domain = it->first->as<IterDomain>();
+    if(currentDomain->as<IterDomain>() == domain) {
+      return it->first;
+    }
+  }
+  return nullptr;
+}
+
+// Helper function to generate LLVM IR for
+void generateReorderedStrideLLVMIR(
+    Val* current_val,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::IRBuilder<>& builder,
+    llvm::Value*& running_stride_product,
+    std::unordered_map<Val*, bool>& boundary_vals,
+    llvm::SmallVectorImpl<llvm::Value*>& strides
+) {
+
+    // Check if the current val is nullptr
+  if (current_val == nullptr) {
+      NVF_ERROR(false, "LLVM Lowering Error: generateReorderedStrideLLVMIR called with nullptr Val.");
+      return;
+  }
+    auto* def_expr = current_val->definition();
+    // Check if the current val is missing
+    if (def_expr == nullptr) {
+      // Check if the current val is a boundary val
+      Val* original_val = mapToInputDomain(current_val, boundary_vals);
+      if(original_val != nullptr){
+        // TODO: If the iter domain is a broadcast domain, then we have multiple inputs values pointing to the same valgroup
+        // NVF_ERROR(!original_val->as<IterDomain>()->isBroadcast(), "LLVM Lowering Error: Broadcast domain is not supported in stride inference");
+        if(boundary_vals[original_val] == false){
+          boundary_vals[original_val] = true;
+          strides.push_back(running_stride_product);
+          running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val->as<IterDomain>()->extent()], "mapped_stride");
+        }
+      }
+      else if(current_val->as<IterDomain>()->extent()->isConst() && val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+        val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.getInt64(current_val->as<IterDomain>()->extent()->value().as<int64_t>());
+      }
+      return;
+    }
+
+    // For each merge op, we need to check if it is valid split, we don't want to merge two values that has gaps in between
+    if (def_expr->isA<Merge>()) {
+        auto* merge_expr = def_expr->as<Merge>();
+        auto* input_inner_val = merge_expr->inner()->as<Val>();
+        auto* input_outer_val = merge_expr->outer()->as<Val>();
+        auto* inner_mapped_val = mapToInputDomain(input_inner_val, boundary_vals);
+        auto* outer_mapped_val = mapToInputDomain(input_outer_val, boundary_vals);
+        // Check if the inner val is a boundary val
+        if(inner_mapped_val != nullptr){
+          if(boundary_vals[inner_mapped_val] == false){
+            boundary_vals[inner_mapped_val] = true;
+            strides.push_back(running_stride_product);
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[inner_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            return;
+          }
+        }
+        else{
+          generateReorderedStrideLLVMIR(input_inner_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+        }
+
+        // Check if the outer val is a boundary val
+        if(outer_mapped_val != nullptr){
+          if(boundary_vals[outer_mapped_val] == false){
+            boundary_vals[outer_mapped_val] = true;
+            strides.push_back(running_stride_product);
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[outer_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            return;
+          }
+        }
+        else{
+          generateReorderedStrideLLVMIR(input_outer_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+        }
+        
+        // Extent of merged domain
+        if(val2llvmMap[input_outer_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[input_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[current_val->as<IterDomain>()->extent()] != nullptr){
+          return;
+        }
+        else if(val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+          val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.CreateMul(
+              val2llvmMap[input_outer_val->as<IterDomain>()->extent()],
+              val2llvmMap[input_inner_val->as<IterDomain>()->extent()],
+              current_val->toString() + "mapped_extent"
+          );
+        }
+
+    } else if (def_expr->isA<Split>()) {
+        auto* split_expr = def_expr->as<Split>();
+        auto* input_val = split_expr->in()->as<Val>();
+        auto* output_inner_val = split_expr->inner()->as<Val>();
+        auto* output_outer_val = split_expr->outer()->as<Val>();
+        auto* input_mapped_val = mapToInputDomain(input_val, boundary_vals);
+
+        if(input_mapped_val != nullptr){
+          if(boundary_vals[input_mapped_val] == false){
+            boundary_vals[input_mapped_val] = true;
+            strides.push_back(running_stride_product);
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[input_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            return;
+          }
+        }
+        else{
+          generateReorderedStrideLLVMIR(input_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+        }
+
+        auto* split_factor = split_expr->factor()->as<Val>();
+        if(val2llvmMap.find(split_factor) == val2llvmMap.end()){
+          val2llvmMap[split_factor] = traverseExtentDFS(split_factor, val2llvmMap, builder);
+        }
+        if(split_expr->innerSplit()){
+          if(split_factor->isConstInt() && val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+            val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->value().as<int64_t>());
+          }
+          else{
+            if(val2llvmMap.find(split_factor) != val2llvmMap.end()){
+              val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = val2llvmMap[split_factor];
+            }
+            else{
+              NVF_ERROR(false, "LLVM Lowering Error: Inner split factor is not a constant and not found in val2stride_map");
+              return;
+            }
+          }
+          if(val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_outer_val->as<IterDomain>()->extent()] != nullptr){
+            return;
+          }
+          else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+          val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = builder.CreateUDiv(
+            val2llvmMap[input_val->as<IterDomain>()->extent()],
+              val2llvmMap[output_inner_val->as<IterDomain>()->extent()],
+              output_outer_val->toString() + "mapped_stride"
+            );
+          }
+        }
+        else{
+          if(split_expr->factor()->isConstInt() && val2llvmMap.find(output_outer_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+            val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = builder.getInt64(split_factor->value().as<int64_t>());
+          }
+          else{
+            if(val2llvmMap.find(split_factor) != val2llvmMap.end()){
+              val2llvmMap[output_outer_val->as<IterDomain>()->extent()] = val2llvmMap[split_factor];
+            }
+            else{
+              NVF_ERROR(false, "LLVM Lowering Error: Outer split factor is not a constant and not found in val2stride_map");
+              return;
+            }
+          }
+          if(val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_inner_val->as<IterDomain>()->extent()] == nullptr || val2llvmMap[output_outer_val->as<IterDomain>()->extent()] != nullptr){
+            return;
+          }
+          else if(val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
+          val2llvmMap[output_inner_val->as<IterDomain>()->extent()] = builder.CreateUDiv(
+            val2llvmMap[input_val->as<IterDomain>()->extent()],
+            val2llvmMap[output_outer_val->as<IterDomain>()->extent()],
+            output_inner_val->toString() + "mapped_stride"
+          );
+          }
+        }
+
+    } else { // Fallback for other ops (e.g., simple unary pass-through)
+        NVF_ERROR(false, "LLVM Lowering Error: Unhandled op_type '" + def_expr->toString() + "' for Val " + current_val->toString());
+    }
+}
+
+
 // Infer Tensor Shape
 void inferShape(
     const TensorView* tv,
@@ -328,7 +500,22 @@ void inferTensorStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes) {
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
+
+  llvm::LLVMContext& context = builder.getContext();
+  llvm::Value* running_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
+   std::unordered_map<Val*, bool> boundaryValVisited;
+   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+   for(auto* val : logical_domain) {
+    boundaryValVisited[val] = false;
+   }
+   for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
+      auto iter_domain = *it;
+      if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
+          continue;
+      }
+      generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val_to_value, builder, running_stride, boundaryValVisited, strides);
+    }
   return;
 }
 
@@ -345,7 +532,7 @@ void inferTensorShapesAndStridesNonAliased(
     return;
   }
   // With allocation, we need to reorder the size and stride
-  inferTensorStridesReordered(tv, val_to_value,builder, sizes);
+  inferTensorStridesReordered(tv, val_to_value,builder, strides);
   return;
 }
 
