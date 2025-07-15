@@ -151,7 +151,7 @@ __device__ void loadGeneric(scalar_t* to, scalar_t* from) {
       break;
     case 256:
       *reinterpret_cast<uint8*>(to) = *reinterpret_cast<uint8*>(from);
-      break;      
+      break;
   }
 }
 
@@ -276,7 +276,7 @@ __device__ void loadLocalToGlobal(
             "r"(data.d));
       }
       break;
-    }    
+    }
   }
 }
 
@@ -401,7 +401,7 @@ __device__ void loadGlobalToLocal(
         }
       }
       break;
-    }    
+    }
   }
 }
 
@@ -460,6 +460,6 @@ __device__ void loadGlobalToGlobal(
       loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
           to, reinterpret_cast<scalar_t*>(&local_intermediate));
       break;
-    }    
+    }
   }
 }

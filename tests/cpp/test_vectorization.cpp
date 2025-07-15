@@ -840,34 +840,70 @@ INSTANTIATE_TEST_SUITE_P(
     all_vectorization_cast_params,
     vectorizeCastTestName);
 
-TEST_F(NVFuserTest, Vectorization256bit) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+using Vect256TestParams = std::tuple<DataType, CacheOp>;
+class Vect256Test : public NVFuserFixtureParamTest<Vect256TestParams> {
+ public:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+    std::tie(dtype, cache_op) = GetParam();
+  }
+
+ protected:
+  DataType dtype;
+  CacheOp cache_op;
+};
+
+TEST_P(Vect256Test, DateTypeCacheOps) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(2);
+  auto tv0 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
+  tv1 = maybeCastOp(DataType::Float, tv1);
   auto tv2 = add(tv1, tv1);
+  tv2 = maybeCastOp(dtype, tv2);
   auto tv3 = set(tv2);
   fusion.addOutput(tv3);
 
-  // float32 is 4 bytes or 32 bits, with 256 bits vectorization,
-  // we can r/w 8 elements at a time.
-  for (auto tv : {tv1, tv2, tv3}) {
-    tv->split(1, 8);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
-    if (tv == tv1 || tv == tv3) {
-      tv->axis(2)->parallelize(ParallelType::Vectorize);
+  constexpr int64_t vectorization_bits = 256;
+  int64_t vectorization_factor = vectorization_bits / dataTypeSizeBit(dtype);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(0, vectorization_factor);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    if (tv->definition()->isA<LoadStoreOp>()) {
+      tv->axis(1)->parallelize(ParallelType::Vectorize);
     }
   }
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({128, 256}, options);
+  int64_t n_elements = 1024;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({n_elements}, options);
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Vect256Test,
+    ::testing::Combine(
+        ::testing::Values(
+            DataType::Double,
+            DataType::Float,
+            DataType::Half,
+            DataType::BFloat16),
+        ::testing::Values(
+            CacheOp::AllLevels,
+            CacheOp::Streaming,
+            CacheOp::Global)),
+    [](const testing::TestParamInfo<Vect256TestParams>& info) -> std::string {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param) << "_cache_op_"
+         << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
