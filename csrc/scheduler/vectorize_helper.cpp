@@ -957,7 +957,8 @@ int64_t getVectorizationFactor(
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
-    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map,
+    int64_t max_vectorization_size_in_bit) {
   FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
 
   auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
@@ -997,15 +998,15 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vect_bits = SchedulerRuntimeInfo::getMaxVectorizationSizeInBit();
-  int64_t max_vect_factor = max_vect_bits;
+  int64_t max_vect_factor = max_vectorization_size_in_bit;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size_bit
     const auto dtype_size_bit =
         dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vect_factor = std::min(max_vect_factor, max_vect_bits / dtype_size_bit);
+    max_vect_factor = std::min(
+        max_vect_factor, max_vectorization_size_in_bit / dtype_size_bit);
 
     // factor <= alignment / dtype_size_bit
     int64_t alignment_size_bit =

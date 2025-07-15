@@ -240,7 +240,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
       ref_tv,
       data_cache,
       (int64_t)ref_tv->getLogicalDomain().size() - 1,
-      {});
+      {},
+      /*max_vectorization_size_in_bit=*/128);
 
   return params;
 }
