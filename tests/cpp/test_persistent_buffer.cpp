@@ -1907,4 +1907,46 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+TEST_F(PersistentBufferTest, Vectorization256bit) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({2048, 4096}, DataType::BFloat16);
+  auto tv1 = makeContigConcreteTensor({4096}, DataType::Float);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = broadcast(tv1, {true, false});
+  auto tv7 = mul(tv5, tv6);
+  auto tv8 = castOp(DataType::BFloat16, tv7);
+  fusion.addOutput(tv8);
+  auto fusion_copy = fusion;
+
+  auto t0 = at::randn(
+      {2048, 4096},
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0));
+  auto t1 = at::randn(
+      {4096}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  // tv0 is 16 bits, max vectorization factor is 256 / 16 = 16
+  // tv1 is 32 bits, max vectorization factor is 256 / 32 = 8
+  // tv8 is 16 bits, max vectorization factor is 256 / 16 = 16
+  // combined vectorization factor is min(16, 8, 16) = 8
+  EXPECT_EQ(heur->as<ReductionParams>()->unroll_factor_inner_reduction, 8);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
 } // namespace nvfuser
