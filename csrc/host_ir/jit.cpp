@@ -201,34 +201,33 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
 }
 
 // Infer Tensor Shape
-llvm::SmallVector<llvm::Value*, kMaxTensorDim>
-inferShape(
+void inferShape(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes) {
 
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> concrete_sizes;
   for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes[i];
     traverseExtentDFS(symbolic_size, val_to_value, builder);
     auto* inferred_val = val_to_value[symbolic_size];
     NVF_ERROR(inferred_val != nullptr, "LLVM Lowering Error: inferred_val is nullptr for ", symbolic_size);
-    concrete_sizes.push_back(inferred_val);
+    sizes.push_back(inferred_val);
   }
-  NVF_ERROR(concrete_sizes.size() == symbolic_sizes.size());
-  return concrete_sizes;
+  NVF_ERROR_EQ(sizes.size(), symbolic_sizes.size());
+  return;
 }
 
 // Infer Tensor Stride
-llvm::SmallVector<llvm::Value*, kMaxTensorDim>
-inferStride(
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes,
+void inferStride(
+  llvm::SmallVectorImpl<llvm::Value*>& sizes,
   std::vector<bool> expand_flags,
-  llvm::IRBuilder<>& builder) {
+  llvm::IRBuilder<>& builder,
+  llvm::SmallVectorImpl<llvm::Value*>& strides) {
+  strides.resize(sizes.size());
   llvm::LLVMContext& context = builder.getContext();
-  NVF_ERROR(sizes.size() == expand_flags.size());
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides(sizes.size());
+  NVF_ERROR_EQ(sizes.size(), expand_flags.size());
   llvm::Value* cur_stride = builder.getInt64(1);
   for (auto i = sizes.size(); i > 0; --i) {
     llvm::Value* size = sizes[i - 1];
@@ -280,17 +279,16 @@ inferStride(
     }
     strides[i - 1] = stride;
   }
-  return strides;
+  return;
 }
 
 // Infer Tensor Shape and Strides without reordering
-std::pair<
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>>
-inferShapeAndStridesNoReorder(
+void inferShapeAndStridesNoReorder(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
@@ -320,36 +318,35 @@ inferShapeAndStridesNoReorder(
       expand_flags.push_back(false);
     }
   }
-  auto shapes = inferShape(tv, symbolic_sizes, val_to_value, builder);
-  auto strides = inferStride(shapes, expand_flags, builder);
-  return std::make_pair(shapes, strides);
+  inferShape(tv, symbolic_sizes, val_to_value, builder, sizes);
+  inferStride(sizes, expand_flags, builder, strides);
+  return;
 }
 
 // Infer Tensor Strides with reordering
-llvm::SmallVector<llvm::Value*, kMaxTensorDim>
-inferTensorStridesReordered(
+void inferTensorStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
-  return strides;
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes) {
+  return;
 }
 
 // Non Aliased Tensor Shape and Strides Inference
-std::pair<
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>>
-inferTensorShapesAndStridesNonAliased(
+void inferTensorShapesAndStridesNonAliased(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
   // Without allocation, we can directly get the size and stride
-  auto allocation_size_stride = inferShapeAndStridesNoReorder(tv, val_to_value, builder);
+  inferShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
   if (!tv->hasAllocation()) {
-    return allocation_size_stride;
+    return;
   }
   // With allocation, we need to reorder the size and stride
-  return std::make_pair(allocation_size_stride.first, inferTensorStridesReordered(tv, val_to_value,builder));
+  inferTensorStridesReordered(tv, val_to_value,builder, sizes);
+  return;
 }
 
 // Helper function to infer tensor shapes and strides
@@ -357,15 +354,13 @@ inferTensorShapesAndStridesNonAliased(
 // is to demonstrate a aten tensor is able to be allocated and deallocated
 // properly, we will support more complex tensor shapes and strides in future
 // PRs
-std::pair<
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>,
-    llvm::SmallVector<llvm::Value*, kMaxTensorDim>>
-inferTensorShapesAndStrides(
+
+void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> sizes;
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides;
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
 
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
@@ -380,10 +375,11 @@ inferTensorShapesAndStrides(
       sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
       strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
     }
-    return std::make_pair(sizes, strides);
+    return;
   }
 
-  return inferTensorShapesAndStridesNonAliased(tv, val_to_value, builder);
+  inferTensorShapesAndStridesNonAliased(tv, val_to_value, builder, sizes, strides);
+  return;
 }
 
 // Allocation Function LLVM IR Generation
@@ -398,8 +394,10 @@ void dispatchAllocate(
   llvm::Type* int64_ptr_type = getInt64PtrType(context);
 
   // Get tensor sizes and strides using the inference function
-  auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(
-      allocate->buffer()->as<TensorView>(), val_to_value, builder);
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
+  inferTensorShapesAndStrides(
+      allocate->buffer()->as<TensorView>(), val_to_value, builder, tensor_sizes, tensor_strides);
 
   // Bounds checking for ndim
   auto logical_domain = TensorDomain::noReductions(
