@@ -177,6 +177,7 @@ TEST_F(HostIrJitTest, Permute) {
   TensorView* hic_in = makeSymbolicTensor(2);
   TensorView* hic_out = hic_in->reorder({1, 0});
   hic_out->setAllocationDomain(hic_in->getLoopDomain(),true);
+  hic_out->printTransforms();
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);

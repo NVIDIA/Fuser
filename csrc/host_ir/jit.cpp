@@ -528,11 +528,15 @@ void inferTensorShapesAndStridesNonAliased(
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   // Without allocation, we can directly get the size and stride
   inferShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
+  NVF_ERROR_EQ(sizes.size(), tv->getLogicalDomain().size());
+  NVF_ERROR_EQ(strides.size(), tv->getLogicalDomain().size());
   if (!tv->hasAllocation()) {
     return;
   }
+  strides.clear();
   // With allocation, we need to reorder the size and stride
   inferTensorStridesReordered(tv, val_to_value,builder, strides);
+  NVF_ERROR_EQ(strides.size(), tv->getLogicalDomain().size());
   return;
 }
 
