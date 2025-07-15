@@ -403,7 +403,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto logical_domain = TensorDomain::noReductions(
         allocate->buffer()->as<TensorView>()->getLogicalDomain());
 
-    NVF_ERROR(tensor_sizes.size() == logical_domain.size());
+    NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
 
     // Create arrays for sizes and strides
     llvm::ArrayType* sizes_array_type =
