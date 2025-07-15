@@ -33,8 +33,6 @@ class ExpressionEvaluator;
 class SchedulerRuntimeInfo : public NonCopyable {
  public:
   // Max vector size we will consider, in bits,
-  //  currently set to 128b
-  // static constexpr int64_t max_alignment_size_in_bit = 128;
   static int64_t getMaxVectorizationSizeInBit();
 
   //! Create runtime info for given fusion and input. Creating and binding
