@@ -201,7 +201,7 @@ TEST_F(HostIrJitTest, Permute) {
 
   TensorView* hic_in = makeSymbolicTensor(2);
   TensorView* hic_out = permute(hic_in, {1, 0});
-  hic_out->setAllocationDomain(hic_in->getLoopDomain(),true);
+  hic_out->setAllocationDomain(hic_out->getLoopDomain(),true);
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
   auto* allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
@@ -217,7 +217,32 @@ TEST_F(HostIrJitTest, Permute) {
   EXPECT_EQ(outs.size(), 1);
   auto out = outs[0].as<at::Tensor>();
   EXPECT_EQ(out.sizes(), std::vector<int64_t>({64, 32}));
-  EXPECT_EQ(out.strides(), std::vector<int64_t>({1, 32}));
+  EXPECT_EQ(out.strides(), std::vector<int64_t>({1, 64}));
+}
+
+TEST_F(HostIrJitTest, AllocationDomainReorder) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* hic_in = makeSymbolicTensor(2);
+  TensorView* hic_out = set(hic_in);
+  hic_out->setAllocationDomain({hic_out->axis(1), hic_out->axis(0)},true);
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
+  auto* allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrJit jit(std::move(hic));
+  KernelArgumentHolder in_args; 
+  in_args.setCacheId(0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor in = at::randn({64, 32}, options);
+  in_args.push(in);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  auto out = outs[0].as<at::Tensor>();
+  EXPECT_EQ(out.sizes(), std::vector<int64_t>({64, 32}));
+  EXPECT_EQ(out.strides(), std::vector<int64_t>({1, 64}));
 }
 
 } // namespace hir

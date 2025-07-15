@@ -221,7 +221,7 @@ void generateReorderedStrideLLVMIR(
     llvm::IRBuilder<>& builder,
     llvm::Value*& running_stride_product,
     std::unordered_map<Val*, bool>& boundary_vals,
-    llvm::SmallVectorImpl<llvm::Value*>& strides
+    std::unordered_map<Val*, llvm::Value*>& boundaryValStrides
 ) {
 
     // Check if the current val is nullptr
@@ -239,7 +239,7 @@ void generateReorderedStrideLLVMIR(
         // NVF_ERROR(!original_val->as<IterDomain>()->isBroadcast(), "LLVM Lowering Error: Broadcast domain is not supported in stride inference");
         if(boundary_vals[original_val] == false){
           boundary_vals[original_val] = true;
-          strides.push_back(running_stride_product);
+          boundaryValStrides[original_val] = running_stride_product;
           running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val->as<IterDomain>()->extent()], "mapped_stride");
         }
       }
@@ -260,26 +260,26 @@ void generateReorderedStrideLLVMIR(
         if(inner_mapped_val != nullptr){
           if(boundary_vals[inner_mapped_val] == false){
             boundary_vals[inner_mapped_val] = true;
-            strides.push_back(running_stride_product);
+            boundaryValStrides[inner_mapped_val] = running_stride_product;
             running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[inner_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
             return;
           }
         }
         else{
-          generateReorderedStrideLLVMIR(input_inner_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_inner_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
 
         // Check if the outer val is a boundary val
         if(outer_mapped_val != nullptr){
           if(boundary_vals[outer_mapped_val] == false){
             boundary_vals[outer_mapped_val] = true;
-            strides.push_back(running_stride_product);
+            boundaryValStrides[outer_mapped_val] = running_stride_product;
             running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[outer_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
             return;
           }
         }
         else{
-          generateReorderedStrideLLVMIR(input_outer_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_outer_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
         
         // Extent of merged domain
@@ -304,13 +304,13 @@ void generateReorderedStrideLLVMIR(
         if(input_mapped_val != nullptr){
           if(boundary_vals[input_mapped_val] == false){
             boundary_vals[input_mapped_val] = true;
-            strides.push_back(running_stride_product);
+            boundaryValStrides[input_mapped_val] = running_stride_product;
             running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[input_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
             return;
           }
         }
         else{
-          generateReorderedStrideLLVMIR(input_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
 
         auto* split_factor = split_expr->factor()->as<Val>();
@@ -381,7 +381,7 @@ void inferShape(
     llvm::SmallVectorImpl<llvm::Value*>& sizes) {
 
   for (const auto i : arange(symbolic_sizes.size())) {
-    auto symbolic_size = symbolic_sizes[i];
+    auto* symbolic_size = symbolic_sizes[i];
     traverseExtentDFS(symbolic_size, val_to_value, builder);
     auto* inferred_val = val_to_value[symbolic_size];
     NVF_ERROR(inferred_val != nullptr, "LLVM Lowering Error: inferred_val is nullptr for ", symbolic_size);
@@ -464,8 +464,12 @@ void inferShapeAndStridesNoReorder(
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
-  // Allocate the allocation domain
-  for (const auto id : tv->getMaybeAllocationDomain()) {
+  // NOTE: the original design used getMaybeAllocationDomain to infer shape,
+  // but it's not efficient, since if there is a real allocation domain,
+  // both size and stride will be recalculated. getMaybeAllocationDomain is acutally
+  // getting the logical domain. By using getLogicalDomain, we can avoid the extra
+  // calculation of shape, and only stride will be recalculated.
+  for (const auto id : tv->getLogicalDomain()) {
     if (id->isReduction() || id->isStride()) {
       continue;
     }
@@ -505,6 +509,7 @@ void inferTensorStridesReordered(
   llvm::LLVMContext& context = builder.getContext();
   llvm::Value* running_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
    std::unordered_map<Val*, bool> boundaryValVisited;
+   std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
    auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
    for(auto* val : logical_domain) {
     boundaryValVisited[val] = false;
@@ -514,7 +519,12 @@ void inferTensorStridesReordered(
       if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
           continue;
       }
-      generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val_to_value, builder, running_stride, boundaryValVisited, strides);
+      generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val_to_value, builder, running_stride, boundaryValVisited, boundaryValStrides);
+    }
+    for(const auto& [dim_idx, id] : enumerate(logical_domain)) {
+      auto it = boundaryValStrides.find(id);
+      NVF_ERROR(it != boundaryValStrides.end(), "LLVM Lowering Error: boundaryValStrides is not found for ", id->toString());
+      strides.push_back(it->second);
     }
   return;
 }
