@@ -1631,24 +1631,24 @@ TEST_P(NonConcretizedDomainTest, OnReductionTv) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  // Create tv1 shape with non-concretized dimension at the specified position
-  std::vector<int64_t> tv0_shape;
+  // Create shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv_shape;
   if (non_concretized_pos == 0) {
-    tv0_shape = {1, 2048, 32}; // Non-concretized at beginning
+    tv_shape = {1, 2048, 32}; // Non-concretized at beginning
   } else if (non_concretized_pos == 1) {
-    tv0_shape = {2048, 1, 32}; // Non-concretized in middle
+    tv_shape = {2048, 1, 32}; // Non-concretized in middle
   } else if (non_concretized_pos == 2) {
-    tv0_shape = {2048, 32, 1}; // Non-concretized at end
+    tv_shape = {2048, 32, 1}; // Non-concretized at end
   } else {
     NVF_ERROR("Invalid position: ", non_concretized_pos);
   }
   std::vector<bool> broadcast_pattern;
-  for (size_t i = 0; i < tv0_shape.size(); i++) {
-    broadcast_pattern.push_back(tv0_shape[i] == 1);
+  for (size_t i = 0; i < tv_shape.size(); i++) {
+    broadcast_pattern.push_back(tv_shape[i] == 1);
   }
 
-  auto tv0 = makeContigConcreteTensor(tv0_shape);
-  auto tv1 = makeContigConcreteTensor(tv0_shape);
+  auto tv0 = makeContigConcreteTensor(tv_shape);
+  auto tv1 = makeContigConcreteTensor(tv_shape);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = sum(tv0, {1});
@@ -1661,8 +1661,8 @@ TEST_P(NonConcretizedDomainTest, OnReductionTv) {
 
   auto fusion_copy = *fusion_ptr;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn(tv0_shape, options);
-  auto t1 = at::randn(tv0_shape, options);
+  auto t0 = at::randn(tv_shape, options);
+  auto t1 = at::randn(tv_shape, options);
   KernelArgumentHolder args = {t0, t1};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
