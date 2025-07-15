@@ -29,6 +29,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/SmallVector.h"
 
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h>
@@ -44,11 +45,12 @@ namespace nvfuser {
 using main_func_t = std::function<void(const void**, void**)>;
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
-constexpr std::string_view kAllocateTensorFuncName = "allocate_tensor";
+constexpr std::string_view kNewTensorFuncName = "new_tensor";
+constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper =
     "at_empty_strided_cuda";
-constexpr std::string_view kDeallocateTensorFuncName = "deallocate_tensor";
+constexpr size_t kMaxTensorDim = 8;
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -88,6 +90,14 @@ llvm::Type* getInt8PtrDynamicArrayType(llvm::LLVMContext& ctx) {
   return llvm::PointerType::getUnqual(getInt8PtrType(ctx));
 }
 
+// Helper function to get opaque at::Tensor type for better type safety
+llvm::Type* getAtTensorPtrType(llvm::LLVMContext& ctx) {
+  // Create an opaque struct type for at::Tensor
+  // This provides better type safety than using void* for tensor pointers
+  // while still being compatible with LLVM's type system
+  llvm::StructType* tensor_type = llvm::StructType::create(ctx, "at.Tensor");
+  return llvm::PointerType::getUnqual(tensor_type);
+}
 
 llvm::ArrayType* getInt64StaticArrayType(llvm::LLVMContext& ctx, size_t size) {
   return llvm::ArrayType::get(llvm::Type::getInt64Ty(ctx), size);
@@ -132,15 +142,13 @@ void registerExternalFunction(
 // is to demonstrate a aten tensor is able to be allocated and deallocated
 // properly, we will support more complex tensor shapes and strides in future
 // PRs
-std::pair<
-    llvm::SmallVectorImpl<llvm::Value*>,
-    llvm::SmallVectorImpl<llvm::Value*>>
-inferTensorShapesAndStrides(
+
+void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  llvm::SmallVectorImpl<llvm::Value*> sizes;
-  llvm::SmallVectorImpl<llvm::Value*> strides;
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
   llvm::Value* stride = builder.getInt64(1);
   for (const auto& id : TensorDomain::noReductions(tv->getLogicalDomain())) {
     NVF_ERROR(id->extent()->isConst(), "Extent is not constant");
@@ -151,7 +159,6 @@ inferTensorShapesAndStrides(
     strides.push_back(stride);
     stride = builder.CreateMul(stride, extent_value);
   }
-  return std::make_pair(sizes, strides);
 }
 
 // Allocation Function LLVM IR Generation
@@ -166,8 +173,10 @@ void dispatchAllocate(
   llvm::Type* int64_ptr_type = getInt64PtrType(context);
 
   // Get tensor sizes and strides using the inference function
-  auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(
-      allocate->buffer()->as<TensorView>(), val_to_value, builder);
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
+  inferTensorShapesAndStrides(
+      allocate->buffer()->as<TensorView>(), val_to_value, builder, tensor_sizes, tensor_strides);
 
   // Bounds checking for ndim
   auto logical_domain = TensorDomain::noReductions(
@@ -216,7 +225,7 @@ void dispatchAllocate(
 
   // Create output tensor
   llvm::Value* raw_tensor_ptr = builder.CreateCall(
-      mod->getFunction(kAllocateTensorFuncName), {}, "out_tensor");
+      mod->getFunction(kNewTensorFuncName), {}, "out_tensor");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -256,10 +265,10 @@ void dispatchDeallocate(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* deallocate_tensor_func =
-      mod->getFunction(kDeallocateTensorFuncName);
+  llvm::Function* delete_tensor_func =
+      mod->getFunction(kDeleteTensorFuncName);
   builder.CreateCall(
-      deallocate_tensor_func, {val_to_value[deallocate->buffer()->as<Val>()]});
+      delete_tensor_func, {val_to_value[deallocate->buffer()->as<Val>()]});
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     auto* func = builder.GetInsertBlock()->getParent();
     llvm::outs() << "=== LLVM IR After Generating Deallocate Function ===\n";
@@ -289,10 +298,10 @@ void dispatchLoadStoreOp(
   llvm::Value* in_tensor = it->second;
 
   // allocate a new tensor
-  llvm::Function* allocate_tensor_func =
-      mod->getFunction(kAllocateTensorFuncName);
+  llvm::Function* new_tensor_func =
+      mod->getFunction(kNewTensorFuncName);
   llvm::Value* out_tensor =
-      builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
+      builder.CreateCall(new_tensor_func, {}, "out_tensor_raw");
 
   // set the output tensor to the input tensor
   llvm::Function* set_tensor_func = mod->getFunction(kSetTensorFuncName);
@@ -319,6 +328,8 @@ void unpackInputs(
   llvm::Value* aten_tensor_array_ptr = func->getArg(0);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(ctx);
+  llvm::Type* tensor_ptr_type = getAtTensorPtrType(ctx);
+  
   // bind input aten tensor sizes to val_to_value
   for (size_t i = 0; i < container->inputs().size(); ++i) {
     auto* input = container->inputs()[i];
@@ -328,7 +339,7 @@ void unpackInputs(
         aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
     tensor_addr->setName("input_aten_tensor_addr");
     // Load the actual tensor pointer from the array
-    llvm::Value* tensor = builder.CreateLoad(getInt8PtrType(ctx), tensor_addr);
+    llvm::Value* tensor = builder.CreateLoad(tensor_ptr_type, tensor_addr);
     tensor->setName("input_aten_tensor");
     // bind input aten tensor sizes to val_to_value
     const std::vector<IterDomain*> logical_domain =
@@ -392,34 +403,34 @@ void packOutputs(
 void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
   // get the types
   auto* void_type = getVoidType(ctx);
-  auto* void_ptr_type = getInt8PtrType(ctx);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(ctx);
   auto* int64_t_type = llvm::Type::getInt64Ty(ctx);
   auto* int64_ptr_type = getInt64PtrType(ctx);
   auto* int32_t_type = llvm::Type::getInt32Ty(ctx);
+  auto* tensor_ptr_type = getAtTensorPtrType(ctx);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   llvm::FunctionType* tensor_size_type = llvm::FunctionType::get(
-      int64_t_type, {void_ptr_type, int64_t_type}, false);
+      int64_t_type, {tensor_ptr_type, int64_t_type}, false);
   llvm::Function::Create(
       tensor_size_type,
       llvm::Function::ExternalLinkage,
       kTensorSizeFuncName,
       mod);
 
-  // allocate_tensor function: at::Tensor* allocate_tensor()
-  llvm::FunctionType* allocate_tensor_type =
-      llvm::FunctionType::get(void_ptr_type, {}, false);
+  // new_tensor function: at::Tensor* new_tensor()
+  llvm::FunctionType* new_tensor_type =
+      llvm::FunctionType::get(tensor_ptr_type, {}, false);
   llvm::Function::Create(
-      allocate_tensor_type,
+      new_tensor_type,
       llvm::Function::ExternalLinkage,
-      kAllocateTensorFuncName,
+      kNewTensorFuncName,
       mod);
 
   // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor*
   // other_tensor)
   llvm::FunctionType* set_tensor_type =
-      llvm::FunctionType::get(void_type, {void_ptr_type, void_ptr_type}, false);
+      llvm::FunctionType::get(void_type, {tensor_ptr_type, tensor_ptr_type}, false);
   llvm::Function::Create(
       set_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -437,7 +448,7 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
        int64_t_type,
        int32_t_type,
        int64_t_type,
-       void_ptr_type},
+       tensor_ptr_type},
       false);
   llvm::Function::Create(
       empty_strided_cuda_type,
@@ -445,13 +456,13 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
       kAtEmptyStridedCudaWrapper,
       mod);
 
-  // deallocate_tensor function: void deallocate_tensor(at::Tensor* tensor)
-  llvm::FunctionType* deallocate_tensor_type =
-      llvm::FunctionType::get(void_type, {void_ptr_type}, false);
+  // delete_tensor function: void delete_tensor(at::Tensor* tensor)
+  llvm::FunctionType* delete_tensor_type =
+      llvm::FunctionType::get(void_type, {tensor_ptr_type}, false);
   llvm::Function::Create(
-      deallocate_tensor_type,
+      delete_tensor_type,
       llvm::Function::ExternalLinkage,
-      kDeallocateTensorFuncName,
+      kDeleteTensorFuncName,
       mod);
 
   // main function: void main(void** input_tensors, void** output_tensors)
@@ -462,14 +473,14 @@ void compileFunctionDeclarations(llvm::Module* mod, llvm::LLVMContext& ctx) {
 }
 
 
-class HostIrCompileDispatcher : public OptInDispatch {
- public:
-  HostIrCompileDispatcher(IrBuilder& builder, std::unordered_map<Val*, llvm::Value*>& val_to_value): builder_(builder), val_to_value_(val_to_value) {}
-  void handle(LoadStoreOp* load_store_op) override;
-  void handle(kir::Allocate* allocate) override;
-  void handle(hir::Deallocate* deallocate) override;
-  // Not handled instructions automatically trigger an error.
-};
+// class HostIrCompileDispatcher : public OptInDispatch {
+//  public:
+//   HostIrCompileDispatcher(IrBuilder& builder, std::unordered_map<Val*, llvm::Value*>& val_to_value): builder_(builder), val_to_value_(val_to_value) {}
+//   void handle(LoadStoreOp* load_store_op) override;
+//   void handle(kir::Allocate* allocate) override;
+//   void handle(hir::Deallocate* deallocate) override;
+//   // Not handled instructions automatically trigger an error.
+// };
 
 void compile(HostIrJitImpl* pimpl) {
   NVF_ERROR(
@@ -560,7 +571,7 @@ HostIrJit::HostIrJit(
       });
 
   // raw tensor allocation, we only allocate a wrapper here
-  void* allocate_tensor_func_ptr = reinterpret_cast<void*>(
+  void* new_tensor_func_ptr = reinterpret_cast<void*>(
       +[]() -> at::Tensor* { return new at::Tensor(); });
 
   // in place tensor update
@@ -595,7 +606,7 @@ HostIrJit::HostIrJit(
       });
 
   // delete a newed tensor
-  void* deallocate_tensor_func_ptr = reinterpret_cast<void*>(
+  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor) -> void { delete tensor; });
 
   // Register wrapper functions in JIT
@@ -606,15 +617,15 @@ HostIrJit::HostIrJit(
       mangler,
       kTensorSizeFuncName);
   registerExternalFunction(
-      allocate_tensor_func_ptr,
+      new_tensor_func_ptr,
       name_to_symbol,
       mangler,
-      kAllocateTensorFuncName);
+      kNewTensorFuncName);
   registerExternalFunction(
-      deallocate_tensor_func_ptr,
+      delete_tensor_func_ptr,
       name_to_symbol,
       mangler,
-      kDeallocateTensorFuncName);
+      kDeleteTensorFuncName);
   registerExternalFunction(
       set_tensor_func_ptr, name_to_symbol, mangler, kSetTensorFuncName);
   registerExternalFunction(
