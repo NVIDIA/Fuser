@@ -6206,9 +6206,9 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   at::Tensor result;
-  at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   {
+    at::ScalarType out_scalar_type = data_type_to_aten(out()->dtype());
     at::Tensor mat1_view = mat1;
     // nvfp4_scaled_mm expected layout
     at::Tensor mat2_view = mat2.t();
@@ -6235,32 +6235,37 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
       }
 
       if (cutlass_can_run) {
-        return {cutlass_kernels::nvfp4_scaled_mm(
-            mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type)};
+        result = cutlass_kernels::nvfp4_scaled_mm(
+            mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type);
       }
     }
   }
 #endif
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
-  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
-  // we'll fallback with aten kernels
-  // at::_scaled_mm has implementation limitations:
-  NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
-  NVF_CHECK(
-      outScale() == nullptr,
-      "output block scaling factor in ScaledMmaOp is not supported yet");
-  NVF_CHECK(
-      outGamma() == nullptr,
-      "output global scaling factor in ScaledMmaOp is not supported yet");
-  result = at::_scaled_mm(
-      mat1,
-      mat2,
-      scale1,
-      scale2,
-      bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
-      alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
-      data_type_to_aten(out()->dtype()));
+  if (!result.defined()) {
+    // TODO: interface with scaled matrix multiplication cutlass kernel. For
+    // now, we'll fallback with aten kernels at::_scaled_mm has implementation
+    // limitations:
+    NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
+    NVF_CHECK(
+        outScale() == nullptr,
+        "output block scaling factor in ScaledMmaOp is not supported yet");
+    NVF_CHECK(
+        outGamma() == nullptr,
+        "output global scaling factor in ScaledMmaOp is not supported yet");
+    result = at::_scaled_mm(
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
+        alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
+        data_type_to_aten(out()->dtype()));
+  }
+#endif
+
+  NVF_CHECK(result.defined(), "Couldn't find fallback kernel for scaled_mm");
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
@@ -6268,9 +6273,6 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
   }
 
   return {result};
-#endif
-
-  NVF_THROW("Couldn't find fallback kernel for scaled_mm");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
