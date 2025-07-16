@@ -238,7 +238,4 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   out->axis(0)->parallelize(ParallelType::Stream);
 }
 
-// TODO: add more tests for collective-based overlapping for which layouts are
-// in favor
-
 } // namespace nvfuser
