@@ -18,6 +18,8 @@ namespace nvf {
 #include <runtime/index_utils.cu>
 } // namespace nvf
 
+#include <runtime/cub_utils.cu>
+
 #include <runtime/argsort.cu>
 
 // Standard C++ headers
