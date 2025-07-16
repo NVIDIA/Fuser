@@ -188,21 +188,20 @@ class AllocationDomainSetup : private kir::IrVisitor {
         // domain is just a permutation of the loop domain, use the
         // set allocation domain. This seems to happen only with
         // AllocationDomainTest.TransposedIntermediate.
-        if (!ir_utils::isCpAsyncBulk1D(tv->definition()) &&
-            (std::any_of(
-                 tv->getAllocationDomain().begin(),
-                 tv->getAllocationDomain().end(),
-                 [](IterDomain* allocation_domain) {
-                   return dynamic_cast<Swizzle*>(
-                              allocation_domain->definition()) != nullptr ||
-                       allocation_domain->getParallelType() ==
-                       ParallelType::Bulk;
-                 }) ||
-             std::is_permutation(
-                 tv->getLoopDomain().begin(),
-                 tv->getLoopDomain().end(),
-                 tv->getAllocationDomain().begin(),
-                 tv->getAllocationDomain().end()))) {
+        if (std::any_of(
+                tv->getAllocationDomain().begin(),
+                tv->getAllocationDomain().end(),
+                [](IterDomain* allocation_domain) {
+                  return dynamic_cast<Swizzle*>(
+                             allocation_domain->definition()) != nullptr ||
+                      allocation_domain->getParallelType() ==
+                      ParallelType::Bulk;
+                }) ||
+            std::is_permutation(
+                tv->getLoopDomain().begin(),
+                tv->getLoopDomain().end(),
+                tv->getAllocationDomain().begin(),
+                tv->getAllocationDomain().end())) {
           use_set_allocation_domain = true;
         }
 
