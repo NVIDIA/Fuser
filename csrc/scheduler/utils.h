@@ -391,7 +391,10 @@ void clearMemorySpace(Fusion* fusion);
 
 // Returns cached after tensors of the fusion inputs if unrolled. Otherwise
 // return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+std::vector<TensorView*> cacheInputs(
+    Fusion* fusion,
+    bool unroll,
+    bool propagate_allocation_domain = true);
 
 // Returns the pairs of <cache of each fusion output, corresponding output> for
 // all outputs.
