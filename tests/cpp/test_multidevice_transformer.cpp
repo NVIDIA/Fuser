@@ -18,19 +18,19 @@
 
 namespace nvfuser {
 
-namespace {
 // Note: We test on smaller model and input sizes to avoid high error
 // accumulation for validation.
-static constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+constexpr int64_t B = 2, E = 768, H = 16, S = 128;
+
 // Note: Dropout probabilities are set to 0. Since the dropout mask is sharded
 // it throws off the seed offset between the sharded nvFuser program and the
 // unsharded reference.
-static constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+constexpr double kDropoutProb = 0.0, kSdpaProb = 0.0, kSdpaScale = 1e-3;
+
 // Note parameters scaled by kParamScale following weight initialization
 // recommendations:
 // https://huggingface.co/docs/transformers/en/model_doc/gpt2#transformers.GPT2Config.initializer_range
-static constexpr double kParamScale = 0.02;
-} // namespace
+constexpr double kParamScale = 0.02;
 
 class DistributedTransformerTest
     : public MultiDeviceTest,
