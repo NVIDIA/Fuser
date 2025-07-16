@@ -203,8 +203,7 @@ void unpackInputs(
   llvm::Type* tensor_ptr_type = getTensorPtrType(context);
 
   // bind input aten tensor sizes to val_to_value
-  for (size_t i = 0; i < container->inputs().size(); ++i) {
-    auto* input = container->inputs()[i];
+  for (const auto [i, input] : enumerate(container->inputs())) {
     auto* tv = dynamic_cast<TensorView*>(input);
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", input);
     llvm::Value* tensor_addr = builder.CreateGEP(
@@ -250,8 +249,7 @@ void packOutputs(
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
-  for (size_t i = 0; i < container->outputs().size(); ++i) {
-    auto* output = container->outputs()[i];
+  for (const auto [i, output] : enumerate(container->outputs())) {
     auto* tv = dynamic_cast<TensorView*>(output);
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
     llvm::Value* tensor_addr = builder.CreateGEP(
