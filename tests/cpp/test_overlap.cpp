@@ -13,9 +13,9 @@
 
 namespace nvfuser {
 
-using OverlapTest = NVFuserTest;
+using RingBasedOverlapTest = NVFuserTest;
 
-TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_Forward) {
+TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
@@ -44,11 +44,11 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   out->outer_split(0, d);
   // A Swizzle is needed to represent a cyclic shift needed for ring-based
   // overlapping: http://nv/eNL. This is not implemented yet and therefore
-  // omitted in all tests.
+  // omitted in all `RingBasedOverlapTest`s.
   out->axis(0)->parallelize(ParallelType::Stream);
 }
 
-TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
+TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
@@ -78,7 +78,7 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   w->axis(-2)->parallelize(ParallelType::Stream);
 }
 
-TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
+TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
@@ -114,7 +114,7 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   in->axis(-2)->parallelize(ParallelType::DIDx);
 }
 
-TEST_F(OverlapTest, RowAndSequenceParallelLinear_Forward) {
+TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_Forward) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
@@ -146,7 +146,7 @@ TEST_F(OverlapTest, RowAndSequenceParallelLinear_Forward) {
   out->axis(-2)->parallelize(ParallelType::DIDx);
 }
 
-TEST_F(OverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
+TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
@@ -176,7 +176,7 @@ TEST_F(OverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   w->axis(-2)->parallelize(ParallelType::Stream);
 }
 
-TEST_F(OverlapTest, RowAndSequenceParallelLinear_InputGrad) {
+TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   constexpr int64_t h = 12288;
   constexpr int64_t d = 2;
 
