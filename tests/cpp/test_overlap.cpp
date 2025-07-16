@@ -42,9 +42,10 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
   out->outer_split(0, d);
+  // A Swizzle is needed to represent a cyclic shift needed for ring-based
+  // overlapping: http://nv/eNL. This is not implemented yet and therefore
+  // omitted in all tests.
   out->axis(0)->parallelize(ParallelType::Stream);
-
-  fusion->print();
 }
 
 TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
@@ -75,8 +76,6 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   w->axis(0)->parallelize(ParallelType::DIDx);
   w->outer_split(-1, d);
   w->axis(-2)->parallelize(ParallelType::Stream);
-
-  fusion->print();
 }
 
 TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
@@ -101,14 +100,114 @@ TEST_F(OverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
 
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
+  // This is debatable. On the one hand, we want to express the intention to
+  // stream-parallelize the sequence dimension. On the other hand, we want to
+  // avoid parallelizing a fusion input because a fusion input doesn't have a
+  // producer.
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::Stream);
   w->outer_split(0, d);
   w->axis(0)->parallelize(ParallelType::DIDx);
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::DIDx);
-
-  fusion->print();
+  in->outer_split(-1, d);
+  in->axis(-2)->parallelize(ParallelType::DIDx);
 }
+
+TEST_F(OverlapTest, RowAndSequenceParallelLinear_Forward) {
+  constexpr int64_t h = 12288;
+  constexpr int64_t d = 2;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({-1, h * 4}, DataType::BFloat16);
+  TensorView* w = makeContigConcreteTensor({h, h * 4}, DataType::BFloat16);
+  TensorView* out = linear(in, w, nullptr);
+
+  fusion->addInput(in);
+  fusion->addInput(w);
+  fusion->addOutput(out);
+
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, w, out}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::Stream);
+  w->outer_split(1, d);
+  w->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+  out->outer_split(-1, d);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+}
+
+TEST_F(OverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
+  constexpr int64_t h = 12288;
+  constexpr int64_t d = 2;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({-1, h * 4}, DataType::BFloat16);
+  TensorView* out = makeContigConcreteTensor({-1, h}, DataType::BFloat16);
+  TensorView* w = matmul(transpose(out), in);
+
+  fusion->addInput(in);
+  fusion->addInput(out);
+  fusion->addOutput(w);
+
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, w, out}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+  w->outer_split(1, d);
+  w->axis(1)->parallelize(ParallelType::DIDx);
+  w->outer_split(-1, d);
+  w->axis(-2)->parallelize(ParallelType::Stream);
+}
+
+TEST_F(OverlapTest, RowAndSequenceParallelLinear_InputGrad) {
+  constexpr int64_t h = 12288;
+  constexpr int64_t d = 2;
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* out = makeContigConcreteTensor({-1, h}, DataType::BFloat16);
+  TensorView* w = makeContigConcreteTensor({h, h * 4}, DataType::BFloat16);
+  TensorView* in = matmul(out, w);
+
+  fusion->addInput(out);
+  fusion->addInput(w);
+  fusion->addOutput(in);
+
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, w, out}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+  w->outer_split(1, d);
+  w->axis(1)->parallelize(ParallelType::DIDx);
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::Stream);
+}
+
+// TODO: add tests for row-wise parallel linear without sequence dimension
+
+// TODO: add tests for collective-based overlapping when layouts are in favor
 
 } // namespace nvfuser
