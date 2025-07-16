@@ -655,14 +655,13 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for (size_t i = 0; i < container_->outputs().size(); ++i) {
-    auto* output = container_->outputs()[i];
+  for (const auto&& [output, tensor_ptr] : zip(container_->outputs(), output_aten_tensors)) {
     NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output);
     // Cast void* to at::Tensor* first, then dereference
-    at::Tensor* tensor_ptr = static_cast<at::Tensor*>(output_aten_tensors[i]);
-    outputs.push(*tensor_ptr);
+    at::Tensor* aten_tensor_ptr = static_cast<at::Tensor*>(tensor_ptr);
+    outputs.push(*aten_tensor_ptr);
     // Clean up the individual tensor object (not the array)
-    delete tensor_ptr;
+    delete aten_tensor_ptr;
   }
   // Note: output_aten_tensors points to a global array managed by JIT, don't
   // delete the array itself
