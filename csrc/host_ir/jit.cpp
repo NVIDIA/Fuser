@@ -159,12 +159,18 @@ void registerExternalFunction(
       llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
 }
 
+// Helper function to print generated LLVM IR after each node is processed
+void printLLVMIR(llvm::Function* func, std::string_view msg) {
+  llvm::outs() << "=== LLVM IR After Generating " << msg << " ===\n";
+  func->print(llvm::outs(), nullptr);
+  llvm::outs() << "\n\n";
+}
+
 // Helper function to infer tensor shapes and strides
 // Currently, we support only tensors with a constant shape and strides. This
 // is to demonstrate a aten tensor is able to be allocated and deallocated
 // properly, we will support more complex tensor shapes and strides in future
 // PRs.
-
 void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -228,8 +234,7 @@ void unpackInputs(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-    llvm::outs() << "=== LLVM IR After Generating Main Function Inputs ===\n";
-    func->getParent()->print(llvm::outs(), nullptr);
+    printLLVMIR(func, "Main Function Inputs");
   }
 }
 
@@ -260,9 +265,7 @@ void packOutputs(
   }
   builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-    llvm::outs() << "=== LLVM IR After Generating Main Function Outputs ===\n";
-    llvm::Function* func = builder.GetInsertBlock()->getParent();
-    func->getParent()->print(llvm::outs(), nullptr);
+    printLLVMIR(func, "Main Function Outputs");
   }
 }
 
@@ -375,9 +378,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[out_tv] = out_tensor;
 
     if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      auto* func = builder_.GetInsertBlock()->getParent();
-      llvm::outs() << "=== LLVM IR After Generating LoadStoreOp ===\n";
-      func->print(llvm::outs(), nullptr);
+      printLLVMIR(builder_.GetInsertBlock()->getParent(), "LoadStoreOp");
     }
   }
 
@@ -475,8 +476,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
 
     if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      llvm::outs() << "=== LLVM IR After Generating Allocate Function ===\n";
-      module->print(llvm::outs(), nullptr);
+      printLLVMIR(builder_.GetInsertBlock()->getParent(), "Allocate Function");
     }
   }
 
@@ -488,9 +488,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     builder_.CreateCall(
         delete_tensor_func, {val_to_value_.at(deallocate->buffer()->as<Val>())});
     if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      auto* func = builder_.GetInsertBlock()->getParent();
-      llvm::outs() << "=== LLVM IR After Generating Deallocate Function ===\n";
-      func->print(llvm::outs(), nullptr);
+      printLLVMIR(builder_.GetInsertBlock()->getParent(), "Deallocate Function");
     }
   }
   // Not handled instructions automatically trigger an error.
