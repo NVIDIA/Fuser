@@ -12458,8 +12458,6 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
   uint32_t i13;
   i13 = toSmem(T5);
   __bfloat* T7 = reinterpret_cast<__bfloat*>(array + smem_offset + 1024);
-  uint32_t i14;
-  i14 = toSmem(T7) + (16384 * ((nvfuser_index_t)threadIdx.y));
   const TensorMap* ptr15;
   ptr15 = &var2;
   nvfuser_index_t i16;
@@ -12646,21 +12644,18 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
             T6[i75]
                = __float2bfloat(T2[(((i74 + (4 * (i75 / 4))) + (2 * ((i75 / 2) % 2))) + (i75 % 2))]);
           }
-          block_sync::sync<false>(dim3(128, 1, 1));
-          if ((b72 && (i57 < (-(16 * i73))))) {
-            stmatrix4((uint32_t)((toSmem(T7) + (((((((((nvfuser_index_t)threadIdx.y) * 8192) + ((i73 / 4) * 4096)) + ((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) / 8) * 512)) + ((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) % 8) * 64)) + (((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) % 8) ^ ((((i73 % 4) * 16) + ((((((nvfuser_index_t)threadIdx.x) / 16) % 2) * 8) + 0)) / 8)) * 8)) + ((((i73 % 4) * 16) + ((((((nvfuser_index_t)threadIdx.x) / 16) % 2) * 8) + 0)) % 8)) * 2LL))), (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T6[0])));
-          }
+          stmatrix4((uint32_t)((toSmem(T7) + (((((((i69 * 8192) + ((i73 / 4) * 4096)) + ((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) / 8) * 512)) + ((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) % 8) * 64)) + (((((((((nvfuser_index_t)threadIdx.x) / 16) / 2) * 16) + (((nvfuser_index_t)threadIdx.x) % 16)) % 8) ^ ((((i73 % 4) * 16) + ((((((nvfuser_index_t)threadIdx.x) / 16) % 2) * 8) + 0)) / 8)) * 8)) + ((((i73 % 4) * 16) + ((((((nvfuser_index_t)threadIdx.x) / 16) % 2) * 8) + 0)) % 8)) * 2LL))), (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T6[0])));
         }
         fenceAsyncProxy();
         if (b23) {
           #pragma unroll
           for(nvfuser_index_t i76 = 0; i76 < 2; ++i76) {
-            Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr15, (Array<int, 2, 1>{__to_int32((i52 + (64 * i76))), i71}) }), (i14 + (8192 * i76)));
+            Hopper::cpAsyncBulkTensorTileS2G((Hopper::CpAsyncBulkTensorTileS2GIndex<2>{ ptr15, (Array<int, 2, 1>{__to_int32((i52 + (64 * i76))), i71}) }), (toSmem(T7) + (16384 * i69) + (8192 * i76)));
           }
           cpAsyncBulkCommitGroup();
         }
-        cpAsyncBulkWaitGroup<0LL>();
       }
+      cpAsyncBulkWaitGroup<0LL>();
       mbarrier::arrive(toSmem((&T9[((((((nvfuser_index_t)threadIdx.y) + 1) % 2) * 2) + 1LL)])));
     }
   }
@@ -12682,8 +12677,6 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
       mbarrier::inval(toSmem((&T8[i79])));
     }
   }
-  cpAsyncBulkCommitGroup();
-  cpAsyncBulkWaitGroup<0LL>();
 }
 
 } // namespace nvf
