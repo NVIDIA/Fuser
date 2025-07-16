@@ -35,6 +35,7 @@
 #include <host_ir/jit.h>
 #include <functional>
 #include <memory>
+#include <algorithm>
 
 #include <multidevice/communicator.h>
 #include <runtime/fusion_executor_cache.h>
@@ -42,7 +43,7 @@
 
 namespace nvfuser {
 
-using main_func_fn = std::function<void()>;
+using main_func_fn = std::function<void(int64_t)>;
 
 // Forward declarations
 std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShapesAndStrides(const TensorView* tv, std::unordered_map<Val*, llvm::Value*>& val2llvmMap, llvm::IRBuilder<>& builder, llvm::Value* pimpl_void_ptr);
@@ -156,6 +157,55 @@ void compileIfThenElseFunc(
   builder.SetInsertPoint(merge_block);
 }
 
+// Generate a function for LoadAndStore runtime
+void compileLoadStoreFunc(
+    const LoadStoreOp* load_store_op,
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    llvm::Value* pimpl_void_ptr) {
+
+    NVF_ERROR(
+        load_store_op->opType() == LoadStoreOpType::Set ||
+        load_store_op->opType() == LoadStoreOpType::SegmenterSet);
+    NVF_ERROR(
+        load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+    auto* in_tv = load_store_op->in()->as<TensorView>();
+    auto* out_tv = load_store_op->out()->as<TensorView>();
+    
+    llvm::LLVMContext& context = builder.getContext();
+    llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+    llvm::PointerType* void_ptr_type = llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+    
+    // Convert input TensorView to void pointer
+    uintptr_t in_tv_ptr = reinterpret_cast<uintptr_t>(in_tv);
+    llvm::Value* in_tv_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), in_tv_ptr);
+    llvm::Value* in_tv_void_ptr = builder.CreateIntToPtr(in_tv_constant, void_ptr_type);
+    
+    
+    // Get input tensor
+    llvm::Value* in_tensor = builder.CreateCall(module->getFunction("get_tensor"), {in_tv_void_ptr, pimpl_void_ptr}, "in_tensor");
+    
+    // Convert output TensorView to void pointer
+    uintptr_t out_tv_ptr = reinterpret_cast<uintptr_t>(out_tv);
+    llvm::Value* out_tv_constant = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), out_tv_ptr);
+    llvm::Value* out_tv_void_ptr = builder.CreateIntToPtr(out_tv_constant, void_ptr_type);
+    
+    // Allocate output tensor
+    llvm::Value* out_tensor = builder.CreateCall(module->getFunction("allocate_tensor"), {out_tv_void_ptr, pimpl_void_ptr}, "out_tensor");
+
+    // Set the output tensor to the input tensor
+    builder.CreateCall(module->getFunction("set_tensor"), {out_tensor, in_tensor});
+
+    // Bind the output tensor to val2llvmMap
+    val2llvmMap[out_tv] = out_tensor;
+
+    if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
+      auto* func = builder.GetInsertBlock()->getParent();
+      llvm::outs() << "=== LLVM IR After Generating LoadStoreOp ===\n";
+      func->print(llvm::outs(), nullptr);
+    }
+}
+  
 // Generate a function for LinearOp runtime
 void compileLinearFunc(
     const LinearOp* linear,
@@ -287,14 +337,9 @@ void compileLaunchKernelFunc(
     output_tensors.push_back(tensor_ptr);
   }
   
-  // Get cache ID from val2llvmMap
-  llvm::Value* cache_id_arg = nullptr;
-  if (val2llvmMap.find(launch_kernel->cacheId()) != val2llvmMap.end()) {
-    cache_id_arg = val2llvmMap[launch_kernel->cacheId()];
-  } else {
-    // If not found, traverse and evaluate the cache ID
-    cache_id_arg = traverseExtentDFS(launch_kernel->cacheId(), val2llvmMap, builder);
-  }
+  // Get cache ID directly from function's first argument
+  llvm::Function* func = builder.GetInsertBlock()->getParent();
+  llvm::Value* cache_id_arg = func->getArg(0);
   
   // Ensure we have a valid cache ID value
   NVF_ERROR(cache_id_arg != nullptr, "Failed to generate cache ID value for LaunchKernel");
@@ -384,12 +429,12 @@ void compileAllocateFunc(
   // Get tensor sizes and strides using the inference function
   auto [tensor_sizes, tensor_strides] = inferTensorShapesAndStrides(allocate->buffer()->as<TensorView>(), val2llvmMap, builder, pimpl_void_ptr);
 
-  // Bounds checking for ndim
-  auto logical_domain = TensorDomain::noReductions(
-      allocate->buffer()->as<TensorView>()->getLogicalDomain());
+  // Bounds checking for ndim - use allocation domain to match inferTensorShapesAndStrides
+  auto alloc_domain = TensorDomain::noReductions(
+      allocate->buffer()->as<TensorView>()->getMaybeAllocationDomain());
 
-  NVF_ERROR(tensor_sizes.size() == logical_domain.size(), "tensor_sizes.size() != logical_domain.size()");
-  NVF_ERROR(tensor_strides.size() == logical_domain.size(), "tensor_strides.size() != logical_domain.size()");
+  NVF_ERROR(tensor_sizes.size() == alloc_domain.size(), "tensor_sizes.size() != alloc_domain.size()");
+  NVF_ERROR(tensor_strides.size() == alloc_domain.size(), "tensor_strides.size() != alloc_domain.size()");
 
   // Create arrays for sizes and strides
   llvm::ArrayType* sizes_array_type = llvm::ArrayType::get(int64_type, tensor_sizes.size());
@@ -557,6 +602,9 @@ void compileFunc(Expr* top_level_expr, llvm::IRBuilder<>& builder, std::unordere
   else if(auto* if_then_else = dynamic_cast<const kir::IfThenElse*>(top_level_expr)) {
     compileIfThenElseFunc(if_then_else, builder, val2llvmMap, pimpl_void_ptr);
   }
+  else if(auto* load_store_op = dynamic_cast<const LoadStoreOp*>(top_level_expr)) {
+    compileLoadStoreFunc(load_store_op, builder, val2llvmMap, pimpl_void_ptr);
+  }
   else if(auto* matmul = dynamic_cast<const MatmulOp*>(top_level_expr)) {
     compileMatmulFunc(matmul, builder, val2llvmMap, pimpl_void_ptr);
   }
@@ -630,10 +678,17 @@ void compile(
   llvm::FunctionType* empty_strided_cuda_type = llvm::FunctionType::get(void_type, {int64_ptr_type, int64_type, int64_ptr_type, int64_type, int32_type, int64_type, void_ptr_type}, false);
   llvm::Function::Create(empty_strided_cuda_type, llvm::Function::ExternalLinkage, kHostIrJitEmptyStridedCudaFuncName, mod.get());
   
-  // Create the main function
-  std::vector<llvm::Type*> param_types = {};
+  // set_tensor function: void set_tensor(at::Tensor* out, at::Tensor* in)
+  llvm::FunctionType* set_tensor_type = llvm::FunctionType::get(void_type, {void_ptr_type, void_ptr_type}, false);
+  llvm::Function::Create(set_tensor_type, llvm::Function::ExternalLinkage, "set_tensor", mod.get());
+  
+  // Create the main function with cache_id parameter
+  std::vector<llvm::Type*> param_types = {int64_type};
   llvm::FunctionType* func_type = llvm::FunctionType::get(llvm::Type::getVoidTy(*ctx), param_types, false);
   llvm::Function* func = llvm::Function::Create(func_type, llvm::Function::ExternalLinkage, "full_graph_induction", mod.get());
+  
+  // Set parameter name for the cache_id
+  func->getArg(0)->setName("cache_id");
   
   // Create entry block and set insertion point
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", func);
@@ -641,6 +696,16 @@ void compile(
   
   // Generate pimpl_void_ptr once at the top
   llvm::Value* pimpl_void_ptr = compileJitImpl(container, pimpl_, builder);
+  
+  // Bind cache_id parameter to val2llvmMap for any NamedScalar with name "cacheId"
+  for(auto* input : container->inputs()) {
+    if(auto* named_scalar = dynamic_cast<const NamedScalar*>(input)) {
+      if(named_scalar->name() == "cacheId") {
+        val2llvmMap[input] = func->getArg(0);  // Use input (Val*) instead of named_scalar (const NamedScalar*)
+        break;
+      }
+    }
+  }
   
   // bind the constants
   compileMainFuncInputs(container, builder, val2llvmMap, pimpl_void_ptr);
@@ -668,7 +733,7 @@ void compile(
  
   // Look up the main function
   auto main_func_addr = throwIfError(jit->lookup("full_graph_induction"));
-  main_func_ = reinterpret_cast<void(*)()>(main_func_addr.getValue());
+  main_func_ = reinterpret_cast<void(*)(int64_t)>(main_func_addr.getValue());
 }
 
 
@@ -757,15 +822,46 @@ llvm::Value* traverseExtentDFS(Val* val, std::unordered_map<Val*, llvm::Value*>&
         numerator = builder.CreateSub(numerator, one);
         val2llvmMap[val] = builder.CreateUDiv(numerator, val2llvmMap[right]);
       }
+      else {
+        NVF_THROW("LLVM Lowering Error: Unsupported binary operation type: ", binary_op->getBinaryOpType());
+      }
+    }
+    else if(auto* unary_op = def->as<UnaryOp>()) {
+      auto* input = unary_op->in()->as<Val>();
+      if(input->isConst() && val2llvmMap.find(input) == val2llvmMap.end()) {
+        val2llvmMap[input] = builder.getInt64(input->value().as<int64_t>());
+      }
+      else if(!input->isConst() && val2llvmMap.find(input) == val2llvmMap.end()) {
+        traverseExtentDFS(input, val2llvmMap, builder);
+      }
+      
+      // Handle common unary operations that might appear in extent calculations
+      if(unary_op->getUnaryOpType() == UnaryOpType::Cast) {
+        // For extent calculations, cast should preserve the value as int64
+        val2llvmMap[val] = val2llvmMap[input];
+      }
+      else if(unary_op->getUnaryOpType() == UnaryOpType::Abs) {
+        // Create absolute value using LLVM intrinsic
+        llvm::Value* is_negative = builder.CreateICmpSLT(val2llvmMap[input], builder.getInt64(0));
+        llvm::Value* negated = builder.CreateNeg(val2llvmMap[input]);
+        val2llvmMap[val] = builder.CreateSelect(is_negative, negated, val2llvmMap[input]);
+      }
+      else if(unary_op->getUnaryOpType() == UnaryOpType::Neg) {
+        val2llvmMap[val] = builder.CreateNeg(val2llvmMap[input]);
+      }
+      else {
+        NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
+      }
+    }
+    else {
+      NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with unsupported operation type: ", def->toString());
     }
   }
   else if(val->isConst()) {
     val2llvmMap[val] = builder.getInt64(val->value().as<int64_t>());
   }
   else{
-    // NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val.");
-    std::cout << "LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val." << std::endl;
-    val2llvmMap[val] = builder.getInt64(1);
+    NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with undefined Val that is not constant: ", val->toString());
   }
   return val2llvmMap[val];
 }
@@ -785,6 +881,7 @@ std::vector<llvm::Value*> getContiguousStrides(
     // If expanded, stride is 0
     if (expand_flags.at(i - 1)) {
       stride = builder.getInt64(0);
+      // std::cout << "DEBUG: Setting stride to 0 for expanded dimension " << (i - 1) << std::endl;
     } else {
       // Handle null size values by treating them as size 1 (safety check)
       if (size == nullptr) {
@@ -887,6 +984,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferShapeAndStr
           "Non-broadcast domain should not have an expanded extent: ",
           id->toString());
       expand_flags.push_back(true);
+      // std::cout << "DEBUG: Found expanded dimension: " << id->toString() << std::endl;
+    } else if (id->isBroadcast()) {
+      // Regular broadcast dimensions should also have stride 0
+      expand_flags.push_back(true);
+      // std::cout << "DEBUG: Found broadcast dimension: " << id->toString() << std::endl;
     } else {
       expand_flags.push_back(false);
     }
@@ -900,6 +1002,7 @@ Val* mapToInputDomain(
 ) {
   for(auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) { 
     auto* domain = it->first->as<IterDomain>();
+    // std::cout << "currentDomain: " << currentDomain->toString() << " domain: " << domain->toString() << std::endl;
     if(currentDomain->as<IterDomain>() == domain) {
       return it->first;
     }
@@ -907,18 +1010,19 @@ Val* mapToInputDomain(
   return nullptr;
 }
 
-void generate_stride_llvm_ir(
+// Helper function to generate LLVM IR for
+void generateReorderedStrideLLVMIR(
     Val* current_val,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::IRBuilder<>& builder,
     llvm::Value*& running_stride_product,
     std::unordered_map<Val*, bool>& boundary_vals,
-    std::vector<llvm::Value*>& strides
+    std::unordered_map<Val*, llvm::Value*>& boundaryValStrides
 ) {
 
     // Check if the current val is nullptr
   if (current_val == nullptr) {
-      NVF_ERROR(false, "LLVM Lowering Error: generate_stride_llvm_ir called with nullptr Val.");
+      NVF_ERROR(false, "LLVM Lowering Error: generateReorderedStrideLLVMIR called with nullptr Val.");
       return;
   }
     auto* def_expr = current_val->definition();
@@ -931,8 +1035,14 @@ void generate_stride_llvm_ir(
         // NVF_ERROR(!original_val->as<IterDomain>()->isBroadcast(), "LLVM Lowering Error: Broadcast domain is not supported in stride inference");
         if(boundary_vals[original_val] == false){
           boundary_vals[original_val] = true;
-          strides.push_back(running_stride_product);
-          running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[original_val->as<IterDomain>()->extent()], "mapped_stride");
+          // Only assign stride if not expanded/broadcast
+          auto* iter_domain = original_val->as<IterDomain>();
+          if(!iter_domain->hasExpandedExtent() && !iter_domain->isBroadcast()) {
+            boundaryValStrides[original_val] = running_stride_product;
+          }
+          // Use expanded extent for stride calculation, but regular extent for non-expanded dims
+          Val* extent_for_stride = iter_domain->hasExpandedExtent() ? iter_domain->expandedExtent() : iter_domain->extent();
+          running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[extent_for_stride], "mapped_stride");
         }
       }
       else if(current_val->as<IterDomain>()->extent()->isConst() && val2llvmMap.find(current_val->as<IterDomain>()->extent()) == val2llvmMap.end()){
@@ -952,26 +1062,36 @@ void generate_stride_llvm_ir(
         if(inner_mapped_val != nullptr){
           if(boundary_vals[inner_mapped_val] == false){
             boundary_vals[inner_mapped_val] = true;
-            strides.push_back(running_stride_product);
-            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[inner_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            // Only assign stride if not expanded/broadcast
+            auto* inner_iter_domain = inner_mapped_val->as<IterDomain>();
+            if(!inner_iter_domain->hasExpandedExtent() && !inner_iter_domain->isBroadcast()) {
+              boundaryValStrides[inner_mapped_val] = running_stride_product;
+            }
+            Val* inner_extent_for_stride = inner_iter_domain->hasExpandedExtent() ? inner_iter_domain->expandedExtent() : inner_iter_domain->extent();
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[inner_extent_for_stride], "mapped_stride");
             return;
           }
         }
         else{
-          generate_stride_llvm_ir(input_inner_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_inner_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
 
         // Check if the outer val is a boundary val
         if(outer_mapped_val != nullptr){
           if(boundary_vals[outer_mapped_val] == false){
             boundary_vals[outer_mapped_val] = true;
-            strides.push_back(running_stride_product);
-            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[outer_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            // Only assign stride if not expanded/broadcast
+            auto* outer_iter_domain = outer_mapped_val->as<IterDomain>();
+            if(!outer_iter_domain->hasExpandedExtent() && !outer_iter_domain->isBroadcast()) {
+              boundaryValStrides[outer_mapped_val] = running_stride_product;
+            }
+            Val* outer_extent_for_stride = outer_iter_domain->hasExpandedExtent() ? outer_iter_domain->expandedExtent() : outer_iter_domain->extent();
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[outer_extent_for_stride], "mapped_stride");
             return;
           }
         }
         else{
-          generate_stride_llvm_ir(input_outer_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_outer_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
         
         // Extent of merged domain
@@ -996,13 +1116,18 @@ void generate_stride_llvm_ir(
         if(input_mapped_val != nullptr){
           if(boundary_vals[input_mapped_val] == false){
             boundary_vals[input_mapped_val] = true;
-            strides.push_back(running_stride_product);
-            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[input_mapped_val->as<IterDomain>()->extent()], "mapped_stride");
+            // Only assign stride if not expanded/broadcast
+            auto* input_iter_domain = input_mapped_val->as<IterDomain>();
+            if(!input_iter_domain->hasExpandedExtent() && !input_iter_domain->isBroadcast()) {
+              boundaryValStrides[input_mapped_val] = running_stride_product;
+            }
+            Val* input_extent_for_stride = input_iter_domain->hasExpandedExtent() ? input_iter_domain->expandedExtent() : input_iter_domain->extent();
+            running_stride_product = builder.CreateMul(running_stride_product, val2llvmMap[input_extent_for_stride], "mapped_stride");
             return;
           }
         }
         else{
-          generate_stride_llvm_ir(input_val, val2llvmMap, builder, running_stride_product, boundary_vals, strides);
+          generateReorderedStrideLLVMIR(input_val, val2llvmMap, builder, running_stride_product, boundary_vals, boundaryValStrides);
         }
 
         auto* split_factor = split_expr->factor()->as<Val>();
@@ -1063,26 +1188,49 @@ void generate_stride_llvm_ir(
     }
 }
 
-// Infer the stride of each dimension
+// Infer Tensor Strides with reordering
 std::vector<llvm::Value*> inferTensorStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::IRBuilder<>& builder) {
-  std::vector<llvm::Value*> strides;
+
   llvm::LLVMContext& context = builder.getContext();
   llvm::Value* running_stride = llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
-   std::unordered_map<Val*, bool> boundaryValVisited;
-   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-   for(auto* val : logical_domain) {
+  std::unordered_map<Val*, bool> boundaryValVisited;
+  std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  std::vector<llvm::Value*> strides;
+  for(auto* val : logical_domain) {
     boundaryValVisited[val] = false;
-   }
-   for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
-      auto iter_domain = *it;
-      if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
-          continue;
-      }
-      generate_stride_llvm_ir(iter_domain->as<Val>(), val2llvmMap, builder, running_stride, boundaryValVisited, strides);
+  }
+  
+  for(auto it = tv->getMaybeAllocationDomain().rbegin(); it != tv->getMaybeAllocationDomain().rend(); ++it) {
+    auto iter_domain = *it;
+    if(iter_domain->getParallelType() == ParallelType::DIDx || iter_domain->getParallelType() == ParallelType::DIDy || iter_domain->getParallelType() == ParallelType::DIDz) {
+        continue;
     }
+    generateReorderedStrideLLVMIR(iter_domain->as<Val>(), val2llvmMap, builder, running_stride, boundaryValVisited, boundaryValStrides);
+  }
+  // Iterate over allocation domain to get the correct order
+  for(const auto& id : tv->getMaybeAllocationDomain()) {
+    if(id->isReduction() || id->isStride()) {
+      continue;
+    }
+    if(id->getParallelType() == ParallelType::DIDx || id->getParallelType() == ParallelType::DIDy || id->getParallelType() == ParallelType::DIDz) {
+      continue;
+    }
+    
+    // Check if this is an expanded/broadcast dimension
+    if(id->hasExpandedExtent() || id->isBroadcast()){
+        strides.push_back(builder.getInt64(0));
+        continue;
+    }
+    
+    // Find the corresponding logical domain entry
+    auto it = boundaryValStrides.find(id);
+    NVF_ERROR(it != boundaryValStrides.end(), "LLVM Lowering Error: boundaryValStrides is not found for ", id->toString());
+    strides.push_back(it->second);
+  }
   return strides;
 }
 
@@ -1093,9 +1241,11 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
   // Non-alias handling:
   auto allocation_size_stride = inferShapeAndStridesNoReorder(tv, val2llvmMap, builder);
   if (!tv->hasAllocation()) {
+    // std::cout << "DEBUG: Using inferShapeAndStridesNoReorder (no allocation) for " << tv->toString() << std::endl;
     return {allocation_size_stride.first, allocation_size_stride.second};
   }
   // otherwise we want return the reordered size and stride
+  // std::cout << "DEBUG: Using inferTensorStridesReordered (has allocation) for " << tv->toString() << std::endl;
   return {allocation_size_stride.first, inferTensorStridesReordered(tv, val2llvmMap,builder)};
 }
 
@@ -1103,6 +1253,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
   // Alias handling, just return empty vector for now:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
+    // std::cout << "DEBUG: Using alias path for " << tv->toString() << std::endl;
     // For reuse aten tensor alias, we directly get the aliased at::Tensor size/stride
     if (alias_info.type == AllocationType::ReuseBuffer) {
       tv = alias_info.aliased_io->as<TensorView>();
@@ -1130,6 +1281,7 @@ std::pair<std::vector<llvm::Value*>, std::vector<llvm::Value*>> inferTensorShape
     return {sizes, strides};
   }
 
+  // std::cout << "DEBUG: Using non-alias path for " << tv->toString() << std::endl;
   return inferTensorShapesAndStridesNonAlias(tv, val2llvmMap, builder);
 }
 
@@ -1310,6 +1462,10 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
         }
         return tensor_ptr->stride(dim);
       });
+  void* set_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* out_tensor, at::Tensor* in_tensor) {
+        *out_tensor = in_tensor->clone();
+      });
 
   // Register wrapper functions in JIT
   auto empty_strided_cuda_addr = llvm::orc::ExecutorAddr::fromPtr(empty_strided_cuda_func_ptr);
@@ -1322,6 +1478,7 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
   auto matmul_out_addr = llvm::orc::ExecutorAddr::fromPtr(matmul_out_func_ptr);
   auto linear_out_addr_with_bias = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr_with_bias);
   auto linear_out_addr_without_bias = llvm::orc::ExecutorAddr::fromPtr(linear_out_func_ptr_without_bias);
+  auto set_tensor_addr = llvm::orc::ExecutorAddr::fromPtr(set_tensor_func_ptr);
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap symbolMap;
   symbolMap[mangler(kHostIrJitEmptyStridedCudaFuncName)] =
@@ -1345,6 +1502,8 @@ HostIrJit::HostIrJit(std::unique_ptr<hir::HostIrContainer> container, int num_th
       llvm::orc::ExecutorSymbolDef(linear_out_addr_with_bias, llvm::JITSymbolFlags::Exported);
   symbolMap[mangler("linear_out_without_bias")] = 
       llvm::orc::ExecutorSymbolDef(linear_out_addr_without_bias, llvm::JITSymbolFlags::Exported);
+  symbolMap[mangler("set_tensor")] = 
+      llvm::orc::ExecutorSymbolDef(set_tensor_addr, llvm::JITSymbolFlags::Exported);
   throwIfError(dest_dynamic_lib.define(llvm::orc::absoluteSymbols(symbolMap)));
 
   // Compile the module
@@ -1375,7 +1534,7 @@ KernelArgumentHolder HostIrJit::runWithInputs(
   }
 
   // Run the main function
-  pimpl_->main_func_();
+  pimpl_->main_func_(static_cast<int64_t>(*args.getCacheId()));
 
   // Collect the outputs
   KernelArgumentHolder outputs;
@@ -1394,6 +1553,18 @@ KernelArgumentHolder HostIrJit::runWithInputs(
 KernelArgumentHolder HostIrJit::runWithInput(
     const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   FUSER_PERF_SCOPE("HostIrJit::runWithInput");
+  
+  // Find the cache_id from val_to_PValue
+  int64_t cache_id = 0; // default value
+  for (auto&& [in_val, arg] : val_to_PValue) {
+    if (auto* named_scalar = dynamic_cast<const NamedScalar*>(in_val)) {
+      if (named_scalar->name() == "cacheId" && arg.is<int64_t>()) {
+        cache_id = arg.as<int64_t>();
+        break;
+      }
+    }
+  }
+  
   // Bind the inputs to the tensor map
   for (auto&& [in_val, arg] : val_to_PValue) {
     if (arg.is<at::Tensor>()) {
@@ -1402,7 +1573,7 @@ KernelArgumentHolder HostIrJit::runWithInput(
   }
 
   // Run the main function
-  pimpl_->main_func_();
+  pimpl_->main_func_(cache_id);
 
   // Collect the outputs
   KernelArgumentHolder outputs;
