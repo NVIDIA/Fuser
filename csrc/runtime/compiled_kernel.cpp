@@ -66,6 +66,7 @@
 #include <nvfuser_resources/casts.h>
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
+#include <nvfuser_resources/cub_utils.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp4_support.h>
 #include <nvfuser_resources/fp8_support.h>
@@ -1157,6 +1158,10 @@ std::string _getStructuredCode(
   code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
+
+  if (has_argsort || has_topk) {
+    code += nvfuser_resources::cub_utils_cu;
+  }
 
   if (has_argsort) {
     code += nvfuser_resources::argsort_cu;
