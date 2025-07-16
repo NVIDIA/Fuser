@@ -41,6 +41,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   w->axis(0)->parallelize(ParallelType::DIDx);
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
+
   out->outer_split(0, d);
   // A Swizzle is needed to represent a cyclic shift needed for ring-based
   // overlapping: http://nv/eNL. This is not implemented yet and therefore
@@ -70,10 +71,11 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
 
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::DIDx);
-  out->outer_split(1, d);
-  out->axis(1)->parallelize(ParallelType::DIDx);
   w->outer_split(0, d);
   w->axis(0)->parallelize(ParallelType::DIDx);
+  out->outer_split(1, d);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+
   w->outer_split(-1, d);
   w->axis(-2)->parallelize(ParallelType::Stream);
 }
@@ -98,20 +100,23 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
     tv->setDeviceMesh(mesh);
   }
 
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  // For computing input gradients, `in` is the output and its reduction
+  // dimension needs to be sharded.
+  in->outer_split(-1, d);
+  in->axis(-2)->parallelize(ParallelType::DIDx);
+  w->outer_split(0, d);
+  w->axis(0)->parallelize(ParallelType::DIDx);
   out->outer_split(1, d);
   out->axis(1)->parallelize(ParallelType::DIDx);
+
   // This is debatable. On the one hand, we want to express the intention to
   // stream-parallelize the sequence dimension. On the other hand, we want to
   // avoid parallelizing a fusion input because a fusion input doesn't have a
   // producer.
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::Stream);
-  w->outer_split(0, d);
-  w->axis(0)->parallelize(ParallelType::DIDx);
-  in->outer_split(0, d);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-  in->outer_split(-1, d);
-  in->axis(-2)->parallelize(ParallelType::DIDx);
 }
 
 TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_Forward) {
@@ -136,14 +141,15 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_Forward) {
 
   in->outer_split(1, d);
   in->axis(1)->parallelize(ParallelType::DIDx);
-  in->outer_split(0, d);
-  in->axis(0)->parallelize(ParallelType::Stream);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
   out->outer_split(0, d);
   out->axis(0)->parallelize(ParallelType::DIDx);
   out->outer_split(-1, d);
   out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  in->outer_split(0, d);
+  in->axis(0)->parallelize(ParallelType::Stream);
 }
 
 TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
@@ -168,10 +174,11 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
 
   in->outer_split(1, d);
   in->axis(1)->parallelize(ParallelType::DIDx);
-  out->outer_split(0, d);
-  out->axis(0)->parallelize(ParallelType::DIDx);
   w->outer_split(1, d);
   w->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
   w->outer_split(-1, d);
   w->axis(-2)->parallelize(ParallelType::Stream);
 }
@@ -196,12 +203,13 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
     tv->setDeviceMesh(mesh);
   }
 
-  out->outer_split(0, d);
-  out->axis(0)->parallelize(ParallelType::DIDx);
-  w->outer_split(1, d);
-  w->axis(1)->parallelize(ParallelType::DIDx);
   in->outer_split(1, d);
   in->axis(1)->parallelize(ParallelType::DIDx);
+  w->outer_split(1, d);
+  w->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::DIDx);
+
   in->outer_split(0, d);
   in->axis(0)->parallelize(ParallelType::Stream);
 }
