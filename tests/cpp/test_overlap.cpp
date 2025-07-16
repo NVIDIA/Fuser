@@ -206,8 +206,9 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   in->axis(0)->parallelize(ParallelType::Stream);
 }
 
-// TODO: add tests for row-wise parallel linear without sequence dimension
+// TODO: add tests for row-wise parallel linear without sequence parallelism
 
-// TODO: add tests for collective-based overlapping when layouts are in favor
+// TODO: add tests for collective-based overlapping for which layouts are in
+// favor
 
 } // namespace nvfuser
