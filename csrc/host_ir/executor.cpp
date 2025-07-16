@@ -197,9 +197,6 @@ HostIrEvaluator::HostIrEvaluator(
     Communicator* communicator,
     HostIrEvaluatorParams params)
     : container_(std::move(container)),
-#ifdef NVFUSER_HOST_IR_JIT
-      jit_(std::make_unique<HostIrJit>(container_.get())),
-#endif
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
@@ -735,12 +732,6 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   if (expr_evaluator_.isKnown(tv)) {
     return;
   }
-#ifdef NVFUSER_HOST_IR_JIT
-  auto shape_info = inferTensorShapes(tv, expr_evaluator_);
-  auto tensor = jit_->allocate(
-      allocate, shape_info.logical_sizes, shape_info.logical_strides);
-
-#else
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
@@ -752,7 +743,6 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       c10::nullopt,
       device,
       c10::nullopt);
-#endif
   expr_evaluator_.bind(tv, tensor);
 }
 

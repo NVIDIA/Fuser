@@ -88,7 +88,6 @@ def test_column_parallel_linear(multidevice_test):
             for t in [self.weight, self.bias]:
                 self.sched.split(t, 0, d, False)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -133,7 +132,6 @@ def test_row_parallel_linear(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -171,7 +169,6 @@ def test_row_parallel_linear_with_bias(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -209,7 +206,6 @@ def test_linear_reduce_scatter(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
             # Scatter
             self.sched.split(self.out, 1, d, False)
@@ -259,13 +255,11 @@ def test_column_parallel_matmul(multidevice_test):
             # Shard N for weight (K, N)
             self.sched.split(self.weight, -1, d, False)
             self.sched.parallelize(self.weight, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
 
             # Output of linear: {.., i{M}, i{N}, r{K}}
             # Shard N -> axis(-2)
             self.sched.split(self.out, -2, d, False)
             self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -312,12 +306,10 @@ def test_row_parallel_matmul(multidevice_test):
             # Shard K for inp (M, K)
             self.sched.split(self.inp, -1, d, False)
             self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.inp)
 
             # Shard K for weight (K, N)
             self.sched.split(self.weight, 0, d, False)
             self.sched.parallelize(self.weight, 0, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
 
             # [i{M}, i{N}, r{K}]
             self.sched.split(self.out, -1, d, False)
@@ -376,7 +368,6 @@ def test_column_parallel_grouped_mm(multidevice_test):
 
             self.sched.split(self.w, -1, d, False)
             self.sched.parallelize(self.w, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.w)
 
     m = 32
     inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
@@ -432,11 +423,9 @@ def test_row_parallel_grouped_mm(multidevice_test):
 
             self.sched.split(self.inp, -1, d, False)
             self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.inp)
 
             self.sched.split(self.w, 1, d, False)
             self.sched.parallelize(self.w, 1, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.w)
 
     m = 32
     inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16)
@@ -490,7 +479,6 @@ def test_issue4729(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
     y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)

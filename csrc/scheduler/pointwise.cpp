@@ -86,7 +86,7 @@ int64_t getNumOfNonOuterBcastInputs(
 int64_t getEmpiricalUnrollFactor(
     Fusion* fusion,
     int64_t break_point,
-    int64_t vectorization_bytes,
+    int64_t vectorization_bits,
     std::vector<TensorView*> vectorizable_inputs) {
   // no need to unroll if no vectorizable inputs
   if (vectorizable_inputs.empty()) {
@@ -95,11 +95,11 @@ int64_t getEmpiricalUnrollFactor(
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // calculate the required bytes in flight to cover the latency.
   // assuming 100% occupancy.
-  int64_t required_bytes_per_thread =
-      scheduler_utils::getRequiredBytesInFlight() /
+  int64_t required_bits_per_thread =
+      scheduler_utils::getRequiredBitsInFlight() /
       (int64_t)dev_prop->maxThreadsPerMultiProcessor;
   int64_t unroll_factor =
-      std::max(1L, required_bytes_per_thread / vectorization_bytes);
+      std::max(1L, required_bits_per_thread / vectorization_bits);
   // If unroll is required, further scale up with computation cost and scale
   // down with input counts. Won't be triggered on A100 and H100.
   if (unroll_factor > 1) {
@@ -137,7 +137,7 @@ int64_t getUnrollFactor(
     Fusion* fusion,
     int64_t break_point,
     int64_t total_blocks,
-    int64_t vectorization_bytes,
+    int64_t vectorization_bits,
     bool divisible_split,
     std::vector<TensorView*> vectorizable_io_tvs) {
   // only consider vectorizable inputs,
@@ -153,7 +153,7 @@ int64_t getUnrollFactor(
   }
 
   int64_t empirical_unroll = getEmpiricalUnrollFactor(
-      fusion, break_point, vectorization_bytes, vectorizable_inputs);
+      fusion, break_point, vectorization_bits, vectorizable_inputs);
 
   // limit unroll factor when n_elems is small to ensure enough
   // blocks for thread level parallelism.
@@ -284,17 +284,24 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
-  int64_t max_dtype_size_for_vectorization = 1;
+  int64_t max_dtype_size_bit_for_vectorization = 0;
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
-    max_dtype_size_for_vectorization = std::max(
-        max_dtype_size_for_vectorization,
-        dataTypeSizeByte(inp->getDataType().value(), index_type));
+    max_dtype_size_bit_for_vectorization = std::max(
+        max_dtype_size_bit_for_vectorization,
+        dataTypeSizeBit(inp->getDataType().value(), index_type));
+  }
+  // If max_dtype_size_bit_for_vectorization is 0, it means there
+  // is no vectorizable input/output. For this case, we set it to 8
+  // as a default value to prevent having a too large vectorization factor.
+  // TODO: run a benchmark and see if there is a better default value.
+  if (max_dtype_size_bit_for_vectorization == 0) {
+    max_dtype_size_bit_for_vectorization = 8;
   }
 
-  constexpr int64_t kSixteen = 16; // clang tidy
+  constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   auto max_vect_factor = ceilDiv(
       // Available vectorization based on size of data type
-      (int64_t)kSixteen / max_dtype_size_for_vectorization,
+      (int64_t)kOneHundredTwentyEight / max_dtype_size_bit_for_vectorization,
       // Reduce max vectorization factor if we have many inputs/outputs to
       // vectorize as it could start consuming a lot of registers.
       std::max(
@@ -346,15 +353,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
-  auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_byte_multiples.size() == ref_loop.size());
+  auto& broadcast_bit_multiples = broadcast_info.get().broadcast_multiples;
+  NVF_ERROR(broadcast_bit_multiples.size() == ref_loop.size());
 
-  int64_t dtype_sum = 0;
+  int64_t dtype_sum_bit = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    dtype_sum += dataTypeSizeByte(inp->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(inp->getDataType().value(), index_type);
   }
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    dtype_sum += dataTypeSizeByte(out->getDataType().value(), index_type);
+    dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
   }
 
   // Indicates whether the fusion is outer broadcast dominated or not.
@@ -363,15 +370,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // separate function.
     //
     // How much would this transfer cost if it was done as a 1-D schedule
-    int64_t transfer_size_1d = 1;
+    int64_t transfer_size_1d_bit = 1;
 
     for (const auto i : arange(ref_loop.size())) {
-      transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
+      transfer_size_1d_bit =
+          transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
     }
 
     // If there isn't very much parallelism available, just use 1D scheduler
     if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
-      int64_t min_total_transfer = std::numeric_limits<int64_t>::max();
+      int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
       int64_t threads_per_warp =
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
@@ -395,30 +403,30 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           continue;
         }
 
-        auto lhs_byte_multiple =
-            broadcast_byte_multiples[break_point_i].lhs_multiple;
-        auto rhs_byte_multiple =
-            broadcast_byte_multiples[break_point_i].rhs_multiple;
+        auto lhs_bit_multiple =
+            broadcast_bit_multiples[break_point_i].lhs_multiple;
+        auto rhs_bit_multiple =
+            broadcast_bit_multiples[break_point_i].rhs_multiple;
 
         // Estimate transfer cost with this break point
-        int64_t cur_transfer_size = 1;
-        int64_t right_transfer_size = 1;
+        int64_t cur_transfer_size_bit = 1;
+        int64_t right_transfer_size_bit = 1;
 
         for (const auto left_i : arange(break_point_i)) {
-          cur_transfer_size =
-              cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
+          cur_transfer_size_bit =
+              cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
         }
 
         for (const auto right_i : arange(break_point_i, ref_loop.size())) {
-          right_transfer_size =
-              right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
+          right_transfer_size_bit =
+              right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
         }
-        cur_transfer_size *= right_transfer_size;
+        cur_transfer_size_bit *= right_transfer_size_bit;
 
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
-        if (cur_transfer_size >= min_total_transfer ||
-            cur_transfer_size * 10 >= transfer_size_1d * 9) {
+        if (cur_transfer_size_bit >= min_total_transfer_bit ||
+            cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
           continue;
         }
 
@@ -430,10 +438,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         }
 
         // If outer broadcast, or balanced broadcast:
-        if (lhs_byte_multiple <= rhs_byte_multiple &&
+        if (lhs_bit_multiple <= rhs_bit_multiple &&
             // If right transfer size is bigger than half of L2
-            at::cuda::getCurrentDeviceProperties()->l2CacheSize <
-                right_transfer_size * 2) {
+            at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
+                right_transfer_size_bit * 2) {
           // flip BIDx and BIDy bindings
           flip_grid_binding = true;
         } else {
@@ -453,7 +461,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
         // Use this break point
         break_point = static_cast<int>(break_point_i);
-        min_total_transfer = cur_transfer_size;
+        min_total_transfer_bit = cur_transfer_size_bit;
         right_elem_count = cur_right_elem_count;
 
         gdim_left = remainder_left;
@@ -461,7 +469,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         // when lhs byte multiple is smaller than rhs byte multiple,
         // there is broadcast in the lhs, which is outer broadcast.
-        is_outer_broadcast_dominated = lhs_byte_multiple < rhs_byte_multiple;
+        is_outer_broadcast_dominated = lhs_bit_multiple < rhs_bit_multiple;
       }
     }
   }
@@ -483,7 +491,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       fusion,
       break_point,
       total_blocks,
-      params->vectorization_factor * max_dtype_size_for_vectorization,
+      params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
 
@@ -514,8 +522,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
-            << "max_dtype_size_for_vectorization: "
-            << max_dtype_size_for_vectorization << "\n"
+            << "max_dtype_size_bit_for_vectorization: "
+            << max_dtype_size_bit_for_vectorization << "\n"
             << "unroll_factor_inner: " << params->unroll_factor_inner
             << std::endl
             << "unroll_factor_outer: " << params->unroll_factor_outer
@@ -527,7 +535,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
-    for (auto multiple : broadcast_byte_multiples) {
+    for (auto multiple : broadcast_bit_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
     }
@@ -541,11 +549,208 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   return params;
 }
 
+namespace {
+
+// This propagator checks that TransformPropagator will be able to properly
+// schedule the entire Fusion. To do so, it tracks logical IterDomains that are
+// introduced along the propagation path.
+//
+//  Example 1:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i0, i1 ]
+//    tv2 = neg(tv0)        // [ i0 ]
+//    tv3 = broadcast(tv2)  // [ i0, 1 ]
+//    tv4 = mul(tv3, tv1)   // [ i0, i1 ]
+//    addOutput(tv4)
+//
+//  In this example, the broadcast of tv2 is concretized when multiplying by
+//  tv1, which is 2D. If we propagate from tv2, then we introduce that
+//  broadcast dimension which is then concretized as i1, so we detect an
+//  unscheduled concrete ID. Note that this should not happen as tv2 will not be
+//  selected as a potential reference tensor.
+//
+//  Example 2:
+//
+//    addInput(tv0)         // [ i0, 1 ]
+//    addInput(tv1)         // [ i0, i1 ]
+//    tv2 = squeeze(tv0)    // [ i0 ]
+//    tv3 = neg(tv2)        // [ i0 ]
+//    tv4 = mul(tv0, tv1)   // [ i0, i1 ]
+//    addOutput(tv3)
+//    addOutput(tv4)
+//
+//  In this example, if we propagate from the output tv3, the backward
+//  propagation from tv2 to tv0 picks up a broadcast ID. The broadcast is
+//  concretized in the multiplication with tv1, so we have an unscheduled i1 ID
+//  in the output tv4. Note that tv2 should not be chosen as a reference tensor
+//  anyway as it does not have all concrete IDs.
+//
+//  Example 3:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i1 ]
+//    tv2 = broadcast(tv0)  // [ i0, 1 ]
+//    tv3 = broadcast(tv1)  // [ 1, i1 ]
+//    tv4 = mul(tv2, tv3)   // [ i0, i1 ]
+//    tv5 = broadcast(tv0)  // [ i0, 1 ]
+//    tv6 = broadcast(tv1)  // [ 1, i1 ]
+//    tv7 = add(tv5, tv6)   // [ i0, i1 ]
+//    addOutput(tv4)
+//    addOutput(tv7)
+//
+//  If we choose tv4 as the reference then a possible propagation path is
+//      4->2->0->5->7->6
+//      4->3->1
+//  The 2->0 propagation loses the broadcast dimension and then subsequently
+//  propagating 0->5->7 means we have concrete dimension i1 unscheduled in tv7,
+//  even though there is a scheduled i1 axis in the reference tensor tv4.
+//
+//  Example 4:
+//
+//    Suppose instead of creating new broadcasts, we reuse the broadcasts tv2
+//    and tv3:
+//
+//    addInput(tv0)         // [ i0 ]
+//    addInput(tv1)         // [ i1 ]
+//    tv2 = broadcast(tv0)  // [ i0, 1 ]
+//    tv3 = broadcast(tv1)  // [ 1, i1 ]
+//    tv4 = mul(tv2, tv3)   // [ i0, i1 ]
+//    tv7 = add(tv2, tv3)   // [ i0, i1 ]
+//    addOutput(tv4)
+//    addOutput(tv7)
+//
+//  Now the propagation may look like this instead:
+//      4->2->0
+//         2->7
+//      4->3->1
+//  None of these steps loses an ID that later is needed for scheduling, so
+//  hasUnscheduledConcreteIDs() returns false.
+class CoveredDomainPropagator : public MaxInfoSpanningTree::Propagator {
+ public:
+  void propagateC2P(TensorView* from, TensorView* to) override {
+    if (to->isFusionInput()) {
+      // We are not concerned with scheduling fusion inputs during transform
+      // propagation
+      return;
+    }
+    std::unordered_map<IterDomain*, IterDomain*> c2p =
+        PairwiseLogicalDomainMap(to, from)
+            .mapBroadcast(true)
+            .mapDifferentExtents(true)
+            .mapIndexedDomains(true)
+            .mapConsumerToProducer();
+    check(from->getMaybeRootDomain(), to->getLogicalDomain(), c2p);
+    if (to->hasRoot()) {
+      // propagate untracked property through root->logical transforms
+      for (Expr* e : std::ranges::views::reverse(StmtSort::getExprsBetween(
+               {to->getMaybeRootDomain().begin(),
+                to->getMaybeRootDomain().end()},
+               {to->getLogicalDomain().begin(),
+                to->getLogicalDomain().end()}))) {
+        bool has_unscheduled_output = std::any_of(
+            e->outputs().begin(), e->outputs().end(), [&](Val* out_val) {
+              auto* id = dynamic_cast<IterDomain*>(out_val);
+              return id && unscheduled_ids_.count(id);
+            });
+        if (has_unscheduled_output) {
+          for (Val* in_val : e->inputs()) {
+            unscheduled_ids_.insert(in_val->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+  void propagateP2C(TensorView* from, TensorView* to) override {
+    std::unordered_map<IterDomain*, IterDomain*> p2c =
+        PairwiseLogicalDomainMap(from, to)
+            .mapBroadcast(true)
+            .mapDifferentExtents(true)
+            .mapIndexedDomains(true)
+            .mapProducerToConsumer();
+    check(from->getLogicalDomain(), to->getMaybeRootDomain(), p2c);
+    if (to->hasRoot()) {
+      // propagate untracked property through root->logical transforms
+      for (Expr* e : StmtSort::getExprsBetween(
+               {to->getMaybeRootDomain().begin(),
+                to->getMaybeRootDomain().end()},
+               {to->getLogicalDomain().begin(),
+                to->getLogicalDomain().end()})) {
+        // TODO: should we exclude ID exprs other than Merge/Split here?
+        bool has_unscheduled_input =
+            std::ranges::any_of(e->inputs(), [&](Val* in_val) {
+              auto* id = dynamic_cast<IterDomain*>(in_val);
+              return id && unscheduled_ids_.count(id);
+            });
+        if (has_unscheduled_input) {
+          for (Val* out_val : e->outputs()) {
+            unscheduled_ids_.insert(out_val->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+  void propagateSibling(TensorView* from, TensorView* to) override {
+    // Siblings require no special consideration in this check
+  }
+
+  bool hasUnscheduledConcreteIDs() const {
+    for (IterDomain* id : unscheduled_ids_) {
+      if (!id->isBroadcast()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+ private:
+  void check(
+      const std::vector<IterDomain*>& from_domain,
+      const std::vector<IterDomain*>& to_domain,
+      const std::unordered_map<IterDomain*, IterDomain*>& f2t) {
+    std::unordered_set<IterDomain*> seen_to;
+    for (IterDomain* from_id : from_domain) {
+      auto it = f2t.find(from_id);
+      if (it != f2t.end()) {
+        IterDomain* to_id = it->second;
+        if (unscheduled_ids_.count(from_id)) {
+          unscheduled_ids_.insert(to_id);
+        }
+        seen_to.insert(to_id);
+      }
+    }
+    for (IterDomain* to_id : to_domain) {
+      if (!seen_to.count(to_id)) {
+        // This is a new ID introduced along the propagation path
+        unscheduled_ids_.insert(to_id);
+      }
+    }
+  }
+
+ private:
+  std::unordered_set<IterDomain*> unscheduled_ids_;
+};
+
+} // namespace
+
 //! Utility for canSchedule interface to check if this fusion has
 //!  a fully broadcasted reference tensor, which is necessary for
 //!  the pointwise scheduler.
 bool hasReferenceTensorView(Fusion* fusion) {
-  return pointwise_utils::getReferenceTensor(fusion) != nullptr;
+  TensorView* reference = pointwise_utils::getReferenceTensor(fusion);
+  if (reference == nullptr) {
+    return false;
+  }
+
+  // If we can find a reference TV, verify that propagation will not need to
+  // schedule any IDs that were lost along the propagation path
+  MaxLogicalDomainInfoSpanningTree tree(
+      reference,
+      /*selector=*/nullptr,
+      /*propagate_through_resize=*/true);
+  CoveredDomainPropagator propagator;
+  tree.traverse(&propagator);
+  return !propagator.hasUnscheduledConcreteIDs();
 }
 
 bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -643,11 +848,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
-  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
-
   NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
+  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 

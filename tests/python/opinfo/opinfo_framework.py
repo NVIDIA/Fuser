@@ -70,7 +70,7 @@ class create_op_test:
 # correctness tests to avoid calling FusionCache.reset().
 class atexit_serde_create_op_test(create_op_test):
     def __init__(self, opinfos, *, scope=None):
-        from nvfuser.testing.utils import atexit_serde_check
+        from python.utils import atexit_serde_check
 
         atexit_serde_check()
 

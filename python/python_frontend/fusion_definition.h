@@ -11,9 +11,9 @@
 #include <iostream>
 #include <unordered_map>
 
+#include <distributed_tensor.h>
 #include <exceptions.h>
 #include <multidevice/executor.h>
-#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_state.h>
 #include <python_frontend/segmentation.h>
 #include <visibility.h>
@@ -237,6 +237,11 @@ class NVF_API FusionDefinition : public FusionState {
   }
   // Returns the tolerances values based on reduction sizes.
   NVF_API std::vector<std::pair<double, double>> getValTolerances(
+      const KernelArgumentHolder& inputs);
+
+  // Validate the fusion outputs against auto inferred outputs.
+  NVF_API void validate_with_auto_inferred_outputs(
+      const KernelArgumentHolder& fusion_outputs,
       const KernelArgumentHolder& inputs);
 
   //! Return the unscheduled Fusion IR

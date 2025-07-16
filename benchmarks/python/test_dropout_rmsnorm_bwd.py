@@ -187,7 +187,7 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     fwd_fn = with_executor(executor, dropout_rmsnorm)
     fwd_inputs = [input1, input2, weights, dropout_p]

@@ -11,7 +11,7 @@ from nvfuser.pytorch_utils import DEVICE_PROPERTIES
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from nvfuser.benchmark_utils import TorchProfileTimer, FusionProfileTimer
+from nvfuser.benchmark_utils import FusionProfileTimer, CuptiTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -102,9 +102,8 @@ class NVFBenchmark:
                 Set explicitly to avoid timer calibration.
 
         Class members:
-            self.prof: torch.profiler instance used as by the custom torchprofile_timer for the current benchmark
-            self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
-            self.current_time: Global montonic clock incremented based on elapsed CUDA time
+            self.device: Device type -- "cuda" or "host"
+            self.benchmark: Underlying pytest-benchmark fixture
         """
         self.device = device
         self._setup_timer(benchmark_fixture, device, precision)
@@ -120,7 +119,7 @@ class NVFBenchmark:
             return
 
         # Timer selection based on device
-        timer_class = TorchProfileTimer if device == "cuda" else FusionProfileTimer
+        timer_class = CuptiTimer if device == "cuda" else FusionProfileTimer
         benchmark_fixture._timer = timer_class()
         # Externally set the precision to avoid timer calibration. Since the timer uses CUDA times,
         # calibration using subsequent timer calls produces invalid results.
@@ -135,9 +134,11 @@ class NVFBenchmark:
             return getattr(self.benchmark, attr)
         return super().__getattr__(attr)
 
-    # Set the fd object for fusion profiling.
-    # fd is returned by setup() for host benchmarking.
     def set_fd(self, fd):
+        """
+        Set the fd object for fusion profiling.
+        fd is returned by setup() for host benchmarking.
+        """
         if BENCHMARK_CONFIG["with_nsys"]:
             return
         assert isinstance(self._timer, FusionProfileTimer)
@@ -154,7 +155,7 @@ class NVFBenchmark:
         iobytes: int = None,
     ) -> None:
         """
-        Utility function to compute metrics for the target function.
+        Compute metrics for the target function when device = "cuda".
 
         Args:
             inputs: Inputs to the target function
@@ -320,17 +321,21 @@ def run_benchmark(
         return fd.execute(inputs, profile=not BENCHMARK_CONFIG["with_nsys"])
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-    outputs = nvf_benchmark.pedantic(
-        benchmark_fn,
-        setup=setup,
-        rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=warmup_rounds,
-    )
 
-    if device == "cuda":
-        # Record additional metrics (IOBytes, Bandwidth)
-        nvf_benchmark.set_metrics(inputs, outputs, iobytes)
-        # Stop torch.profiler instance
+    try:
+        outputs = nvf_benchmark.pedantic(
+            benchmark_fn,
+            setup=setup,
+            rounds=BENCHMARK_CONFIG["rounds"],
+            warmup_rounds=warmup_rounds,
+        )
+        if device == "cuda":
+            # Record additional metrics (IOBytes, Bandwidth)
+            nvf_benchmark.set_metrics(inputs, outputs, iobytes)
+        return outputs
+    except Exception as e:
+        raise RuntimeError(
+            f"Exception when running {benchmark_fn.__name__}: {e}"
+        ) from e
+    finally:
         nvf_benchmark.cleanup()
-
-    return outputs
