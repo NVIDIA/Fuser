@@ -2045,7 +2045,7 @@ def scaled_mm_input_generator(
         quantization = data_to_nvfp4
 
     for config in configs:
-        for out_dtype in [torch.float16, torch.bfloat_16]:
+        for out_dtype in [torch.float16, torch.bfloat16]:
             m, k, n = config
             mat1_ref = make_arg((m, k))
             mat2_ref = make_arg((n, k))
