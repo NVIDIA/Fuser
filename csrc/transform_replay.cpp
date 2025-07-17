@@ -17,11 +17,11 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
-#include <utils.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <transform_iter.h>
+#include <utils.h>
 
 #include <deque>
 
@@ -35,15 +35,6 @@ class ReplaySelf : public ReplayTransformations {
  private:
   // Took a good bit of this from ReplayTransformations::handle(Split...)
   void handle(Split* s) override {
-    // Debug: Log the split operation being replayed
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::handle(Split): " << s->toString() << std::endl;
-      debug() << "  Input: " << s->in()->toString() << std::endl;
-      debug() << "  Outer: " << s->outer()->toString() << std::endl;
-      debug() << "  Inner: " << s->inner()->toString() << std::endl;
-      debug() << "  Factor: " << s->factor()->toString() << std::endl;
-    }
-
     // Grab input to the split operation
     auto id_in = s->in();
 
@@ -51,9 +42,6 @@ class ReplaySelf : public ReplayTransformations {
     auto it = id_map_.find(id_in);
     if (it == id_map_.end()) {
       if (!error_on_failure_) {
-        if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-          debug() << "  Skipping split - input not found in mapping" << std::endl;
-        }
         return;
       }
       // Make sure it exists in the map
@@ -61,10 +49,6 @@ class ReplaySelf : public ReplayTransformations {
     }
     // Grab the ID we're going to replay on
     auto mapped = it->second;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Mapped input: " << mapped->toString() << std::endl;
-    }
 
     // This ID should be a loop ID (meaning it has no uses we generated)
     NVF_ERROR(
@@ -87,11 +71,6 @@ class ReplaySelf : public ReplayTransformations {
         s->outer()->getIterType(),
         s->inner()->getIterType());
 
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Created outer: " << ido->toString() << std::endl;
-      debug() << "  Created inner: " << idi->toString() << std::endl;
-    }
-
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
 
@@ -102,23 +81,9 @@ class ReplaySelf : public ReplayTransformations {
     // Update our ID map to include these outputs
     id_map_[s->outer()] = ido;
     id_map_[s->inner()] = idi;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Updated mapping:" << std::endl;
-      debug() << "    " << s->outer()->toString() << " -> " << ido->toString() << std::endl;
-      debug() << "    " << s->inner()->toString() << " -> " << idi->toString() << std::endl;
-    }
   }
 
   void handle(Merge* m) override {
-    // Debug: Log the merge operation being replayed
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::handle(Merge): " << m->toString() << std::endl;
-      debug() << "  Outer: " << m->outer()->toString() << std::endl;
-      debug() << "  Inner: " << m->inner()->toString() << std::endl;
-      debug() << "  Output: " << m->out()->toString() << std::endl;
-    }
-
     auto id_outer = m->outer();
     auto id_inner = m->inner();
 
@@ -126,20 +91,12 @@ class ReplaySelf : public ReplayTransformations {
     auto it_inner = id_map_.find(id_inner);
     if (it_outer == id_map_.end() || it_inner == id_map_.end()) {
       if (!error_on_failure_) {
-        if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-          debug() << "  Skipping merge - inputs not found in mapping" << std::endl;
-        }
         return;
       }
       NVF_THROW("Transform traversal failed, dependencies not met.");
     }
     auto id_outer_mapped = it_outer->second;
     auto id_inner_mapped = it_inner->second;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Mapped outer: " << id_outer_mapped->toString() << std::endl;
-      debug() << "  Mapped inner: " << id_inner_mapped->toString() << std::endl;
-    }
 
     NVF_ERROR(
         loop_ids_.find(id_outer_mapped) != loop_ids_.end() &&
@@ -152,10 +109,6 @@ class ReplaySelf : public ReplayTransformations {
 
     IterDomain* merged_id = IterDomain::merge(id_outer_mapped, id_inner_mapped);
 
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Created merged: " << merged_id->toString() << std::endl;
-    }
-
     // Remove inputs from the loop IDs
     loop_ids_.erase(id_outer_mapped);
     loop_ids_.erase(id_inner_mapped);
@@ -164,39 +117,17 @@ class ReplaySelf : public ReplayTransformations {
     loop_ids_[merged_id] = newCounter();
 
     id_map_[m->out()] = merged_id;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Updated mapping:" << std::endl;
-      debug() << "    " << m->out()->toString() << " -> " << merged_id->toString() << std::endl;
-    }
   }
 
   void handle(Swizzle* swizzle) override {
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::handle(Swizzle): " << swizzle->toString() << std::endl;
-      debug() << "  ERROR: Swizzle not supported in self replay" << std::endl;
-    }
     NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
   void handle(Swizzle2D* swizzle) override {
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::handle(Swizzle2D): " << swizzle->toString() << std::endl;
-      debug() << "  ERROR: Swizzle2D not supported in self replay" << std::endl;
-    }
     NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
   void handle(Resize* resize) override {
-    // Debug: Log the resize operation being replayed
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::handle(Resize): " << resize->toString() << std::endl;
-      debug() << "  Input: " << resize->in()->toString() << std::endl;
-      debug() << "  Output: " << resize->out()->toString() << std::endl;
-      debug() << "  Left expand: " << resize->leftExpand()->toString() << std::endl;
-      debug() << "  Right expand: " << resize->rightExpand()->toString() << std::endl;
-    }
-
     auto id_in = resize->in();
 
     auto it = id_map_.find(id_in);
@@ -207,10 +138,6 @@ class ReplaySelf : public ReplayTransformations {
       NVF_THROW("Transform traversal failed, dependencies not met.");
     }
     auto mapped = it->second;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Mapped input: " << mapped->toString() << std::endl;
-    }
 
     NVF_ERROR(
         loop_ids_.find(mapped) != loop_ids_.end(),
@@ -227,20 +154,11 @@ class ReplaySelf : public ReplayTransformations {
         resize->rightExpand(),
         resize_out_logical);
 
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Created resized: " << replayed_out->toString() << std::endl;
-    }
-
     loop_ids_.erase(mapped);
 
     loop_ids_[replayed_out] = newCounter();
 
     id_map_[resize->out()] = replayed_out;
-
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "  Updated mapping:" << std::endl;
-      debug() << "    " << resize->out()->toString() << " -> " << replayed_out->toString() << std::endl;
-    }
   }
 
  public:
@@ -249,44 +167,11 @@ class ReplaySelf : public ReplayTransformations {
       IterDomainMap id_map)
       : ReplayTransformations(target_domain, std::move(id_map)) {
     setErrorOnFailure(false);
-    
-    // Debug: Log the initialization
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::ReplaySelf initialized" << std::endl;
-      debug() << "  Target domain size: " << target_domain.size() << std::endl;
-      debug() << "  Initial mapping size: " << id_map.size() << std::endl;
-      debug() << "  Target domain: ";
-      for (auto id : target_domain) {
-        debug() << id->toString() << " ";
-      }
-      debug() << std::endl;
-      debug() << "  Initial mapping:" << std::endl;
-      for (auto& [key, value] : id_map) {
-        debug() << "    " << key->toString() << " -> " << value->toString() << std::endl;
-      }
-    }
   }
 
   // Override runReplay to add debug information
   void runReplay() {
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::runReplay starting" << std::endl;
-    }
-    
     ReplayTransformations::runReplay();
-    
-    if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
-      debug() << "ReplaySelf::runReplay completed" << std::endl;
-      debug() << "  Final mapping size: " << id_map_.size() << std::endl;
-      debug() << "  Final mapping:" << std::endl;
-      for (auto& [key, value] : id_map_) {
-        debug() << "    " << key->toString() << " -> " << value->toString() << std::endl;
-      }
-      debug() << "  Loop IDs size: " << loop_ids_.size() << std::endl;
-      for (auto& [id, counter] : loop_ids_) {
-        debug() << "    Loop ID " << counter << ": " << id->toString() << std::endl;
-      }
-    }
   }
 };
 
@@ -1281,12 +1166,6 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
   // skipped, or forwarded, so the matching here is done by skipping it.
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "TransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
         to, from, pos, TransformReplayOptions().skipTargetSwizzle());
@@ -1300,11 +1179,6 @@ void TransformPropagator::propagateC2P(TensorView* from, TensorView* to) {
         "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
-    if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1314,12 +1188,6 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "TransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
         to, from, pos, TransformReplayOptions().skipTargetSwizzle());
@@ -1333,11 +1201,6 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
         "producer position.");
     to->setDomain(replay.first);
     new_pos = replay.second;
-    if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << new_pos << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << new_pos << std::endl;
   }
   replayed_pos_[to] = new_pos;
 }
@@ -1345,12 +1208,6 @@ void TransformPropagator::propagateP2C(TensorView* from, TensorView* to) {
 void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
   int64_t pos = replayed_pos_.at(from);
   // See note [Using multiple TransformPropagators]
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "TransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << " @ " << pos << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
     NVF_ERROR(
@@ -1362,11 +1219,6 @@ void TransformPropagator::propagateSibling(TensorView* from, TensorView* to) {
         " but that would invalidate previously compute at position or max "
         "producer position.");
     to->setDomain(replay);
-    if (debug_print) {
-      debug() << "  replayed: " << to << " @ " << pos << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped. result position: " << pos << std::endl;
   }
   replayed_pos_[to] = pos;
 }
@@ -1382,12 +1234,6 @@ void MostInlinedTransformPropagator::propagateC2P(
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayPasC(to, from, pos, true);
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateC2P" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayPasC(
         to, from, pos, TransformReplayOptions().skipTargetSwizzle());
@@ -1400,11 +1246,6 @@ void MostInlinedTransformPropagator::propagateC2P(
         " but that would invalidate previously compute at position or max "
         "producer position.");
     to->setDomain(replay.first);
-    if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1415,12 +1256,6 @@ void MostInlinedTransformPropagator::propagateP2C(
   // See note [Using multiple TransformPropagators]
   int64_t new_pos =
       TransformReplay::getMatchedLeafPosWithoutReplayCasP(to, from, pos, true);
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateP2C" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (new_pos < 0) {
     auto replay = TransformReplay::replayCasP(
         to, from, pos, TransformReplayOptions().skipTargetSwizzle());
@@ -1433,11 +1268,6 @@ void MostInlinedTransformPropagator::propagateP2C(
         " but that would invalidate previously compute at position or max "
         "producer position.");
     to->setDomain(replay.first);
-    if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1445,12 +1275,6 @@ void MostInlinedTransformPropagator::propagateSibling(
     TensorView* from,
     TensorView* to) {
   // See note [Using multiple TransformPropagators]
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "MostInlinedTransformPropagator::propagateSibling" << std::endl;
-    debug() << "  from: " << from << std::endl;
-    debug() << "  to: " << to << std::endl;
-  }
   if (!TransformReplay::fullSelfMatching(to, from)) {
     auto replay = TransformReplay::fullSelfReplay(to->domain(), from->domain());
     NVF_ERROR(
@@ -1462,11 +1286,6 @@ void MostInlinedTransformPropagator::propagateSibling(
         " but that would invalidate previously compute at position or max "
         "producer position.");
     to->setDomain(replay);
-    if (debug_print) {
-      debug() << "  replayed: " << to << std::endl;
-    }
-  } else if (debug_print) {
-    debug() << "  replay skipped" << std::endl;
   }
 }
 
@@ -1580,131 +1399,44 @@ void selfReplayLoopToAllocation(TensorView* tv) {
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
 
-  bool debug_print = isDebugDumpEnabled(DebugDumpOption::TransformPropagator);
-  if (debug_print) {
-    debug() << "selfReplayLoopToAllocation called for: " << tv->toString() << std::endl;
-    debug() << "  Logical domain size: " << logical.size() << std::endl;
-    debug() << "  Allocation domain size: " << alloc.size() << std::endl;
-    debug() << "  Loop domain size: " << tv->getLoopDomain().size() << std::endl;
-    
-    debug() << "  Logical domain: ";
-    for (auto id : logical) {
-      debug() << id->toString() << " ";
-    }
-    debug() << std::endl;
-    
-    debug() << "  Allocation domain: ";
-    for (auto id : alloc) {
-      debug() << id->toString() << " ";
-    }
-    debug() << std::endl;
-    
-    debug() << "  Loop domain: ";
-    for (auto id : tv->getLoopDomain()) {
-      debug() << id->toString() << " ";
-    }
-    debug() << std::endl;
-  }
-
   NVF_ERROR(
       std::is_permutation(
           logical.begin(), logical.end(), alloc.begin(), alloc.end()),
       "should not call selfReplayLoopToAllocation on transformed allocation "
       "domain");
 
-  // If logical and loop domains are the same, no transformations to replay
-  if (logical == tv->getLoopDomain()) {
-    if (debug_print) {
-      debug() << "  No transformations to replay - logical and loop domains are identical" << std::endl;
-    }
-    return;
-  }
-
   // Create a mapping from logical domain to allocation domain
-  // Since they are permutations, we need to find the correct mapping
   IterDomainMap logical_to_alloc_map;
-  
-  // Create a set of allocation IDs for efficient lookup
-  std::unordered_set<IterDomain*> alloc_set(alloc.begin(), alloc.end());
-  
-  // For each logical ID, find its corresponding allocation ID
   for (auto logical_id : logical) {
     auto it = std::find(alloc.begin(), alloc.end(), logical_id);
-    NVF_ERROR(it != alloc.end(), 
-        "Could not find matching allocation ID for logical ID: ", logical_id);
+    NVF_ERROR(
+        it != alloc.end(),
+        "Could not find matching allocation ID for logical ID: ",
+        logical_id);
     logical_to_alloc_map[logical_id] = *it;
   }
 
-  if (debug_print) {
-    debug() << "  Created logical to allocation mapping:" << std::endl;
-    for (auto& [logical_id, alloc_id] : logical_to_alloc_map) {
-      debug() << "    " << logical_id->toString() << " -> " << alloc_id->toString() << std::endl;
-    }
-  }
-
   // Use ReplaySelf to replay the transformations from logical to loop domain
-  // onto the allocation domain. The target domain is the loop domain.
-  if (debug_print) {
-    debug() << "  Creating ReplaySelf with target domain (loop domain)" << std::endl;
-  }
-  
+  // onto the allocation domain.
+  // Happens within ReplaySelf in the following steps:
+  // 1. Given a loop domain, find the logical domain that poduces it.
+  // 2. Map the logical domain to the allocation domain.
+  // 3. Do the same transformation on the allocation domain.
+
   ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map);
 
-  // Get the replay results - this maps loop domain IDs to their replayed versions
-  const auto& replay_map = replay.getReplay();
-
-  if (debug_print) {
-    debug() << "  Replay map contains:" << std::endl;
-    for (auto& [loop_id, replayed_id] : replay_map) {
-      debug() << "    " << loop_id->toString() << " -> " << replayed_id->toString() << std::endl;
-    }
-  }
-
-  // Create new allocation domain by using the loop domain structure
-  // but with the replayed IDs from the allocation domain
+  // For each ID in the loop domain, find its replayed allocation domain
   std::vector<IterDomain*> new_alloc_domain;
   new_alloc_domain.reserve(tv->getLoopDomain().size());
-  
-  if (debug_print) {
-    debug() << "  Creating new allocation domain from loop domain structure:" << std::endl;
-  }
-  
-  // For each ID in the loop domain, find its replayed version
+  const auto& replay_map = replay.getReplay();
   for (auto loop_id : tv->getLoopDomain()) {
-    if (debug_print) {
-      debug() << "    Processing loop ID: " << loop_id->toString() << std::endl;
-    }
-    
     auto it = replay_map.find(loop_id);
-    NVF_ERROR(
-        it != replay_map.end(),
-        "failed to replay IterDomain: ",
-        loop_id);
-    
-    if (debug_print) {
-      debug() << "      Found replayed version: " << it->second->toString() << std::endl;
-    }
-    
-    // Preserve parallelization information from the loop domain
-    it->second->parallelize(loop_id->getParallelType());
+    NVF_ERROR(it != replay_map.end(), "failed to replay IterDomain: ", loop_id);
     new_alloc_domain.push_back(it->second);
   }
 
-  if (debug_print) {
-    debug() << "  New allocation domain: ";
-    for (auto id : new_alloc_domain) {
-      debug() << id->toString() << " ";
-    }
-    debug() << std::endl;
-  }
-
   // Update the allocation domain with the new replayed domains
-  // Preserve the existing contiguity flags
   tv->setAllocationDomain(new_alloc_domain, true);
-  
-  if (debug_print) {
-    debug() << "  Allocation domain updated successfully" << std::endl;
-  }
 }
 
 } // namespace nvfuser
