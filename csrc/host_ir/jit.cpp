@@ -376,10 +376,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
-
-    if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      printLlvmIr(builder_.GetInsertBlock()->getParent(), "LoadStoreOp");
-    }
   }
 
   // Allocate Function LLVM IR Generation
@@ -467,10 +463,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
          device_index_constant,
          raw_tensor_ptr});
     val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
-
-    if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      printLlvmIr(builder_.GetInsertBlock()->getParent(), "Allocate Function");
-    }
   }
 
   // Deallocation Function LLVM IR Generation
@@ -481,10 +473,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     builder_.CreateCall(
         delete_tensor_func,
         {val_to_value_.at(deallocate->buffer()->as<Val>())});
-    if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      printLlvmIr(
-          builder_.GetInsertBlock()->getParent(), "Deallocate Function");
-    }
   }
 
  private:
@@ -515,6 +503,9 @@ void HostIrJitImpl::compile() {
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     dispatcher.dispatch(expr);
+    if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
+      printLlvmIr(builder.GetInsertBlock()->getParent(), expr->getOpString());
+    }
   }
 
   // compile outputs in llvm ir
