@@ -534,9 +534,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
         return false;
       }
 
-      std::cout << "inner split factor is "
-                << inner_split->factor()->toInlineString() << std::endl;
-
       return true;
     };
 
