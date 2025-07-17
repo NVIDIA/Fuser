@@ -165,7 +165,13 @@ TEST_F(ReplayTest, LoopAndAllocation) {
   in->outer_split(0, d);
   in->setAllocationDomain(in->getLoopDomain(), true);
 
+  fusion.print();
+
   TransformReplay::selfReplay(in->domain(), out->domain());
+
+  fusion.print();
+
+  
   EXPECT_THAT(out->getLoopDomain(), SizeIs(2));
   EXPECT_THAT(out->getLoopDomain(), ContainerEq(out->getAllocationDomain()));
   EXPECT_THAT(out->getContiguity(), Each(Optional(IsTrue())));

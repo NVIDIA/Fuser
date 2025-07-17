@@ -319,4 +319,6 @@ struct MostInlinedTransformPropagator
 // TensorViews.
 Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 
+void selfReplayLoopToAllocation(TensorView* tv);
+
 } // namespace nvfuser

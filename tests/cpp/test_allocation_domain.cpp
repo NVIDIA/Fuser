@@ -1606,4 +1606,43 @@ TEST_F(AllocationDomainTest, CpAsyncBulk1d) {
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
+
+TEST_F(AllocationDomainTest, CpAsyncBulk1dAutoSchedule) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t x = 2L, y = 12L, z = 16L;
+  auto tv0 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0), tv0->axis(2)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  for (auto tv : fusion->allTvs()) {
+    // [2, 3, 4, 16]
+    tv->split(1, 4);
+  }
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
+
+  // AbstractTensor alloc_tensor(tv1->getAllocationDomain());
+  // alloc_tensor.split(0, 4);
+  // tv1->setAllocationDomain(alloc_tensor.as<IterDomain*>(), true);
+  selfReplayLoopToAllocation(tv1);
+
+  fusion->print();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
+  auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
