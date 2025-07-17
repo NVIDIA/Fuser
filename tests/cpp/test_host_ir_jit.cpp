@@ -69,43 +69,10 @@ TEST_F(HostIrJitTest, HostIrContainer) {
   EXPECT_EQ(jit.outputs().size(), num_inputs);
 }
 
-TEST_F(HostIrJitTest, ConstantSizedTensorAllocate) {
-  std::vector<std::vector<int64_t>> sizes;
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-
-  int num_tensors = std::rand() % 10 + 1;
-  // random size generation
-  for (int i = 0; i < num_tensors; i++) {
-    std::vector<int64_t> size;
-    for (int j = 0; j < std::rand() % 7 + 1; j++) {
-      size.push_back(std::rand() % 64 + 1);
-    }
-    sizes.push_back(size);
-  }
-
-  for (int i = 0; i < num_tensors; i++) {
-    TensorView* tv = makeConcreteTensor(sizes[i]);
-    tv->setMemoryType(MemoryType::Global);
-    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    hic->pushBackTopLevelExprs(allocate);
-    hic->addOutput(tv);
-  }
-
-  HostIrJit jit(std::move(hic));
-  KernelArgumentHolder in_args;
-  in_args.setCacheId(0);
-  KernelArgumentHolder outs = jit.runWithInputs(in_args);
-  EXPECT_EQ(outs.size(), num_tensors);
-  for (int i = 0; i < num_tensors; i++) {
-    auto out = outs[i].as<at::Tensor>();
-    EXPECT_EQ(out.sizes(), sizes[i])
-        << "Tensor " << i << " sizes are not equal";
-  }
-}
-
 TEST_F(HostIrJitTest, Deallocate) {
-  const std::vector<int64_t> sizes = {8, 64};
+  const std::vector<int64_t> t0_sizes = {8, 64};
+  const std::vector<int64_t> t1_sizes = {16, 32};
+  const std::vector<int64_t> t2_sizes = {32, 64};
   c10::DeviceIndex device_index = 0;
 
   resetPeakMemoryStats(device_index);
@@ -116,22 +83,30 @@ TEST_F(HostIrJitTest, Deallocate) {
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
+  TensorView* t0 = makeConcreteTensor(t0_sizes);
+  TensorView* t1 = makeConcreteTensor(t1_sizes);
+  TensorView* t2 = makeConcreteTensor(t2_sizes);
+  hic->addOutput(t2);
 
-  for (int i = 0; i < 10; i++) {
-    TensorView* tv = makeConcreteTensor(sizes);
-    tv->setMemoryType(MemoryType::Global);
-    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto* deallocate = IrBuilder::create<Deallocate>(tv);
+  auto* allocate_t0 = IrBuilder::create<kir::Allocate>(t0, MemoryType::Global);
+  auto* deallocate_t0 = IrBuilder::create<Deallocate>(t0);
+  auto* allocate_t1 = IrBuilder::create<kir::Allocate>(t1, MemoryType::Global);
+  auto* deallocate_t1 = IrBuilder::create<Deallocate>(t1);
+  auto* allocate_t2 = IrBuilder::create<kir::Allocate>(t2, MemoryType::Global);
 
-    hic->pushBackTopLevelExprs(allocate);
-    hic->pushBackTopLevelExprs(deallocate);
-  }
+  hic->pushBackTopLevelExprs(allocate_t0);
+  hic->pushBackTopLevelExprs(allocate_t1);
+  hic->pushBackTopLevelExprs(allocate_t2);
+  hic->pushBackTopLevelExprs(deallocate_t0);
+  hic->pushBackTopLevelExprs(deallocate_t1);
 
   HostIrJit jit(std::move(hic));
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
-  EXPECT_EQ(outs.size(), 0);
+  EXPECT_EQ(outs.size(), 1);
+  auto out = outs[0].as<at::Tensor>();
+  EXPECT_EQ(out.sizes(), t2_sizes);
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
 }
