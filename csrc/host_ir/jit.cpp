@@ -6,9 +6,9 @@
  */
 // clang-format on
 #include <bfs.h>
-#include <unordered_map>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 #include <instrumentation.h>
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
@@ -30,18 +30,18 @@
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h>
 
-#include <host_ir/jit.h>
 #include <host_ir/executor.h>
+#include <host_ir/jit.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ops/all_ops.h>
-#include <val_graph_visitor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
-using main_func_t = void(*)(const void**, void**);
+using main_func_t = void (*)(const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kNewTensorFuncName = "new_tensor";
@@ -119,7 +119,9 @@ llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
   return llvm::StructType::create(context, kAtTensorType)->getPointerTo();
 }
 
-llvm::ArrayType* getInt64StaticArrayType(llvm::LLVMContext& context, size_t size) {
+llvm::ArrayType* getInt64StaticArrayType(
+    llvm::LLVMContext& context,
+    size_t size) {
   return llvm::ArrayType::get(llvm::Type::getInt64Ty(context), size);
 }
 
@@ -265,7 +267,9 @@ void packOutputs(
   }
 }
 
-void compileFunctionDeclarations(llvm::Module* module, llvm::LLVMContext& context) {
+void compileFunctionDeclarations(
+    llvm::Module* module,
+    llvm::LLVMContext& context) {
   // get the types
   auto* void_type = getVoidType(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
@@ -275,8 +279,8 @@ void compileFunctionDeclarations(llvm::Module* module, llvm::LLVMContext& contex
   auto* tensor_ptr_type = getTensorPtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
-  auto* tensor_size_type = llvm::FunctionType::get(
-      int64_type, {tensor_ptr_type, int64_type}, false);
+  auto* tensor_size_type =
+      llvm::FunctionType::get(int64_type, {tensor_ptr_type, int64_type}, false);
   llvm::Function::Create(
       tensor_size_type,
       llvm::Function::ExternalLinkage,
@@ -284,8 +288,7 @@ void compileFunctionDeclarations(llvm::Module* module, llvm::LLVMContext& contex
       module);
 
   // new_tensor function: at::Tensor* new_tensor()
-  auto* new_tensor_type =
-      llvm::FunctionType::get(tensor_ptr_type, {}, false);
+  auto* new_tensor_type = llvm::FunctionType::get(tensor_ptr_type, {}, false);
   llvm::Function::Create(
       new_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -408,34 +411,27 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::ArrayType* strides_type =
         getInt64StaticArrayType(context, tensor_strides.size());
 
-    llvm::Value* sizes =
-        builder_.CreateAlloca(sizes_type, nullptr, "sizes");
+    llvm::Value* sizes = builder_.CreateAlloca(sizes_type, nullptr, "sizes");
     llvm::Value* strides =
         builder_.CreateAlloca(strides_type, nullptr, "strides");
 
     // Populate sizes array
     for (const auto [i, size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          sizes_type,
-          sizes,
-          {builder_.getInt32(0), builder_.getInt32(i)});
+          sizes_type, sizes, {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(size, gep);
     }
 
     // Populate strides array
     for (const auto [i, stride] : enumerate(tensor_strides)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          strides_type,
-          strides,
-          {builder_.getInt32(0), builder_.getInt32(i)});
+          strides_type, strides, {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(stride, gep);
     }
 
     // Convert arrays to pointers
-    llvm::Value* sizes_arg =
-        builder_.CreateBitCast(sizes, int64_ptr_type);
-    llvm::Value* strides_arg =
-        builder_.CreateBitCast(strides, int64_ptr_type);
+    llvm::Value* sizes_arg = builder_.CreateBitCast(sizes, int64_ptr_type);
+    llvm::Value* strides_arg = builder_.CreateBitCast(strides, int64_ptr_type);
 
     // Create array size arguments
     llvm::Value* shape_ndim_arg = builder_.getInt64(tensor_sizes.size());
@@ -482,9 +478,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Function* delete_tensor_func =
         module->getFunction(kDeleteTensorFuncName);
     builder_.CreateCall(
-        delete_tensor_func, {val_to_value_.at(deallocate->buffer()->as<Val>())});
+        delete_tensor_func,
+        {val_to_value_.at(deallocate->buffer()->as<Val>())});
     if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
-      printLlvmIr(builder_.GetInsertBlock()->getParent(), "Deallocate Function");
+      printLlvmIr(
+          builder_.GetInsertBlock()->getParent(), "Deallocate Function");
     }
   }
   // Not handled instructions automatically trigger an error.
@@ -506,8 +504,8 @@ void HostIrJitImpl::compile() {
   compileFunctionDeclarations(module.get(), *context);
 
   // Create entry block and set insertion point
-  llvm::BasicBlock* entry =
-      llvm::BasicBlock::Create(*context, "entry", module->getFunction(kMainFuncName));
+  llvm::BasicBlock* entry = llvm::BasicBlock::Create(
+      *context, "entry", module->getFunction(kMainFuncName));
   builder.SetInsertPoint(entry);
 
   // compile inputs in llvm ir
@@ -641,7 +639,12 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
   for (auto [in_val, arg] : zip(container_->inputs(), args)) {
-    NVF_ERROR(arg.is<at::Tensor>(), "Unsupported argument type: ", arg, " for input ", in_val);
+    NVF_ERROR(
+        arg.is<at::Tensor>(),
+        "Unsupported argument type: ",
+        arg,
+        " for input ",
+        in_val);
     input_aten_tensors.push_back(&arg.as<at::Tensor>());
   }
 
@@ -651,8 +654,14 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for (const auto [output, tensor_ptr] : zip(container_->outputs(), output_aten_tensors)) {
-    NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output, " for output ", output);
+  for (const auto [output, tensor_ptr] :
+       zip(container_->outputs(), output_aten_tensors)) {
+    NVF_ERROR(
+        output->isA<TensorView>(),
+        "Unsupported output type: ",
+        output,
+        " for output ",
+        output);
     // Cast void* to at::Tensor* first, then dereference
     at::Tensor* aten_tensor_ptr = static_cast<at::Tensor*>(tensor_ptr);
     outputs.push(*aten_tensor_ptr);
