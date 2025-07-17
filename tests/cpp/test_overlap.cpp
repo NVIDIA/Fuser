@@ -214,9 +214,36 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
   in->axis(0)->parallelize(ParallelType::Stream);
 }
 
-// TODO: add tests for row-wise parallel linear without sequence parallelism
+using CollectiveBasedOverlapTest = NVFuserTest;
 
-// TODO: add tests for collective-based overlapping for which layouts are in
-// favor
+TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
+  constexpr int64_t h = 12288;
+  constexpr int64_t d = 2;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeContigConcreteTensor({-1, h * 4}, DataType::BFloat16);
+  TensorView* w = makeContigConcreteTensor({h, h * 4}, DataType::BFloat16);
+  TensorView* out = linear(in, w, nullptr);
+
+  fusion->addInput(out);
+  fusion->addInput(w);
+  fusion->addOutput(in);
+
+  const auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, w, out}) {
+    tv->setDeviceMesh(mesh);
+  }
+
+  in->outer_split(1, d);
+  in->axis(1)->parallelize(ParallelType::DIDx);
+  w->outer_split(1, d);
+  w->axis(1)->parallelize(ParallelType::DIDx);
+  out->outer_split(-1, d);
+  out->axis(-2)->parallelize(ParallelType::DIDx);
+
+  out->outer_split(0, d);
+  out->axis(0)->parallelize(ParallelType::Stream);
+}
 
 } // namespace nvfuser
