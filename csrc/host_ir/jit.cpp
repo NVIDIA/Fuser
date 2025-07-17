@@ -13,7 +13,6 @@
 #include <memory>
 #include <unordered_map>
 
-#include <instrumentation.h>
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
@@ -42,6 +41,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
+#include <instrumentation.h>
 
 namespace nvfuser {
 
