@@ -9102,7 +9102,7 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
 }
 
-TEST_F(NVFuserTest, SyncthreadsWithGmem) {
+TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -9125,7 +9125,14 @@ TEST_F(NVFuserTest, SyncthreadsWithGmem) {
   tv2->axis(0)->parallelize(ParallelType::TIDy);
   tv2->axis(1)->parallelize(ParallelType::TIDx);
 
-  fusion.printKernel();
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  auto kernel = gpulw.kernel();
+  const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+  EXPECT_TRUE(std::any_of(
+      exprs.begin(), exprs.end(), [](Expr* expr) {
+        return expr->isA<BlockSync>();
+      }));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
