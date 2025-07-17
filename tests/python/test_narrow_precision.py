@@ -39,6 +39,19 @@ from python.utils import (
 )
 import pytest
 
+def blockscaling_factor_tiling(b_sf):
+    sf_m, sf_k = b_sf.shape
+    assert sf_m % 128 == 0
+    assert sf_k % 4 == 0
+    m_tile = sf_m / 128
+    k_tile = sf_k / 4
+    # m/32/4, 4(m), 32(m), k/4, 4(k)
+    b_sf = b_sf.reshape(m_tile, 4, 32, k_tile, 4)
+    # permute to the block below 
+    # m/4/32, k/4, 32(m), 4(m), 4(k)
+    # return as flattened (sf_m, sf_k)
+    return b_sf.permute(0, 3, 2, 1, 4).reshape(sf_m, sf_k)
+    return b_sf.flatten().reshape(sf_m, sf_k)
 
 def nvfp4_quantize(x):
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(torch.float32)
@@ -81,4 +94,5 @@ def test_scaled_mm(
         nvfuser_fusion_id0(fd)
 
     o = fd.execute(inputs)[0]
-    breakpoint()
+
+    ref_o = mat1 @ mat2
