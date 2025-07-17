@@ -225,7 +225,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // iS6{2} is found directly by pointer comparison.
     // iS15{3} is found by IdModel.
     IterDomain* shouldExcludeAllocationDomain(
-        IterDomain * id,
+        IterDomain* id,
         const std::unordered_set<IterDomain*>& exclude_ca_ids) {
       // First try exact pointer comparison
       auto exclude_it = exclude_ca_ids.find(id);
