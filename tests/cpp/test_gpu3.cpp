@@ -9129,10 +9129,9 @@ TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
   gpulw.run();
   auto kernel = gpulw.kernel();
   const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
-  EXPECT_TRUE(std::any_of(
-      exprs.begin(), exprs.end(), [](Expr* expr) {
-        return expr->isA<kir::BlockSync>();
-      }));
+  EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+    return expr->isA<kir::BlockSync>();
+  }));
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

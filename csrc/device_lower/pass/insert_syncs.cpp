@@ -594,15 +594,14 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // some ops, such as TMA, uses mbarrier based completion mechanism,
         // and the wait of mbarrier will automatically makes block in sync.
         // So we need to skip the block sync in this case.
-        if (
-          std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return !val->isA<TensorView>() ||
-                    !ir_utils::isMemorySharedAcross(
-                         val->as<TensorView>()->getMemoryType(),
-                         ParallelType::TIDx) ||
-                    ir_utils::isCpAsyncBulkLoad(val->definition());
-              })) {
+        if (std::all_of(
+                expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                  return !val->isA<TensorView>() ||
+                      !ir_utils::isMemorySharedAcross(
+                          val->as<TensorView>()->getMemoryType(),
+                          ParallelType::TIDx) ||
+                      ir_utils::isCpAsyncBulkLoad(val->definition());
+                })) {
           return;
         }
       }
