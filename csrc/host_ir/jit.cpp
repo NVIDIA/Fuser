@@ -29,10 +29,8 @@
 
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h>
-#include <host_ir/jit.h>
 
-#include <fusion.h>
-#include <global_allocator.h>
+#include <host_ir/jit.h>
 #include <host_ir/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -271,14 +269,14 @@ void compileFunctionDeclarations(llvm::Module* module, llvm::LLVMContext& contex
   // get the types
   auto* void_type = getVoidType(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
-  auto* int64_t_type = llvm::Type::getInt64Ty(context);
+  auto* int64_type = llvm::Type::getInt64Ty(context);
   auto* int64_ptr_type = getInt64PtrType(context);
-  auto* int32_t_type = llvm::Type::getInt32Ty(context);
+  auto* int32_type = llvm::Type::getInt32Ty(context);
   auto* tensor_ptr_type = getTensorPtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   auto* tensor_size_type = llvm::FunctionType::get(
-      int64_t_type, {tensor_ptr_type, int64_t_type}, false);
+      int64_type, {tensor_ptr_type, int64_type}, false);
   llvm::Function::Create(
       tensor_size_type,
       llvm::Function::ExternalLinkage,
@@ -310,11 +308,11 @@ void compileFunctionDeclarations(llvm::Module* module, llvm::LLVMContext& contex
   auto* empty_strided_cuda_type = llvm::FunctionType::get(
       void_type,
       {int64_ptr_type,
-       int64_t_type,
+       int64_type,
        int64_ptr_type,
-       int64_t_type,
-       int32_t_type,
-       int64_t_type,
+       int64_type,
+       int32_type,
+       int64_type,
        tensor_ptr_type},
       false);
   llvm::Function::Create(
