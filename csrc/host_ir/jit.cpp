@@ -340,6 +340,7 @@ void compileFunctionDeclarations(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 }
 
+// Not handled instructions automatically trigger an error.
 class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
@@ -485,7 +486,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
           builder_.GetInsertBlock()->getParent(), "Deallocate Function");
     }
   }
-  // Not handled instructions automatically trigger an error.
+
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
