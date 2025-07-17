@@ -848,11 +848,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
-  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
-
   NVF_ERROR(
       reference_tv != nullptr,
       "Could not find a fully broadcasted output to reference schedule on.");
+  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 

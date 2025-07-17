@@ -19,7 +19,7 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tests/cpp/utils.h>
@@ -485,7 +485,7 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
@@ -514,7 +514,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   b->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -544,7 +544,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   c->axis(1)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {

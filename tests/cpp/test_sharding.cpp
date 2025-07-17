@@ -12,8 +12,8 @@
 #include <multidevice/executor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/utils.h>
@@ -153,7 +153,7 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(&fusion);
+      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<
       preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   preseg_passes::OptimizationPass<

@@ -877,7 +877,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //     mbarrier::init(...);
 //   }
 // }
-Expr* initializeMbarrier(
+Expr* initializeCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -950,7 +950,7 @@ Expr* initializeMbarrier(
 //     mbarrier::inval(...);
 //   }
 // }
-Expr* invalidateMbarrier(
+Expr* invalidateCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -1400,13 +1400,13 @@ class AllocationInserter : public kir::ExprMutator {
     ExprMutator::handle(fl);
 
     // If fl is a circular buffered loop, the we should lowering the loop as:
-    //    alloc mbarrier
-    //    init mbarrier
+    //    alloc cb_mbarrier
+    //    init cb_mbarrier
     //    block_sync
     //    for-loop with cpAsyncBulk expression (the `fl` parameter)
-    //    inval mbarrier
+    //    inval cb_mbarrier
 
-    auto circular_buffer_tvs =
+    std::unordered_set<const TensorView*> circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
     bool circular_buffer_load_is_tma = std::any_of(
@@ -1421,7 +1421,7 @@ class AllocationInserter : public kir::ExprMutator {
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
-      const auto& opt =
+      const CircularBufferOptions& cb_opt =
           GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               fl->iter_domain());
 
@@ -1429,25 +1429,26 @@ class AllocationInserter : public kir::ExprMutator {
       // of the TMA load of the circular buffer tensor, and
       // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
       // the reading of the circular buffer tensor.
-      int64_t num_mbarriers =
-          opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
+      int64_t num_cb_mbarriers =
+          cb_opt.usesMBarrierForWAR() ? cb_opt.stage * 2 : cb_opt.stage;
 
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{num_mbarriers})
-                                 .dtype(DataType::UInt64)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
+      TensorView* cb_mbarrier =
+          TensorViewBuilder()
+              .shape(std::vector<int64_t>{num_cb_mbarriers})
+              .dtype(DataType::UInt64)
+              .contiguity(true)
+              .build();
+      cb_mbarrier->setMemoryType(MemoryType::Shared);
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      kir::Allocate* cb_mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(cb_mbarrier, MemoryType::Shared);
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto mbarrier_init_raw = initializeMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
-      auto mbarrier_inval_raw = invalidateMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_init_raw = initializeCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_inval_raw = invalidateCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -1455,42 +1456,61 @@ class AllocationInserter : public kir::ExprMutator {
       // Add mbarriers, init, and inval operations around tma expression like
       // this:
       //
-      // __shared__ mbarrier[num_stages];
+      // __shared__ cb_mbarrier[num_stages];
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for RAW
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for WAR
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // block_sync();
       //
       // for (circular_buffer_loop) {
-      //   cp.async.bulk(data, mbarrier);
+      //   cp.async.bulk(data, cb_mbarrier);
       // }
       //
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for WAR
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for RAW
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init_raw, current_scope);
-      registerInsertAfter(fl, mbarrier_inval_raw, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_alloc, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_init_raw, current_scope);
+      registerInsertAfter(fl, cb_mbarrier_inval_raw, current_scope);
 
-      if (opt.usesMBarrierForWAR()) {
-        auto mbarrier_init_war = initializeMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        auto mbarrier_inval_war = invalidateMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        registerInsertBefore(fl, mbarrier_init_war, current_scope);
-        registerInsertAfter(fl, mbarrier_inval_war, current_scope);
+      // If this is a ping-pong hopper, then we need to create and allocate
+      // ping-pong mbarriers.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              fl->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto
+            [ping_pong_mbarrier_alloc,
+             ping_pong_mbarrier_init_raw,
+             ping_pong_mbarrier_inval_raw] =
+                ping_pong_mbarriers->createPingPongMbarrier();
+        NVF_ERROR(ping_pong_mbarrier_alloc != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_init_raw != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_inval_raw != nullptr);
+        registerInsertBefore(fl, ping_pong_mbarrier_alloc, current_scope);
+        registerInsertBefore(fl, ping_pong_mbarrier_init_raw, current_scope);
+        registerInsertAfter(fl, ping_pong_mbarrier_inval_raw, current_scope);
+      }
+
+      if (cb_opt.usesMBarrierForWAR()) {
+        auto cb_mbarrier_init_war = initializeCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        auto cb_mbarrier_inval_war = invalidateCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        registerInsertBefore(fl, cb_mbarrier_init_war, current_scope);
+        registerInsertAfter(fl, cb_mbarrier_inval_war, current_scope);
       }
       registerInsertBefore(fl, sync, current_scope);
 
@@ -1500,7 +1520,7 @@ class AllocationInserter : public kir::ExprMutator {
           continue;
         }
         // Map LoadStoreOp expression to ir nodes created in this pass
-        GpuLower::current()->mbarrierMap()[tv->definition()] = mbarrier;
+        GpuLower::current()->mbarrierMap()[tv->definition()] = cb_mbarrier;
       }
     }
   }
