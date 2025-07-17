@@ -47,6 +47,7 @@ def nvfp4_quantize(x):
     return x_u8, x_scale, x_global_scale
 
 
+# cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(is_pre_blackwell(), reason="Only supported on blackwell and newer devices.")
 @pytest.mark.parametrize("config", [[128,256,512], [128,256,512]])
 @pytest.mark.parametrize("out_dtype", [torch.float16, torch.bfloat_16])
