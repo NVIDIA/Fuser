@@ -588,6 +588,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
+      std::cout << "sync_bitmap: " << sync_bitmap.toString() << std::endl;
       if (!sync_bitmap.hasBID() &&
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
@@ -596,6 +597,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
+        std::cout << "skip sync" << std::endl;
         return;
       }
 
