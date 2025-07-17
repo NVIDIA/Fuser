@@ -166,6 +166,16 @@ class AllocationDomainSetup : private kir::IrVisitor {
     if (exclude_it != exclude_ca_ids.end()) {
       return *exclude_it;
     }
+    // Fallback: use IdModel to check if any excluded ID is mapped
+    if (GpuLower::current()->hasIdModel()) {
+      const auto& exact_graph =
+          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      for (auto exclude_id : exclude_ca_ids) {
+        if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
+          return exclude_id;
+        }
+      }
+    }
     return nullptr;
   }
 
