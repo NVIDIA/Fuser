@@ -15,14 +15,8 @@ if torch.cuda.get_device_capability() < (10, 0):
 
 from nvfuser.testing.reduced_precision import (
   FLOAT4_E2M1_MAX,
-  FLOAT8_E4M3_EPS,
   FLOAT8_E4M3_MAX,
-  kE2M1ToFloatArray,
-  e2m1_to_fp32,
-  unpack_fp4_bytes,
-  convert_swizzled_to_linear,
   dequantize_to_dtype,
-  to_fp4,
   pytorch_nvfp4_quantize,
 )
 
