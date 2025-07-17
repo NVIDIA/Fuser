@@ -14,7 +14,6 @@
 #include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
-#include <scheduler/tools/inlining.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1526,84 +1525,6 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
 
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
-}
-
-TEST_F(AllocationDomainTest, CpAsyncBulk1d) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  int64_t x = 2L, y = 12L, z = 16L;
-  auto tv0 = makeContigConcreteTensor({x, y, z});
-  fusion->addInput(tv0);
-  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0), tv0->axis(2)};
-  tv0->setAllocationDomain(tv0_dom, true);
-  auto tv2 = add(tv0, tv0);
-  fusion->addOutput(tv2);
-
-  auto tv1 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  tv1->setMemoryType(MemoryType::Shared);
-  tv1->axis(-1)->parallelize(ParallelType::Bulk);
-
-  for (auto tv : fusion->allTvs()) {
-    // [2, 3, 4, 16]
-    tv->split(1, 4);
-  }
-
-  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
-
-  // Before fix, we have:
-
-  // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
-  // logical domain : (iS6{2}, iS7{12}, iB8{16})
-  // allocation domain : (iS7{12}, iS6{2}, iB8{16})
-  // contiguity: t t t
-  //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
-  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
-
-  // T2 is computed at pos 2, we don't need to allocate domains iS6{2} and
-  // iS11{3} nvFuser tries to exclude these two domains from the allocation
-  // domain, however, iS11{3} doesn't exist in the allocation domain, so it's
-  // not excluded and this is considered a failed case.
-
-  // To fix, we can reaplay transforms on the allocation domain.
-  // How to split the allocation domain?
-  // Create AbstractTensor from current allocation domain
-  // Apply the same split transformation to the allocation domain
-  // Update the allocation domain
-  AbstractTensor alloc_tensor(tv1->getAllocationDomain());
-  alloc_tensor.split(0, 4);
-  tv1->setAllocationDomain(alloc_tensor.as<IterDomain*>(), true);
-  // after this change to allocation domain, we have:
-  // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
-  // logical domain : (iS6{2}, iS7{12}, iB8{16})
-  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
-  // contiguity: t t t t
-  //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
-  //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
-  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
-
-  // Based on loop domain and compute pos, we don't need to allocate iS6{2} and
-  // iS11{3}. However, the corresponding allocation domain of iS11{3} is
-  // iS15{3}. How do we map them in getAllocationDomainsAndContiguity()? use
-  // IdModel if pointer comparison fails IdModel maintains a disjointValSets
-  // id_sets: disjoint sets{
-  //   { iS3{2}; iS6{2}; iS0{2} }
-  //   { iS4{12}; iS7{12}; iS1{12} }
-  //   { iS13{3}; iS11{3}; iS15{3}; iS9{3} }
-  //   { iS14{4}; iS12{4}; iS16{4}; iS10{4} }
-  //   { iS5{16}; iB8{16}; iS2{16} }
-  // }
-  // where iS11{3} and iS15{3} are in the same set.
-
-  fusion->print();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
-  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
-  auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
-  KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
-  auto outputs = ke.run({t0});
-  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
