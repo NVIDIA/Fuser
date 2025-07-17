@@ -6215,14 +6215,6 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
     DataType in_dtype = matrix1()->dtype();
 
-    // TODO: check for contiguity
-    // nvfp4_scaled_mm expected Byte input dtype for fp4
-    if (in_dtype == DataType::Float4_e2m1fn ||
-        in_dtype == DataType::Float4_e2m1fn_x2) {
-      mat1_view = mat1_view.view(at::ScalarType::Byte);
-      mat2_view = mat2_view.view(at::ScalarType::Byte);
-    }
-
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
     if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
       bool cutlass_can_run = true;
