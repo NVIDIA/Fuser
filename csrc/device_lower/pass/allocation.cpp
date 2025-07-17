@@ -237,7 +237,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
     // Helper function to collect loop domains that should be excluded
     std::unordered_set<IterDomain*> collectExcludedLoopDomains(
-        TensorView * tv, int64_t allocation_pos) {
+        TensorView* tv, int64_t allocation_pos) {
       std::unordered_set<IterDomain*> exclude_ca_ids;
       for (auto i : arange(allocation_pos)) {
         auto ca_id = tv->axis(i);
