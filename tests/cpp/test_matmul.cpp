@@ -5704,7 +5704,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  constexpr int64_t M = 4096, N = 3584, K = 512;
+  constexpr int64_t M = 8192, N = 8192, K = 8192;
   const auto dtype = DataType::BFloat16;
 
   auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
