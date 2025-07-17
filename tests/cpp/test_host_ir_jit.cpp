@@ -89,7 +89,6 @@ TEST_F(HostIrJitTest, Deallocate) {
   t1->setMemoryType(MemoryType::Global);
   TensorView* t2 = makeConcreteTensor(t2_sizes);
   t2->setMemoryType(MemoryType::Global);
-  hic->addOutput(t2);
 
   auto* allocate_t0 = IrBuilder::create<kir::Allocate>(t0, MemoryType::Global);
   auto* deallocate_t0 = IrBuilder::create<Deallocate>(t0);
@@ -103,13 +102,17 @@ TEST_F(HostIrJitTest, Deallocate) {
   hic->pushBackTopLevelExprs(deallocate_t0);
   hic->pushBackTopLevelExprs(deallocate_t1);
 
-  HostIrJit jit(std::move(hic));
-  KernelArgumentHolder in_args;
-  in_args.setCacheId(0);
-  KernelArgumentHolder outs = jit.runWithInputs(in_args);
-  EXPECT_EQ(outs.size(), 1);
-  auto out = outs[0].as<at::Tensor>();
-  EXPECT_EQ(out.sizes(), t2_sizes);
+  hic->addOutput(t2);
+  // we want check if the memory is completely freed after output tensor is out
+  // of scope
+  {
+    HostIrJit jit(std::move(hic));
+    KernelArgumentHolder in_args;
+    in_args.setCacheId(0);
+    KernelArgumentHolder outs = jit.runWithInputs(in_args);
+    EXPECT_EQ(outs.size(), 1);
+    EXPECT_EQ(outs[0].as<at::Tensor>().sizes(), t2_sizes);
+  }
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
 }
