@@ -252,7 +252,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // select domains from allocation domain that should be allocated
     std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
     usePresetAllocationDomain(
-        TensorView * tv, const std::vector<ForLoop*>& for_loops) {
+        TensorView* tv, const std::vector<ForLoop*>& for_loops) {
       if (tv->getMemoryType() == MemoryType::Global) {
         auto allocation_domains = tv->getAllocationDomain();
         auto contiguity = tv->domain()->contiguity();
