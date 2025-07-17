@@ -1528,7 +1528,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplit_Symbolic) {
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, CpAsyncBulk1d) {
+TEST_F(AllocationDomainTest, ManualReplayLoopToAllocation) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1607,7 +1607,7 @@ TEST_F(AllocationDomainTest, CpAsyncBulk1d) {
 }
 
 
-TEST_F(AllocationDomainTest, CpAsyncBulk1dAutoSchedule) {
+TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1629,10 +1629,6 @@ TEST_F(AllocationDomainTest, CpAsyncBulk1dAutoSchedule) {
   }
 
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
-
-  // AbstractTensor alloc_tensor(tv1->getAllocationDomain());
-  // alloc_tensor.split(0, 4);
-  // tv1->setAllocationDomain(alloc_tensor.as<IterDomain*>(), true);
   selfReplayLoopToAllocation(tv1);
 
   fusion->print();
