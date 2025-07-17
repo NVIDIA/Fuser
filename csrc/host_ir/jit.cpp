@@ -826,7 +826,7 @@ void dispatchAllocate(
 
   // Create output tensor
   llvm::Value* raw_tensor_ptr = builder.CreateCall(
-      mod->getFunction(kAllocateTensorFuncName), {}, "out_tensor");
+      mod->getFunction(kNewTensorFuncName), {}, "out_tensor");
 
   // Create constants for type and device from params
   at::ScalarType data_type = data_type_to_aten(
@@ -840,7 +840,7 @@ void dispatchAllocate(
 
   // Configure output tensor
   llvm::Function* at_empty_strided_cuda_func =
-      mod->getFunction(kHostIrJitEmptyStridedCudaFuncName);
+      mod->getFunction(kAtEmptyStridedCudaWrapper);
 
   // Call at::native::empty_strided_cuda with the computed arguments
   builder.CreateCall(
@@ -866,10 +866,9 @@ void dispatchDeallocate(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   auto mod = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* deallocate_tensor_func =
-      mod->getFunction(kDeallocateTensorFuncName);
+  llvm::Function* delete_tensor_func = mod->getFunction(kDeleteTensorFuncName);
   builder.CreateCall(
-      deallocate_tensor_func, {val_to_value[deallocate->buffer()->as<Val>()]});
+      delete_tensor_func, {val_to_value[deallocate->buffer()->as<Val>()]});
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     auto* func = builder.GetInsertBlock()->getParent();
     llvm::outs() << "=== LLVM IR After Generating Deallocate Function ===\n";
@@ -898,11 +897,10 @@ void dispatchLoadStoreOp(
   llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Value* in_tensor = it->second;
 
-  // allocate a new tensor
-  llvm::Function* allocate_tensor_func =
-      mod->getFunction(kAllocateTensorFuncName);
+  // create a new tensor
+  llvm::Function* new_tensor_func = mod->getFunction(kNewTensorFuncName);
   llvm::Value* out_tensor =
-      builder.CreateCall(allocate_tensor_func, {}, "out_tensor_raw");
+      builder.CreateCall(new_tensor_func, {}, "out_tensor_raw");
 
   // set the output tensor to the input tensor
   llvm::Function* set_tensor_func = mod->getFunction(kSetTensorFuncName);
@@ -1094,7 +1092,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         it != val_to_value_.end(), "input tensor is not found in val_to_value");
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::Value* in_tensor = it->second;
-    // allocate a new tensor
+    // create a new tensor
     llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
     llvm::Value* out_tensor =
         builder_.CreateCall(new_tensor_func, {}, "out_tensor");
@@ -1107,7 +1105,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[out_tv] = out_tensor;
   }
 
-  // Allocate Function LLVM IR Generation
+  // Create Function LLVM IR Generation
   void handle(kir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
