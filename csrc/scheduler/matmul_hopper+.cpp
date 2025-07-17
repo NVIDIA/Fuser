@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/analysis/circular_buffer.h>
+#include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <id_model/schedule.h>
 #include <instrumentation.h>
@@ -154,10 +155,6 @@ void HopperPlus::validate() const {
       "Hopper+ matmul scheduler does not support distributing stages across "
       "SMs a la stream-K");
 
-  NVF_CHECK(
-      isCooperative(),
-      "Hopper+ matmul scheduler only supports cooperatively buffering at the "
-      "CTA level (no ping-pong)");
   if (isCooperative()) {
     NVF_CHECK(
         params_->tile_sizes.cta_tile.m % params_->tile_sizes.warp_tile.m == 0,
@@ -632,7 +629,34 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 
       const int64_t num_clusters =
           matmul_utils::getMaxActiveClusters(params_->cluster_dims);
-      tv->split(num_device_dims_, num_clusters);
+      if (isCooperative()) {
+        // outer, cga_m, cga_n
+        tv->split(num_device_dims_, num_clusters);
+        // outer/num_cgas, num_cgas, cga_m, cga_n
+      } else {
+        // Schedule TensorViews for Ping-Pong schedule; Only for Hopper
+        // Create iterDomain for the number of compute warp groups
+        // Parallelize all TensorViews except TMA Loads with ParallelType::TIDy
+        constexpr int64_t num_compute_warp_groups = 2;
+        int64_t outer_split = num_clusters * num_compute_warp_groups;
+
+        // outer, cga_m, cga_n
+        tv->split(num_device_dims_, outer_split);
+        // outer / (num_cgas * num_wgs), (num_cgas * num_wgs), cga_m, cga_n
+
+        tv->split(num_device_dims_ + 1, num_clusters);
+        // outer / (num_cgas * num_wgs), num_wgs, num_cgas, cga_m, cga_n
+
+        if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::TIDy);
+        }
+        // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas, cga_m, cga_n
+
+        // Reorder so num_cgas, cga_m, and cga_n axes are in the same positions
+        // as cooperative
+        tv->reorder({{num_device_dims_ + 1, num_device_dims_ + 4}});
+        // outer / (num_cgas * num_wgs), num_cgas, cga_m, cga_n, num_wgs (TIDy)
+      }
     } else {
       NVF_THROW("Unsupported tiling strategy");
     }
@@ -1090,6 +1114,19 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     if (!dc_is_mma_result && !dc_is_splitk_sum) {
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           dc->getLoopDomain());
+      if (store_with_stmatrix) {
+        NVF_ERROR(ldst_matrix_tile_m == 16);
+        NVF_ERROR(ldst_matrix_tile_n == 16);
+        // Let [M, N] be [64, 32]
+        // After scheduleMmaOutputAllocation: [128(TIDx), 4, 2, 2]
+        // [128(TIDx), 4(n), 2, 2] ->  [128(TIDx), 2(no), 2(ni), 2, 2]
+        s.split(-3, 2);
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 2(ni), 2, 2]
+        s.reorder({{-4, -5}});
+        // [128(TIDx), 2(no), 2(ni), 2, 2] -> [2(no), 128(TIDx), 8 (vectorize)]
+        s.merge(-3);
+        s.merge(-2);
+      }
       dc->setLoopDomain(s.as<IterDomain*>());
       dc->setAllocationDomain(s.as<IterDomain*>(), true);
 
@@ -1293,16 +1330,15 @@ void Blackwell::scheduleSplitKSum() {
 
 void HopperPlus::setUpInlining() {
   // auto inline for all tensors except register tensors
-  std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
-  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
+  std::unordered_set<TensorView*> smem_loads;
+  if (isPingPong()) {
+    smem_loads.insert(acw_smems_.begin(), acw_smems_.end());
+    smem_loads.insert(bcw_smems_.begin(), bcw_smems_.end());
+  }
+  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
 
-  // if auto inline, will inline to position-7, leads to performance
-  // regression
   for (TensorView* mma_result : mma_results_) {
-    inlineSelectedAt(
-        smem_loads_and_mma_inputs,
-        mma_result,
-        num_device_dims_ + 6 + num_splitk_dims_);
+    inlineSelectedAt(smem_loads, mma_result, num_device_dims_ + 4);
   }
 }
 
@@ -1335,10 +1371,18 @@ CircularBufferType HopperPlus::getCircularBufferType() const {
         // register properly in that case.
         return (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
       } else {
-        return (CircularBufferType)WarpSpecialized(
-            ParallelType::TIDy,
-            std::make_pair(
-                num_registers_async_warp, num_registers_compute_warp));
+        if (isPingPong()) {
+          return (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_async_warp, num_registers_compute_warp),
+              /*stage_slice_position=*/7);
+        } else {
+          return (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_async_warp, num_registers_compute_warp));
+        }
       }
   }
   NVF_ERROR(false, "Invalid circular buffer type");
