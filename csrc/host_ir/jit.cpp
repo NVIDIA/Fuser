@@ -9,6 +9,9 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <functional>
+#include <memory>
+#include <unordered_map>
 
 #include <instrumentation.h>
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
@@ -17,6 +20,7 @@
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
@@ -58,7 +62,33 @@ struct HostIrJitImpl {
   HostIrJitImpl(
       std::unique_ptr<hir::HostIrContainer> container,
       int num_threads);
+  HostIrJitImpl(
+      std::unique_ptr<hir::HostIrContainer> container,
+      int num_threads);
   ~HostIrJitImpl() = default;
+
+  // Main interface methods, these are the only methods that should be called by
+  // HostIrJit wrapper
+  KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
+  const std::vector<Val*>& inputs() const {
+    return container_->inputs();
+  }
+  const std::vector<Val*>& outputs() const {
+    return container_->outputs();
+  }
+  const hir::HostIrContainer& container() const {
+    return *container_;
+  }
+
+ private:
+  // Implementation methods
+  void compile();
+  void registerExternalFunctions();
+
+  // data members
+  std::unique_ptr<llvm::orc::LLJIT> jit_;
+  std::unique_ptr<hir::HostIrContainer> container_;
+  main_func_t main_func_;
 
   // Main interface methods, these are the only methods that should be called by
   // HostIrJit wrapper
@@ -1379,6 +1409,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   }
 
   // Run the main function
+  std::vector<void*> output_aten_tensors(container_->outputs().size());
+  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
   std::vector<void*> output_aten_tensors(container_->outputs().size());
   main_func_(input_aten_tensors.data(), output_aten_tensors.data());
 
