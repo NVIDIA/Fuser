@@ -11,6 +11,9 @@
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
+#ifdef NVFUSER_HOST_IR_JIT
+#include <host_ir/jit.h>
+#endif
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>
@@ -83,7 +86,7 @@ class HostIrEvaluator final : public OptOutDispatch {
       Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
-  // Used by FusionExecutor, the main stack.
+  // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   // Used by MultiDeviceExecutor.
@@ -98,17 +101,13 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->outputs();
   }
 
-  auto* container() const {
-    return container_.get();
+  const HostIrContainer& container() const {
+    return *container_;
   }
 
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
-
-  const HostIrContainer& getHostIrContainer() const {
-    return *container_.get();
-  }
 
   const auto& getFusionExecutorCaches() {
     return fec_;

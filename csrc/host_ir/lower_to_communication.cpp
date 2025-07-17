@@ -286,13 +286,13 @@ void lowerToReduceScatter(
 }
 
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
-  std::vector<IterDomain*> logical_ids =
-      getInputsInTargetDomain(loop_id, tv->getLogicalDomain());
+  std::unordered_set<IterDomain*> logical_ids =
+      getInputsInTargetDomain({loop_id}, tv->getLogicalDomain());
   NVF_ERROR(
       logical_ids.size() == 1,
       "Expected exactly one logical ID producing the device dimension ",
       loop_id);
-  return logical_ids.at(0);
+  return *logical_ids.begin();
 }
 
 bool isLocalSizeOne(IterDomain* id) {

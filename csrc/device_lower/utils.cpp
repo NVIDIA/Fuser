@@ -88,6 +88,7 @@ bool isTvOp(const Expr* expr) {
       (expr->isOneOf<
           ArgsortOp,
           GroupedMmaOp,
+          ScaledMmaOp,
           TopKOp,
           UnaryOp,
           BinaryOp,
@@ -122,6 +123,7 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
+          ScanOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,

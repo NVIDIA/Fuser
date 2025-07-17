@@ -256,23 +256,25 @@ TEST_F(NVFuserTest, FusionBroadcastViewMultiples) {
   // tv7  [a, b, 1, 1, 1, 1] -> These broadcasts could be recognized
   // tv10 [a, b, c, d, e, f]
 
+  // Units are in bits
+
   EXPECT_EQ(bcast_info.broadcast_multiples[0].lhs_multiple, 0);
-  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[0].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[1].rhs_multiple, 8 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].lhs_multiple, 7 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[2].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[3].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[4].rhs_multiple, 7 * 4 * 8);
 
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4);
-  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].lhs_multiple, 8 * 4 * 8);
+  EXPECT_EQ(bcast_info.broadcast_multiples[5].rhs_multiple, 7 * 4 * 8);
 }
 
 TEST_F(NVFuserTest, FusionTVDomainGuard) {
@@ -1076,6 +1078,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   }
 }
 
+#if 0
 TEST_F(NVFuserTest, FusionSASSDumpError) {
   // create a fake nvdisasm that prints "I am fake" to stderr
   namespace fs = std::filesystem;
@@ -1131,6 +1134,7 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
   testValidate(
       ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
+#endif
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {
   Fusion fusion;

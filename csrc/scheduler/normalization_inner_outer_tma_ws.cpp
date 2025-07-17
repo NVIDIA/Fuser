@@ -19,10 +19,10 @@ void getHeuristics(
     ReductionParams* rparams,
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
-    const int64_t regs_buffer_size,
-    const int64_t circular_buffered_smem_size,
-    const int64_t non_circular_buffered_smem_size,
-    const size_t computation_dtype_size,
+    const int64_t regs_buffer_size_bit,
+    const int64_t circular_buffered_smem_size_bit,
+    const int64_t non_circular_buffered_smem_size_bit,
+    const size_t computation_dtype_size_bit,
     const size_t max_allowed_vect_factor,
     const int64_t hp_threads_per_block_min,
     const int64_t hp_threads_per_block_max,
@@ -75,21 +75,22 @@ void getHeuristics(
   //     [n_computation_warps]
   auto is_enough_smem =
       [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
-        int64_t smem_size = 0;
+        int64_t smem_size_bit = 0;
         //  circular buffered smem size
-        smem_size += circular_buffered_smem_size * iter_unroll * n_stages;
+        smem_size_bit +=
+            circular_buffered_smem_size_bit * iter_unroll * n_stages;
         // non-circular buffered
         if (!is_non_circular_buffer_gmem_to_regs) {
-          smem_size += non_circular_buffered_smem_size;
+          smem_size_bit += non_circular_buffered_smem_size_bit;
         }
         // mbarrier size, round to 128 bytes as required by TMA
-        smem_size += roundUpToMultiple(16 * n_stages, 128);
+        smem_size_bit += roundUpToMultiple(128 * n_stages, 128 * 8);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size += roundUpToMultiple(
-            iter_unroll * bdimx * bdimy * computation_dtype_size, 128);
-        return (int64_t)dev_prop->sharedMemPerBlockOptin >= smem_size;
+        smem_size_bit += roundUpToMultiple(
+            iter_unroll * bdimx * bdimy * computation_dtype_size_bit, 128);
+        return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };
 
   // Check register usage,  it is calculated as:
@@ -100,12 +101,12 @@ void getHeuristics(
   // Given a smem buffer size, calculate the number of registers pre thread
   // required to cache it in registers. The total required register size may be
   // larger than smem size due to non-divisible split.
-  auto round_up_reg_count = [&](int64_t logical_size, int64_t bdimx) {
+  auto round_up_reg_count = [&](int64_t logical_size_bit, int64_t bdimx) {
     int persistent_batch = ceilDiv(after_vect, bdimx);
-    int buffer_per_element = logical_size / inner_dim_numel;
+    int buffer_per_element = logical_size_bit / inner_dim_numel;
     int elements_per_thread = persistent_batch * vect_factor;
     int buffer_per_thread = buffer_per_element * elements_per_thread;
-    return buffer_per_thread / scheduler_utils::bytes_per_register;
+    return buffer_per_thread / scheduler_utils::bits_per_register;
   };
   // Assume each padded threads keep [tma_branch_registers] registers and all
   // others are moved to computation threads. The granularity is 8.
@@ -138,16 +139,17 @@ void getHeuristics(
     int64_t reg_count = 0;
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
-      reg_count +=
-          round_up_reg_count(circular_buffered_smem_size, bdimx) * iter_unroll;
+      reg_count += round_up_reg_count(circular_buffered_smem_size_bit, bdimx) *
+          iter_unroll;
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count += round_up_reg_count(non_circular_buffered_smem_size, bdimx);
+      reg_count +=
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx);
     }
     // regs for partial outer reduction results.
-    reg_count += round_up_reg_count(regs_buffer_size, bdimx);
+    reg_count += round_up_reg_count(regs_buffer_size_bit, bdimx);
 
     // Empirical value, tunned for RMS Norm Bwd FP16
     // At hidden size 6144, buffer requires 120 registers, compute branch
@@ -278,9 +280,9 @@ void getHeuristics(
   // For read from tmp gmem, since the parallelization is changed, a different
   //                         vectorization factor is used to optimize the
   //                         number of reductions per thread.
-  constexpr int64_t max_gmem_vect_access_bytes = 16;
+  constexpr int64_t max_gmem_vect_access_bit = 128;
   const int64_t max_tmp_gmem_vect_factor = std::min(
-      max_gmem_vect_access_bytes / (int64_t)computation_dtype_size,
+      max_gmem_vect_access_bit / (int64_t)computation_dtype_size_bit,
       vect_factor);
   int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
   const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
@@ -339,17 +341,46 @@ void getHeuristics(
       ws_pt == ParallelType::TIDy ? bdimy + 1 : bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 
-  rparams->tag = "TMA Warp Specialized Persistent Heuristic.\n";
+  auto is_good_ws_heuristic = [&]() {
+    // If can't achieve cirulcar buffer, the heuristic is bad.
+    if (n_stages == 1) {
+      return false;
+    }
+    // To achieve circular buffer, the heuristic tried to reduce shared memory
+    // usage by directly load data from gmem to registers. This increased
+    // register usage and may lead to register spills, only consider it is good
+    // when non-buffer register is at least 64 to avoid large register spills.
+    // This is an empirical value based on RMSNorm Bwd FP16 on B200. It makes a
+    // cut-off at hidden size of 24K.
+    if (bdimy == 1 && is_non_circular_buffer_gmem_to_regs) {
+      int64_t buffer_regs =
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx) +
+          round_up_reg_count(regs_buffer_size_bit, bdimx);
+      int64_t compute_branch_regs =
+          ws.num_registers.has_value() ? ws.num_registers.value().second : 255L;
+      int64_t other_regs = compute_branch_regs - buffer_regs;
+      return other_regs >= 64L;
+    }
+    return true;
+  };
+  // evaluate if the heuristic is good enough to use warp specialized
+  // otherwise, the heuristic is discarded and fall back to multi-wave approach.
+  rparams->is_good_ws_heuristic = is_good_ws_heuristic();
+
+  rparams->tag = rparams->is_good_ws_heuristic
+      ? "TMA Warp Specialized Persistent Heuristic.\n"
+      : "TMA Warp Specialized Persistent Heuristic Failed, falling back to "
+        "multi-wave.\n";
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "regs_buffer_size: " << regs_buffer_size << "\n"
-            << "circular_buffered_smem_size: " << circular_buffered_smem_size
-            << "\n"
-            << "non_circular_buffered_smem_size: "
-            << non_circular_buffered_smem_size << "\n"
+            << "regs_buffer_size_bit: " << regs_buffer_size_bit << "\n"
+            << "circular_buffered_smem_size_bit: "
+            << circular_buffered_smem_size_bit << "\n"
+            << "non_circular_buffered_smem_size_bit: "
+            << non_circular_buffered_smem_size_bit << "\n"
             << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"
             << "vectorization_factor_tmp_gmem_write: " << tmp_gmem_write_vect
             << "\n"
@@ -795,7 +826,14 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
         // skip tvs that are already vectorized in general vectorization
         // analysis and propagation.
-        if (cached_tv->axis(-1)->getParallelType() == ParallelType::Vectorize) {
+        // The last iter dim may be a broadcast, so we need to check all the
+        // iter dims.
+        if (std::any_of(
+                cached_tv->domain()->loop().begin(),
+                cached_tv->domain()->loop().end(),
+                [](const IterDomain* id) {
+                  return id->getParallelType() == ParallelType::Vectorize;
+                })) {
           continue;
         }
 

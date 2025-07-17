@@ -723,6 +723,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",

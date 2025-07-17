@@ -1398,7 +1398,6 @@ TEST_F(DynamicTransformTest, LoopSplit) {
     tv->setDeviceMesh(mesh);
     tv->split(2, d, /*inner_split=*/false);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));

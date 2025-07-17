@@ -106,7 +106,9 @@ class Val;
   f(Split);                       \
   f(ArgsortOp);                   \
   f(GroupedMmaOp);                \
+  f(ScaledMmaOp);                 \
   f(TopKOp);                      \
+  f(ScanOp);                      \
   f(Merge);                       \
   f(Swizzle);                     \
   f(Swizzle2D);                   \

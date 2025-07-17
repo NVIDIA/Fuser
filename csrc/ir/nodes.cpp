@@ -830,7 +830,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
-      return {a.as<bool>() ? b : c};
+      return {where(a, b, c)};
       break;
     default:
       NVF_CHECK(
@@ -3944,14 +3944,8 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   IterDomain* merged_id = new_root_domain[start_dim];
   for (auto i : arange(start_dim + 1, end_dim + 1)) {
-    IterDomain* new_merged_id =
-        IterDomainBuilder(
-            merged_id->container()->zeroVal(),
-            mul(merged_id->extent(), new_root_domain[i]->extent()))
-            .is_rfactor_domain(true)
-            .build();
-    IrBuilder::create<Merge>(new_merged_id, merged_id, new_root_domain[i]);
-    merged_id = new_merged_id;
+    merged_id = IterDomain::merge(
+        merged_id, new_root_domain.at(i), /*rfactor_domain=*/true);
   }
   logical_domain.push_back(merged_id);
 
@@ -5771,21 +5765,43 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
 
 GroupedMmaOp::GroupedMmaOp(
     IrBuilderPasskey passkey,
-    Val* out,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
     Val* mat1,
     Val* mat2,
     Val* offsets,
     Val* scale1,
-    Val* scale2)
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
     : Expr(passkey) {
-  NVF_ERROR(out->isA<TensorView>(), "Output must be a TensorView");
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
   NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
   NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
   NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
-  addOutput(out);
+  addOutput(out_mat);
+  if (out_scale != nullptr) {
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
   addInput(mat1);
   addInput(mat2);
   addInput(offsets);
+
+  int64_t offset = 3;
+  int64_t scale_offset = -1;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
 
   bool has_scale1 = scale1 != nullptr;
   if (has_scale1) {
@@ -5796,19 +5812,75 @@ GroupedMmaOp::GroupedMmaOp(
     NVF_CHECK(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
     addInput(scale1);
     addInput(scale2);
+    scale_offset = offset;
+    offset += 2;
   }
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset++;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset++;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset++;
+  }
+
+  addDataAttribute(scale_offset);
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
 }
 
 std::string GroupedMmaOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out() << " = GroupedMmaOp("
-                          << "mat1=" << matrix1() << ", "
-                          << "mat2=" << matrix2() << ", "
-                          << "offsets=" << offsets();
+  indent(ss, indent_size) << out();
+  if (outScale() != nullptr) {
+    ss << ", " << outScale();
+  }
+  if (outGamma() != nullptr) {
+    ss << ", " << outGamma();
+  }
+  ss << " = GroupedMmaOp("
+     << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", "
+     << "offsets=" << offsets();
   if (hasScale()) {
     ss << ", "
        << "scale1=" << scale1() << ", "
        << "scale2=" << scale2();
+  }
+  if (hasAlpha()) {
+    ss << ", "
+       << "alpha=" << alpha();
+  }
+  if (hasBias()) {
+    ss << ", "
+       << "bias=" << bias();
+  }
+  if (hasBeta()) {
+    ss << ", "
+       << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();
@@ -5823,20 +5895,13 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   NVF_ERROR(
-      (inputs.size() == 3 && !hasScale()) || (inputs.size() == 5 && hasScale()),
-      "GroupedMmaOp expects 3 or 5 inputs but received ",
-      inputs.size(),
-      " with scale flag: ",
-      hasScale() ? "true" : "false");
-
-  NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
       inputs[0].type().name());
 
   NVF_ERROR(
       inputs[1].is<at::Tensor>(),
-      "GroupedMmaOp expects tensor input at position4 but got ",
+      "GroupedMmaOp expects tensor input at position 1 but got ",
       inputs[1].type().name());
 
   NVF_ERROR(
@@ -5847,6 +5912,40 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& offsets = inputs[2].as<at::Tensor>();
+
+  at::Tensor alpha;
+  at::Tensor bias;
+  at::Tensor beta;
+  if (hasAlpha()) {
+    int alpha_offset = alphaOffset();
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = biasOffset();
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = betaOffset();
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
 
   at::Tensor result;
   if (hasScale()) {
@@ -5859,8 +5958,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         "GroupedMmaOp expects tensor input at position 4 but got ",
         inputs[4].type().name());
 
-    auto scale1 = inputs[3].as<at::Tensor>();
-    auto scale2 = inputs[4].as<at::Tensor>();
+    auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
+    auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
     // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
     // both input matrices.
     auto mat1_k_last = mat1.contiguous();
@@ -5886,6 +5985,10 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       scale1 = scale1.squeeze(-1);
       scale2 = scale2.squeeze(-2);
     }
+    // undefined alpha, bias is not supported by aten API
+    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+    NVF_ERROR(!beta.defined(), "beta is not supported yet");
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
     // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
     // moment, otherwise we should have requested the output dtype directly
     // instead of casting the output afterwards.
@@ -5895,11 +5998,15 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
         scale1,
         scale2,
         offsets,
-        std::nullopt,
-        std::nullopt,
+        /*bias=*/std::nullopt,
+        /*alpha=*/std::nullopt,
         at::ScalarType::BFloat16);
   } else {
-    result = at::_grouped_mm(mat1, mat2, offsets);
+    // undefined bias is not supported by aten API
+    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+    NVF_ERROR(!beta.defined(), "beta is not supported yet");
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
+    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
@@ -5945,5 +6052,249 @@ IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
+
+ScaledMmaOp::ScaledMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
+    Val* mat1,
+    Val* mat2,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  addOutput(out_mat);
+  if (out_scale != nullptr) {
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
+  addInput(mat1);
+  addInput(mat2);
+  NVF_ERROR(scale1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(scale2->isA<TensorView>(), "Second input must be a TensorView");
+  addInput(scale1);
+  addInput(scale2);
+
+  int64_t offset = 4;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset++;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset++;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset++;
+  }
+
+  // Store the offsets as attributes
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
+}
+
+std::string ScaledMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out();
+  if (outScale() != nullptr) {
+    ss << ", " << outScale();
+  }
+  if (outGamma() != nullptr) {
+    ss << ", " << outGamma();
+  }
+  ss << " = ScaledMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << "";
+  if (hasAlpha()) {
+    ss << ", alpha=" << alpha();
+  }
+  if (hasBias()) {
+    ss << ", bias=" << bias();
+  }
+  if (hasBeta()) {
+    ss << ", beta=" << beta();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string ScaledMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
+  // we'll fallback with aten kernels
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& scale1 = inputs[2].as<at::Tensor>();
+  const auto& scale2 = inputs[3].as<at::Tensor>();
+
+  at::Tensor alpha;
+  at::Tensor bias;
+  at::Tensor beta;
+  if (hasAlpha()) {
+    int alpha_offset = alphaOffset();
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = biasOffset();
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = betaOffset();
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
+
+  // at::_scaled_mm has implementation limitations:
+  NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outScale() == nullptr,
+      "output block scaling factor in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outGamma() == nullptr,
+      "output global scaling factor in ScaledMmaOp is not supported yet");
+  auto result = at::_scaled_mm(
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
+      alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
+      data_type_to_aten(out()->dtype()));
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+
+  return {result};
+
+#else
+  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
+#endif
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
+
+ScanOp::ScanOp(
+    IrBuilderPasskey passkey,
+    BinaryOpType op_type,
+    Val* init,
+    Val* out,
+    Val* in,
+    int64_t dim)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addAttribute(init);
+  addDataAttribute(op_type);
+  addDataAttribute(dim);
+}
+
+std::string ScanOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString();
+  ss << "\n";
+  indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
+  indent(ss, indent_size + 1)
+      << "        init=" << init()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string ScanOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ScanOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+
+  NVF_ERROR(inputs.size() == 1);
+
+  at::Tensor out;
+  switch (opType()) {
+    case BinaryOpType::Add:
+      out = at::cumsum(input, scanDim());
+      break;
+    case BinaryOpType::Max:
+      out = std::get<0>(at::cummax(input, scanDim()));
+      break;
+    case BinaryOpType::Min:
+      out = std::get<0>(at::cummin(input, scanDim()));
+      break;
+    case BinaryOpType::Mul:
+      out = at::cumprod(input, scanDim());
+      break;
+    default:
+      NVF_THROW("Unhandled opType() ", opType());
+  }
+
+  return {out};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
 
 } // namespace nvfuser

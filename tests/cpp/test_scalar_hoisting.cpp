@@ -316,7 +316,7 @@ __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> 
   bool b7;
   b7 = i0 < i6;
   float f8;
-  f8 = (float)(i6);
+  f8 = __to_float(i6);
   Array<float, 1LL, 1> T1;
   if (b7) {
     T1[0LL]
@@ -386,9 +386,9 @@ __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<i
   int64_t i6;
   i6 = ceilDiv(i4, i5);
   nvfuser_index_t i7;
-  i7 = (nvfuser_index_t)(i6);
+  i7 = __to_index(i6);
   int64_t i8;
-  i8 = (int64_t)(i7);
+  i8 = __to_int64(i7);
   #pragma unroll 1
   for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
     T0[i9] = (i0 + (i2 * i9));

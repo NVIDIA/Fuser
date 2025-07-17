@@ -1196,9 +1196,9 @@ class ReusableAllocationFinder : private kir::IrVisitor {
             continue;
           }
         } else if (
-            dataTypeSizeByte(
+            dataTypeSizeBit(
                 alloc_info->data_type, GpuLower::current()->indexType()) !=
-            dataTypeSizeByte(
+            dataTypeSizeBit(
                 alloc_to_reuse->data_type, GpuLower::current()->indexType())) {
           // Behavior for shared or global memory and default behavior for
           // registers is to re-use if dtypes have same size.
@@ -1393,11 +1393,21 @@ class ReusableAllocationFinder : private kir::IrVisitor {
 
     // Check index map for the corresponding axes.
     for (const auto id_it : arange(alloc_domains.size())) {
-      if (!GpuLower::current()->caMap()->areMapped(
-              alloc_domains[id_it],
-              reuse_domains[id_it],
-              IdMappingMode::EXACT)) {
-        return false;
+      if (GpuLower::current()->hasIdModel()) {
+        if (!GpuLower::current()
+                 ->idModel()
+                 .idGraph(IdMappingMode::EXACT)
+                 .disjointValSets()
+                 .strictAreMapped(alloc_domains[id_it], reuse_domains[id_it])) {
+          return false;
+        }
+      } else {
+        if (!GpuLower::current()->caMap()->areMapped(
+                alloc_domains[id_it],
+                reuse_domains[id_it],
+                IdMappingMode::EXACT)) {
+          return false;
+        }
       }
     }
     return true;

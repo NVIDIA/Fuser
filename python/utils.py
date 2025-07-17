@@ -17,14 +17,15 @@ class BuildConfig:
     cmake_only: bool = False
     build_setup: bool = True
     no_python: bool = False
+    no_cutlass: bool = False
     no_test: bool = False
     no_benchmark: bool = False
     no_ninja: bool = False
     build_with_ucc: bool = False
     build_with_asan: bool = False
     build_without_distributed: bool = False
-    build_with_system_nvtx: bool = True
     explicit_error_check: bool = False
+    build_with_host_ir_jit: bool = False
     overwrite_version: bool = False
     version_tag: str = None
     build_type: str = "Release"
@@ -73,6 +74,12 @@ def parse_args():
         help="Skips python API target libnvfuser.so",
     )
     parser.add_argument(
+        "--no-cutlass",
+        dest="no_cutlass",
+        action="store_true",
+        help="Skips building cutlass kernels",
+    )
+    parser.add_argument(
         "--no-test",
         dest="no_test",
         action="store_true",
@@ -95,6 +102,12 @@ def parse_args():
         dest="build_with_ucc",
         action="store_true",
         help="Build nvfuser with UCC support",
+    )
+    parser.add_argument(
+        "--build-with-host-ir-jit",
+        dest="build_with_host_ir_jit",
+        action="store_true",
+        help="Build nvfuser with Host IR JIT support",
     )
     parser.add_argument(
         "--explicit-error-check",
@@ -193,13 +206,14 @@ def create_build_config():
     config = BuildConfig(
         cmake_only=args.cmake_only,
         no_python=args.no_python,
+        no_cutlass=args.no_cutlass,
         no_test=args.no_test,
         no_benchmark=args.no_benchmark,
         no_ninja=args.no_ninja,
         build_with_ucc=args.build_with_ucc,
+        build_with_host_ir_jit=args.build_with_host_ir_jit,
         build_with_asan=args.build_with_asan,
         build_without_distributed=args.build_without_distributed,
-        build_with_system_nvtx=not args.no_system_nvtx,
         explicit_error_check=args.explicit_error_check,
         wheel_name=args.wheel_name,
         build_dir=args.build_dir,
@@ -233,6 +247,8 @@ def override_build_config_from_env(config):
         config.build_setup = get_env_flag_bool("NVFUSER_BUILD_SETUP")
     if "NVFUSER_BUILD_NO_PYTHON" in os.environ:
         config.no_python = get_env_flag_bool("NVFUSER_BUILD_NO_PYTHON")
+    if "NVFUSER_BUILD_NO_CUTLASS" in os.environ:
+        config.no_cutlass = get_env_flag_bool("NVFUSER_BUILD_NO_CUTLASS")
     if "NVFUSER_BUILD_NO_TEST" in os.environ:
         config.no_test = get_env_flag_bool("NVFUSER_BUILD_NO_TEST")
     if "NVFUSER_BUILD_NO_BENCHMARK" in os.environ:
@@ -241,15 +257,13 @@ def override_build_config_from_env(config):
         config.no_ninja = get_env_flag_bool("NVFUSER_BUILD_NO_NINJA")
     if "NVFUSER_BUILD_WITH_UCC" in os.environ:
         config.build_with_ucc = get_env_flag_bool("NVFUSER_BUILD_WITH_UCC")
+    if "NVFUSER_HOST_IR_JIT" in os.environ:
+        config.build_with_host_ir_jit = get_env_flag_bool("NVFUSER_HOST_IR_JIT")
     if "NVFUSER_BUILD_WITH_ASAN" in os.environ:
         config.build_with_asan = get_env_flag_bool("NVFUSER_BUILD_WITH_ASAN")
     if "NVFUSER_BUILD_WITHOUT_DISTRIBUTED" in os.environ:
         config.build_without_distributed = get_env_flag_bool(
             "NVFUSER_BUILD_WITHOUT_DISTRIBUTED"
-        )
-    if "NVFUSER_BUILD_WITH_SYSTEM_NVTX" in os.environ:
-        config.build_with_system_nvtx = get_env_flag_bool(
-            "NVFUSER_BUILD_WITH_SYSTEM_NVTX"
         )
     if "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK" in os.environ:
         config.explicit_error_check = get_env_flag_bool(
@@ -454,10 +468,11 @@ def cmake(config, relative_path):
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
+        f"-DBUILD_CUTLASS={on_or_off(not config.no_cutlass)}",
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
+        f"-DUSE_HOST_IR_JIT={on_or_off(config.build_with_host_ir_jit)}",
         "-B",
         cmake_build_dir,
     ]
@@ -537,6 +552,7 @@ def run(config, version_tag, relative_path):
         # might can be treated by using `exclude_package_data`.
         nvfuser_common_package_data = [
             "lib/libnvfuser_codegen.so",
+            "lib/libnvf_cutlass.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
             "include/nvfuser/C++20/type_traits",

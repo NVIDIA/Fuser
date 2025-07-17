@@ -188,7 +188,11 @@ struct RecordFunctor {
       } else {
         os << ", ";
       }
-      os << output;
+      if (output.stype == serde::StateType::None) {
+        os << "_";
+      } else {
+        os << output;
+      }
     }
     if (always_returns_tuple_) {
       os << ",";
@@ -3265,13 +3269,19 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   ScaledGroupedMmaOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
-      std::optional<PrimDataType> dtype)
+      PrimDataType dtype,
+      int64_t out_block_scale_size,
+      PrimDataType out_block_scale_dtype,
+      bool out_gamma)
       : RecordFunctor(
             std::move(_args),
             std::move(_outputs),
             "ops.grouped_mm",
             serde::RecordType::ScaledGroupedMmaOp),
-        dtype_(dtype.has_value() ? dtype.value() : PrimDataType::Half) {}
+        dtype_(dtype),
+        out_block_scale_size_(out_block_scale_size),
+        out_block_scale_dtype_(out_block_scale_dtype),
+        out_gamma_(out_gamma) {}
   ~ScaledGroupedMmaOpRecord() override = default;
   RecordFunctor* clone() final {
     return new ScaledGroupedMmaOpRecord(*this);
@@ -3298,6 +3308,10 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
   void print(std::ostream& os, bool close_function = true) const final {
     RecordFunctor::print(os, false);
     os << ", dtype=" << dtypeToPyString(dtype_);
+    os << ", output_block_scale_size=" << out_block_scale_size_;
+    os << ", output_block_scale_dtype="
+       << dtypeToPyString(out_block_scale_dtype_);
+    os << ", output_gamma=" << (out_gamma_ ? "True" : "False");
     if (close_function) {
       os << ")";
     }
@@ -3312,18 +3326,176 @@ struct ScaledGroupedMmaOpRecord : RecordFunctor {
         fd.getFusionState(args_.at(3).index)->template as<TensorView>();
     auto scale2 =
         fd.getFusionState(args_.at(4).index)->template as<TensorView>();
-    auto output = grouped_mm(mat1, mat2, offsets, scale1, scale2, dtype_);
-    fd.setFusionState(outputs().at(0).index, output);
+    auto alpha = (args_.at(5).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(5).index)->as<TensorView>()
+        : nullptr;
+    auto bias = (args_.at(6).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(6).index)->as<TensorView>()
+        : nullptr;
+    auto beta = (args_.at(7).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(7).index)->as<TensorView>()
+        : nullptr;
+    auto [output_mat, output_scale, output_gamma] = grouped_mm(
+        mat1,
+        mat2,
+        offsets,
+        scale1,
+        scale2,
+        alpha,
+        bias,
+        beta,
+        dtype_,
+        out_block_scale_size_,
+        out_block_scale_dtype_,
+        out_gamma_);
+    fd.setFusionState(outputs().at(0).index, output_mat);
+    if (out_block_scale_size_ > 0) {
+      NVF_CHECK(output_scale != nullptr, "Output scale is null");
+      NVF_CHECK(
+          outputs().at(1).stype != serde::StateType::None,
+          "Output scale is expected but is null");
+      fd.setFusionState(outputs().at(1).index, output_scale);
+    }
+    if (out_gamma_) {
+      NVF_CHECK(output_gamma != nullptr, "Output gamma is null");
+      NVF_CHECK(
+          outputs().at(2).stype != serde::StateType::None,
+          "Output gamma is expected but is null");
+      fd.setFusionState(outputs().at(2).index, output_gamma);
+    }
   }
 
   std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
       flatbuffers::FlatBufferBuilder& builder) const final {
     return {
-        serde::RecordData::ScaledGroupedMma,
-        serde::CreateVector(builder, nvfuser::toUnderlying(dtype_)).Union()};
+        serde::RecordData::ScaledOp,
+        serde::CreateScaledOp(
+            builder,
+            nvfuser::toUnderlying(dtype_),
+            out_block_scale_size_,
+            nvfuser::toUnderlying(out_block_scale_dtype_),
+            out_gamma_)
+            .Union()};
   };
 
   PrimDataType dtype_;
+  int64_t out_block_scale_size_;
+  PrimDataType out_block_scale_dtype_;
+  bool out_gamma_;
+};
+
+struct ScaledMmaOpRecord : RecordFunctor {
+  ScaledMmaOpRecord(
+      std::vector<State> _args,
+      std::vector<State> _outputs,
+      PrimDataType dtype,
+      int64_t output_block_scale_size,
+      PrimDataType output_block_scale_dtype,
+      bool output_gamma)
+      : RecordFunctor(
+            std::move(_args),
+            std::move(_outputs),
+            "ops.scaled_mm",
+            serde::RecordType::ScaledMmaOp),
+        dtype_(dtype),
+        out_block_scale_size_(output_block_scale_size),
+        out_block_scale_dtype_(output_block_scale_dtype),
+        out_gamma_(output_gamma) {}
+  ~ScaledMmaOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new ScaledMmaOpRecord(*this);
+  }
+
+  size_t hash() const final {
+    auto result = RecordFunctor::hash();
+    return result | (static_cast<size_t>(dtype_) & 0xffffffff);
+  }
+
+  bool operator==(const RecordFunctor& other) const final {
+    if (!RecordFunctor::operator==(other)) {
+      return false;
+    }
+    auto other_scaled_mma = static_cast<const ScaledMmaOpRecord&>(other);
+    return (dtype_ == other_scaled_mma.dtype_) &&
+        (out_block_scale_size_ == other_scaled_mma.out_block_scale_size_) &&
+        (out_block_scale_dtype_ == other_scaled_mma.out_block_scale_dtype_) &&
+        (out_gamma_ == other_scaled_mma.out_gamma_);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto mat1 = fd.getFusionState(args_[0].index)->template as<TensorView>();
+    auto mat2 = fd.getFusionState(args_[1].index)->template as<TensorView>();
+    auto scale1 = fd.getFusionState(args_[2].index)->template as<TensorView>();
+    auto scale2 = fd.getFusionState(args_[3].index)->template as<TensorView>();
+    auto alpha = args_[4].stype == serde::StateType::None
+        ? nullptr
+        : fd.getFusionState(args_[4].index)->template as<TensorView>();
+    auto bias = args_[5].stype == serde::StateType::None
+        ? nullptr
+        : fd.getFusionState(args_[5].index)->template as<TensorView>();
+    auto beta = args_[6].stype == serde::StateType::None
+        ? nullptr
+        : fd.getFusionState(args_[6].index)->template as<TensorView>();
+
+    auto [output_mat, output_scale, output_gamma] = scaled_mm(
+        mat1,
+        mat2,
+        scale1,
+        scale2,
+        alpha,
+        bias,
+        beta,
+        dtype_,
+        out_block_scale_size_,
+        out_block_scale_dtype_,
+        out_gamma_);
+
+    fd.setFusionState(outputs().at(0).index, output_mat);
+    if (out_block_scale_size_ > 0) {
+      NVF_CHECK(output_scale != nullptr, "Output scale is null");
+      NVF_CHECK(
+          outputs().at(1).stype != serde::StateType::None,
+          "Output scale is expected but is null");
+      fd.setFusionState(outputs().at(1).index, output_scale);
+    }
+    if (out_gamma_) {
+      NVF_CHECK(output_gamma != nullptr, "Output gamma is null");
+      NVF_CHECK(
+          outputs().at(2).stype != serde::StateType::None,
+          "Output gamma is expected but is null");
+      fd.setFusionState(outputs().at(2).index, output_gamma);
+    }
+  }
+
+  void print(std::ostream& os, bool close_function = true) const final {
+    RecordFunctor::print(os, false);
+    os << ", dtype=" << dtypeToPyString(dtype_);
+    os << ", output_block_scale_size=" << out_block_scale_size_;
+    os << ", output_block_scale_dtype="
+       << dtypeToPyString(out_block_scale_dtype_);
+    os << ", output_gamma=" << (out_gamma_ ? "True" : "False");
+    if (close_function) {
+      os << ")";
+    }
+  }
+
+  std::pair<serde::RecordData, flatbuffers::Offset<void>> recordData(
+      flatbuffers::FlatBufferBuilder& builder) const final {
+    return {
+        serde::RecordData::ScaledOp,
+        serde::CreateScaledOp(
+            builder,
+            nvfuser::toUnderlying(dtype_),
+            out_block_scale_size_,
+            nvfuser::toUnderlying(out_block_scale_dtype_),
+            out_gamma_)
+            .Union()};
+  };
+
+  PrimDataType dtype_;
+  int64_t out_block_scale_size_;
+  PrimDataType out_block_scale_dtype_;
+  bool out_gamma_;
 };
 
 } // namespace nvfuser::python_frontend

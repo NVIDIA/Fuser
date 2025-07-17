@@ -12,13 +12,17 @@ def test_import_correct():
 
 
 def test_import_conflict_direct_then_nvfuser():
-    try:
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+
         import nvfuser_direct  # noqa: F401
         import nvfuser  # noqa: F401
-    except AssertionError as e:
-        expected_msg = (
-            "Cannot import nvfuser if nvfuser_direct module is already imported."
+
+        assert len(w) == 1
+        assert issubclass(w[-1].category, UserWarning)
+        assert (
+            "Be careful! You've imported nvfuser when the nvfuser_direct module is already imported."
+            in str(w[-1].message)
         )
-        assert expected_msg in str(e)
-        return
-    raise AssertionError("Expected AssertionError from imports.")

@@ -6,7 +6,7 @@
 import torch
 
 from opinfo_core import OpInfo
-from nvfuser.testing.utils import ArgumentType, is_tensor
+from opinfo_utils import ArgumentType, is_tensor
 
 from nvfuser import FusionDefinition
 from nvfuser.pytorch_utils import (
@@ -69,7 +69,8 @@ def default_fd_fn(fd: FusionDefinition, opinfo: OpInfo, *args, **kwargs):
     result = opinfo.op(fd)(*nvf_inputs, **kwargs)
     if isinstance(result, tuple):
         for a in result:
-            fd.add_output(a)
+            if a is not None:
+                fd.add_output(a)
     else:
         fd.add_output(result)
 

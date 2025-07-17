@@ -88,6 +88,7 @@ enum RecordType: int {
     ReshapeOp,
     Scalar,
     ScaledGroupedMmaOp,
+    ScaledMmaOp,
     SdpaFwdOp,
     SdpaBwdOp,
     ShapeOp,
@@ -132,7 +133,7 @@ union RecordData {
   Welford,
   Sort,
   TopK,
-  ScaledGroupedMma,
+  ScaledOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -366,9 +367,12 @@ table TopK {
   sorted: bool;
 }
 
-// Data for ScaledGroupedMmaOpRecord
-table ScaledGroupedMma {
+// Data for ScaledGroupedMmaOpRecord and ScaledMmaOpRecord
+table ScaledOp {
   dtype: long;
+  block_scale_size: long;
+  block_scale_dtype: long;
+  gamma: bool;
 }
 
 // =====================================================================================

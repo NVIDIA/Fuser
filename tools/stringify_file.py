@@ -22,9 +22,9 @@ args = arg_parser.parse_args()
 
 # msvc string literal maximum length 16380
 # https://docs.microsoft.com/en-us/cpp/error-messages/compiler-errors-1/compiler-error-c2026?view=msvc-170
-MAX_STRING_LITERAL = 16000
+MAX_STRING_LITERAL = 1600000000000
 # https://docs.microsoft.com/en-us/cpp/c-language/maximum-string-length?view=msvc-170
-MAX_STRING_CONCATENATED = 65535
+MAX_STRING_CONCATENATED = 6553500000000
 
 with open(args.input, "r") as fin:
     with open(args.output, "w") as fout:
