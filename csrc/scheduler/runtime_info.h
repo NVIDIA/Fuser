@@ -32,9 +32,6 @@ class ExpressionEvaluator;
 
 class SchedulerRuntimeInfo : public NonCopyable {
  public:
-  // Max vector size we will consider, in bits,
-  static int64_t getMaxVectorizationSizeInBit();
-
   //! Create runtime info for given fusion and input. Creating and binding
   //! evaluator is optional. The evaluator is used to manage intermediate
   //! integers in the fusion. We need them for segmenter and schedulers,
@@ -120,9 +117,6 @@ class SchedulerRuntimeInfo : public NonCopyable {
                complete_fusion_->inputs().end(),
                tv) != complete_fusion_->inputs().end();
   }
-
-  // Cache for max vectorization size to avoid repeated system calls
-  static std::optional<int64_t> cached_max_vectorization_size_in_bit_;
 
  private:
   // Returns the offset of tv in the inputs ignoring non tensor views. Used to

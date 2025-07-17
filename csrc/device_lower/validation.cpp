@@ -20,6 +20,7 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
@@ -619,7 +620,7 @@ class VectorizeValidator : public OptInDispatch {
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
       // with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
-      if (SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() == 256) {
+      if (getMaxVectorizationSizeInBit() == 256) {
         allowed_vector_sizes_bit.push_back(256);
       }
       // TMem can vectorize up to 4096 bits.

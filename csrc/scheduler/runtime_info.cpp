@@ -14,10 +14,6 @@
 
 namespace nvfuser {
 
-// Static member definition
-std::optional<int64_t>
-    SchedulerRuntimeInfo::cached_max_vectorization_size_in_bit_ = std::nullopt;
-
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
     // TODO: I think this can be a const ref
@@ -95,24 +91,6 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
       }
     }
   }
-}
-
-// with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
-int64_t SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() {
-  if (cached_max_vectorization_size_in_bit_.has_value()) {
-    return cached_max_vectorization_size_in_bit_.value();
-  }
-  int64_t max_vec_bits = 128;
-  int sw_major, sw_minor;
-  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&sw_major, &sw_minor));
-  if ((sw_major >= 12 && sw_minor >= 9) || (sw_major >= 13)) {
-    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
-    if (hw_major >= 10) {
-      max_vec_bits = 256;
-    }
-  }
-  cached_max_vectorization_size_in_bit_ = max_vec_bits;
-  return max_vec_bits;
 }
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in

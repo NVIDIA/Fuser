@@ -17,6 +17,7 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -1099,8 +1100,7 @@ void sharedMemoryConsumerVectorization(
         ", expected: ",
         io_vectorization_factor);
     auto dtype_bits = dataTypeSizeBit(tv->getDataType().value());
-    auto max_vect_factor =
-        SchedulerRuntimeInfo::getMaxVectorizationSizeInBit() / dtype_bits;
+    auto max_vect_factor = getMaxVectorizationSizeInBit() / dtype_bits;
     // additional split is added if the innermost extent is greater than max
     // vectorization factor.
     if (innermost_extent > max_vect_factor) {
