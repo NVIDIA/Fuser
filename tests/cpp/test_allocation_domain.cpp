@@ -1606,7 +1606,6 @@ TEST_F(AllocationDomainTest, ManualReplayLoopToAllocation) {
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-
 TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();

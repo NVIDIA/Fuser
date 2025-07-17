@@ -1705,11 +1705,11 @@ TEST_F(CombinedSchedulerTest, AllocationDomainBroadcast) {
   fusion->addOutput(tv5);
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // shape: (x, y, z), alloc: (y, x, z), stride: (z, x*z, 1)
-  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x*z, 1});
+  auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
   std::vector<c10::IValue> inputs({t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
-}    
+}
 } // namespace nvfuser
