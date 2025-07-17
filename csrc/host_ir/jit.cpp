@@ -130,10 +130,6 @@ llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
   return llvm::Type::getInt64Ty(context)->getPointerTo();
 }
 
-llvm::Type* getVoidType(llvm::LLVMContext& context) {
-  return llvm::Type::getVoidTy(context);
-}
-
 // Helper function to generate LLVM IR that extracts tensor size for a given
 // dimension
 llvm::Value* generateTensorSizeExtraction(
@@ -998,7 +994,7 @@ void compileFunctionDeclarations(
     llvm::Module* module,
     llvm::LLVMContext& context) {
   // get the types
-  auto* void_type = getVoidType(context);
+  auto* void_type = llvm::Type::getVoidTy(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
   auto* int64_type = llvm::Type::getInt64Ty(context);
   auto* int64_ptr_type = getInt64PtrType(context);
