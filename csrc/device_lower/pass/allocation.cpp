@@ -152,18 +152,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
   }
 
-  // Get the allocation domains and contiguity of a given tensor
-  //
-  // TODO: Ideally, all tensors should have their correct allocation
-  // domains, but that isn't always the case at this moment. The logic
-  // here is duplicated in multiple locations and should be cleaned up.
-  std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
-  getAllocationDomainsAndContiguity(
-      TensorView* tv,
-      const std::vector<ForLoop*>& for_loops) {
-    std::vector<IterDomain*> allocation_domains;
-    std::vector<std::optional<bool>> contiguity;
-
+  namesapce {
     // In general, if the tensor has an allocation domain set, it
     // should be used with no change. However, set allocation domains
     // are not always right allocation domains. For example,
@@ -174,20 +163,23 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // to be any clear condition when the set domain can be used, so
     // it needs to be inferred. Here's what seems to be working
     // reasonably well.
-    bool use_set_allocation_domain = false;
-    if (tv->hasAllocation()) {
+    bool canUsePresetAllocationDomain(TensorView * tv) {
+      if (!tv->hasAllocation()) {
+        return false;
+      }
       // Honor the allocation domain if the tensor is global or Hopper MMA's
       // output
       if (tv->getMemoryType() == MemoryType::Global ||
           (tv->definition()->isA<MmaOp>() &&
            isHopper(tv->definition()->as<MmaOp>()->macro()))) {
-        use_set_allocation_domain = true;
-      } else if (tv->getMemoryType() == MemoryType::Shared) {
-        // If it's a shared memory tensor, the set domain is likely
-        // valid if Swizzle or Bulk is used. Also, if the allocation
-        // domain is just a permutation of the loop domain, use the
-        // set allocation domain. This seems to happen only with
-        // AllocationDomainTest.TransposedIntermediate.
+        return true;
+      }
+      // If it's a shared memory tensor, the set domain is likely
+      // valid if Swizzle or Bulk is used. Also, if the allocation
+      // domain is just a permutation of the loop domain, use the
+      // set allocation domain. This seems to happen only with
+      // AllocationDomainTest.TransposedIntermediate.
+      if (tv->getMemoryType() == MemoryType::Shared) {
         if (std::any_of(
                 tv->getAllocationDomain().begin(),
                 tv->getAllocationDomain().end(),
@@ -202,7 +194,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 tv->getLoopDomain().end(),
                 tv->getAllocationDomain().begin(),
                 tv->getAllocationDomain().end())) {
-          use_set_allocation_domain = true;
+          return true;
         }
 
         // Honor the set allocation domain if the tensor is used by a
@@ -210,138 +202,201 @@ class AllocationDomainSetup : private kir::IrVisitor {
         if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
               return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
             })) {
-          use_set_allocation_domain = true;
+          return true;
         }
       }
+      return false;
     }
 
-    // Allocation position is not always the same as the CA
-    // position. See also lower_utils::getAllocInformation.
-    int64_t allocation_pos =
-        lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+    // select domains from allocation domain that should be allocated
+    std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
+    usePresetAllocationDomain(
+        TensorView * tv, const std::vector<ForLoop*>& for_loops) {
+      std::vector<IterDomain*> allocation_domains;
+      std::vector<std::optional<bool>> contiguity;
 
-    if (use_set_allocation_domain) {
       if (tv->getMemoryType() == MemoryType::Global) {
         // For global memory tensors we always allocate the entire tensor
         // TODO: do we really want to treat global memory tensors differently?
         // need to think about this more.
         allocation_domains = tv->getAllocationDomain();
         contiguity = tv->domain()->contiguity();
-      } else {
-        std::unordered_set<IterDomain*> exclude_ca_ids;
-        for (auto i : arange(allocation_pos)) {
-          auto ca_id = tv->axis(i);
-          if (!ir_utils::isMemorySharedAcross(
-                  tv->getMemoryType(), ca_id->getParallelType())) {
-            exclude_ca_ids.insert(ca_id);
-          }
-        }
-        for (auto i : arange(tv->getAllocationDomain().size())) {
-          auto id = tv->getAllocationDomain()[i];
-          if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
-            if (ir_utils::isMemoryPartitionedAcross(
-                    tv->getMemoryType(), id->getParallelType())) {
-              continue;
-            }
-            allocation_domains.push_back(id);
-            contiguity.push_back(tv->domain()->contiguity()[i]);
-          } else {
-            exclude_ca_ids.erase(id);
-          }
-        }
-        NVF_ERROR(
-            exclude_ca_ids.empty(),
-            "The non-allocating compute-at IDs are not found in the allocation "
-            "domain. ",
-            "It is unclear how to allocate the tensor: ",
-            tv->toString(),
-            " allocation domain: ",
-            ir_utils::toString(tv->getAllocationDomain()));
+        NVF_ERROR(allocation_domains.size() == contiguity.size());
+        return {allocation_domains, contiguity};
       }
-    } else {
-      // If allocation domain is not set, assume that:
-      // - Global: logical domains
-      // - Local/Shared: loop domains to the right of the CA position
-      if (tv->getMemoryType() == MemoryType::Global) {
-        allocation_domains = tv->getLogicalDomain();
-        contiguity = tv->domain()->contiguity();
-      } else {
-        for (const auto i : arange(tv->nDims())) {
-          auto loop_id = tv->getLoopDomain().at(i);
-          auto pt = loop_id->getParallelType();
 
-          // If the position is left of the inlining position, no need to
-          // allocate the domain unless it's shared. For example, if this
-          // is a Shared tensor and the domain is parallelized with TID,
-          // even if it's outside of the CA position, since the domain
-          // is shared, it must be allocated.
-          if (i < allocation_pos &&
-              !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
+      NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
+
+      // Allocation position is not always the same as the CA
+      // position. See also lower_utils::getAllocInformation.
+      int64_t allocation_pos =
+          lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+      // Collect loop domains to the left of the allocation position.
+      // These loop domains are not allocated.
+      std::unordered_set<IterDomain*> exclude_ca_ids;
+      std::cout << "allocation_pos: " << allocation_pos << std::endl;
+      for (auto i : arange(allocation_pos)) {
+        auto ca_id = tv->axis(i);
+        if (!ir_utils::isMemorySharedAcross(
+                tv->getMemoryType(), ca_id->getParallelType())) {
+          exclude_ca_ids.insert(ca_id);
+          std::cout << "add exclude_ca_ids: " << ca_id->toString() << std::endl;
+        }
+      }
+
+      // Iterate over allocation domains. Make sure all the collected loop
+      // domains are excluded.
+      for (auto i : arange(tv->getAllocationDomain().size())) {
+        auto id = tv->getAllocationDomain()[i];
+
+        // Check if this allocation domain should be excluded
+        bool should_exclude = false;
+        IterDomain* excluded_id = nullptr;
+
+        // First try exact pointer comparison, works for simple cases
+        // when loop domain is a permutation of allocation domain.
+        // If failed, use IdModel.
+        auto exclude_it = exclude_ca_ids.find(id);
+        if (exclude_it != exclude_ca_ids.end()) {
+          should_exclude = true;
+          excluded_id = *exclude_it;
+        } else if (GpuLower::current()->hasIdModel()) {
+          const auto& exact_graph =
+              GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+          for (auto exclude_id : exclude_ca_ids) {
+            if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
+              should_exclude = true;
+              excluded_id = exclude_id;
+              break;
+            }
+          }
+        }
+
+        if (!should_exclude) {
+          if (ir_utils::isMemoryPartitionedAcross(
+                  tv->getMemoryType(), id->getParallelType())) {
             continue;
           }
-
-          allocation_domains.push_back(loop_id);
-        }
-        // Assume Local and Shared are always fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
-      }
-
-      if (auto indexed_alloc_dom =
-              patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
-          indexed_alloc_dom.has_value()) {
-        allocation_domains = indexed_alloc_dom.value();
-        // Make sure the original allocation domains are fully contiguous
-        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-          return b.has_value() && b.value();
-        }));
-        // Set the new allocation domains fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
-      }
-
-      // reorderAllocationDomains and
-      // patchAllocationOfTransposedSmemTensor assume unallocated IDs
-      // are removed
-      std::vector<IterDomain*> actual_allocation_ids;
-      std::vector<std::optional<bool>> actual_contiguity;
-      for (auto [i, id] : enumerate(allocation_domains)) {
-        if (mayRequireAllocation(tv, id)) {
-          actual_allocation_ids.push_back(id);
-          actual_contiguity.push_back(contiguity.at(i));
+          allocation_domains.push_back(id);
+          contiguity.push_back(tv->domain()->contiguity()[i]);
+          std::cout << "add allocation_domains: " << id->toString()
+                    << std::endl;
+        } else {
+          exclude_ca_ids.erase(excluded_id);
+          std::cout << "erase exclude_ca_ids: " << excluded_id->toString()
+                    << std::endl;
         }
       }
-      std::swap(allocation_domains, actual_allocation_ids);
-      std::swap(contiguity, actual_contiguity);
+      NVF_ERROR(
+          exclude_ca_ids.empty(),
+          "The non-allocating compute-at IDs are not found in the "
+          "allocation "
+          "domain. ",
+          "It is unclear how to allocate the tensor: ",
+          tv->toString(),
+          " allocation domain: ",
+          ir_utils::toString(tv->getAllocationDomain()));
+      NVF_ERROR(allocation_domains.size() == contiguity.size());
+      return {allocation_domains, contiguity};
+    }
+  } // namespace
 
-      if (auto reordered_domains =
-              reorderAllocationDomains(tv, allocation_domains);
-          reordered_domains.has_value()) {
-        allocation_domains = reordered_domains.value();
-        NVF_ERROR(
-            std::all_of(
-                contiguity.begin(),
-                contiguity.end(),
-                [](auto b) { return b.has_value() && b.value(); }),
-            tv->toString());
-      }
+  // Get the allocation domains and contiguity of a given tensor
+  //
+  // TODO: Ideally, all tensors should have their correct allocation
+  // domains, but that isn't always the case at this moment. The logic
+  // here is duplicated in multiple locations and should be cleaned up.
+  std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
+  getAllocationDomainsAndContiguity(
+      TensorView* tv,
+      const std::vector<ForLoop*>& for_loops) {
+    if (canUsePresetAllocationDomain(tv)) {
+      return usePresetAllocationDomain(tv, for_loops);
+    }
+    std::vector<IterDomain*> allocation_domains;
+    std::vector<std::optional<bool>> contiguity;
 
-      // WAR for transpose
-      if (auto transposed_smem_alloc_dom =
-              patchAllocationOfTransposedSmemTensor(
-                  tv,
-                  allocation_domains,
-                  GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
-          transposed_smem_alloc_dom.has_value()) {
-        allocation_domains = transposed_smem_alloc_dom.value();
-        // Make sure the original allocation domains are fully contiguous
-        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-          return b.has_value() && b.value();
-        }));
-        // Set the new allocation domains fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
+    // If allocation domain is not set, assume that:
+    // - Global: logical domains
+    // - Local/Shared: loop domains to the right of the CA position
+    if (tv->getMemoryType() == MemoryType::Global) {
+      allocation_domains = tv->getLogicalDomain();
+      contiguity = tv->domain()->contiguity();
+    } else {
+      for (const auto i : arange(tv->nDims())) {
+        auto loop_id = tv->getLoopDomain().at(i);
+        auto pt = loop_id->getParallelType();
+
+        // If the position is left of the inlining position, no need to
+        // allocate the domain unless it's shared. For example, if this
+        // is a Shared tensor and the domain is parallelized with TID,
+        // even if it's outside of the CA position, since the domain
+        // is shared, it must be allocated.
+        if (i < allocation_pos &&
+            !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
+          continue;
+        }
+
+        allocation_domains.push_back(loop_id);
       }
+      // Assume Local and Shared are always fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
+    }
+
+    if (auto indexed_alloc_dom =
+            patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
+        indexed_alloc_dom.has_value()) {
+      allocation_domains = indexed_alloc_dom.value();
+      // Make sure the original allocation domains are fully contiguous
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
+      // Set the new allocation domains fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
+    }
+
+    // reorderAllocationDomains and
+    // patchAllocationOfTransposedSmemTensor assume unallocated IDs
+    // are removed
+    std::vector<IterDomain*> actual_allocation_ids;
+    std::vector<std::optional<bool>> actual_contiguity;
+    for (auto [i, id] : enumerate(allocation_domains)) {
+      if (mayRequireAllocation(tv, id)) {
+        actual_allocation_ids.push_back(id);
+        actual_contiguity.push_back(contiguity.at(i));
+      }
+    }
+    std::swap(allocation_domains, actual_allocation_ids);
+    std::swap(contiguity, actual_contiguity);
+
+    if (auto reordered_domains =
+            reorderAllocationDomains(tv, allocation_domains);
+        reordered_domains.has_value()) {
+      allocation_domains = reordered_domains.value();
+      NVF_ERROR(
+          std::all_of(
+              contiguity.begin(),
+              contiguity.end(),
+              [](auto b) { return b.has_value() && b.value(); }),
+          tv->toString());
+    }
+
+    // WAR for transpose
+    if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
+            tv,
+            allocation_domains,
+            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+        transposed_smem_alloc_dom.has_value()) {
+      allocation_domains = transposed_smem_alloc_dom.value();
+      // Make sure the original allocation domains are fully contiguous
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
+      // Set the new allocation domains fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
@@ -855,7 +910,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
 } // namespace
 
 namespace {
-
 enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
 
 // This function creates kir::Loop with range based on stage depth. It is
@@ -941,8 +995,8 @@ Expr* initializeMbarrier(
   return loop;
 }
 
-// This helper function invalidates mbarrier for all circular buffer stage after
-// TMA memory operations.
+// This helper function invalidates mbarrier for all circular buffer stage
+// after TMA memory operations.
 //
 // Expected result:
 // for (unsigned i = 0; i < stages; ++i) {
@@ -1427,8 +1481,8 @@ class AllocationInserter : public kir::ExprMutator {
 
       // We use mbarrier[0:stage] for RAW, that is, to wait for the completion
       // of the TMA load of the circular buffer tensor, and
-      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
-      // the reading of the circular buffer tensor.
+      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion
+      // of the reading of the circular buffer tensor.
       int64_t num_mbarriers =
           opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
 
@@ -1531,8 +1585,8 @@ class AllocationInserter : public kir::ExprMutator {
 
   void handle(kir::IfThenElse* ite) final {
     // TODO: Currently we just naively dispatch into the IfThenElse node
-    // assuming that this does not affect the analysis. For now, this assumption
-    // is true, but in the future, we might need to revisit this.
+    // assuming that this does not affect the analysis. For now, this
+    // assumption is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
@@ -1592,11 +1646,11 @@ kir::IfThenElse* createFirstWarpITE() {
 // Insert IR nodes that allocate and deallocate TMem regions.
 // See note [Tensor Memory Allocation] for the overall design.
 // We insert the tcgen05.allocs of each region and the relinquish of the right
-// to allocate at the beginning of the top-level scope of the kernel. We insert
-// the tcgen05.deallocs after the outermost serial loop containing the last read
-// of each TMem region into whatever scope containing this outermost serial
-// loop. The allocation of each TMem TensorView within each region is inserted
-// by AllocationInserter::insert, therefore not handled here.
+// to allocate at the beginning of the top-level scope of the kernel. We
+// insert the tcgen05.deallocs after the outermost serial loop containing the
+// last read of each TMem region into whatever scope containing this outermost
+// serial loop. The allocation of each TMem TensorView within each region is
+// inserted by AllocationInserter::insert, therefore not handled here.
 std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     const std::vector<Expr*>& exprs) {
   // Expressions to be inserted at the beginning of the top-level scope.
@@ -1619,7 +1673,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     }
 
     if (!regions.empty()) {
-      // Relinquish the right to allocate after all regions have been allocated
+      // Relinquish the right to allocate after all regions have been
+      // allocated
       auto first_warp = createFirstWarpITE();
       auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
           "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
@@ -1643,14 +1698,14 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       //   region -> a function that registers the deallocation expression for
       //             this region
       //
-      // This map is updated during traversal. For example, if we have a kernel
-      // like below:
+      // This map is updated during traversal. For example, if we have a
+      // kernel like below:
       //   ...
       //   T1_t = T0_r; // expr1
       //   ...
       //   T2_r = T1_t; // expr2
-      // Assume that T1_t is in region R1. Then after we handle(expr1), we will
-      // have an entry:
+      // Assume that T1_t is in region R1. Then after we handle(expr1), we
+      // will have an entry:
       //    R1 -> a function registering insertion of "dealloc R1" after expr1
       // After handle(expr2), this entry becomes:
       //    R1 -> a function registering insertion of "dealloc R1" after expr2
@@ -1668,8 +1723,9 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       // the mapped regions will be all the regions the contained exprs are
       // accessing.
       //
-      // This map only contain information of accesses that we have discovered,
-      // and is updated during traversal. For example, if we have a kernel:
+      // This map only contain information of accesses that we have
+      // discovered, and is updated during traversal. For example, if we have
+      // a kernel:
       //   ForLoop: // loop1
       //     T2_t = T0_r; // expr1
       //     ...
