@@ -152,7 +152,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
   }
 
-  namesapce {
+  namespace {
     // In general, if the tensor has an allocation domain set, it
     // should be used with no change. However, set allocation domains
     // are not always right allocation domains. For example,
