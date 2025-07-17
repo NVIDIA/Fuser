@@ -84,8 +84,11 @@ TEST_F(HostIrJitTest, Deallocate) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* t0 = makeConcreteTensor(t0_sizes);
+  t0->setMemoryType(MemoryType::Global);
   TensorView* t1 = makeConcreteTensor(t1_sizes);
+  t1->setMemoryType(MemoryType::Global);
   TensorView* t2 = makeConcreteTensor(t2_sizes);
+  t2->setMemoryType(MemoryType::Global);
   hic->addOutput(t2);
 
   auto* allocate_t0 = IrBuilder::create<kir::Allocate>(t0, MemoryType::Global);

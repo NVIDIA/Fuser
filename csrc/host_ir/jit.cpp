@@ -414,7 +414,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         builder_.CreateAlloca(strides_type, nullptr, "strides");
 
     // Populate sizes array
-    for (const auto&& [i, size] : enumerate(tensor_sizes)) {
+    for (const auto [i, size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type,
           sizes,
@@ -423,7 +423,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
 
     // Populate strides array
-    for (const auto&& [i, stride] : enumerate(tensor_strides)) {
+    for (const auto [i, stride] : enumerate(tensor_strides)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           strides_type,
           strides,
@@ -640,8 +640,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
-  for (auto&& [in_val, arg] : zip(container_->inputs(), args)) {
-    NVF_ERROR(arg.is<at::Tensor>(), "Unsupported argument type: ", arg);
+  for (auto [in_val, arg] : zip(container_->inputs(), args)) {
+    NVF_ERROR(arg.is<at::Tensor>(), "Unsupported argument type: ", arg, " for input ", in_val);
     input_aten_tensors.push_back(&arg.as<at::Tensor>());
   }
 
@@ -651,8 +651,8 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for (const auto&& [output, tensor_ptr] : zip(container_->outputs(), output_aten_tensors)) {
-    NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output);
+  for (const auto [output, tensor_ptr] : zip(container_->outputs(), output_aten_tensors)) {
+    NVF_ERROR(output->isA<TensorView>(), "Unsupported output type: ", output, " for output ", output);
     // Cast void* to at::Tensor* first, then dereference
     at::Tensor* aten_tensor_ptr = static_cast<at::Tensor*>(tensor_ptr);
     outputs.push(*aten_tensor_ptr);
