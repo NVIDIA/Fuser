@@ -208,94 +208,113 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return false;
     }
 
+    // Helper function to check if an allocation domain should be excluded
+    // Returns the excluded ID if found, nullptr otherwise.
+    // An allocation domain should be excluded if it is not required to be
+    // allocated. For example:
+    // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+    // logical domain : (iS6{2}, iS7{12}, iB8{16})
+    // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+    // contiguity: t t t t
+    //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
+    //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
+    // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+    // Based on loop domain and compute pos, we don't need to allocate iS6{2}
+    // and iS11{3}. Then the corresponding allocation domains iS6{2} and
+    // iS15{3} should be excluded.
+    // iS6{2} is found directly by pointer comparison.
+    // iS15{3} is found by IdModel.
+    IterDomain* shouldExcludeAllocationDomain(
+        IterDomain * id,
+        const std::unordered_set<IterDomain*>& exclude_ca_ids) {
+      // First try exact pointer comparison
+      auto exclude_it = exclude_ca_ids.find(id);
+      if (exclude_it != exclude_ca_ids.end()) {
+        return *exclude_it;
+      }
+
+      // Fallback: use IdModel to check if any excluded ID is mapped
+      if (GpuLower::current()->hasIdModel()) {
+        const auto& exact_graph =
+            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+        for (auto exclude_id : exclude_ca_ids) {
+          if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
+            return exclude_id;
+          }
+        }
+      }
+
+      return nullptr;
+    }
+
+    // Helper function to collect loop domains that should be excluded
+    std::unordered_set<IterDomain*> collectExcludedLoopDomains(
+        TensorView * tv, int64_t allocation_pos) {
+      std::unordered_set<IterDomain*> exclude_ca_ids;
+      for (auto i : arange(allocation_pos)) {
+        auto ca_id = tv->axis(i);
+        if (!ir_utils::isMemorySharedAcross(
+                tv->getMemoryType(), ca_id->getParallelType())) {
+          exclude_ca_ids.insert(ca_id);
+        }
+      }
+      return exclude_ca_ids;
+    }
+
     // select domains from allocation domain that should be allocated
     std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
     usePresetAllocationDomain(
         TensorView * tv, const std::vector<ForLoop*>& for_loops) {
-      std::vector<IterDomain*> allocation_domains;
-      std::vector<std::optional<bool>> contiguity;
-
       if (tv->getMemoryType() == MemoryType::Global) {
-        // For global memory tensors we always allocate the entire tensor
-        // TODO: do we really want to treat global memory tensors differently?
-        // need to think about this more.
-        allocation_domains = tv->getAllocationDomain();
-        contiguity = tv->domain()->contiguity();
+        auto allocation_domains = tv->getAllocationDomain();
+        auto contiguity = tv->domain()->contiguity();
         NVF_ERROR(allocation_domains.size() == contiguity.size());
         return {allocation_domains, contiguity};
       }
 
       NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
 
-      // Allocation position is not always the same as the CA
-      // position. See also lower_utils::getAllocInformation.
+      // Get allocation position and collect excluded loop domains
+      // For example:
+      // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+      // iS6{2}, iS11{3} are excluded.
       int64_t allocation_pos =
           lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
-      // Collect loop domains to the left of the allocation position.
-      // These loop domains are not allocated.
-      std::unordered_set<IterDomain*> exclude_ca_ids;
-      std::cout << "allocation_pos: " << allocation_pos << std::endl;
-      for (auto i : arange(allocation_pos)) {
-        auto ca_id = tv->axis(i);
-        if (!ir_utils::isMemorySharedAcross(
-                tv->getMemoryType(), ca_id->getParallelType())) {
-          exclude_ca_ids.insert(ca_id);
-          std::cout << "add exclude_ca_ids: " << ca_id->toString() << std::endl;
-        }
-      }
+      auto exclude_ca_ids = collectExcludedLoopDomains(tv, allocation_pos);
 
-      // Iterate over allocation domains. Make sure all the collected loop
-      // domains are excluded.
+      // Process allocation domains
+      std::vector<IterDomain*> allocation_domains;
+      std::vector<std::optional<bool>> contiguity;
+
       for (auto i : arange(tv->getAllocationDomain().size())) {
         auto id = tv->getAllocationDomain()[i];
 
-        // Check if this allocation domain should be excluded
-        bool should_exclude = false;
-        IterDomain* excluded_id = nullptr;
-
-        // First try exact pointer comparison, works for simple cases
-        // when loop domain is a permutation of allocation domain.
-        // If failed, use IdModel.
-        auto exclude_it = exclude_ca_ids.find(id);
-        if (exclude_it != exclude_ca_ids.end()) {
-          should_exclude = true;
-          excluded_id = *exclude_it;
-        } else if (GpuLower::current()->hasIdModel()) {
-          const auto& exact_graph =
-              GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
-          for (auto exclude_id : exclude_ca_ids) {
-            if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
-              should_exclude = true;
-              excluded_id = exclude_id;
-              break;
-            }
-          }
-        }
-
-        if (!should_exclude) {
-          if (ir_utils::isMemoryPartitionedAcross(
-                  tv->getMemoryType(), id->getParallelType())) {
-            continue;
-          }
-          allocation_domains.push_back(id);
-          contiguity.push_back(tv->domain()->contiguity()[i]);
-          std::cout << "add allocation_domains: " << id->toString()
-                    << std::endl;
-        } else {
+        // Excluded based on allocation position
+        IterDomain* excluded_id =
+            shouldExcludeAllocationDomain(id, exclude_ca_ids);
+        if (excluded_id != nullptr) {
           exclude_ca_ids.erase(excluded_id);
-          std::cout << "erase exclude_ca_ids: " << excluded_id->toString()
-                    << std::endl;
+          continue;
         }
+        // Excluded based on memory partitioning
+        if (ir_utils::isMemoryPartitionedAcross(
+                tv->getMemoryType(), id->getParallelType())) {
+          continue;
+        }
+        allocation_domains.push_back(id);
+        contiguity.push_back(tv->domain()->contiguity()[i]);
       }
+
+      // Verify all excluded domains were found
       NVF_ERROR(
           exclude_ca_ids.empty(),
-          "The non-allocating compute-at IDs are not found in the "
-          "allocation "
+          "The non-allocating compute-at IDs are not found in the allocation "
           "domain. ",
           "It is unclear how to allocate the tensor: ",
           tv->toString(),
           " allocation domain: ",
           ir_utils::toString(tv->getAllocationDomain()));
+
       NVF_ERROR(allocation_domains.size() == contiguity.size());
       return {allocation_domains, contiguity};
     }
