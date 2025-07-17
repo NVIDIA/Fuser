@@ -12477,23 +12477,19 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
   bool b23;
   b23 = b17 && b20;
   uint64_t* T8 = reinterpret_cast<uint64_t*>(array + smem_offset + 0);
-  #pragma unroll
-  for(nvfuser_index_t i24 = 0; i24 < 6; ++i24) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
-      mbarrier::init(toSmem((&T8[i24])), 2U);
-    }
-  }
   uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 96);
-  #pragma unroll
-  for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
-      mbarrier::init(toSmem((&T9[i25])), 128U);
+  if (((Hopper::electSync(4294967295U) && b17) && b18)) {
+    #pragma unroll
+    for(nvfuser_index_t i24 = 0; i24 < 6; ++i24) {
+      mbarrier::init(toSmem((&T8[i24])), 1U);
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i26 = 0; i26 < 6; ++i26) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
-      mbarrier::init(toSmem((&T8[(i26 + 6LL)])), 128U);
+    #pragma unroll
+    for(nvfuser_index_t i25 = 0; i25 < 4; ++i25) {
+      mbarrier::init(toSmem((&T9[i25])), 1U);
+    }
+    #pragma unroll
+    for(nvfuser_index_t i26 = 0; i26 < 6; ++i26) {
+      mbarrier::init(toSmem((&T8[(i26 + 6LL)])), 1U);
     }
   }
   __syncthreads();
@@ -12534,12 +12530,11 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
             uint32_t i41;
             i41 = i13 + i39;
             mbarrier::waitParity(toSmem((&T8[(((((i6 * i27) + (i5 * i30)) + i37) % 6) + 6LL)])), __to_uint32((((((i6 * i27) + (i5 * i30)) + i37) / 6) % 2)));
-            mbarrier::arriveExpectTX(toSmem((&T8[((((i6 * i27) + (i5 * i30)) + i37) % 6)])), 16384U);
+            mbarrier::arriveExpectTX(toSmem((&T8[((((i6 * i27) + (i5 * i30)) + i37) % 6)])), 32768U);
             #pragma unroll
             for(nvfuser_index_t i42 = 0; i42 < 2; ++i42) {
               Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr9, (Array<int, 2, 1>{__to_int32((i34 + (64 * i42))), i38}), toSmem((&T8[((((i6 * i27) + (i5 * i30)) + i37) % 6)])) }), (i40 + (8192 * i42)));
             }
-            mbarrier::arriveExpectTX(toSmem((&T8[((((i6 * i27) + (i5 * i30)) + i37) % 6)])), 16384U);
             #pragma unroll
             for(nvfuser_index_t i43 = 0; i43 < 2; ++i43) {
               Hopper::cpAsyncBulkTensorTileG2S((Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ ptr11, (Array<int, 2, 1>{__to_int32((i36 + (64 * i43))), i38}), toSmem((&T8[((((i6 * i27) + (i5 * i30)) + i37) % 6)])) }), (i41 + (8192 * i43)));
@@ -12551,13 +12546,13 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
     return;
   } else {
     increaseRegisters<232>();
-    #pragma unroll
-    for(nvfuser_index_t i44 = 0; i44 < 5; ++i44) {
-      if (b19) {
+    if (b19 && (Hopper::electSync(4294967295U) && b17)) {
+      #pragma unroll
+      for(nvfuser_index_t i44 = 0; i44 < 5; ++i44) {
         mbarrier::arrive(toSmem((&T8[(i44 + 6LL)])));
       }
     }
-    if ((((nvfuser_index_t)threadIdx.y) == 1)) {
+    if ((((nvfuser_index_t)threadIdx.y) == 1) && (Hopper::electSync(4294967295U) && b17)) {
       mbarrier::arrive(toSmem((&T9[0])));
       mbarrier::arrive(toSmem((&T9[1])));
     }
@@ -12621,10 +12616,14 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
         }
         wgmma::commit();
         wgmma::wait<1LL>();
-        mbarrier::arrive(toSmem((&T8[((((i8 + (i6 * i45)) + i58) % 6) + 6LL)])));
+        if ((Hopper::electSync(4294967295U) && b17)) {
+          mbarrier::arrive(toSmem((&T8[((((i8 + (i6 * i45)) + i58) % 6) + 6LL)])));
+	}
       }
       wgmma::wait<0LL>();
-      mbarrier::arrive(toSmem((&T9[(((((nvfuser_index_t)threadIdx.y) + 1) % 2) * 2)])));
+      if ((Hopper::electSync(4294967295U) && b17)) {
+        mbarrier::arrive(toSmem((&T9[(((((nvfuser_index_t)threadIdx.y) + 1) % 2) * 2)])));
+      }
       mbarrier::waitParity(toSmem((&T9[((((nvfuser_index_t)threadIdx.y) * 2) + 1LL)])), __to_uint32((i45 % 2)));
       #pragma unroll
       for(nvfuser_index_t i69 = 0; i69 < 2; ++i69) {
@@ -12656,24 +12655,22 @@ __global__ void __launch_bounds__(/*maxThreadsPerBlock=*/384, /*minBlocksPerMult
         }
       }
       cpAsyncBulkWaitGroup<0LL>();
-      mbarrier::arrive(toSmem((&T9[((((((nvfuser_index_t)threadIdx.y) + 1) % 2) * 2) + 1LL)])));
+      if ((Hopper::electSync(4294967295U) && b17)) {
+        mbarrier::arrive(toSmem((&T9[((((((nvfuser_index_t)threadIdx.y) + 1) % 2) * 2) + 1LL)])));
+      }
     }
   }
-  #pragma unroll
-  for(nvfuser_index_t i77 = 0; i77 < 6; ++i77) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
+  if (((Hopper::electSync(4294967295U) && b17) && b18)) {
+    #pragma unroll
+    for(nvfuser_index_t i77 = 0; i77 < 6; ++i77) {
       mbarrier::inval(toSmem((&T8[(i77 + 6LL)])));
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i78 = 0; i78 < 4; ++i78) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
+    #pragma unroll
+    for(nvfuser_index_t i78 = 0; i78 < 4; ++i78) {
       mbarrier::inval(toSmem((&T9[i78])));
     }
-  }
-  #pragma unroll
-  for(nvfuser_index_t i79 = 0; i79 < 6; ++i79) {
-    if (((Hopper::electSync(4294967295U) && b17) && b18)) {
+    #pragma unroll
+    for(nvfuser_index_t i79 = 0; i79 < 6; ++i79) {
       mbarrier::inval(toSmem((&T8[i79])));
     }
   }
