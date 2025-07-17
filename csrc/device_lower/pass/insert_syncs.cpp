@@ -593,7 +593,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
                 return !val->isA<TensorView>() ||
-                    !isSharedMemory(val->as<TensorView>()) ||
+                    (!isSharedMemory(val->as<TensorView>()) &&
+                     val->as<TensorView>()->getMemoryType() !=
+                         MemoryType::Global) ||
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
