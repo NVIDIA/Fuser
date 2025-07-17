@@ -88,71 +88,7 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
 //
 // TODO: Refactor this and the allocation lowering pass
 class AllocationDomainSetup : private kir::IrVisitor {
- public:
-  using IrVisitor::dispatch;
-
-  // Set allocation domain info for all tensors
-  void setup(const std::vector<Expr*>& exprs) {
-    // Find out correct allocation domains for all consumer
-    // tensors. Input tensors are handled after this
-    for (auto expr : exprs) {
-      dispatch(expr);
-    }
-
-    // Make sure all tensors have allocation domains
-    for (TensorView* producer_tv : used_as_producer) {
-      auto it = tv_alloc_info_map.find(producer_tv);
-      if (it != tv_alloc_info_map.end()) {
-        continue;
-      }
-
-      // Not yet set. This must be an input tensor or it must be aliased via
-      // aliasTensorProducer, in which case it will not be allocated.
-      NVF_ERROR(
-          producer_tv->isFusionInput() ||
-              GpuLower::current()->getTensorProducerAlias(producer_tv) !=
-                  nullptr,
-          "Expected a fusion input or aliased tensor but found: ",
-          producer_tv->toString());
-
-      // For fusion input, we can just use getMaybeAllocationDomain.
-
-      auto alloc_info = getAllocationDomainInfo(
-          producer_tv,
-          producer_tv->getMaybeAllocationDomain(),
-          producer_tv->domain()->contiguity());
-
-      tv_alloc_info_map.emplace(producer_tv, alloc_info);
-    }
-  }
-
-  void dispatch(Expr* expr) override {
-    if (ir_utils::isTvOp(expr)) {
-      for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // Note that since we are dealing with a Kernel IR, a single
-        // tensor may show up as consumers multiple times, e.g.,
-        // zero initialization and actual definition. Using the last
-        // expr should give us correct allocation info. See
-        // IndexingTest.InlinedUnroll for a concrete
-        // example. Specifically, the initization expression of t2
-        // doesn't have an unrolling loop, so the allocation info
-        // obtained from that expression would fail to give the
-        // correct allocation domains.
-        auto [alloc_domains, contiguity] =
-            getAllocationDomainsAndContiguity(out_tv, for_loops_);
-        auto alloc_info =
-            getAllocationDomainInfo(out_tv, alloc_domains, contiguity);
-        tv_alloc_info_map[out_tv] = alloc_info;
-      }
-      for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        used_as_producer.insert(in_tv);
-      }
-    } else {
-      IrVisitor::dispatch(expr);
-    }
-  }
-
-  namespace {
+ private:
   // In general, if the tensor has an allocation domain set, it
   // should be used with no change. However, set allocation domains
   // are not always right allocation domains. For example,
@@ -226,7 +162,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
   IterDomain* getExcludedAllocationDomain(
       IterDomain* id,
       const std::unordered_set<IterDomain*>& exclude_ca_ids) {
-    // First try exact pointer comparison
     auto exclude_it = exclude_ca_ids.find(id);
     if (exclude_it != exclude_ca_ids.end()) {
       return *exclude_it;
@@ -306,7 +241,70 @@ class AllocationDomainSetup : private kir::IrVisitor {
     NVF_ERROR(allocation_domains.size() == contiguity.size());
     return {allocation_domains, contiguity};
   }
-  } // namespace
+
+ public:
+  using IrVisitor::dispatch;
+
+  // Set allocation domain info for all tensors
+  void setup(const std::vector<Expr*>& exprs) {
+    // Find out correct allocation domains for all consumer
+    // tensors. Input tensors are handled after this
+    for (auto expr : exprs) {
+      dispatch(expr);
+    }
+
+    // Make sure all tensors have allocation domains
+    for (TensorView* producer_tv : used_as_producer) {
+      auto it = tv_alloc_info_map.find(producer_tv);
+      if (it != tv_alloc_info_map.end()) {
+        continue;
+      }
+
+      // Not yet set. This must be an input tensor or it must be aliased via
+      // aliasTensorProducer, in which case it will not be allocated.
+      NVF_ERROR(
+          producer_tv->isFusionInput() ||
+              GpuLower::current()->getTensorProducerAlias(producer_tv) !=
+                  nullptr,
+          "Expected a fusion input or aliased tensor but found: ",
+          producer_tv->toString());
+
+      // For fusion input, we can just use getMaybeAllocationDomain.
+
+      auto alloc_info = getAllocationDomainInfo(
+          producer_tv,
+          producer_tv->getMaybeAllocationDomain(),
+          producer_tv->domain()->contiguity());
+
+      tv_alloc_info_map.emplace(producer_tv, alloc_info);
+    }
+  }
+
+  void dispatch(Expr* expr) override {
+    if (ir_utils::isTvOp(expr)) {
+      for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Note that since we are dealing with a Kernel IR, a single
+        // tensor may show up as consumers multiple times, e.g.,
+        // zero initialization and actual definition. Using the last
+        // expr should give us correct allocation info. See
+        // IndexingTest.InlinedUnroll for a concrete
+        // example. Specifically, the initization expression of t2
+        // doesn't have an unrolling loop, so the allocation info
+        // obtained from that expression would fail to give the
+        // correct allocation domains.
+        auto [alloc_domains, contiguity] =
+            getAllocationDomainsAndContiguity(out_tv, for_loops_);
+        auto alloc_info =
+            getAllocationDomainInfo(out_tv, alloc_domains, contiguity);
+        tv_alloc_info_map[out_tv] = alloc_info;
+      }
+      for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        used_as_producer.insert(in_tv);
+      }
+    } else {
+      IrVisitor::dispatch(expr);
+    }
+  }
 
   // Get the allocation domains and contiguity of a given tensor
   //
@@ -330,6 +328,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
       allocation_domains = tv->getLogicalDomain();
       contiguity = tv->domain()->contiguity();
     } else {
+      int64_t allocation_pos =
+          lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
       for (const auto i : arange(tv->nDims())) {
         auto loop_id = tv->getLoopDomain().at(i);
         auto pt = loop_id->getParallelType();
