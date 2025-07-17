@@ -43,14 +43,14 @@ import pytest
 def nvfp4_quantize(x):
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(torch.float32)
 
-    x_u8, x_scale = pytorch_nvfp4_quantize(t0_ref, t0_global_scale)
+    x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
     return x_u8, x_scale, x_global_scale
 
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(is_pre_blackwell(), reason="Only supported on blackwell and newer devices.")
 @pytest.mark.parametrize("config", [[128,256,512], [128,256,512]])
-@pytest.mark.parametrize("out_dtype", [torch.float16, torch.bfloat_16])
+@pytest.mark.parametrize("out_dtype", [torch.float16, torch.bfloat16])
 def test_scaled_mm(
   config,
   out_dtype,
@@ -73,8 +73,8 @@ def test_scaled_mm(
         mat2 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False, stride_order=[0, 1])
         scale1 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
         scale2 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
-        alpha = fd.define_tensor(shape=[-1], contiguity=True, dtype=DataType.Float, is_cpu=False)
-        out = fd.ops.scaled_mm(mat1, mat2, scale1, scale2, alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
+        alpha = fd.define_tensor(shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False)
+        out, _, _ = fd.ops.scaled_mm(mat1, mat2, scale1, scale2, alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
         fd.add_output(out)
     
     with FusionDefinition() as fd:
