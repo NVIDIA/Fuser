@@ -153,159 +153,159 @@ class AllocationDomainSetup : private kir::IrVisitor {
   }
 
   namespace {
-    // In general, if the tensor has an allocation domain set, it
-    // should be used with no change. However, set allocation domains
-    // are not always right allocation domains. For example,
-    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
-    // is a Local tensor with CA position of 4 but has an allocation
-    // domain that's just a permutation of its logical domain. Such
-    // invalid allocations need to be ignored. If there doesn't seem
-    // to be any clear condition when the set domain can be used, so
-    // it needs to be inferred. Here's what seems to be working
-    // reasonably well.
-    bool canUsePresetAllocationDomain(TensorView* tv) {
-      if (!tv->hasAllocation()) {
-        return false;
-      }
-      // Honor the allocation domain if the tensor is global or Hopper MMA's
-      // output
-      if (tv->getMemoryType() == MemoryType::Global ||
-          (tv->definition()->isA<MmaOp>() &&
-           isHopper(tv->definition()->as<MmaOp>()->macro()))) {
-        return true;
-      }
-      // If it's a shared memory tensor, the set domain is likely
-      // valid if Swizzle or Bulk is used. Also, if the allocation
-      // domain is just a permutation of the loop domain, use the
-      // set allocation domain. This seems to happen only with
-      // AllocationDomainTest.TransposedIntermediate.
-      if (tv->getMemoryType() == MemoryType::Shared) {
-        if (std::any_of(
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end(),
-                [](IterDomain* allocation_domain) {
-                  return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr ||
-                      allocation_domain->getParallelType() ==
-                      ParallelType::Bulk;
-                }) ||
-            std::is_permutation(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end())) {
-          return true;
-        }
-
-        // Honor the set allocation domain if the tensor is used by a
-        // TMA store or MmaOp
-        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
-              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
-            })) {
-          return true;
-        }
-      }
+  // In general, if the tensor has an allocation domain set, it
+  // should be used with no change. However, set allocation domains
+  // are not always right allocation domains. For example,
+  // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
+  // is a Local tensor with CA position of 4 but has an allocation
+  // domain that's just a permutation of its logical domain. Such
+  // invalid allocations need to be ignored. If there doesn't seem
+  // to be any clear condition when the set domain can be used, so
+  // it needs to be inferred. Here's what seems to be working
+  // reasonably well.
+  bool canUsePresetAllocationDomain(TensorView* tv) {
+    if (!tv->hasAllocation()) {
       return false;
     }
-
-    // Helper function to check if an allocation domain should be excluded
-    // Returns the excluded ID if found, nullptr otherwise.
-    // An allocation domain should be excluded if it is not required to be
-    // allocated. For example:
-    // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
-    // logical domain : (iS6{2}, iS7{12}, iB8{16})
-    // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
-    // contiguity: t t t t
-    //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
-    //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
-    // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
-    // Based on loop domain and compute pos, we don't need to allocate iS6{2}
-    // and iS11{3}. Then the corresponding allocation domains iS6{2} and
-    // iS15{3} should be excluded.
-    // iS6{2} is found directly by pointer comparison.
-    // iS15{3} is found by IdModel.
-    IterDomain* shouldExcludeAllocationDomain(
-        IterDomain* id,
-        const std::unordered_set<IterDomain*>& exclude_ca_ids) {
-      // First try exact pointer comparison
-      auto exclude_it = exclude_ca_ids.find(id);
-      if (exclude_it != exclude_ca_ids.end()) {
-        return *exclude_it;
-      }
-      return nullptr;
+    // Honor the allocation domain if the tensor is global or Hopper MMA's
+    // output
+    if (tv->getMemoryType() == MemoryType::Global ||
+        (tv->definition()->isA<MmaOp>() &&
+         isHopper(tv->definition()->as<MmaOp>()->macro()))) {
+      return true;
     }
-
-    // Helper function to collect loop domains that should be excluded
-    std::unordered_set<IterDomain*> collectExcludedLoopDomains(
-        TensorView* tv, int64_t allocation_pos) {
-      std::unordered_set<IterDomain*> exclude_ca_ids;
-      for (auto i : arange(allocation_pos)) {
-        auto ca_id = tv->axis(i);
-        if (!ir_utils::isMemorySharedAcross(
-                tv->getMemoryType(), ca_id->getParallelType())) {
-          exclude_ca_ids.insert(ca_id);
-        }
+    // If it's a shared memory tensor, the set domain is likely
+    // valid if Swizzle or Bulk is used. Also, if the allocation
+    // domain is just a permutation of the loop domain, use the
+    // set allocation domain. This seems to happen only with
+    // AllocationDomainTest.TransposedIntermediate.
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      if (std::any_of(
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end(),
+              [](IterDomain* allocation_domain) {
+                return dynamic_cast<Swizzle*>(
+                           allocation_domain->definition()) != nullptr ||
+                    allocation_domain->getParallelType() == ParallelType::Bulk;
+              }) ||
+          std::is_permutation(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end())) {
+        return true;
       }
-      return exclude_ca_ids;
+
+      // Honor the set allocation domain if the tensor is used by a
+      // TMA store or MmaOp
+      if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+            return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+          })) {
+        return true;
+      }
     }
+    return false;
+  }
 
-    // select domains from allocation domain that should be allocated
-    std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
-    usePresetAllocationDomain(
-        TensorView* tv, const std::vector<ForLoop*>& for_loops) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        auto allocation_domains = tv->getAllocationDomain();
-        auto contiguity = tv->domain()->contiguity();
-        NVF_ERROR(allocation_domains.size() == contiguity.size());
-        return {allocation_domains, contiguity};
+  // Helper function to check if an allocation domain should be excluded
+  // Returns the excluded ID if found, nullptr otherwise.
+  // An allocation domain should be excluded if it is not required to be
+  // allocated. For example:
+  // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+  // logical domain : (iS6{2}, iS7{12}, iB8{16})
+  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+  // contiguity: t t t t
+  //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
+  //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
+  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+  // Based on loop domain and compute pos, we don't need to allocate iS6{2}
+  // and iS11{3}. Then the corresponding allocation domains iS6{2} and
+  // iS15{3} should be excluded.
+  // iS6{2} is found directly by pointer comparison.
+  // iS15{3} is found by IdModel.
+  IterDomain* getExcludedAllocationDomain(
+      IterDomain* id,
+      const std::unordered_set<IterDomain*>& exclude_ca_ids) {
+    // First try exact pointer comparison
+    auto exclude_it = exclude_ca_ids.find(id);
+    if (exclude_it != exclude_ca_ids.end()) {
+      return *exclude_it;
+    }
+    return nullptr;
+  }
+
+  // Helper function to collect loop domains that should be excluded
+  std::unordered_set<IterDomain*> collectExcludedLoopDomains(
+      TensorView* tv,
+      int64_t allocation_pos) {
+    std::unordered_set<IterDomain*> exclude_ca_ids;
+    for (auto i : arange(allocation_pos)) {
+      auto ca_id = tv->axis(i);
+      if (!ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), ca_id->getParallelType())) {
+        exclude_ca_ids.insert(ca_id);
       }
+    }
+    return exclude_ca_ids;
+  }
 
-      NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
-
-      // Get allocation position and collect excluded loop domains
-      // For example:
-      // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
-      // iS6{2}, iS11{3} are excluded.
-      int64_t allocation_pos =
-          lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
-      auto exclude_ca_ids = collectExcludedLoopDomains(tv, allocation_pos);
-
-      // Process allocation domains
-      std::vector<IterDomain*> allocation_domains;
-      std::vector<std::optional<bool>> contiguity;
-
-      for (auto i : arange(tv->getAllocationDomain().size())) {
-        auto id = tv->getAllocationDomain()[i];
-
-        // Excluded based on allocation position
-        IterDomain* excluded_id =
-            shouldExcludeAllocationDomain(id, exclude_ca_ids);
-        if (excluded_id != nullptr) {
-          exclude_ca_ids.erase(excluded_id);
-          continue;
-        }
-        // Excluded based on memory partitioning
-        if (ir_utils::isMemoryPartitionedAcross(
-                tv->getMemoryType(), id->getParallelType())) {
-          continue;
-        }
-        allocation_domains.push_back(id);
-        contiguity.push_back(tv->domain()->contiguity()[i]);
-      }
-
-      // Verify all excluded domains were found
-      NVF_ERROR(
-          exclude_ca_ids.empty(),
-          "The non-allocating compute-at IDs are not found in the allocation "
-          "domain. ",
-          "It is unclear how to allocate the tensor: ",
-          tv->toString(),
-          " allocation domain: ",
-          ir_utils::toString(tv->getAllocationDomain()));
-
+  // select domains from allocation domain that should be allocated
+  std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
+  usePresetAllocationDomain(
+      TensorView* tv,
+      const std::vector<ForLoop*>& for_loops) {
+    if (tv->getMemoryType() == MemoryType::Global) {
+      auto allocation_domains = tv->getAllocationDomain();
+      auto contiguity = tv->domain()->contiguity();
       NVF_ERROR(allocation_domains.size() == contiguity.size());
       return {allocation_domains, contiguity};
     }
+
+    NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
+
+    // Get allocation position and collect excluded loop domains
+    // For example:
+    // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+    // iS6{2}, iS11{3} are excluded.
+    int64_t allocation_pos =
+        lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+    auto exclude_ca_ids = collectExcludedLoopDomains(tv, allocation_pos);
+
+    // Process allocation domains
+    std::vector<IterDomain*> allocation_domains;
+    std::vector<std::optional<bool>> contiguity;
+
+    for (auto i : arange(tv->getAllocationDomain().size())) {
+      auto id = tv->getAllocationDomain()[i];
+
+      // Excluded based on allocation position
+      IterDomain* excluded_id = getExcludedAllocationDomain(id, exclude_ca_ids);
+      if (excluded_id != nullptr) {
+        exclude_ca_ids.erase(excluded_id);
+        continue;
+      }
+      // Excluded based on memory partitioning
+      if (ir_utils::isMemoryPartitionedAcross(
+              tv->getMemoryType(), id->getParallelType())) {
+        continue;
+      }
+      allocation_domains.push_back(id);
+      contiguity.push_back(tv->domain()->contiguity()[i]);
+    }
+
+    // Verify all excluded domains were found
+    NVF_ERROR(
+        exclude_ca_ids.empty(),
+        "The non-allocating compute-at IDs are not found in the allocation "
+        "domain. ",
+        "It is unclear how to allocate the tensor: ",
+        tv->toString(),
+        " allocation domain: ",
+        ir_utils::toString(tv->getAllocationDomain()));
+
+    NVF_ERROR(allocation_domains.size() == contiguity.size());
+    return {allocation_domains, contiguity};
+  }
   } // namespace
 
   // Get the allocation domains and contiguity of a given tensor
