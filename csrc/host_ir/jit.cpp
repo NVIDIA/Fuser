@@ -264,11 +264,8 @@ llvm::Value* traverseExtentDFS(
   } else if (val->isConst()) {
     val_to_value[val] = builder.getInt64(val->value().as<int64_t>());
   } else {
-    // NVF_THROW("LLVM Lowering Error: traverseExtentDFS called with non-binary
-    // op or constant Val.");
-    std::cout << "LLVM Lowering Error: traverseExtentDFS called with "
-                 "non-binary op or constant Val."
-              << std::endl;
+    NVF_THROW(
+        "LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val.");
     val_to_value[val] = builder.getInt64(1);
   }
   return val_to_value[val];
@@ -279,8 +276,6 @@ Val* mapToInputDomain(
     std::unordered_map<Val*, bool>& boundaryVals) {
   for (auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) {
     auto* domain = it->first->as<IterDomain>();
-    // std::cout << "currentDomain: " << currentDomain->toString() << " domain:
-    // " << domain->toString() << std::endl;
     if (currentDomain->as<IterDomain>() == domain) {
       return it->first;
     }
@@ -289,7 +284,7 @@ Val* mapToInputDomain(
 }
 
 // Helper function to generate LLVM IR for
-void generateReorderedStrideLLVMIR(
+void generateReorderedStrideLlvmIr(
     Val* current_val,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
     llvm::IRBuilder<>& builder,
@@ -300,7 +295,7 @@ void generateReorderedStrideLLVMIR(
   if (current_val == nullptr) {
     NVF_ERROR(
         false,
-        "LLVM Lowering Error: generateReorderedStrideLLVMIR called with "
+        "LLVM Lowering Error: generateReorderedStrideLlvmIr called with "
         "nullptr Val.");
     return;
   }
@@ -310,14 +305,10 @@ void generateReorderedStrideLLVMIR(
     // Check if the current val is a boundary val
     Val* original_val = mapToInputDomain(current_val, boundary_vals);
     if (original_val != nullptr) {
-      // TODO: If the iter domain is a broadcast domain, then we have multiple
-      // inputs values pointing to the same valgroup
-      // NVF_ERROR(!original_val->as<IterDomain>()->isBroadcast(), "LLVM
-      // Lowering Error: Broadcast domain is not supported in stride
-      // inference");
       if (boundary_vals[original_val] == false) {
         boundary_vals[original_val] = true;
         boundaryValStrides[original_val] = running_stride_product;
+        // Broadcast domain always has stride 0
         if (original_val->as<IterDomain>()->isBroadcast()) {
           return;
         }
@@ -359,7 +350,7 @@ void generateReorderedStrideLLVMIR(
         return;
       }
     } else {
-      generateReorderedStrideLLVMIR(
+      generateReorderedStrideLlvmIr(
           input_inner_val,
           val2llvmMap,
           builder,
@@ -383,7 +374,7 @@ void generateReorderedStrideLLVMIR(
         return;
       }
     } else {
-      generateReorderedStrideLLVMIR(
+      generateReorderedStrideLlvmIr(
           input_outer_val,
           val2llvmMap,
           builder,
@@ -427,7 +418,7 @@ void generateReorderedStrideLLVMIR(
         return;
       }
     } else {
-      generateReorderedStrideLLVMIR(
+      generateReorderedStrideLlvmIr(
           input_val,
           val2llvmMap,
           builder,
@@ -456,7 +447,6 @@ void generateReorderedStrideLLVMIR(
               false,
               "LLVM Lowering Error: Inner split factor is not a constant and "
               "not found in val2stride_map");
-          return;
         }
       }
       if (val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr ||
@@ -489,7 +479,6 @@ void generateReorderedStrideLLVMIR(
               false,
               "LLVM Lowering Error: Outer split factor is not a constant and "
               "not found in val2stride_map");
-          return;
         }
       }
       if (val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr ||
@@ -623,10 +612,7 @@ void inferShapeAndStridesNoReorder(
   // both size and stride will be recalculated. getMaybeAllocationDomain is
   // acutally getting the logical domain. By using getLogicalDomain, we can
   // avoid the extra calculation of shape, and only stride will be recalculated.
-  for (const auto id : tv->getLogicalDomain()) {
-    if (id->isReduction() || id->isStride()) {
-      continue;
-    }
+  for (const auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
 
     // Skip DIDx parallel domains to match inferTensorStrides filtering
     if (id->getParallelType() == ParallelType::DIDx ||
@@ -667,19 +653,22 @@ void inferTensorStridesReordered(
   std::unordered_map<Val*, bool> boundaryValVisited;
   std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   for (auto* val : logical_domain) {
     boundaryValVisited[val] = false;
   }
-  for (auto it = tv->getMaybeAllocationDomain().rbegin();
-       it != tv->getMaybeAllocationDomain().rend();
+  for (auto it = allocation_domain.rbegin();
+       it != allocation_domain.rend();
        ++it) {
     auto iter_domain = *it;
+
+    // TODO: We will divide DID domain in the original size in the future.
     if (iter_domain->getParallelType() == ParallelType::DIDx ||
         iter_domain->getParallelType() == ParallelType::DIDy ||
         iter_domain->getParallelType() == ParallelType::DIDz) {
       continue;
     }
-    generateReorderedStrideLLVMIR(
+    generateReorderedStrideLlvmIr(
         iter_domain->as<Val>(),
         val_to_value,
         builder,
@@ -707,15 +696,17 @@ void inferTensorShapesAndStridesNonAliased(
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   // Without allocation, we can directly get the size and stride
   inferShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
-  NVF_ERROR_EQ(sizes.size(), tv->getLogicalDomain().size());
-  NVF_ERROR_EQ(strides.size(), tv->getLogicalDomain().size());
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  NVF_ERROR_EQ(sizes.size(), logical_domain.size());
+  NVF_ERROR_EQ(strides.size(), logical_domain.size());
+  // No allocation, we can directly return regular size and stride
   if (!tv->hasAllocation()) {
     return;
   }
+  // With allocation, we need to reorder the stride
   strides.clear();
-  // With allocation, we need to reorder the size and stride
   inferTensorStridesReordered(tv, val_to_value, builder, strides);
-  NVF_ERROR_EQ(strides.size(), tv->getLogicalDomain().size());
+  NVF_ERROR_EQ(strides.size(), TensorDomain::noReductions(tv->getLogicalDomain()).size());
   return;
 }
 
@@ -940,10 +931,8 @@ void unpackInputs(
     llvm::Value* tensor = builder.CreateLoad(tensor_ptr_type, tensor_addr);
     tensor->setName("input_aten_tensor");
     // bind input aten tensor sizes to val_to_value
-    const std::vector<IterDomain*> logical_domain =
-        TensorDomain::noReductions(tv->getLogicalDomain());
     // TODO: We should validate const size and strides here, ie. dim check
-    for (const auto& [dim_idx, id] : enumerate(logical_domain)) {
+    for (const auto& [dim_idx, id] : enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast()) {
         val_to_value[id->extent()] = builder.getInt64(1);
         if (id->hasExpandedExtent()) {
