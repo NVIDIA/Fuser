@@ -1629,10 +1629,7 @@ void selfReplayLoopToAllocation(TensorView* tv) {
   
   // For each logical ID, find its corresponding allocation ID
   for (auto logical_id : logical) {
-    auto it = std::find_if(alloc.begin(), alloc.end(), 
-        [logical_id](IterDomain* alloc_id) {
-          return logical_id->sameAs(alloc_id);
-        });
+    auto it = std::find(alloc.begin(), alloc.end(), logical_id);
     NVF_ERROR(it != alloc.end(), 
         "Could not find matching allocation ID for logical ID: ", logical_id);
     logical_to_alloc_map[logical_id] = *it;
