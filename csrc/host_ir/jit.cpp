@@ -82,7 +82,7 @@ struct HostIrJitImpl {
   void compile();
   void registerExternalFunctions();
 
-  // data members
+  // Data members
   std::unique_ptr<llvm::orc::LLJIT> jit_;
   std::unique_ptr<hir::HostIrContainer> container_;
   main_func_t main_func_;
@@ -283,7 +283,7 @@ Val* mapToInputDomain(
   return nullptr;
 }
 
-// Helper function to generate LLVM IR for
+// Helper function to generate LLVM IR for reordered stride calculation
 void generateReorderedStrideLlvmIr(
     Val* current_val,
     std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
@@ -610,7 +610,7 @@ void inferShapeAndStridesNoReorder(
   // NOTE: the original design used getMaybeAllocationDomain to infer shape,
   // but it's not efficient, since if there is a real allocation domain,
   // both size and stride will be recalculated. getMaybeAllocationDomain is
-  // acutally getting the logical domain. By using getLogicalDomain, we can
+  // actually getting the logical domain. By using getLogicalDomain, we can
   // avoid the extra calculation of shape, and only stride will be recalculated.
   for (const auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
 
@@ -824,7 +824,7 @@ void packOutputs(
 void compileFunctionDeclarations(
     llvm::Module* module,
     llvm::LLVMContext& context) {
-  // get the types
+  // Get the types
   auto* void_type = llvm::Type::getVoidTy(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
   auto* int64_type = llvm::Type::getInt64Ty(context);
@@ -919,16 +919,16 @@ class HostIrCompileDispatcher : public OptInDispatch {
         it != val_to_value_.end(), "input tensor is not found in val_to_value");
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::Value* in_tensor = it->second;
-    // create a new tensor
+    // Create a new tensor
     llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
     llvm::Value* out_tensor =
         builder_.CreateCall(new_tensor_func, {}, "out_tensor");
 
-    // set the output tensor to the input tensor
+    // Set the output tensor to the input tensor
     llvm::Function* set_tensor_func = module->getFunction(kSetTensorFuncName);
     builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
 
-    // bind the output tensor to val_to_value
+    // Bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
   }
 
@@ -989,7 +989,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides_ndim_arg = builder_.getInt64(tensor_strides.size());
 
     // Create output tensor
-    llvm::Value* raw_tensor_ptr = builder_.CreateCall(
+    llvm::Value* out_tensor = builder_.CreateCall(
         module->getFunction(kNewTensorFuncName), {}, "out_tensor");
 
     // Create constants for type and device from params
@@ -1015,8 +1015,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
          strides_ndim_arg,
          dtype_constant,
          device_index_constant,
-         raw_tensor_ptr});
-    val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
+         out_tensor});
+    val_to_value_[allocate->buffer()->as<Val>()] = out_tensor;
   }
 
   // Deallocation Function LLVM IR Generation
@@ -1124,7 +1124,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         return tensor->stride(dim);
       });
 
-  // raw tensor allocation, we only allocate a wrapper here
+  // new at::Tensor() wrapper instead of real tensor allocation
   void* new_tensor_func_ptr = reinterpret_cast<void*>(
       +[]() -> at::Tensor* { return new at::Tensor(); });
 
