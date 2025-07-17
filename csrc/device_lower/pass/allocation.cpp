@@ -163,7 +163,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // to be any clear condition when the set domain can be used, so
     // it needs to be inferred. Here's what seems to be working
     // reasonably well.
-    bool canUsePresetAllocationDomain(TensorView * tv) {
+    bool canUsePresetAllocationDomain(TensorView* tv) {
       if (!tv->hasAllocation()) {
         return false;
       }
