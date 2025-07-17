@@ -206,8 +206,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return {allocation_domains, contiguity};
     }
 
-    NVF_ERROR(tv->getMemoryType() == MemoryType::Shared);
-
     // Get allocation position and collect excluded loop domains
     // For example:
     // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
@@ -927,6 +925,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 } // namespace
 
 namespace {
+
 enum class CircularBufferWaitType { ReadAfterWrite, WriteAfterRead };
 
 // This function creates kir::Loop with range based on stage depth. It is
@@ -948,7 +947,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //     mbarrier::init(...);
 //   }
 // }
-Expr* initializeMbarrier(
+Expr* initializeCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -1012,8 +1011,8 @@ Expr* initializeMbarrier(
   return loop;
 }
 
-// This helper function invalidates mbarrier for all circular buffer stage
-// after TMA memory operations.
+// This helper function invalidates mbarrier for all circular buffer stage after
+// TMA memory operations.
 //
 // Expected result:
 // for (unsigned i = 0; i < stages; ++i) {
@@ -1021,7 +1020,7 @@ Expr* initializeMbarrier(
 //     mbarrier::inval(...);
 //   }
 // }
-Expr* invalidateMbarrier(
+Expr* invalidateCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -1471,13 +1470,13 @@ class AllocationInserter : public kir::ExprMutator {
     ExprMutator::handle(fl);
 
     // If fl is a circular buffered loop, the we should lowering the loop as:
-    //    alloc mbarrier
-    //    init mbarrier
+    //    alloc cb_mbarrier
+    //    init cb_mbarrier
     //    block_sync
     //    for-loop with cpAsyncBulk expression (the `fl` parameter)
-    //    inval mbarrier
+    //    inval cb_mbarrier
 
-    auto circular_buffer_tvs =
+    std::unordered_set<const TensorView*> circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
     bool circular_buffer_load_is_tma = std::any_of(
@@ -1492,33 +1491,34 @@ class AllocationInserter : public kir::ExprMutator {
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
-      const auto& opt =
+      const CircularBufferOptions& cb_opt =
           GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               fl->iter_domain());
 
       // We use mbarrier[0:stage] for RAW, that is, to wait for the completion
       // of the TMA load of the circular buffer tensor, and
-      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion
-      // of the reading of the circular buffer tensor.
-      int64_t num_mbarriers =
-          opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
+      // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
+      // the reading of the circular buffer tensor.
+      int64_t num_cb_mbarriers =
+          cb_opt.usesMBarrierForWAR() ? cb_opt.stage * 2 : cb_opt.stage;
 
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{num_mbarriers})
-                                 .dtype(DataType::UInt64)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
+      TensorView* cb_mbarrier =
+          TensorViewBuilder()
+              .shape(std::vector<int64_t>{num_cb_mbarriers})
+              .dtype(DataType::UInt64)
+              .contiguity(true)
+              .build();
+      cb_mbarrier->setMemoryType(MemoryType::Shared);
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      kir::Allocate* cb_mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(cb_mbarrier, MemoryType::Shared);
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto mbarrier_init_raw = initializeMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
-      auto mbarrier_inval_raw = invalidateMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_init_raw = initializeCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_inval_raw = invalidateCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -1526,42 +1526,61 @@ class AllocationInserter : public kir::ExprMutator {
       // Add mbarriers, init, and inval operations around tma expression like
       // this:
       //
-      // __shared__ mbarrier[num_stages];
+      // __shared__ cb_mbarrier[num_stages];
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for RAW
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for WAR
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // block_sync();
       //
       // for (circular_buffer_loop) {
-      //   cp.async.bulk(data, mbarrier);
+      //   cp.async.bulk(data, cb_mbarrier);
       // }
       //
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for WAR
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for RAW
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init_raw, current_scope);
-      registerInsertAfter(fl, mbarrier_inval_raw, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_alloc, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_init_raw, current_scope);
+      registerInsertAfter(fl, cb_mbarrier_inval_raw, current_scope);
 
-      if (opt.usesMBarrierForWAR()) {
-        auto mbarrier_init_war = initializeMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        auto mbarrier_inval_war = invalidateMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        registerInsertBefore(fl, mbarrier_init_war, current_scope);
-        registerInsertAfter(fl, mbarrier_inval_war, current_scope);
+      // If this is a ping-pong hopper, then we need to create and allocate
+      // ping-pong mbarriers.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              fl->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto
+            [ping_pong_mbarrier_alloc,
+             ping_pong_mbarrier_init_raw,
+             ping_pong_mbarrier_inval_raw] =
+                ping_pong_mbarriers->createPingPongMbarrier();
+        NVF_ERROR(ping_pong_mbarrier_alloc != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_init_raw != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_inval_raw != nullptr);
+        registerInsertBefore(fl, ping_pong_mbarrier_alloc, current_scope);
+        registerInsertBefore(fl, ping_pong_mbarrier_init_raw, current_scope);
+        registerInsertAfter(fl, ping_pong_mbarrier_inval_raw, current_scope);
+      }
+
+      if (cb_opt.usesMBarrierForWAR()) {
+        auto cb_mbarrier_init_war = initializeCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        auto cb_mbarrier_inval_war = invalidateCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        registerInsertBefore(fl, cb_mbarrier_init_war, current_scope);
+        registerInsertAfter(fl, cb_mbarrier_inval_war, current_scope);
       }
       registerInsertBefore(fl, sync, current_scope);
 
@@ -1571,7 +1590,7 @@ class AllocationInserter : public kir::ExprMutator {
           continue;
         }
         // Map LoadStoreOp expression to ir nodes created in this pass
-        GpuLower::current()->mbarrierMap()[tv->definition()] = mbarrier;
+        GpuLower::current()->mbarrierMap()[tv->definition()] = cb_mbarrier;
       }
     }
   }
@@ -1602,8 +1621,8 @@ class AllocationInserter : public kir::ExprMutator {
 
   void handle(kir::IfThenElse* ite) final {
     // TODO: Currently we just naively dispatch into the IfThenElse node
-    // assuming that this does not affect the analysis. For now, this
-    // assumption is true, but in the future, we might need to revisit this.
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
@@ -1663,11 +1682,11 @@ kir::IfThenElse* createFirstWarpITE() {
 // Insert IR nodes that allocate and deallocate TMem regions.
 // See note [Tensor Memory Allocation] for the overall design.
 // We insert the tcgen05.allocs of each region and the relinquish of the right
-// to allocate at the beginning of the top-level scope of the kernel. We
-// insert the tcgen05.deallocs after the outermost serial loop containing the
-// last read of each TMem region into whatever scope containing this outermost
-// serial loop. The allocation of each TMem TensorView within each region is
-// inserted by AllocationInserter::insert, therefore not handled here.
+// to allocate at the beginning of the top-level scope of the kernel. We insert
+// the tcgen05.deallocs after the outermost serial loop containing the last read
+// of each TMem region into whatever scope containing this outermost serial
+// loop. The allocation of each TMem TensorView within each region is inserted
+// by AllocationInserter::insert, therefore not handled here.
 std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     const std::vector<Expr*>& exprs) {
   // Expressions to be inserted at the beginning of the top-level scope.
@@ -1690,8 +1709,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
     }
 
     if (!regions.empty()) {
-      // Relinquish the right to allocate after all regions have been
-      // allocated
+      // Relinquish the right to allocate after all regions have been allocated
       auto first_warp = createFirstWarpITE();
       auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
           "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
@@ -1715,14 +1733,14 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       //   region -> a function that registers the deallocation expression for
       //             this region
       //
-      // This map is updated during traversal. For example, if we have a
-      // kernel like below:
+      // This map is updated during traversal. For example, if we have a kernel
+      // like below:
       //   ...
       //   T1_t = T0_r; // expr1
       //   ...
       //   T2_r = T1_t; // expr2
-      // Assume that T1_t is in region R1. Then after we handle(expr1), we
-      // will have an entry:
+      // Assume that T1_t is in region R1. Then after we handle(expr1), we will
+      // have an entry:
       //    R1 -> a function registering insertion of "dealloc R1" after expr1
       // After handle(expr2), this entry becomes:
       //    R1 -> a function registering insertion of "dealloc R1" after expr2
@@ -1740,9 +1758,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       // the mapped regions will be all the regions the contained exprs are
       // accessing.
       //
-      // This map only contain information of accesses that we have
-      // discovered, and is updated during traversal. For example, if we have
-      // a kernel:
+      // This map only contain information of accesses that we have discovered,
+      // and is updated during traversal. For example, if we have a kernel:
       //   ForLoop: // loop1
       //     T2_t = T0_r; // expr1
       //     ...
