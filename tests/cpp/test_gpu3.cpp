@@ -9131,7 +9131,7 @@ TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
   const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
   EXPECT_TRUE(std::any_of(
       exprs.begin(), exprs.end(), [](Expr* expr) {
-        return expr->isA<BlockSync>();
+        return expr->isA<kir::BlockSync>();
       }));
 }
 
