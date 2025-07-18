@@ -49,16 +49,32 @@ def unpack_fp4_bytes(a, dtype):
     return out
 
 
-# Convert from packed block layout into general block-scale factor
-def convert_swizzled_to_linear(a_sf_swizzled: torch.Tensor, m, k, block_size):
-    sf_m, sf_k = a_sf_swizzled.shape
-    m_tiles = (m + 128 - 1) // 128
-    f = block_size * 4
-    k_tiles = (k + f - 1) // f
-    tmp = torch.reshape(a_sf_swizzled, (1, m_tiles, k_tiles, 32, 4, 4))
-    tmp = torch.permute(tmp, (0, 1, 4, 3, 2, 5))
-    return tmp.reshape(m_tiles * 128, k_tiles * f // block_size)
+# restore swizzled on block scaling factor:
+# 1. restore swizzle
+# 2. removes padding via slicing to [:mn, :k]
+def swizzled_to_linear_128_4(a_sf_swizzled: torch.Tensor, mn, k):
+    mn_padded, sf_k_padded = a_sf_swizzled.shape
+    m_tiles = mn_padded // 128
+    k_tiles = sf_k_padded // 4
+    tmp = torch.reshape(a_sf_swizzled, (m_tiles, k_tiles, 32, 4, 4))
+    return tmp.transpose(1, 3).reshape(mn_padded, sf_k_padded)[:mn, :k]
 
+# apply swizzled on block scaling factor:
+# 1. apply padding to [mn_t * 128 , k_t * 4]
+# 2. apply swizzle
+def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
+    mn, sf_k = a_sf_linear.shape
+    m_tiles = (mn + 128 - 1) // 128
+    mn_padded = m_tiles * 128
+    k_tiles = (sf_k + 4 - 1) // 4
+    k_padded = k_tiles * 4
+    if mn_padded != mn or k_padded != sf_k:
+        a_sf_padded = torch.empty(mn_padded, k_padded, dtype=a_sf_linear.dtype, device=a_sf_linear.device)
+        a_sf_padded[0:mn, 0:sf_k] = a_sf_linear
+    else:
+        a_sf_padded = a_sf_linear
+    tmp = torch.reshape(a_sf_padded, (m_tiles, 32, 4, k_tiles, 4))
+    return tmp.transpose(1, 3).reshape(mn, sf_k)
 
 def dequantize_to_dtype(
     tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16
@@ -71,7 +87,7 @@ def dequantize_to_dtype(
     tensor_f32 = unpack_fp4_bytes(tensor_fp4, dtype)
     tensor_f32 = tensor_f32.reshape(m, k // block_size, block_size)
     tensor_sf = tensor_sf.view(torch.float8_e4m3fn)
-    tensor_sf = convert_swizzled_to_linear(tensor_sf, m, k, block_size)
+    tensor_sf = swizzled_to_linear_128_4(tensor_sf, m, k)
     tensor_sf_dtype = tensor_sf.to(torch.float32) / global_scale
 
     # scale the tensor
