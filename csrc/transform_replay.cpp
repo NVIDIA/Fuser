@@ -818,7 +818,10 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
           ", requested in replay.");
       continue;
     }
-    new_IDs.push_back(it->second);
+    // may already being parallelized by device ID
+    auto new_id = it->second;
+    new_id->parallelize(p_id->getParallelType());
+    new_IDs.push_back(new_id);
     used_IDs.emplace(it->second);
   }
 

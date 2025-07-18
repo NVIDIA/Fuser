@@ -1316,12 +1316,12 @@ TensorView* TensorView::cacheAfter(
   IrBuilder::createInContainer<LoadStoreOp>(
       container(), op_type, consumer, producer, cache_op);
 
-  if (propagate_allocation_domain) {
-    auto replayed_consumer_pair = TransformReplay::replayCasP(
-        consumer, producer, -1, TransformReplayOptions().replayAllocation());
-
-    consumer->setDomain(replayed_consumer_pair.first);
-  }
+  // propagte loop and allocation domains if requested
+  TransformReplayOptions replay_opt;
+  replay_opt.replayAllocation(propagate_allocation_domain);
+  auto replayed_consumer_pair =
+      TransformReplay::replayCasP(consumer, producer, -1, replay_opt);
+  consumer->setDomain(replayed_consumer_pair.first);
 
   return consumer;
 }

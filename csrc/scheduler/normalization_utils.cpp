@@ -1492,8 +1492,10 @@ void beforeSchedule(
   bool unroll = rparams->isUnrolled();
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
-  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
-
+  // Normalization scheudler is not aware of allocation domains.
+  // TODO: fix https://github.com/NVIDIA/Fuser/issues/2202
+  cached_inputs = scheduler_utils::cacheInputs(
+      fusion, /*unroll=*/true, /*propagate_allocation_domain=*/false);
   recomputeNonPersistentUnmappbleTvs(persistent_info);
 
   // Cache and fork outputs
