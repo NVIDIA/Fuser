@@ -1191,6 +1191,15 @@ bool checkReductionPattern(
 // The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          scheduler_type, "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, scheduler_type)) {
