@@ -180,19 +180,22 @@ void HopperPlus::validate() const {
       "Expected n dimension for warp_tile to be divisible by epilogue_tile.");
 
   NVF_CHECK(
-      params_->tile_sizes.epilogue_tile.m % 64 == 0,
+      params_->tile_sizes.epilogue_tile.m == -1 ||
+          params_->tile_sizes.epilogue_tile.m % 64 == 0,
       "We require the m dimension of epilogue_tile to be a multiple of 64 ",
       "to avoid incorrect results.");
 
   NVF_CHECK(
-      params_->tile_sizes.epilogue_tile.n % 16 == 0,
-      "We require the n dimension of epilogue_tile to be a multiple of 16 ",
+      params_->tile_sizes.epilogue_tile.n == -1 ||
+          "We require the n dimension of epilogue_tile to be a multiple of 16 ",
       "to avoid incorrect results.");
 
   if (params_->use_smem_epilogue && params_->use_ldst_matrix) {
     NVF_CHECK(
-        params_->tile_sizes.epilogue_tile.m % 16 == 0 &&
-            params_->tile_sizes.epilogue_tile.n % 16 == 0,
+        (params_->tile_sizes.epilogue_tile.m == -1 ||
+         params_->tile_sizes.epilogue_tile.m % 16 == 0) &&
+            (params_->tile_sizes.epilogue_tile.n == -1 ||
+             params_->tile_sizes.epilogue_tile.n % 16 == 0),
         "When stmatrix is used, epilogue tile must be a multiple of 16x16");
   }
 }
