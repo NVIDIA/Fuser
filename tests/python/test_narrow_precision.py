@@ -79,7 +79,7 @@ def test_scaled_mm(
     mat2, scale2, global_sf2 = quantization(mat2_ref)
     alpha = 1.0 / (global_sf1 * global_sf2)
 
-    inputs = [mat1, mat2.t(), scale1, scale2, alpha]
+    inputs = [mat1, mat2.t(), blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), alpha]
 
     def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
         mat1 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False)
@@ -87,7 +87,7 @@ def test_scaled_mm(
         scale1 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
         scale2 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
         alpha = fd.define_tensor(shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False)
-        out, _, _ = fd.ops.scaled_mm(mat1, mat2, blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
+        out, _, _ = fd.ops.scaled_mm(mat1, mat2, scale1, scale2, alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
         fd.add_output(out)
     
     with FusionDefinition() as fd:
