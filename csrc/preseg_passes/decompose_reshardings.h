@@ -12,16 +12,17 @@
 #include <string>
 
 namespace nvfuser::preseg_passes {
-// Runs through the fusion and inserts a resharding Set Op after
-// any resharding Expr that is not directly lowerable to a series of
-// communications
-class InsertReshardingsPass : public OptimizationPass<InsertReshardingsPass> {
-  friend class OptimizationPass<InsertReshardingsPass>;
+
+// An pre-segmenter pass that decomposes resharding expressions into a series of
+// Exprs that are either compute only or directly lowerable to communication.
+class DecomposeReshardingsPass
+    : public OptimizationPass<DecomposeReshardingsPass> {
+  friend class OptimizationPass<DecomposeReshardingsPass>;
 
  protected:
   static void runPass(Fusion* fusion);
   static constexpr std::string_view name() {
-    return "InsertReshardingsPass";
+    return "DecomposeReshardingsPass";
   }
 };
 

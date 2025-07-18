@@ -532,6 +532,22 @@ class CloneTmaCircularBufferLoopAndInsertSync
       if (ite != nullptr) {
         for_loop_stack_.back()->body().push_back(ite);
       }
+
+      // In persistent for_loop for ComputeWarp, after continue short-circuit
+      // but before TensorCores, wait for TensorCores to be available for this
+      // warp group.
+      if (loop_type_ == CircularBufferLoopStage::ComputeWarp) {
+        HopperPingPongMbarriers* ping_pong_mbarriers =
+            GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+                for_loop_stack_.front()->iter_domain());
+        if (ping_pong_mbarriers != nullptr) {
+          ping_pong_mbarriers->trackPersistentForLoop(for_loop_stack_.front());
+
+          Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+              /*next_warp_group=*/false, /*is_epilogue=*/false);
+          for_loop_stack_.back()->body().push_back(mbarrier_wait);
+        }
+      }
     }
 
     insertMBarrierWaitBeforeFirstRead();
@@ -1616,6 +1632,16 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
     warp_dispatch_ite->elseBody().push_back(prefetch_loop);
 
+    // If this is a ping-pong hopper, then we need the last warp group to
+    // release the mbarriers for the first warp group.
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            circular_buffer_loop->iter_domain());
+    if (ping_pong_mbarriers != nullptr) {
+      auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
+      warp_dispatch_ite->elseBody().push_back(ite);
+    }
+
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
@@ -1961,6 +1987,149 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
 };
 
 } // namespace
+
+HopperPingPongMbarriers::HopperPingPongMbarriers(
+    int64_t num_warp_groups,
+    ParallelType ws_axis)
+    : num_warp_groups_{num_warp_groups}, ws_axis_{ws_axis} {
+  NVF_ERROR(
+      num_warp_groups == 2,
+      "Expected the number of warp groups to be two for Hopper ping-pong ",
+      "matmuls");
+  NVF_ERROR(
+      ws_axis == ParallelType::TIDy,
+      "Expected the warp specialized axis to be ParallelType::TIDy");
+  NVF_ERROR(
+      GpuLower::current()
+              ->parallelDimensionMap()
+              .getWarpSpecializationPaddedVal(ws_axis) == 1,
+      "Expected the warp specialized axis to be padded by 1");
+}
+
+ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
+  ForLoop* loop = ir_utils::createRangeLoop(num_warp_groups_ * 2);
+  Val* num_of_arrives = SimplifyingIrBuilder::maybeCastExpr(
+      DataType::UInt32,
+      GpuLower::current()
+          ->parallelDimensionMap()
+          .getNumComputeThreadsEachBlock());
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
+  kir::MBarrierInit* ping_pong_mbarrier_init =
+      IrBuilder::create<kir::MBarrierInit>(
+          ping_pong_mbarrier_index, num_of_arrives);
+  Expr* pred_ping_pong_mbarrier_init = ping_pong_mbarrier_init->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_init);
+  return loop;
+}
+
+ForLoop* HopperPingPongMbarriers::invalidatePingPongMbarrier() {
+  ForLoop* loop = ir_utils::createRangeLoop(num_warp_groups_ * 2);
+  kir::TensorIndex* ping_pong_mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
+  kir::MBarrierInvalidate* ping_pong_mbarrier_inval =
+      IrBuilder::create<kir::MBarrierInvalidate>(ping_pong_mbarrier_index);
+  Expr* pred_ping_pong_mbarrier_inval = ping_pong_mbarrier_inval->withPredicate(
+      IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+  loop->body().push_back(pred_ping_pong_mbarrier_inval);
+  return loop;
+}
+
+// This helper function allocates, initializes and invalidates ping-pong
+// mbarriers.
+std::tuple<kir::Allocate*, ForLoop*, ForLoop*> HopperPingPongMbarriers::
+    createPingPongMbarrier() {
+  // For each warp group, we have two mbarriers: one for the TensorCore
+  // phase and one for the CUDA Epilogue phase.
+  mbarriers_ = TensorViewBuilder()
+                   .shape(std::vector<int64_t>{num_warp_groups_ * 2})
+                   .dtype(DataType::UInt64)
+                   .contiguity(true)
+                   .build();
+  mbarriers_->setMemoryType(MemoryType::Shared);
+
+  // Allocate memory for ping-pong mbarriers.
+  kir::Allocate* ping_pong_mbarrier_alloc =
+      IrBuilder::create<kir::Allocate>(mbarriers_, MemoryType::Shared);
+  ForLoop* ping_pong_mbarrier_init_raw = initializePingPongMbarrier();
+  ForLoop* ping_pong_mbarrier_inval_raw = invalidatePingPongMbarrier();
+  return {
+      ping_pong_mbarrier_alloc,
+      ping_pong_mbarrier_init_raw,
+      ping_pong_mbarrier_inval_raw};
+}
+
+kir::IfThenElse* HopperPingPongMbarriers::createPrefetchIfThenElse() {
+  Val* last_warp_group =
+      SimplifyingIrBuilder::create<Val>(num_warp_groups_ - 1, DataType::Index);
+  kir::Predicate* predicate =
+      IrBuilder::create<kir::Predicate>(SimplifyingIrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ws_axis_), last_warp_group));
+  kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
+
+  kir::TensorIndex* tc_mbarrier = IrBuilder::create<kir::TensorIndex>(
+      mbarriers_, GpuLower::current()->kernel()->zeroVal());
+  kir::MBarrierArrive* tc_mbarrier_arrive =
+      IrBuilder::create<kir::MBarrierArrive>(
+          /*state=*/nullptr, tc_mbarrier);
+  ite->thenBody().push_back(tc_mbarrier_arrive);
+
+  kir::TensorIndex* epilogue_mbarrier = IrBuilder::create<kir::TensorIndex>(
+      mbarriers_, GpuLower::current()->kernel()->oneVal());
+  kir::MBarrierArrive* epilogue_mbarrier_arrive =
+      IrBuilder::create<kir::MBarrierArrive>(
+          /*state=*/nullptr, epilogue_mbarrier);
+  ite->thenBody().push_back(epilogue_mbarrier_arrive);
+  return ite;
+}
+
+Val* HopperPingPongMbarriers::getMbarrierIndex(
+    bool next_warp_group,
+    bool is_epilogue) {
+  Val* warp_group = nullptr;
+  if (next_warp_group) {
+    Val* next_warp_group = SimplifyingIrBuilder::addExpr(
+        NamedScalar::getParallelIndex(ws_axis_),
+        GpuLower::current()->kernel()->oneVal());
+    warp_group = SimplifyingIrBuilder::modExpr(
+        next_warp_group,
+        IrBuilder::create<Val>(num_warp_groups_, DataType::Index));
+  } else {
+    warp_group = NamedScalar::getParallelIndex(ws_axis_);
+  }
+
+  Val* two = IrBuilder::create<Val>(2, DataType::Index);
+  Val* warp_group_offset = SimplifyingIrBuilder::mulExpr(warp_group, two);
+  return SimplifyingIrBuilder::addExpr(warp_group_offset, is_epilogue ? 1 : 0);
+}
+
+Expr* HopperPingPongMbarriers::createMbarrierWait(
+    bool next_warp_group,
+    bool is_epilogue) {
+  NVF_ERROR(persistent_for_loop_ != nullptr);
+  Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
+  Val* two = IrBuilder::create<Val>(2, DataType::Index);
+  Val* parity = IrBuilder::maybeCastExpr(
+      DataType::UInt32,
+      SimplifyingIrBuilder::modExpr(persistent_for_loop_->index(), two));
+  kir::TensorIndex* mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
+  kir::MBarrierWaitParity* mbarrier_wait =
+      IrBuilder::create<kir::MBarrierWaitParity>(mbarrier_index, parity);
+  return mbarrier_wait;
+}
+
+Expr* HopperPingPongMbarriers::createMbarrierArrive(
+    bool next_warp_group,
+    bool is_epilogue) {
+  Val* index = getMbarrierIndex(next_warp_group, is_epilogue);
+  kir::TensorIndex* mbarrier_index =
+      IrBuilder::create<kir::TensorIndex>(mbarriers_, index);
+  kir::MBarrierArrive* mbarrier_arrive = IrBuilder::create<kir::MBarrierArrive>(
+      /*state=*/nullptr, mbarrier_index);
+  return mbarrier_arrive;
+}
 
 void TmaCircularBufferInfo::recordTensorIndex(
     const Expr* expr,

@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/decompose_reshardings.h>
 
 #include <device_lower/utils.h>
 #include <fusion.h>
@@ -386,7 +386,7 @@ void rFactorLoopSplits(Fusion* fusion) {
 
 } // namespace
 
-void InsertReshardingsPass::runPass(Fusion* fusion) {
+void DecomposeReshardingsPass::runPass(Fusion* fusion) {
   decomposeRowParallelLinearWithBias(fusion);
 
   rFactorLoopSplits(fusion);
