@@ -60,7 +60,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   //   /\                                      /\.
   //  s                                       d
   //                      |
-  //                      | matmul
+  //                      | linear
   //                      |
   //                   [t, 4h, r{h}]
   //                   /\  /\.
@@ -391,7 +391,7 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //   /\  /\                                      /\.
   //  s   d                                       d
   //                      |
-  //                      | matmul
+  //                      | linear
   //                      |
   //                          r{4h}
   //                          /  \.
