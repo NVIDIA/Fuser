@@ -8,7 +8,9 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+#include <nvrtc.h>
 
+#include <cuda_utils.h>
 #include <debug.h>
 #include <options.h>
 #include <runtime/executor_kernel_arg.h>
@@ -93,6 +95,28 @@ int8_t getCommonDeviceCUDA(
   }
   // When there are only scalar inputs, use selected_device or fall back to 0
   return found_device ? index : (int8_t)0;
+}
+
+// with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+int64_t getMaxVectorizationSizeInBit() {
+  // Cache for max vectorization size to avoid repeated system calls
+  static std::optional<int64_t> cached_max_vectorization_size_in_bit =
+      std::nullopt;
+
+  if (cached_max_vectorization_size_in_bit.has_value()) {
+    return cached_max_vectorization_size_in_bit.value();
+  }
+  int64_t max_vec_bits = 128;
+  int sw_major, sw_minor;
+  NVFUSER_NVRTC_SAFE_CALL(nvrtcVersion(&sw_major, &sw_minor));
+  if ((sw_major >= 12 && sw_minor >= 9) || (sw_major >= 13)) {
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major >= 10) {
+      max_vec_bits = 256;
+    }
+  }
+  cached_max_vectorization_size_in_bit = max_vec_bits;
+  return max_vec_bits;
 }
 
 bool useFallback() {

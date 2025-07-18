@@ -477,7 +477,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info, largest_out, data_cache, break_point, reorder_map));
+          runtime_info,
+          largest_out,
+          data_cache,
+          break_point,
+          /*max_vectorization_size_in_bit=*/128,
+          reorder_map));
 
   // get unroll factor:
 

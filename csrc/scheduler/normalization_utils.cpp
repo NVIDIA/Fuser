@@ -769,7 +769,7 @@ int64_t roundUpSharedMemory(
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   int64_t max_smem_bit = 0;
   int64_t max_vectorize_factor =
-      SchedulerRuntimeInfo::max_alignment_size_in_bit / data_type_size_bit;
+      getMaxVectorizationSizeInBit() / data_type_size_bit;
   int64_t dim_size = tv_buffer_size_bit / data_type_size_bit;
   // Check all possible combinations of vectorization factor, batch size and
   // threads per block

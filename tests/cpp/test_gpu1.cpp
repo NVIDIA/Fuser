@@ -3110,9 +3110,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
@@ -3167,9 +3165,7 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
