@@ -1313,7 +1313,8 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs) {
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
@@ -1321,8 +1322,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
-  const auto& persistent_buffers =
-      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
     return std::any_of(
         rparams->smem_persistent_buffers.begin(),
@@ -1473,8 +1473,6 @@ void beforeSchedule(
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
-    std::vector<TensorView*>& reduction_tvs,
-    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
@@ -1503,12 +1501,6 @@ void beforeSchedule(
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  // move persistent buffer marked in [smem_persistent_buffers] from register to
-  // smem
-  smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
-
-  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
 
 TensorView* scheduleReductionGeneral(
@@ -1571,14 +1563,18 @@ void schedulePersistentKernel(
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
       smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      smem_consumers,
-      cached_outputs);
+  beforeSchedule(fusion, rparams, dummy_outputs, cached_inputs, cached_outputs);
+
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem
+  // Needs to re-derive the persistent buffers after project to inputs or
+  // producers.
+  const auto& persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  smem_consumers = movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs, persistent_buffers);
+
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
   TensorView* reference_tv =
       scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);
@@ -1613,13 +1609,38 @@ void schedulePersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
+  // For inner persistent with vectorized load, use explicity unroll for cached
+  // input if it is a persistent buffer. This won't increase register usage
+  // and encourages compiler issuing memory load instructions together. It
+  // improves performance with cuda-13.0.
+  bool use_explicit_unroll =
+      rparams->vectorize_inner_reduction && rparams->fastest_dim;
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
-      unroll_vectorizable_cached_tvs);
+      unroll_vectorizable_cached_tvs,
+      /*selected_tvs=*/{},
+      /*skip_input_output_unroll=*/!use_explicit_unroll);
+
+  if (use_explicit_unroll) {
+    // only apply to persistent cached inputs
+    for (auto tv : unroll_vectorizable_cached_tvs) {
+      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) !=
+          persistent_buffers.end()) {
+        continue;
+      }
+      // cleare unroll for non-persistent cached inputs
+      for (auto id : tv->getLoopDomain()) {
+        if (id->getParallelType() == ParallelType::Unroll) {
+          id->parallelize(ParallelType::Serial);
+        }
+      }
+    }
+  }
 
   // Needs special handling of vectorized loading from shared memory due to
   // potential different data types of inputs and shared memory tensor.
