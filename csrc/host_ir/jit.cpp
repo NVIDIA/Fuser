@@ -6,21 +6,17 @@
  */
 // clang-format on
 #include <bfs.h>
-#include <fusion.h>
-#include <global_allocator.h>
-#include <host_ir/executor.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <val_graph_visitor.h>
+#include <functional>
+#include <memory>
+#include <unordered_map>
 
-#include <instrumentation.h>
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
-#include <unordered_map>
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -32,13 +28,17 @@
 
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h>
-#include <host_ir/jit.h>
-#include <functional>
-#include <memory>
 
-#include <multidevice/communicator.h>
+#include <host_ir/executor.h>
+#include <host_ir/jit.h>
+#include <ir/all_nodes.h>
+#include <ir/iostream.h>
+#include <ops/all_ops.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <val_graph_visitor.h>
+#include <instrumentation.h>
+
 
 namespace nvfuser {
 
@@ -123,6 +123,14 @@ void compileLoadStoreOp(
 
   // bind the output tensor to tv2atenMap
   tv2atenMap[out_tv] = out_tensor_ptr;
+
+  const bool debug_print = isDebugDumpEnabled(DebugDumpOption::HostIrJit);
+  if (debug_print) {
+    auto* func = builder.GetInsertBlock()->getParent();
+    llvm::outs() << "=== LLVM IR Generation for LoadStoreOp ===\n";
+    func->print(llvm::outs(), nullptr);
+  }
+
 }
 
 void compileMainFuncInputs(
@@ -207,9 +215,8 @@ void compileMainFuncOutputs(
 
 
 void compileFunctionDeclarations(
-    llvm::IRBuilder<>& builder) {
-  llvm::LLVMContext& ctx = builder.getContext();
-  llvm::Module* mod = builder.GetInsertBlock()->getParent()->getParent();
+    llvm::Module* mod,
+    llvm::LLVMContext& ctx) {
 
   // get the types
   auto* void_ptr_type = getType(JitDataType::void_ptr, ctx);
@@ -222,6 +229,10 @@ void compileFunctionDeclarations(
 
   llvm::FunctionType* allocate_tensor_type = llvm::FunctionType::get(void_ptr_type, {}, false);
   llvm::Function::Create(allocate_tensor_type, llvm::Function::ExternalLinkage, "allocate_tensor", mod);
+
+  // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor* other_tensor)
+  llvm::FunctionType* set_tensor_type = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), {void_ptr_type, void_ptr_type}, false);
+  llvm::Function::Create(set_tensor_type, llvm::Function::ExternalLinkage, "set_tensor", mod);
 
   // main function: at::Tensor** main(at::Tensor** input_tensors)
   llvm::FunctionType* main_type = llvm::FunctionType::get(void_array_ptr_type, {void_array_ptr_type}, false);
@@ -241,7 +252,7 @@ void compile(HostIrJitImpl* pimpl) {
   std::unordered_map<TensorView*, llvm::Value*> tv2atenMap;
 
   // compile external functions and main function declarations
-  compileFunctionDeclarations(builder);
+  compileFunctionDeclarations(mod.get(), *ctx);
 
   // Create entry block and set insertion point
   llvm::BasicBlock* entry = llvm::BasicBlock::Create(*ctx, "entry", mod->getFunction("main"));
@@ -253,6 +264,7 @@ void compile(HostIrJitImpl* pimpl) {
   // compile all top level expressions in host ir container
   for(auto* expr : pimpl->container->topLevelExprs()) {
     if(expr->isA<LoadStoreOp>()) {
+      std::cout << "compileLoadStoreOp: " << expr->toString() << std::endl;
       compileLoadStoreOp(expr->as<LoadStoreOp>(), builder, val2llvmMap, tv2atenMap);
     }
   }
