@@ -174,92 +174,92 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
-// Helper function to traverse the extent of a Val and generate LLVM IR
-llvm::Value* traverseExtentDFS(
+
+llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto it = val_to_value.find(extent);
+  if (it != val_to_value.end()) {
+    return it->second;
+  }
+  llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
+  val_to_value[extent] = value;
+  return value;
+}
+
+llvm::Value* getOrCreateValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto* lhs = binary_op->lhs()->as<Val>();
+  auto* rhs = binary_op->rhs()->as<Val>();
+  auto* out = binary_op->output()->as<Val>();
+  getOrCreateValueForExtent(lhs, val_to_value, builder);
+  getOrCreateValueForExtent(rhs, val_to_value, builder);
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      val_to_value[out] = builder.CreateAdd(val_to_value[lhs], val_to_value[rhs]);
+      break;
+    case BinaryOpType::Sub:
+      val_to_value[out] = builder.CreateSub(val_to_value[lhs], val_to_value[rhs]);
+      break;
+    case BinaryOpType::Mul:
+      val_to_value[out] = builder.CreateMul(val_to_value[lhs], val_to_value[rhs]);
+      break;
+    case BinaryOpType::CeilDiv:
+      // Implement ceilDiv as (a + b - 1) / b
+      llvm::Value* numerator =
+      builder.CreateAdd(val_to_value[lhs], val_to_value[rhs]);
+      llvm::Value* one = builder.getInt64(1);
+      numerator = builder.CreateSub(numerator, one);
+      val_to_value[out] = builder.CreateUDiv(numerator, val_to_value[rhs]);
+      break;
+    default:
+      NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
+  }
+  return val_to_value[out];
+}
+
+llvm::Value* getOrCreateValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto* in = unary_op->in()->as<Val>();
+  auto* out = unary_op->out()->as<Val>();
+  getOrCreateValueForExtent(in, val_to_value, builder);
+  switch (unary_op->getUnaryOpType()) {
+    case UnaryOpType::Cast:
+      val_to_value[out] = val_to_value[in];
+      break;
+    case UnaryOpType::Abs:
+      llvm::Value* is_negative =
+            builder.CreateICmpSLT(val_to_value[in], builder.getInt64(0));
+        llvm::Value* negated = builder.CreateNeg(val_to_value[in]);
+        val_to_value[out] =
+            builder.CreateSelect(is_negative, negated, val_to_value[in]);
+      break;
+    case UnaryOpType::Neg:
+      val_to_value[out] = builder.CreateNeg(val_to_value[in]);
+      break;
+    default:
+      NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
+  }
+  return val_to_value[out];
+}
+
+llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-  if (val_to_value.find(val) != val_to_value.end()) {
-    return val_to_value[val];
-  }
-  if (Expr* def = val->definition()) {
+  if (val->isConst()) {
+    val_to_value[val] = builder.getInt64(val->value().as<int64_t>());
+  } else if (Expr* def = val->definition()) {
     if (auto* binary_op = def->as<BinaryOp>()) {
-      auto* left = binary_op->lhs()->as<Val>();
-      auto* right = binary_op->rhs()->as<Val>();
-      if (left->isConst() && val_to_value.find(left) == val_to_value.end()) {
-        val_to_value[left] = builder.getInt64(left->value().as<int64_t>());
-      } else if (
-          !left->isConst() && val_to_value.find(left) == val_to_value.end()) {
-        traverseExtentDFS(left, val_to_value, builder);
-      }
-      if (right->isConst() && val_to_value.find(right) == val_to_value.end()) {
-        val_to_value[right] = builder.getInt64(right->value().as<int64_t>());
-      } else if (
-          !right->isConst() && val_to_value.find(right) == val_to_value.end()) {
-        traverseExtentDFS(right, val_to_value, builder);
-      }
-      if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
-        val_to_value[val] =
-            builder.CreateAdd(val_to_value[left], val_to_value[right]);
-      } else if (binary_op->getBinaryOpType() == BinaryOpType::Sub) {
-        val_to_value[val] =
-            builder.CreateSub(val_to_value[left], val_to_value[right]);
-      } else if (binary_op->getBinaryOpType() == BinaryOpType::Mul) {
-        val_to_value[val] =
-            builder.CreateMul(val_to_value[left], val_to_value[right]);
-      } else if (binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
-        // Implement ceilDiv as (a + b - 1) / b
-        llvm::Value* numerator =
-            builder.CreateAdd(val_to_value[left], val_to_value[right]);
-        llvm::Value* one = builder.getInt64(1);
-        numerator = builder.CreateSub(numerator, one);
-        val_to_value[val] = builder.CreateUDiv(numerator, val_to_value[right]);
-      } else {
-        NVF_THROW(
-            "LLVM Lowering Error: Unsupported binary operation type in extent "
-            "calculation: ",
-            binary_op->getBinaryOpType());
-      }
+      getOrCreateValueForBinaryOp(binary_op, val_to_value, builder);
     } else if (auto* unary_op = def->as<UnaryOp>()) {
-      auto* input = unary_op->in()->as<Val>();
-      if (input->isConst() && val_to_value.find(input) == val_to_value.end()) {
-        val_to_value[input] = builder.getInt64(input->value().as<int64_t>());
-      } else if (
-          !input->isConst() && val_to_value.find(input) == val_to_value.end()) {
-        traverseExtentDFS(input, val_to_value, builder);
-      }
-
-      // Handle common unary operations that might appear in extent calculations
-      if (unary_op->getUnaryOpType() == UnaryOpType::Cast) {
-        // For extent calculations, cast should preserve the value as int64
-        val_to_value[val] = val_to_value[input];
-      } else if (unary_op->getUnaryOpType() == UnaryOpType::Abs) {
-        // Create absolute value using LLVM intrinsic
-        llvm::Value* is_negative =
-            builder.CreateICmpSLT(val_to_value[input], builder.getInt64(0));
-        llvm::Value* negated = builder.CreateNeg(val_to_value[input]);
-        val_to_value[val] =
-            builder.CreateSelect(is_negative, negated, val_to_value[input]);
-      } else if (unary_op->getUnaryOpType() == UnaryOpType::Neg) {
-        val_to_value[val] = builder.CreateNeg(val_to_value[input]);
-      } else {
-        NVF_THROW(
-            "LLVM Lowering Error: Unsupported unary operation type in extent "
-            "calculation: ",
-            unary_op->getUnaryOpType());
-      }
+      getOrCreateValueForUnaryOp(unary_op, val_to_value, builder);
     } else {
       NVF_THROW(
-          "LLVM Lowering Error: traverseExtentDFS called with unsupported "
-          "operation type: ",
-          def->toString());
+        "LLVM Lowering Error: createValueForExtent called with unsupported "
+        "operation type: ",
+        def->toString());
     }
-  } else if (val->isConst()) {
-    val_to_value[val] = builder.getInt64(val->value().as<int64_t>());
+  }
   } else {
     NVF_THROW(
-        "LLVM Lowering Error: traverseExtentDFS called with non-binary op or constant Val.");
-    val_to_value[val] = builder.getInt64(1);
+        "LLVM Lowering Error: createValueForExtent called with non-binary op or constant Val.");
   }
   return val_to_value[val];
 }
