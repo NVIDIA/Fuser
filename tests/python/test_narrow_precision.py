@@ -41,10 +41,11 @@ import pytest
 
 def blockscaling_factor_tiling(b_sf):
     sf_m, sf_k = b_sf.shape
+    # padding is not yet supported
     assert sf_m % 128 == 0
     assert sf_k % 4 == 0
-    m_tile = sf_m / 128
-    k_tile = sf_k / 4
+    m_tile = sf_m // 128
+    k_tile = sf_k // 4
     # m/32/4, 4(m), 32(m), k/4, 4(k)
     b_sf = b_sf.reshape(m_tile, 4, 32, k_tile, 4)
     # permute to the block below 
@@ -58,7 +59,6 @@ def nvfp4_quantize(x):
 
     x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
     return x_u8, x_scale, x_global_scale
-
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(is_pre_blackwell(), reason="Only supported on blackwell and newer devices.")
@@ -87,7 +87,7 @@ def test_scaled_mm(
         scale1 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
         scale2 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False)
         alpha = fd.define_tensor(shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False)
-        out, _, _ = fd.ops.scaled_mm(mat1, mat2, scale1, scale2, alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
+        out, _, _ = fd.ops.scaled_mm(mat1, mat2, blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), alpha, None, None, torch_dtype_to_nvfuser_dtype(out_dtype))
         fd.add_output(out)
     
     with FusionDefinition() as fd:
@@ -95,4 +95,6 @@ def test_scaled_mm(
 
     o = fd.execute(inputs)[0]
 
-    ref_o = mat1 @ mat2
+    mat1_ref = mat1_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale1.unsqueeze(-1).to(torch.bfloat16)
+    mat2_ref = mat2_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale2.unsqueeze(-1).to(torch.bfloat16)
+    ref_o = mat1_ref @ mat2_ref.t() * alpha
