@@ -3396,7 +3396,17 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      has_reduction_(src->has_reduction_) {
+  for (Expr* e : StmtSort::getExprsTo(
+           {src->loop_domain_.begin(), src->loop_domain_.end()})) {
+    ir_cloner->clone(e);
+  }
+  for (IterDomain* id : src->loop_domain_) {
+    for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
+      ir_cloner->clone(e);
+    }
+  }
+}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
