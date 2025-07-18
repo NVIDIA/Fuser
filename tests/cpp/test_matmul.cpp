@@ -5746,7 +5746,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 2, 1};
+  mparams.cluster_dims = {1, 2};
   mparams.promote_prologue_smem_reuse = true;
   mparams.grid_traversal_factor = {16, 8};
 
