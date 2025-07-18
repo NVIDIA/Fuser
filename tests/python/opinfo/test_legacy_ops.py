@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
+# import nvfuser first to conditionally avoid importing nvfuser_direct
+import nvfuser  # noqa: F401,F403
+
 import torch
 import pytest
 import numpy as np
