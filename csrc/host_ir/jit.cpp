@@ -74,11 +74,9 @@ struct HostIrJitImpl {
   }
 
  private:
-  // Implementation methods
   void compile();
   void registerExternalFunctions();
 
-  // Data members
   std::unique_ptr<llvm::orc::LLJIT> jit_;
   std::unique_ptr<hir::HostIrContainer> container_;
   main_func_t main_func_;
@@ -151,8 +149,8 @@ llvm::Value* generateTensorStrideExtraction(
     llvm::Value* tensor_ptr,
     int64_t dim,
     llvm::IRBuilder<>& builder) {
-  auto* mod = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* tensor_stride_func = mod->getFunction(kTensorStrideFuncName);
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* tensor_stride_func = module->getFunction(kTensorStrideFuncName);
   llvm::Value* dim_val = builder.getInt64(dim);
 
   return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
@@ -184,8 +182,7 @@ llvm::Value* traverseExtentDFS(
   if (val_to_value.find(val) != val_to_value.end()) {
     return val_to_value[val];
   }
-  if (val->definition() != nullptr) {
-    auto* def = val->definition();
+  if (Expr* def = val->definition()) {
     if (auto* binary_op = def->as<BinaryOp>()) {
       auto* left = binary_op->lhs()->as<Val>();
       auto* right = binary_op->rhs()->as<Val>();
@@ -269,8 +266,8 @@ llvm::Value* traverseExtentDFS(
 
 Val* mapToInputDomain(
     Val* currentDomain,
-    std::unordered_map<Val*, bool>& boundaryVals) {
-  for (auto it = boundaryVals.begin(); it != boundaryVals.end(); ++it) {
+    std::unordered_map<Val*, bool>& boundary_vals) {
+  for (auto it = boundary_vals.begin(); it != boundary_vals.end(); ++it) {
     auto* domain = it->first->as<IterDomain>();
     if (currentDomain->as<IterDomain>() == domain) {
       return it->first;
@@ -286,7 +283,7 @@ void generateReorderedStrideLlvmIr(
     llvm::IRBuilder<>& builder,
     llvm::Value*& running_stride_product,
     std::unordered_map<Val*, bool>& boundary_vals,
-    std::unordered_map<Val*, llvm::Value*>& boundaryValStrides) {
+    std::unordered_map<Val*, llvm::Value*>& boundary_vals_strides) {
   // Check if the current val is nullptr
   if (current_val == nullptr) {
     NVF_ERROR(
@@ -295,7 +292,7 @@ void generateReorderedStrideLlvmIr(
         "nullptr Val.");
     return;
   }
-  auto* def_expr = current_val->definition();
+  Expr* def_expr = current_val->definition();
   // Check if the current val is missing
   if (def_expr == nullptr) {
     // Check if the current val is a boundary val
@@ -303,7 +300,7 @@ void generateReorderedStrideLlvmIr(
     if (original_val != nullptr) {
       if (boundary_vals[original_val] == false) {
         boundary_vals[original_val] = true;
-        boundaryValStrides[original_val] = running_stride_product;
+        boundary_vals_strides[original_val] = running_stride_product;
         // Broadcast domain always has stride 0
         if (original_val->as<IterDomain>()->isBroadcast()) {
           return;
@@ -338,7 +335,7 @@ void generateReorderedStrideLlvmIr(
         if (inner_mapped_val->as<IterDomain>()->isBroadcast()) {
           return;
         }
-        boundaryValStrides[inner_mapped_val] = running_stride_product;
+        boundary_vals_strides[inner_mapped_val] = running_stride_product;
         running_stride_product = builder.CreateMul(
             running_stride_product,
             val_to_value[inner_mapped_val->as<IterDomain>()->extent()],
@@ -352,7 +349,7 @@ void generateReorderedStrideLlvmIr(
           builder,
           running_stride_product,
           boundary_vals,
-          boundaryValStrides);
+          boundary_vals_strides);
     }
 
     // Check if the outer val is a boundary val
@@ -362,7 +359,7 @@ void generateReorderedStrideLlvmIr(
         if (outer_mapped_val->as<IterDomain>()->isBroadcast()) {
           return;
         }
-        boundaryValStrides[outer_mapped_val] = running_stride_product;
+        boundary_vals_strides[outer_mapped_val] = running_stride_product;
         running_stride_product = builder.CreateMul(
             running_stride_product,
             val_to_value[outer_mapped_val->as<IterDomain>()->extent()],
@@ -376,7 +373,7 @@ void generateReorderedStrideLlvmIr(
           builder,
           running_stride_product,
           boundary_vals,
-          boundaryValStrides);
+          boundary_vals_strides);
     }
 
     // Extent of merged domain
@@ -403,7 +400,7 @@ void generateReorderedStrideLlvmIr(
     if (input_mapped_val != nullptr) {
       if (boundary_vals[input_mapped_val] == false) {
         boundary_vals[input_mapped_val] = true;
-        boundaryValStrides[input_mapped_val] = running_stride_product;
+        boundary_vals_strides[input_mapped_val] = running_stride_product;
         if (input_mapped_val->as<IterDomain>()->isBroadcast()) {
           return;
         }
@@ -420,7 +417,7 @@ void generateReorderedStrideLlvmIr(
           builder,
           running_stride_product,
           boundary_vals,
-          boundaryValStrides);
+          boundary_vals_strides);
     }
 
     auto* split_factor = split_expr->factor()->as<Val>();
@@ -646,12 +643,12 @@ void inferTensorStridesReordered(
   llvm::LLVMContext& context = builder.getContext();
   llvm::Value* running_stride =
       llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
-  std::unordered_map<Val*, bool> boundaryValVisited;
-  std::unordered_map<Val*, llvm::Value*> boundaryValStrides;
+  std::unordered_map<Val*, bool> boundary_vals;
+  std::unordered_map<Val*, llvm::Value*> boundary_vals_strides;
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   for (auto* val : logical_domain) {
-    boundaryValVisited[val] = false;
+    boundary_vals[val] = false;
   }
   for (auto it = allocation_domain.rbegin();
        it != allocation_domain.rend();
@@ -669,14 +666,14 @@ void inferTensorStridesReordered(
         val_to_value,
         builder,
         running_stride,
-        boundaryValVisited,
-        boundaryValStrides);
+        boundary_vals,
+        boundary_vals_strides);
   }
   for (const auto& [dim_idx, id] : enumerate(logical_domain)) {
-    auto it = boundaryValStrides.find(id);
+    auto it = boundary_vals_strides.find(id);
     NVF_ERROR(
-        it != boundaryValStrides.end(),
-        "LLVM Lowering Error: boundaryValStrides is not found for ",
+        it != boundary_vals_strides.end(),
+        "LLVM Lowering Error: boundary_vals_strides is not found for ",
         id->toString());
     strides.push_back(it->second);
   }
