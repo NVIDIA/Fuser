@@ -850,6 +850,10 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
 // Returns true if any of the domains of the tensor is symbolic
 bool isSymbolicTensor(const TensorView* tv);
+
+// For shared memory tensor, replay loop domain transformations to allocation
+// domain
+void replayLoopToAllocation(Fusion* fusion);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

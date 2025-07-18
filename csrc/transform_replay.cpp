@@ -1455,4 +1455,48 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
       e->container(), {new_in_tv}, new_outs, e->attributes());
 }
 
+void selfReplayLoopToAllocation(TensorView* tv) {
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "should not call selfReplayLoopToAllocation on transformed allocation "
+      "domain");
+
+  // Create a mapping from logical domain to allocation domain
+  IterDomainMap logical_to_alloc_map;
+  for (auto logical_id : logical) {
+    auto it = std::find(alloc.begin(), alloc.end(), logical_id);
+    NVF_ERROR(
+        it != alloc.end(),
+        "Could not find matching allocation ID for logical ID: ",
+        logical_id);
+    logical_to_alloc_map[logical_id] = *it;
+  }
+
+  // Use ReplaySelf to replay the transformations from logical to loop domain
+  // onto the allocation domain.
+  // Happens within ReplaySelf in the following steps:
+  // 1. Given a loop domain, find the logical domain that poduces it.
+  // 2. Map the logical domain to the allocation domain.
+  // 3. Do the same transformation on the allocation domain.
+
+  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map);
+
+  // For each ID in the loop domain, find its replayed allocation domain
+  std::vector<IterDomain*> new_alloc_domain;
+  new_alloc_domain.reserve(tv->getLoopDomain().size());
+  const auto& replay_map = replay.getReplay();
+  for (auto loop_id : tv->getLoopDomain()) {
+    auto it = replay_map.find(loop_id);
+    NVF_ERROR(it != replay_map.end(), "failed to replay IterDomain: ", loop_id);
+    new_alloc_domain.push_back(it->second);
+  }
+
+  // Update the allocation domain with the new replayed domains
+  tv->setAllocationDomain(new_alloc_domain, true);
+}
+
 } // namespace nvfuser
