@@ -181,87 +181,89 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
     return it->second;
   }
   llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
-  val_to_value[extent] = value;
+  it->second = value;
   return value;
 }
 
-llvm::Value* getOrCreateValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
   auto* out = binary_op->output()->as<Val>();
-  getOrCreateValueForExtent(lhs, val_to_value, builder);
-  getOrCreateValueForExtent(rhs, val_to_value, builder);
+  auto* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
+  auto* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
+  auto* out_value = nullptr;
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
-      val_to_value[out] = builder.CreateAdd(val_to_value[lhs], val_to_value[rhs]);
+      out_value = builder.CreateAdd(lhs_value, rhs_value);
       break;
     case BinaryOpType::Sub:
-      val_to_value[out] = builder.CreateSub(val_to_value[lhs], val_to_value[rhs]);
+      out_value = builder.CreateSub(lhs_value, rhs_value);
       break;
     case BinaryOpType::Mul:
-      val_to_value[out] = builder.CreateMul(val_to_value[lhs], val_to_value[rhs]);
+      out_value = builder.CreateMul(lhs_value, rhs_value);
       break;
     case BinaryOpType::CeilDiv:
       // Implement ceilDiv as (a + b - 1) / b
       llvm::Value* numerator =
-      builder.CreateAdd(val_to_value[lhs], val_to_value[rhs]);
+      builder.CreateAdd(lhs_value, rhs_value);
       llvm::Value* one = builder.getInt64(1);
       numerator = builder.CreateSub(numerator, one);
-      val_to_value[out] = builder.CreateUDiv(numerator, val_to_value[rhs]);
+      out_value = builder.CreateUDiv(numerator, rhs_value);
       break;
     default:
       NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
   }
-  return val_to_value[out];
+  return out_value;
 }
 
-llvm::Value* getOrCreateValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
   auto* out = unary_op->out()->as<Val>();
-  getOrCreateValueForExtent(in, val_to_value, builder);
+  auto* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
+  auto* out_value = nullptr;
   switch (unary_op->getUnaryOpType()) {
     case UnaryOpType::Cast:
-      val_to_value[out] = val_to_value[in];
+      out_value = in_value;
       break;
     case UnaryOpType::Abs:
-      llvm::Value* is_negative =
-            builder.CreateICmpSLT(val_to_value[in], builder.getInt64(0));
-        llvm::Value* negated = builder.CreateNeg(val_to_value[in]);
-        val_to_value[out] =
-            builder.CreateSelect(is_negative, negated, val_to_value[in]);
+      llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
+      llvm::Value* negated = builder.CreateNeg(in_value);
+      out_value = builder.CreateSelect(is_negative, negated, in_value);
       break;
     case UnaryOpType::Neg:
-      val_to_value[out] = builder.CreateNeg(val_to_value[in]);
+      out_value = builder.CreateNeg(in_value);
       break;
     default:
       NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
   }
-  return val_to_value[out];
+  return out_value;
 }
 
 llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
+  llvm::Value* out_value = nullptr;
   if (val->isConst()) {
-    val_to_value[val] = builder.getInt64(val->value().as<int64_t>());
+    out_value = builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
     if (auto* binary_op = def->as<BinaryOp>()) {
-      getOrCreateValueForBinaryOp(binary_op, val_to_value, builder);
+      out_value = createValueForBinaryOp(binary_op, val_to_value, builder);
     } else if (auto* unary_op = def->as<UnaryOp>()) {
-      getOrCreateValueForUnaryOp(unary_op, val_to_value, builder);
+      out_value = createValueForUnaryOp(unary_op, val_to_value, builder);
     } else {
       NVF_THROW(
         "LLVM Lowering Error: createValueForExtent called with unsupported "
         "operation type: ",
-        def->toString());
+        def->getOpString());
     }
-  }
   } else {
     NVF_THROW(
-        "LLVM Lowering Error: createValueForExtent called with non-binary op or constant Val.");
+        "LLVM Lowering Error: createValueForExtent called with unsupported "
+        "operation type: ",
+        val->toString());
   }
-  return val_to_value[val];
+  return out_value;
 }
 
 Val* mapToInputDomain(
