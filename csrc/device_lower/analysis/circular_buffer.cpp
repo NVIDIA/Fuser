@@ -256,6 +256,16 @@ const CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
 
 namespace {
 
+bool hasHopperMatmulConsumer(const TensorView* tv) {
+  NVF_ERROR(tv != nullptr);
+  for (Expr* use : tv->uses()) {
+    if (auto mma = dynamic_cast<const MmaOp*>(use)) {
+      return mma->isHopper();
+    }
+  }
+  return false;
+}
+
 // NvFuser permits launching multiple TMA loads with a thread parallel axis.
 // However, we cannot use the warp specialized axis for this. In the AsyncWarp,
 // the warp specialized axis is the padded size. If you try to use that axis to
@@ -298,6 +308,16 @@ void checkWarpSpecializedAxis(const TensorView* tv) {
       tv->toString());
 }
 
+IterDomain* findWarpSpecializedIterDomain(TensorView* tv, ParallelType ws_pt) {
+  const std::vector<IterDomain*>& loop = tv->domain()->loop();
+  auto ws_id_iter =
+      std::find_if(loop.begin(), loop.end(), [ws_pt](IterDomain* id) {
+        return id->getParallelType() == ws_pt;
+      });
+  NVF_ERROR(ws_id_iter != loop.end());
+  return *ws_id_iter;
+}
+
 // If compute warp groups are independent, then the mbarrier waits for 128
 // threads. Otherwise, it waits for all threads in ComputeWarp.
 bool hasIndependentWarpGroups(const TensorView* tv) {
@@ -318,18 +338,12 @@ bool hasIndependentWarpGroups(const TensorView* tv) {
 
   // Step 1: Get warp specialized iterDomain in consumer
   TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
-
-  const std::vector<IterDomain*>& consumer_loop = consumer->domain()->loop();
-  ParallelType ws_pt = warp_specialized.on;
-  auto ws_id_iter = std::find_if(
-      consumer_loop.begin(), consumer_loop.end(), [ws_pt](IterDomain* id) {
-        return id->getParallelType() == ws_pt;
-      });
-  NVF_ERROR(ws_id_iter != consumer_loop.end());
+  IterDomain* ws_id =
+      findWarpSpecializedIterDomain(consumer, warp_specialized.on);
 
   // ValGroup = std::shared_ptr<VectorOfUniqueEntries<Val*>>;
   // Step 2: Get ValGroup for warp specialized iterDomain
-  const ValGroup& val_group = exact_graph.toGroup(*ws_id_iter);
+  const ValGroup& val_group = exact_graph.toGroup(ws_id);
 
   // Step 3: Find corresponding producer iterDomain to warp specialized
   // iterDomain
@@ -421,6 +435,47 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   independent_compute_warp_groups_ = hasIndependentWarpGroups(tv);
 
   setCircularBufferInsertionPosition(tv, cb_axis);
+
+  initializePingPongTracking(tv, concrete_loop_id);
+}
+
+void CircularBufferInfo::initializePingPongTracking(
+    const TensorView* tv,
+    IterDomain* cb_axis) {
+  NVF_ERROR(tv != nullptr);
+  NVF_ERROR(cb_axis != nullptr);
+
+  // short-circuit: already tracking
+  if (ping_pong_mbarriers_.contains(cb_axis)) {
+    return;
+  }
+
+  // short-circuit: cooperative computation
+  if (!hasIndependentWarpGroups(tv)) {
+    return;
+  }
+
+  // short-circuit: only applied for hopper matmul
+  if (!hasHopperMatmulConsumer(tv)) {
+    return;
+  }
+
+  // short-circuit: only applied to persistent kernels
+  if (getCircularBufferInsertionPosition(cb_axis) == 1) {
+    return;
+  }
+
+  const auto& warp_specialized =
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type);
+  TensorView* consumer = ir_utils::consumerTvsOf(tv).at(0);
+  IterDomain* ws_id =
+      findWarpSpecializedIterDomain(consumer, warp_specialized.on);
+  NVF_ERROR(ws_id->extent()->isConst());
+  int num_warp_groups = ws_id->extent()->value().as<int64_t>();
+  ping_pong_mbarriers_.emplace(
+      cb_axis,
+      std::make_shared<HopperPingPongMbarriers>(
+          num_warp_groups, warp_specialized.on));
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -481,6 +536,21 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
       "CircularBufferOptions is not found.");
 
   return maybe_it->second;
+}
+
+HopperPingPongMbarriers* CircularBufferInfo::getPingPongMbarriersFor(
+    IterDomain* circular_buffer_axis) {
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
+
+  auto maybe_it = ping_pong_mbarriers_.find(circular_buffer_axis);
+
+  if (maybe_it == ping_pong_mbarriers_.end()) {
+    return nullptr;
+  }
+
+  return maybe_it->second.get();
 }
 
 int64_t CircularBufferInfo::getCircularBufferInsertionPosition(

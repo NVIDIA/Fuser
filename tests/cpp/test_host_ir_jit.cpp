@@ -69,6 +69,54 @@ TEST_F(HostIrJitTest, HostIrContainer) {
   EXPECT_EQ(jit.outputs().size(), num_inputs);
 }
 
+TEST_F(HostIrJitTest, Deallocate) {
+  const std::vector<int64_t> t0_sizes = {8, 64};
+  const std::vector<int64_t> t1_sizes = {16, 32};
+  const std::vector<int64_t> t2_sizes = {32, 64};
+  c10::DeviceIndex device_index = 0;
+
+  resetPeakMemoryStats(device_index);
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* t0 = makeConcreteTensor(t0_sizes);
+  t0->setMemoryType(MemoryType::Global);
+  TensorView* t1 = makeConcreteTensor(t1_sizes);
+  t1->setMemoryType(MemoryType::Global);
+  TensorView* t2 = makeConcreteTensor(t2_sizes);
+  t2->setMemoryType(MemoryType::Global);
+
+  auto* allocate_t0 = IrBuilder::create<kir::Allocate>(t0, MemoryType::Global);
+  auto* deallocate_t0 = IrBuilder::create<Deallocate>(t0);
+  auto* allocate_t1 = IrBuilder::create<kir::Allocate>(t1, MemoryType::Global);
+  auto* deallocate_t1 = IrBuilder::create<Deallocate>(t1);
+  auto* allocate_t2 = IrBuilder::create<kir::Allocate>(t2, MemoryType::Global);
+
+  hic->pushBackTopLevelExprs(allocate_t0);
+  hic->pushBackTopLevelExprs(allocate_t1);
+  hic->pushBackTopLevelExprs(allocate_t2);
+  hic->pushBackTopLevelExprs(deallocate_t0);
+  hic->pushBackTopLevelExprs(deallocate_t1);
+
+  hic->addOutput(t2);
+  // we want check if the memory is completely freed after output tensor is out
+  // of scope
+  {
+    HostIrJit jit(std::move(hic));
+    KernelArgumentHolder in_args;
+    in_args.setCacheId(0);
+    KernelArgumentHolder outs = jit.runWithInputs(in_args);
+    EXPECT_EQ(outs.size(), 1);
+    EXPECT_EQ(outs[0].as<at::Tensor>().sizes(), t2_sizes);
+  }
+
+  EXPECT_EQ(memoryAllocated(device_index), 0);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
