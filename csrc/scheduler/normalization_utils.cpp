@@ -1610,35 +1610,54 @@ void schedulePersistentKernel(
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
 
-  // For inner persistent with vectorized load, use explicity unroll for cached
-  // input if it is a persistent buffer. This won't increase register usage
-  // and encourages compiler issuing memory load instructions together. It
-  // improves performance with cuda-13.0.
-  bool use_explicit_unroll =
-      rparams->vectorize_inner_reduction && rparams->fastest_dim;
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
-      unroll_vectorizable_cached_tvs,
-      /*selected_tvs=*/{},
-      /*skip_input_output_unroll=*/!use_explicit_unroll);
+      unroll_vectorizable_cached_tvs);
 
-  if (use_explicit_unroll) {
-    // only apply to persistent cached inputs
-    for (auto tv : unroll_vectorizable_cached_tvs) {
-      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) !=
+  // For inner persistent with vectorized load, use explicity unroll for cached
+  // input if it is a persistent buffer. This won't increase register usage
+  // and encourages compiler issuing memory load instructions together. It
+  // improves performance with cuda-13.0.
+  bool unroll_persistent_cached_inputs =
+      rparams->vectorize_inner_reduction && rparams->fastest_dim;
+  if (unroll_persistent_cached_inputs) {
+    for (auto tv : cached_inputs) {
+      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
           persistent_buffers.end()) {
         continue;
       }
-      // cleare unroll for non-persistent cached inputs
+      // Find PersistentBatch domain to unroll, typical case is:
+      // [..., PersistentBatch, US, TIDx, Vect].
+      // From first principle, the PersistentBatch domain was created from
+      // an outer split and parallelized with Serial, and its content equals
+      // rparams->batches_per_block_inner_reduction, we should have only one
+      // such domain.
+      int identified_count = 0;
       for (auto id : tv->getLoopDomain()) {
-        if (id->getParallelType() == ParallelType::Unroll) {
-          id->parallelize(ParallelType::Serial);
+        if (id->getParallelType() != ParallelType::Serial ||
+            !id->definition() || !id->definition()->isA<Split>()) {
+          continue;
         }
+        auto split = id->definition()->as<Split>();
+        if (split->innerSplit() ||
+            split->factor()->value().as<int64_t>() !=
+                rparams->batches_per_block_inner_reduction) {
+          continue;
+        }
+        identified_count++;
+        id->parallelize(ParallelType::Unroll);
       }
+      NVF_ERROR(
+          identified_count == 1,
+          "Expected to find exactly one PersistentBatch domain to unroll, but "
+          "found ",
+          identified_count,
+          " in ",
+          tv->toString());
     }
   }
 

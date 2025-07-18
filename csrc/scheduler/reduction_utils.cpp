@@ -118,12 +118,6 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
-  // use explicit unroll for vectorized inner persistent scheduler
-  bool use_main = std::getenv("USE_MAIN") != nullptr;
-  bool unroll_persistent_cached_input = !use_main &&
-      !rparams->combined_inner_outer && rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim;
-
   if (rparams->tma_warp_specialized) {
     auto option = rparams->circular_buffer_options;
     auto ws_pt = std::get<WarpSpecialized>(option.type).on;
@@ -200,12 +194,8 @@ TensorView* scheduleReductionTV(
       outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
     }
 
-    if (unroll_persistent_cached_input) {
-      outer_unroll(outer_i++, rparams->batches_per_block_inner_reduction);
-    } else {
-      reduction_tv->split(
-          outer_i++, rparams->batches_per_block_inner_reduction, false);
-    }
+    reduction_tv->split(
+        outer_i++, rparams->batches_per_block_inner_reduction, false);
 
     outer_unswitch(outer_i++);
 
@@ -363,14 +353,6 @@ TensorView* scheduleReductionTV(
   // will be changed to serial for TMA loads.
   if (rparams->computation_warp_groups > 1) {
     reduction_rf_tv->reorder({{1, 2}});
-  }
-  // Unroll is only applied at persitent cached inputs
-  // reorder to avoid creating unswitched loops for computations
-  // and other loads, which caused register spilling and regression.
-  // [..., US, TIDx, UR, Vect] to
-  // [..., UR, US, TIDx, Vect]
-  if (unroll_persistent_cached_input) {
-    reduction_rf_tv->reorder({{-2, -4}, {-3, -2}, {-4, -3}});
   }
   return reduction_rf_tv;
 }
