@@ -9,9 +9,6 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
-#include <functional>
-#include <memory>
-#include <unordered_map>
 
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
@@ -19,8 +16,7 @@
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/SmallVector.h"
+#include <llvm/ADT/SmallVector.h>
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -286,7 +282,7 @@ Val* mapToInputDomain(
 // Helper function to generate LLVM IR for reordered stride calculation
 void generateReorderedStrideLlvmIr(
     Val* current_val,
-    std::unordered_map<Val*, llvm::Value*>& val2llvmMap,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
     llvm::Value*& running_stride_product,
     std::unordered_map<Val*, bool>& boundary_vals,
@@ -314,14 +310,14 @@ void generateReorderedStrideLlvmIr(
         }
         running_stride_product = builder.CreateMul(
             running_stride_product,
-            val2llvmMap[original_val->as<IterDomain>()->extent()],
+            val_to_value[original_val->as<IterDomain>()->extent()],
             "mapped_stride");
       }
     } else if (
         current_val->as<IterDomain>()->extent()->isConst() &&
-        val2llvmMap.find(current_val->as<IterDomain>()->extent()) ==
-            val2llvmMap.end()) {
-      val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.getInt64(
+        val_to_value.find(current_val->as<IterDomain>()->extent()) ==
+            val_to_value.end()) {
+      val_to_value[current_val->as<IterDomain>()->extent()] = builder.getInt64(
           current_val->as<IterDomain>()->extent()->value().as<int64_t>());
     }
     return;
@@ -345,14 +341,14 @@ void generateReorderedStrideLlvmIr(
         boundaryValStrides[inner_mapped_val] = running_stride_product;
         running_stride_product = builder.CreateMul(
             running_stride_product,
-            val2llvmMap[inner_mapped_val->as<IterDomain>()->extent()],
+            val_to_value[inner_mapped_val->as<IterDomain>()->extent()],
             "mapped_stride");
         return;
       }
     } else {
       generateReorderedStrideLlvmIr(
           input_inner_val,
-          val2llvmMap,
+          val_to_value,
           builder,
           running_stride_product,
           boundary_vals,
@@ -369,14 +365,14 @@ void generateReorderedStrideLlvmIr(
         boundaryValStrides[outer_mapped_val] = running_stride_product;
         running_stride_product = builder.CreateMul(
             running_stride_product,
-            val2llvmMap[outer_mapped_val->as<IterDomain>()->extent()],
+            val_to_value[outer_mapped_val->as<IterDomain>()->extent()],
             "mapped_stride");
         return;
       }
     } else {
       generateReorderedStrideLlvmIr(
           input_outer_val,
-          val2llvmMap,
+          val_to_value,
           builder,
           running_stride_product,
           boundary_vals,
@@ -384,16 +380,16 @@ void generateReorderedStrideLlvmIr(
     }
 
     // Extent of merged domain
-    if (val2llvmMap[input_outer_val->as<IterDomain>()->extent()] == nullptr ||
-        val2llvmMap[input_inner_val->as<IterDomain>()->extent()] == nullptr ||
-        val2llvmMap[current_val->as<IterDomain>()->extent()] != nullptr) {
+    if (val_to_value[input_outer_val->as<IterDomain>()->extent()] == nullptr ||
+        val_to_value[input_inner_val->as<IterDomain>()->extent()] == nullptr ||
+        val_to_value[current_val->as<IterDomain>()->extent()] != nullptr) {
       return;
     } else if (
-        val2llvmMap.find(current_val->as<IterDomain>()->extent()) ==
-        val2llvmMap.end()) {
-      val2llvmMap[current_val->as<IterDomain>()->extent()] = builder.CreateMul(
-          val2llvmMap[input_outer_val->as<IterDomain>()->extent()],
-          val2llvmMap[input_inner_val->as<IterDomain>()->extent()],
+        val_to_value.find(current_val->as<IterDomain>()->extent()) ==
+        val_to_value.end()) {
+      val_to_value[current_val->as<IterDomain>()->extent()] = builder.CreateMul(
+          val_to_value[input_outer_val->as<IterDomain>()->extent()],
+          val_to_value[input_inner_val->as<IterDomain>()->extent()],
           current_val->toString() + "mapped_extent");
     }
 
@@ -413,14 +409,14 @@ void generateReorderedStrideLlvmIr(
         }
         running_stride_product = builder.CreateMul(
             running_stride_product,
-            val2llvmMap[input_mapped_val->as<IterDomain>()->extent()],
+            val_to_value[input_mapped_val->as<IterDomain>()->extent()],
             "mapped_stride");
         return;
       }
     } else {
       generateReorderedStrideLlvmIr(
           input_val,
-          val2llvmMap,
+          val_to_value,
           builder,
           running_stride_product,
           boundary_vals,
@@ -428,20 +424,20 @@ void generateReorderedStrideLlvmIr(
     }
 
     auto* split_factor = split_expr->factor()->as<Val>();
-    if (val2llvmMap.find(split_factor) == val2llvmMap.end()) {
-      val2llvmMap[split_factor] =
-          traverseExtentDFS(split_factor, val2llvmMap, builder);
+    if (val_to_value.find(split_factor) == val_to_value.end()) {
+      val_to_value[split_factor] =
+          traverseExtentDFS(split_factor, val_to_value, builder);
     }
     if (split_expr->innerSplit()) {
       if (split_factor->isConstInt() &&
-          val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) ==
-              val2llvmMap.end()) {
-        val2llvmMap[output_inner_val->as<IterDomain>()->extent()] =
+          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
+              val_to_value.end()) {
+        val_to_value[output_inner_val->as<IterDomain>()->extent()] =
             builder.getInt64(split_factor->value().as<int64_t>());
       } else {
-        if (val2llvmMap.find(split_factor) != val2llvmMap.end()) {
-          val2llvmMap[output_inner_val->as<IterDomain>()->extent()] =
-              val2llvmMap[split_factor];
+        if (val_to_value.find(split_factor) != val_to_value.end()) {
+          val_to_value[output_inner_val->as<IterDomain>()->extent()] =
+              val_to_value[split_factor];
         } else {
           NVF_ERROR(
               false,
@@ -449,31 +445,31 @@ void generateReorderedStrideLlvmIr(
               "not found in val2stride_map");
         }
       }
-      if (val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr ||
-          val2llvmMap[output_inner_val->as<IterDomain>()->extent()] ==
+      if (val_to_value[input_val->as<IterDomain>()->extent()] == nullptr ||
+          val_to_value[output_inner_val->as<IterDomain>()->extent()] ==
               nullptr ||
-          val2llvmMap[output_outer_val->as<IterDomain>()->extent()] !=
+          val_to_value[output_outer_val->as<IterDomain>()->extent()] !=
               nullptr) {
         return;
       } else if (
-          val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) ==
-          val2llvmMap.end()) {
-        val2llvmMap[output_outer_val->as<IterDomain>()->extent()] =
+          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
+          val_to_value.end()) {
+        val_to_value[output_outer_val->as<IterDomain>()->extent()] =
             builder.CreateUDiv(
-                val2llvmMap[input_val->as<IterDomain>()->extent()],
-                val2llvmMap[output_inner_val->as<IterDomain>()->extent()],
+                val_to_value[input_val->as<IterDomain>()->extent()],
+                val_to_value[output_inner_val->as<IterDomain>()->extent()],
                 output_outer_val->toString() + "mapped_stride");
       }
     } else {
       if (split_expr->factor()->isConstInt() &&
-          val2llvmMap.find(output_outer_val->as<IterDomain>()->extent()) ==
-              val2llvmMap.end()) {
-        val2llvmMap[output_outer_val->as<IterDomain>()->extent()] =
+          val_to_value.find(output_outer_val->as<IterDomain>()->extent()) ==
+              val_to_value.end()) {
+        val_to_value[output_outer_val->as<IterDomain>()->extent()] =
             builder.getInt64(split_factor->value().as<int64_t>());
       } else {
-        if (val2llvmMap.find(split_factor) != val2llvmMap.end()) {
-          val2llvmMap[output_outer_val->as<IterDomain>()->extent()] =
-              val2llvmMap[split_factor];
+        if (val_to_value.find(split_factor) != val_to_value.end()) {
+          val_to_value[output_outer_val->as<IterDomain>()->extent()] =
+              val_to_value[split_factor];
         } else {
           NVF_ERROR(
               false,
@@ -481,19 +477,19 @@ void generateReorderedStrideLlvmIr(
               "not found in val2stride_map");
         }
       }
-      if (val2llvmMap[input_val->as<IterDomain>()->extent()] == nullptr ||
-          val2llvmMap[output_inner_val->as<IterDomain>()->extent()] ==
+      if (val_to_value[input_val->as<IterDomain>()->extent()] == nullptr ||
+          val_to_value[output_inner_val->as<IterDomain>()->extent()] ==
               nullptr ||
-          val2llvmMap[output_outer_val->as<IterDomain>()->extent()] !=
+          val_to_value[output_outer_val->as<IterDomain>()->extent()] !=
               nullptr) {
         return;
       } else if (
-          val2llvmMap.find(output_inner_val->as<IterDomain>()->extent()) ==
-          val2llvmMap.end()) {
-        val2llvmMap[output_inner_val->as<IterDomain>()->extent()] =
+          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
+          val_to_value.end()) {
+        val_to_value[output_inner_val->as<IterDomain>()->extent()] =
             builder.CreateUDiv(
-                val2llvmMap[input_val->as<IterDomain>()->extent()],
-                val2llvmMap[output_outer_val->as<IterDomain>()->extent()],
+                val_to_value[input_val->as<IterDomain>()->extent()],
+                val_to_value[output_outer_val->as<IterDomain>()->extent()],
                 output_inner_val->toString() + "mapped_stride");
       }
     }
