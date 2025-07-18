@@ -98,5 +98,5 @@ def test_scaled_mm(
     # mat1_ref = mat1_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale1.unsqueeze(-1).to(torch.bfloat16)
     # mat2_ref = mat2_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale2.unsqueeze(-1).to(torch.bfloat16)
     # ref_o = mat1_ref @ mat2_ref.t() * alpha
-    ref_o = torch._scaled_mm(mat1, mat2.t(), scale1, scale2, torch.bfloat16) * alpha
+    ref_o = torch._scaled_mm(mat1, mat2.t(), blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), torch.bfloat16) * alpha
     breakpoint()
