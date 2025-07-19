@@ -558,13 +558,18 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   normalization_scheduler_utils::beforeSchedule(
-      fusion,
-      rparams,
-      dummy_outputs,
-      cached_inputs,
-      reduction_tvs,
-      smem_consumers,
-      cached_outputs);
+      fusion, rparams, dummy_outputs, cached_inputs, cached_outputs);
+
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem.
+  // Needs to re-derive the persistent buffers after project to inputs or
+  // producers.
+  const auto& persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  smem_consumers = normalization_scheduler_utils::movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs, persistent_buffers);
+
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 
   // split reduction_tvs into inner and outer reduction_tvs
   std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;

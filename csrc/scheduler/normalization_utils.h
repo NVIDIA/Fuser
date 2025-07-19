@@ -272,15 +272,12 @@ bool checkReductionPattern(
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type);
 
 // Common preparations before the actual schedule, used by all persistent
-// schedulers. Write to dummy_outputs, cached_inputs, reduction_tvs, and
-// cached_outputs.
+// schedulers. Write to dummy_outputs, cached_inputs, and cached_outputs.
 void beforeSchedule(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
-    std::vector<TensorView*>& reduction_tvs,
-    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
@@ -365,7 +362,8 @@ BufferProjectionStrategy isProjectBufferToInputs(
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs);
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<TensorView*>& persistent_buffers);
 
 // Find the resolution points of a persistent buffer. See also
 // the comments of PersistentBufferResolution in utils.cpp. Unlike
