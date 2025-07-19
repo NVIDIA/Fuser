@@ -38,6 +38,7 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
 #include <instrumentation.h>
+#include <linked_hash_map.h>
 
 namespace nvfuser {
 
@@ -415,50 +416,50 @@ void inferShapeAndStridesNoReorder(
   return;
 }
 
+
+void inferTensorStridesReorderedForward(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
+  // push all logical domains, we want to forward calculate allocation domains in level order
+  for (const auto* id : logical_domain) {
+    level_order_domains.pushBack(id, getOrCreateValueForExtent(id, val_to_value, builder));
+  }
+
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+    {allocation_domain.begin(), allocation_domain.end()},
+    {logical_domain.begin(), logical_domain.end()}) | std::views::reverse) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+
+    } else {
+      NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
+    }
+  }
+  return;
+}
+
+// NOTE: we haven't resolved the merge dividend protocol yet,
+// right now we just use inner dim of a merge expression as the dividend
+void inferTensorStridesReorderedBackward(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
 // Infer Tensor Strides with reordering
 void inferTensorStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  llvm::LLVMContext& context = builder.getContext();
-  llvm::Value* running_stride =
-      llvm::ConstantInt::get(llvm::Type::getInt64Ty(context), 1);
-  std::unordered_map<Val*, bool> boundary_vals;
-  std::unordered_map<Val*, llvm::Value*> boundary_vals_strides;
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  for (auto* val : logical_domain) {
-    boundary_vals[val] = false;
-  }
-  for (auto it = allocation_domain.rbegin();
-       it != allocation_domain.rend();
-       ++it) {
-    auto iter_domain = *it;
-
-    // TODO: We will divide DID domain in the original size in the future.
-    if (iter_domain->getParallelType() == ParallelType::DIDx ||
-        iter_domain->getParallelType() == ParallelType::DIDy ||
-        iter_domain->getParallelType() == ParallelType::DIDz) {
-      continue;
-    }
-    generateReorderedStrideLlvmIr(
-        iter_domain->as<Val>(),
-        val_to_value,
-        builder,
-        running_stride,
-        boundary_vals,
-        boundary_vals_strides);
-  }
-  for (const auto& [dim_idx, id] : enumerate(logical_domain)) {
-    auto it = boundary_vals_strides.find(id);
-    NVF_ERROR(
-        it != boundary_vals_strides.end(),
-        "LLVM Lowering Error: boundary_vals_strides is not found for ",
-        id->toString());
-    strides.push_back(it->second);
-  }
-  return;
+  inferTensorStridesReorderedForward(tv, val_to_value, builder);
+  inferTensorStridesReorderedBackward(tv, val_to_value, builder);
 }
 
 // Non Aliased Tensor Shape and Strides Inference
