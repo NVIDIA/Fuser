@@ -246,7 +246,11 @@ llvm::Value* createValueForExtent(
     llvm::IRBuilder<>& builder) {
   llvm::Value* out_value = nullptr;
   if (val->isA<IterDomain>()) {
-    out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+    if (val->hasExpandedExtent()) {
+      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+    } else {
+      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+    }
   } else if (val->isConst()) {
     out_value = builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
@@ -416,8 +420,9 @@ void inferShapeAndStridesNoReorder(
   return;
 }
 
-
-void inferTensorStridesReorderedForward(
+// NOTE: we haven't resolved the merge dividend protocol yet,
+// right now we just use inner dim of a merge expression as the dividend
+void inferTensorStridesReorderedBackward(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
@@ -425,31 +430,25 @@ void inferTensorStridesReorderedForward(
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
   // push all logical domains, we want to forward calculate allocation domains in level order
-  for (const auto* id : logical_domain) {
+  for (const auto* id : allocation_domain) {
     level_order_domains.pushBack(id, getOrCreateValueForExtent(id, val_to_value, builder));
   }
 
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
-    {allocation_domain.begin(), allocation_domain.end()},
-    {logical_domain.begin(), logical_domain.end()}) | std::views::reverse) {
+    {logical_domain.begin(), logical_domain.end()},
+    {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      
+      const auto [outer_value, outer_i] = level_order_domains.erase(split->outer());
+      NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
+      const auto [inner_value, inner_i] = level_order_domains.erase(split->inner());
+      llvm::Value* in_value = builder.CreateMul(outer_value, inner_value);
+      level_order_domains.insert(inner_i, split->in(), in_value);
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
 
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
-  return;
-}
-
-// NOTE: we haven't resolved the merge dividend protocol yet,
-// right now we just use inner dim of a merge expression as the dividend
-void inferTensorStridesReorderedBackward(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  
 }
 
 // Infer Tensor Strides with reordering
@@ -458,7 +457,6 @@ void inferTensorStridesReordered(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  inferTensorStridesReorderedForward(tv, val_to_value, builder);
   inferTensorStridesReorderedBackward(tv, val_to_value, builder);
 }
 
