@@ -264,7 +264,11 @@ async function explainDifference(testnum, kernelnum) {
         if (result.summaries && result.summaries.length > 0) {
             // Display AI summaries - each summary has id and summary fields
             explanationText = result.summaries.map((item, index) => {
-                return `${item.id ? `[${item.id}] ` : ''}${item.summary}`
+                if (item.id) {
+                    return `${item.id}\n\n${item.summary}`
+                } else {
+                    return item.summary
+                }
             }).join('\n\n')
         } else if (result.diffs && result.diffs.length > 0) {
             // If we have diffs but no summaries, show basic info
