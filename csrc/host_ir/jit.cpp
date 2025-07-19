@@ -428,12 +428,22 @@ void inferTensorStridesReorderedBackward(
     llvm::IRBuilder<>& builder) {
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
-  // push all logical domains, we want to forward calculate allocation domains in level order
+  LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
+  level_order_domains.resize(allocation_domain.size());
+  // push all allocation domains extents in regular order
   for (const auto* id : allocation_domain) {
-    level_order_domains.pushBack(id, getOrCreateValueForExtent(id, val_to_value, builder));
+    llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
+    level_order_domains.pushBack(id, std::make_pair(extent_value, nullptr));
   }
 
+  // calculate strides of allocation domains in reverse order
+  llvm::Value* stride_value = builder.getInt64(1);
+  for (const auto* id : allocation_domain | std::views::reverse) {
+    level_order_domains[id].second = stride_value;
+    stride_value = builder.CreateMul(stride_value, level_order_domains[id].first);
+  }
+
+  // traverse backward from allocation domains to logical domains
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
     {logical_domain.begin(), logical_domain.end()},
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
@@ -453,9 +463,11 @@ void inferTensorStridesReorderedBackward(
       const auto [out_value, out_i] = level_order_domains.erase(merge->out());
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
-      // so inner = out / outer
+      // so inner = (out + outer - 1) / outer, which is a ceilDiv
       llvm::Value* outer_value = getOrCreateValueForExtent(merge->out(), val_to_value, builder);
-      llvm::Value* inner_value = builder.CreateUDiv(out_value, outer_value);
+      llvm::Value* minus_one = builder.CreateSub(outer_value, builder.getInt64(1));
+      llvm::Value* plus_value = builder.CreateAdd(out_value, minus_one);
+      llvm::Value* inner_value = builder.CreateUDiv(plus_value, outer_value);
       level_order_domains.insert(out_i, merge->outer(), outer_value);
       level_order_domains.insert(out_i + 1, merge->inner(), inner_value);
     } else {
