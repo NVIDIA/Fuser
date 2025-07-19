@@ -927,7 +927,9 @@ class TestDifferences:
             .decode("utf-8")
         )
         context["tool_git"] = GitRev(head_hash)
-        context["explain_api_url"] = os.environ.get("CODEDIFF_EXPLAIN_API_URL", "/api/explain-diff")
+        context["explain_api_url"] = os.environ.get(
+            "CODEDIFF_EXPLAIN_API_URL", "/api/explain-diff"
+        )
 
         return template.render(context)
 
