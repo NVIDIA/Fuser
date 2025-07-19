@@ -1046,6 +1046,7 @@ void Hopper::scheduleEpilogueWithSmemEpilogue() {
     // The chain of operations storing data to global memory:
     //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
     TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
+    smem_epilogues_.push_back(d_smem);
 
     std::vector<TensorView*> tvs_to_schedule{d, d_smem};
     bool dc_is_mma_result =
@@ -1322,13 +1323,32 @@ void Blackwell::scheduleSplitKSum() {
 }
 
 void HopperPlus::setUpInlining() {
-  // auto inline for all tensors except register tensors
+  std::vector<TensorView*> smem_outputs;
+  std::transform(smem_epilogues_.begin(), smem_epilogues_.end(), std::back_inserter(gmem_outputs), [](TensorView* tv) {
+        NVF_ERROR(tv != nullptr);
+        NVF_ERROR(tv->uses().size() == 1);
+        Expr* expr = tv->uses().front();
+        NVF_ERROR(expr != nullptr);
+        TensorView* expr_tv = ir_utils::getTvOutput(expr);
+        NVF_ERROR(expr_tv != nullptr);
+        return expr_tv;
+      });
+
+  std::unordered_set<TensorView*> inline_skip; 
   std::unordered_set<TensorView*> smem_loads;
   if (isPingPong()) {
     smem_loads.insert(acw_smems_.begin(), acw_smems_.end());
     smem_loads.insert(bcw_smems_.begin(), bcw_smems_.end());
+    inline_skip.insert(smem_loads.begin(), smem_loads.end());
+    inline_skip.insert(smem_outputs.begin(), smem_outputs.end());
   }
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
+
+  if (isPingPong()) {
+    for (auto&& [smem_producer, gmem_consumer] : zip(smem_epilogues_, smem_outputs)) {
+        inlineSelectedAt(smem_producer, gmem_consumer, num_device_dims_ + 4);
+    }
+  }
 
   for (TensorView* mma_result : mma_results_) {
     inlineSelectedAt(smem_loads, mma_result, num_device_dims_ + 4);
