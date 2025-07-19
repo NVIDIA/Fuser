@@ -420,12 +420,15 @@ void inferShapeAndStridesNoReorder(
   return;
 }
 
-// NOTE: we haven't resolved the merge dividend protocol yet,
-// right now we just use inner dim of a merge expression as the dividend
-void inferTensorStridesReorderedBackward(
+
+
+// Infer Tensor Strides with reordering
+void inferTensorStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
@@ -448,43 +451,65 @@ void inferTensorStridesReorderedBackward(
     {logical_domain.begin(), logical_domain.end()},
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_value, outer_i] = level_order_domains.erase(split->outer());
+      const auto [outer_pair, outer_i] = level_order_domains.erase(split->outer());
       NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
-      const auto [inner_value, inner_i] = level_order_domains.erase(split->inner());
+      const auto [inner_pair, inner_i] = level_order_domains.erase(split->inner());
+      
+      // Handle device dimensions
+      llvm::Value* outer_extent_value = outer_pair.first;
+      llvm::Value* inner_extent_value = inner_pair.first;
+      llvm::Value* outer_stride_value = outer_pair.second;
+      llvm::Value* inner_stride_value = inner_pair.second;
+      
       if(split->outer()->isDeviceDim()) {
-        outer_value = builder.getInt64(1);
+        outer_extent_value = builder.getInt64(1);
       }
       if(split->inner()->isDeviceDim()) {
-        inner_value = builder.getInt64(1);
+        inner_extent_value = builder.getInt64(1);
       }
-      llvm::Value* in_value = builder.CreateMul(outer_value, inner_value);
-      level_order_domains.insert(inner_i, split->in(), in_value);
+      
+      // Calculate input extent: outer * inner
+      llvm::Value* in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
+      
+      // Calculate input stride: outer_stride
+      llvm::Value* in_stride = outer_stride_value;
+      
+      level_order_domains.insert(inner_i, split->in(), std::make_pair(in_extent, in_stride));
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_value, out_i] = level_order_domains.erase(merge->out());
+      const auto [out_pair, out_i] = level_order_domains.erase(merge->out());
+      
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
       // so inner = (out + outer - 1) / outer, which is a ceilDiv
-      llvm::Value* outer_value = getOrCreateValueForExtent(merge->out(), val_to_value, builder);
-      llvm::Value* minus_one = builder.CreateSub(outer_value, builder.getInt64(1));
-      llvm::Value* plus_value = builder.CreateAdd(out_value, minus_one);
-      llvm::Value* inner_value = builder.CreateUDiv(plus_value, outer_value);
-      level_order_domains.insert(out_i, merge->outer(), outer_value);
-      level_order_domains.insert(out_i + 1, merge->inner(), inner_value);
+      llvm::Value* outer_extent_value = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
+      llvm::Value* minus_one = builder.CreateSub(outer_extent_value, builder.getInt64(1));
+      llvm::Value* plus_value = builder.CreateAdd(out_pair.first, minus_one);
+      llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
+      
+      // For merge, the outer dimension gets the original stride
+      // The inner dimension gets stride / outer_extent
+      llvm::Value* outer_stride_value = out_pair.second;
+      llvm::Value* inner_stride_value = builder.CreateUDiv(out_pair.second, outer_extent_value);
+      
+      level_order_domains.insert(out_i, merge->outer(), std::make_pair(outer_extent_value, outer_stride_value));
+      level_order_domains.insert(out_i + 1, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
 
-  // TODO: last level check to see if each expression's inner and outer are adjacent
-}
-
-// Infer Tensor Strides with reordering
-void inferTensorStridesReordered(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  inferTensorStridesReorderedBackward(tv, val_to_value, builder);
+  // Extract strides from logical domain order
+  strides.clear();
+  for (const auto* id : logical_domain) {
+    auto it = level_order_domains.begin();
+    for (; it != level_order_domains.end(); ++it) {
+      if (it->first == id) {
+        strides.push_back(it->second.second);
+        break;
+      }
+    }
+    NVF_ERROR(it != level_order_domains.end(), "Could not find stride for logical domain: ", id->toString());
+  }
 }
 
 // Non Aliased Tensor Shape and Strides Inference
