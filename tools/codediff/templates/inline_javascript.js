@@ -213,26 +213,26 @@ async function explainDifference(testnum, kernelnum) {
     const explainButton = document.getElementById(`explainbutton_${testnum}_${kernelnum}`)
     const explanationDiv = document.getElementById(`explanation_${testnum}_${kernelnum}`)
     const explanationContent = document.getElementById(`explanation_content_${testnum}_${kernelnum}`)
-    
+
     // Get the code blocks
     const oldCodeDiv = document.getElementById(`oldcode_${testnum}_${kernelnum}`)
     const newCodeDiv = document.getElementById(`newcode_${testnum}_${kernelnum}`)
-    
+
     if (!oldCodeDiv || !newCodeDiv) {
         alert('Error: Could not find code blocks for this kernel.')
         return
     }
-    
+
     // Extract the actual code content (skip the <pre><code> wrapper)
     const oldCode = oldCodeDiv.querySelector('code').textContent
     const newCode = newCodeDiv.querySelector('code').textContent
-    
+
     // Show the explanation div and update button state
     explanationDiv.style.display = 'block'
     explainButton.disabled = true
     explainButton.textContent = 'Loading...'
     explanationContent.textContent = 'Analyzing code differences...'
-    
+
     try {
         // Call the backend service
         const response = await fetch('{{ explain_api_url | default("/api/explain-diff") }}', {
@@ -247,20 +247,20 @@ async function explainDifference(testnum, kernelnum) {
                 kernelNumber: kernelnum
             })
         })
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`)
         }
-        
+
         const result = await response.json()
-        
+
         if (!result.success) {
             throw new Error(result.error || 'Backend returned error')
         }
-        
+
         // Handle the structured response
         let explanationText = ''
-        
+
         if (result.summaries && result.summaries.length > 0) {
             // Display AI summaries - each summary has id and summary fields
             explanationText = result.summaries.map((item, index) => {
@@ -276,9 +276,9 @@ async function explainDifference(testnum, kernelnum) {
         } else {
             explanationText = 'No differences detected between the code versions.'
         }
-        
+
         explanationContent.textContent = explanationText || 'No explanation provided.'
-        
+
     } catch (error) {
         console.error('Error calling explain service:', error)
         explanationContent.textContent = `Error: Failed to get explanation. ${error.message}`
