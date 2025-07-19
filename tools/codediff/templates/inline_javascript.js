@@ -235,7 +235,7 @@ async function explainDifference(testnum, kernelnum) {
     
     try {
         // Call the backend service
-        const response = await fetch('http://nv/codediff-explain', {
+        const response = await fetch('{{ explain_api_url | default("/api/explain-diff") }}', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
