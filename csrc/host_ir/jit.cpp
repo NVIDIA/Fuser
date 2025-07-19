@@ -189,7 +189,6 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
 llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
-  auto* out = binary_op->output()->as<Val>();
   auto* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
   auto* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
   auto* out_value = nullptr;
@@ -219,7 +218,6 @@ llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*
 
 llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
-  auto* out = unary_op->out()->as<Val>();
   auto* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
   auto* out_value = nullptr;
   switch (unary_op->getUnaryOpType()) {
@@ -246,7 +244,7 @@ llvm::Value* createValueForExtent(
     llvm::IRBuilder<>& builder) {
   llvm::Value* out_value = nullptr;
   if (val->isA<IterDomain>()) {
-    if (val->hasExpandedExtent()) {
+    if (val->as<IterDomain>()->hasExpandedExtent()) {
       out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
     } else {
       out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
@@ -431,17 +429,23 @@ void inferTensorStridesReordered(
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::unordered_map<IterDomain*, bool> boundary_vals;
   LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
-  level_order_domains.resize(allocation_domain.size());
+  
+  // push all logical domains as boundary values
+  for(const IterDomain* id : logical_domain) {
+    boundary_vals[id] = false;
+  }
+
   // push all allocation domains extents in regular order
-  for (const auto* id : allocation_domain) {
+  for (const IterDomain* id : allocation_domain) {
     llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
     level_order_domains.pushBack(id, std::make_pair(extent_value, nullptr));
   }
 
   // calculate strides of allocation domains in reverse order
   llvm::Value* stride_value = builder.getInt64(1);
-  for (const auto* id : allocation_domain | std::views::reverse) {
+  for (const IterDomain* id : allocation_domain | std::views::reverse) {
     level_order_domains[id].second = stride_value;
     stride_value = builder.CreateMul(stride_value, level_order_domains[id].first);
   }
@@ -558,8 +562,9 @@ void inferTensorShapesAndStridesNonAliased(
     return;
   }
   // With allocation, we need to reorder the stride
+  sizes.clear();
   strides.clear();
-  inferTensorStridesReordered(tv, val_to_value, builder, strides);
+  inferTensorStridesReordered(tv, val_to_value, builder, sizes, strides);
   NVF_ERROR_EQ(strides.size(), TensorDomain::noReductions(tv->getLogicalDomain()).size());
   return;
 }
