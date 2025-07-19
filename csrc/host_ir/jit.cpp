@@ -463,19 +463,35 @@ void inferTensorStridesReordered(
       llvm::Value* outer_stride_value = outer_pair.second;
       llvm::Value* inner_stride_value = inner_pair.second;
       
-      if(split->outer()->isDeviceDim()) {
-        outer_extent_value = builder.getInt64(1);
+      // Calculate input extent(size) and stride
+      llvm::Value* in_extent = nullptr;
+      llvm::Value* in_stride = nullptr;
+
+      // NOTE: how do we handle device dimension? Currently we just divide it out in split
+      // However, if both dimension are device dimension, do we need to collapse them?
+      // So that in a merge op, we can merge between two local iter domain between one device dimension?
+
+      // both are device dimension, we just set everything to 1
+      if(split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
+        in_extent = builder.getInt64(1);
+        in_stride = builder.getInt64(1);
       }
-      if(split->inner()->isDeviceDim()) {
-        inner_extent_value = builder.getInt64(1);
+      // inner is device dimension, we just use outer extent and divide the device dimension out in outer stride
+      else if(!split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
+        in_extent = outer_extent_value;
+        in_stride = builder.CreateUDiv(outer_stride_value, inner_extent_value);
       }
-      
-      // Calculate input extent: outer * inner
-      llvm::Value* in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
-      
-      // Calculate input stride: outer_stride
-      llvm::Value* in_stride = outer_stride_value;
-      
+      // outer is device dimension, we just use inner extent and stride
+      else if(split->outer()->isDeviceDim() && !split->inner()->isDeviceDim()) {
+        in_extent = inner_extent_value;
+        in_stride = inner_stride_value;
+      }
+      // common case where both dimensions are not device dimensions
+      else {
+        in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
+        in_stride = outer_stride_value;
+      }
+
       level_order_domains.insert(inner_i, split->in(), std::make_pair(in_extent, in_stride));
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
@@ -506,6 +522,9 @@ void inferTensorStridesReordered(
 
   // Push last level size and stride into result
   for (const auto* id : logical_domain) {
+    if (id->isDeviceDim()) {
+      continue;
+    }
     auto it = level_order_domains.find(id);
     sizes.push_back(it->second.first);
     strides.push_back(it->second.second);
