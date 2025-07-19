@@ -253,7 +253,27 @@ async function explainDifference(testnum, kernelnum) {
         }
         
         const result = await response.json()
-        explanationContent.textContent = result.explanation || 'No explanation provided.'
+        
+        if (!result.success) {
+            throw new Error(result.error || 'Backend returned error')
+        }
+        
+        // Handle the structured response
+        let explanationText = ''
+        
+        if (result.summaries && result.summaries.length > 0) {
+            // Display AI summaries - each summary has id and summary fields
+            explanationText = result.summaries.map((item, index) => {
+                return `${item.id ? `[${item.id}] ` : ''}${item.summary}`
+            }).join('\n\n')
+        } else if (result.diffs && result.diffs.length > 0) {
+            // If we have diffs but no summaries, show basic info
+            explanationText = `Found ${result.total_changes} differences, but no AI summary available.`
+        } else {
+            explanationText = 'No differences detected between the code versions.'
+        }
+        
+        explanationContent.textContent = explanationText || 'No explanation provided.'
         
     } catch (error) {
         console.error('Error calling explain service:', error)
