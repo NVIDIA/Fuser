@@ -81,6 +81,11 @@ SPDX-License-Identifier: BSD-3-Clause
                 onclick="toggleNewCode({{ outer_index }}, {{ loop.index }})">
             <i>{{ run2.name }}</i>
         </button>
+        <button id="explainbutton_{{ outer_index }}_{{ loop.index }}"
+                onclick="explainDifference({{ outer_index }}, {{ loop.index }})"
+                style="background-color: #e8f4fd; margin-left: 10px;">
+            Explain
+        </button>
     </span>
     <span class="hljs-deletion"
           style="width: 32pt;
@@ -134,6 +139,16 @@ SPDX-License-Identifier: BSD-3-Clause
     </div>
     <div id="ptxdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-diff">{{ kernel_diff.ptx_diff|e }}</code></pre>
+    </div>
+    <div id="explanation_{{ outer_index }}_{{ loop.index }}" style="display:none; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-top: 10px;">
+        <h4 style="margin-top: 0; color: #495057;">Code Difference Explanation</h4>
+        <div id="explanation_content_{{ outer_index }}_{{ loop.index }}" style="white-space: pre-wrap;">
+            Loading explanation...
+        </div>
+        <button onclick="hideExplanation({{ outer_index }}, {{ loop.index }})" style="float: right; margin-top: 10px; background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+            Close
+        </button>
+        <div style="clear: both;"></div>
     </div>
 {%- endif -%}
 {%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}

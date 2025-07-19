@@ -208,3 +208,64 @@ diff_ptx_div.style.display = 'none'
 diff_cuda_div.style.display = 'block'
 }
 }
+
+async function explainDifference(testnum, kernelnum) {
+    const explainButton = document.getElementById(`explainbutton_${testnum}_${kernelnum}`)
+    const explanationDiv = document.getElementById(`explanation_${testnum}_${kernelnum}`)
+    const explanationContent = document.getElementById(`explanation_content_${testnum}_${kernelnum}`)
+    
+    // Get the code blocks
+    const oldCodeDiv = document.getElementById(`oldcode_${testnum}_${kernelnum}`)
+    const newCodeDiv = document.getElementById(`newcode_${testnum}_${kernelnum}`)
+    
+    if (!oldCodeDiv || !newCodeDiv) {
+        alert('Error: Could not find code blocks for this kernel.')
+        return
+    }
+    
+    // Extract the actual code content (skip the <pre><code> wrapper)
+    const oldCode = oldCodeDiv.querySelector('code').textContent
+    const newCode = newCodeDiv.querySelector('code').textContent
+    
+    // Show the explanation div and update button state
+    explanationDiv.style.display = 'block'
+    explainButton.disabled = true
+    explainButton.textContent = 'Loading...'
+    explanationContent.textContent = 'Analyzing code differences...'
+    
+    try {
+        // Call the backend service
+        const response = await fetch('http://nv/codediff-explain', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                oldCode: oldCode,
+                newCode: newCode,
+                testName: document.querySelector(`#test_${testnum} b`).textContent,
+                kernelNumber: kernelnum
+            })
+        })
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        
+        const result = await response.json()
+        explanationContent.textContent = result.explanation || 'No explanation provided.'
+        
+    } catch (error) {
+        console.error('Error calling explain service:', error)
+        explanationContent.textContent = `Error: Failed to get explanation. ${error.message}`
+    } finally {
+        // Reset button state
+        explainButton.disabled = false
+        explainButton.textContent = 'Explain'
+    }
+}
+
+function hideExplanation(testnum, kernelnum) {
+    const explanationDiv = document.getElementById(`explanation_${testnum}_${kernelnum}`)
+    explanationDiv.style.display = 'none'
+}
