@@ -244,7 +244,9 @@ llvm::Value* createValueForExtent(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
   llvm::Value* out_value = nullptr;
-  if (val->isConst()) {
+  if (val->isA<IterDomain>()) {
+    out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+  } else if (val->isConst()) {
     out_value = builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
     if (auto* binary_op = def->as<BinaryOp>()) {
@@ -278,228 +280,6 @@ Val* mapToInputDomain(
   return nullptr;
 }
 
-// Helper function to generate LLVM IR for reordered stride calculation
-void generateReorderedStrideLlvmIr(
-    Val* current_val,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::Value*& running_stride_product,
-    std::unordered_map<Val*, bool>& boundary_vals,
-    std::unordered_map<Val*, llvm::Value*>& boundary_vals_strides) {
-  // Check if the current val is nullptr
-  if (current_val == nullptr) {
-    NVF_ERROR(
-        false,
-        "LLVM Lowering Error: generateReorderedStrideLlvmIr called with "
-        "nullptr Val.");
-    return;
-  }
-  Expr* def_expr = current_val->definition();
-  // Check if the current val is missing
-  if (def_expr == nullptr) {
-    // Check if the current val is a boundary val
-    Val* original_val = mapToInputDomain(current_val, boundary_vals);
-    if (original_val != nullptr) {
-      if (boundary_vals[original_val] == false) {
-        boundary_vals[original_val] = true;
-        boundary_vals_strides[original_val] = running_stride_product;
-        // Broadcast domain always has stride 0
-        if (original_val->as<IterDomain>()->isBroadcast()) {
-          return;
-        }
-        running_stride_product = builder.CreateMul(
-            running_stride_product,
-            val_to_value[original_val->as<IterDomain>()->extent()],
-            "mapped_stride");
-      }
-    } else if (
-        current_val->as<IterDomain>()->extent()->isConst() &&
-        val_to_value.find(current_val->as<IterDomain>()->extent()) ==
-            val_to_value.end()) {
-      val_to_value[current_val->as<IterDomain>()->extent()] = builder.getInt64(
-          current_val->as<IterDomain>()->extent()->value().as<int64_t>());
-    }
-    return;
-  }
-
-  // For each merge op, we need to check if it is valid split, we don't want to
-  // merge two values that has gaps in between
-  if (def_expr->isA<Merge>()) {
-    auto* merge_expr = def_expr->as<Merge>();
-    auto* input_inner_val = merge_expr->inner()->as<Val>();
-    auto* input_outer_val = merge_expr->outer()->as<Val>();
-    auto* inner_mapped_val = mapToInputDomain(input_inner_val, boundary_vals);
-    auto* outer_mapped_val = mapToInputDomain(input_outer_val, boundary_vals);
-    // Check if the inner val is a boundary val
-    if (inner_mapped_val != nullptr) {
-      if (boundary_vals[inner_mapped_val] == false) {
-        boundary_vals[inner_mapped_val] = true;
-        if (inner_mapped_val->as<IterDomain>()->isBroadcast()) {
-          return;
-        }
-        boundary_vals_strides[inner_mapped_val] = running_stride_product;
-        running_stride_product = builder.CreateMul(
-            running_stride_product,
-            val_to_value[inner_mapped_val->as<IterDomain>()->extent()],
-            "mapped_stride");
-        return;
-      }
-    } else {
-      generateReorderedStrideLlvmIr(
-          input_inner_val,
-          val_to_value,
-          builder,
-          running_stride_product,
-          boundary_vals,
-          boundary_vals_strides);
-    }
-
-    // Check if the outer val is a boundary val
-    if (outer_mapped_val != nullptr) {
-      if (boundary_vals[outer_mapped_val] == false) {
-        boundary_vals[outer_mapped_val] = true;
-        if (outer_mapped_val->as<IterDomain>()->isBroadcast()) {
-          return;
-        }
-        boundary_vals_strides[outer_mapped_val] = running_stride_product;
-        running_stride_product = builder.CreateMul(
-            running_stride_product,
-            val_to_value[outer_mapped_val->as<IterDomain>()->extent()],
-            "mapped_stride");
-        return;
-      }
-    } else {
-      generateReorderedStrideLlvmIr(
-          input_outer_val,
-          val_to_value,
-          builder,
-          running_stride_product,
-          boundary_vals,
-          boundary_vals_strides);
-    }
-
-    // Extent of merged domain
-    if (val_to_value[input_outer_val->as<IterDomain>()->extent()] == nullptr ||
-        val_to_value[input_inner_val->as<IterDomain>()->extent()] == nullptr ||
-        val_to_value[current_val->as<IterDomain>()->extent()] != nullptr) {
-      return;
-    } else if (
-        val_to_value.find(current_val->as<IterDomain>()->extent()) ==
-        val_to_value.end()) {
-      val_to_value[current_val->as<IterDomain>()->extent()] = builder.CreateMul(
-          val_to_value[input_outer_val->as<IterDomain>()->extent()],
-          val_to_value[input_inner_val->as<IterDomain>()->extent()],
-          current_val->toString() + "mapped_extent");
-    }
-
-  } else if (def_expr->isA<Split>()) {
-    auto* split_expr = def_expr->as<Split>();
-    auto* input_val = split_expr->in()->as<Val>();
-    auto* output_inner_val = split_expr->inner()->as<Val>();
-    auto* output_outer_val = split_expr->outer()->as<Val>();
-    auto* input_mapped_val = mapToInputDomain(input_val, boundary_vals);
-
-    if (input_mapped_val != nullptr) {
-      if (boundary_vals[input_mapped_val] == false) {
-        boundary_vals[input_mapped_val] = true;
-        boundary_vals_strides[input_mapped_val] = running_stride_product;
-        if (input_mapped_val->as<IterDomain>()->isBroadcast()) {
-          return;
-        }
-        running_stride_product = builder.CreateMul(
-            running_stride_product,
-            val_to_value[input_mapped_val->as<IterDomain>()->extent()],
-            "mapped_stride");
-        return;
-      }
-    } else {
-      generateReorderedStrideLlvmIr(
-          input_val,
-          val_to_value,
-          builder,
-          running_stride_product,
-          boundary_vals,
-          boundary_vals_strides);
-    }
-
-    auto* split_factor = split_expr->factor()->as<Val>();
-    if (val_to_value.find(split_factor) == val_to_value.end()) {
-      val_to_value[split_factor] =
-          traverseExtentDFS(split_factor, val_to_value, builder);
-    }
-    if (split_expr->innerSplit()) {
-      if (split_factor->isConstInt() &&
-          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
-              val_to_value.end()) {
-        val_to_value[output_inner_val->as<IterDomain>()->extent()] =
-            builder.getInt64(split_factor->value().as<int64_t>());
-      } else {
-        if (val_to_value.find(split_factor) != val_to_value.end()) {
-          val_to_value[output_inner_val->as<IterDomain>()->extent()] =
-              val_to_value[split_factor];
-        } else {
-          NVF_ERROR(
-              false,
-              "LLVM Lowering Error: Inner split factor is not a constant and "
-              "not found in val2stride_map");
-        }
-      }
-      if (val_to_value[input_val->as<IterDomain>()->extent()] == nullptr ||
-          val_to_value[output_inner_val->as<IterDomain>()->extent()] ==
-              nullptr ||
-          val_to_value[output_outer_val->as<IterDomain>()->extent()] !=
-              nullptr) {
-        return;
-      } else if (
-          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
-          val_to_value.end()) {
-        val_to_value[output_outer_val->as<IterDomain>()->extent()] =
-            builder.CreateUDiv(
-                val_to_value[input_val->as<IterDomain>()->extent()],
-                val_to_value[output_inner_val->as<IterDomain>()->extent()],
-                output_outer_val->toString() + "mapped_stride");
-      }
-    } else {
-      if (split_expr->factor()->isConstInt() &&
-          val_to_value.find(output_outer_val->as<IterDomain>()->extent()) ==
-              val_to_value.end()) {
-        val_to_value[output_outer_val->as<IterDomain>()->extent()] =
-            builder.getInt64(split_factor->value().as<int64_t>());
-      } else {
-        if (val_to_value.find(split_factor) != val_to_value.end()) {
-          val_to_value[output_outer_val->as<IterDomain>()->extent()] =
-              val_to_value[split_factor];
-        } else {
-          NVF_ERROR(
-              false,
-              "LLVM Lowering Error: Outer split factor is not a constant and "
-              "not found in val2stride_map");
-        }
-      }
-      if (val_to_value[input_val->as<IterDomain>()->extent()] == nullptr ||
-          val_to_value[output_inner_val->as<IterDomain>()->extent()] ==
-              nullptr ||
-          val_to_value[output_outer_val->as<IterDomain>()->extent()] !=
-              nullptr) {
-        return;
-      } else if (
-          val_to_value.find(output_inner_val->as<IterDomain>()->extent()) ==
-          val_to_value.end()) {
-        val_to_value[output_inner_val->as<IterDomain>()->extent()] =
-            builder.CreateUDiv(
-                val_to_value[input_val->as<IterDomain>()->extent()],
-                val_to_value[output_outer_val->as<IterDomain>()->extent()],
-                output_inner_val->toString() + "mapped_stride");
-      }
-    }
-
-  } else { // Fallback for other ops (e.g., simple unary pass-through)
-    NVF_ERROR(
-        false,
-        "LLVM Lowering Error: Unhandled op_type '" + def_expr->toString() +
-            "' for Val " + current_val->toString());
-  }
-}
 
 // Infer Tensor Shape
 void inferShape(
@@ -510,8 +290,7 @@ void inferShape(
     llvm::SmallVectorImpl<llvm::Value*>& sizes) {
   for (const auto i : arange(symbolic_sizes.size())) {
     auto* symbolic_size = symbolic_sizes[i];
-    traverseExtentDFS(symbolic_size, val_to_value, builder);
-    auto* inferred_val = val_to_value[symbolic_size];
+    auto* inferred_val = getOrCreateValueForExtent(symbolic_size, val_to_value, builder);
     NVF_ERROR(
         inferred_val != nullptr,
         "LLVM Lowering Error: inferred_val is nullptr for ",
