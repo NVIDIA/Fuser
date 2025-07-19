@@ -444,7 +444,14 @@ void inferTensorStridesReorderedBackward(
       llvm::Value* in_value = builder.CreateMul(outer_value, inner_value);
       level_order_domains.insert(inner_i, split->in(), in_value);
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-
+      const auto [out_value, out_i] = level_order_domains.erase(merge->out());
+      // NOTE: we don't have a protocol to decide which iter domain to pad,
+      // currently we just pad inner value, so dividend is outer value
+      // so inner = out / outer
+      llvm::Value* outer_value = getOrCreateValueForExtent(merge->out(), val_to_value, builder);
+      level_order_domains.insert(out_i, merge->outer(), outer_value);
+      llvm::Value* inner_value = builder.CreateUDiv(out_value, outer_value);
+      level_order_domains.insert(out_i + 1, merge->inner(), inner_value);
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
