@@ -441,6 +441,12 @@ void inferTensorStridesReorderedBackward(
       const auto [outer_value, outer_i] = level_order_domains.erase(split->outer());
       NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
       const auto [inner_value, inner_i] = level_order_domains.erase(split->inner());
+      if(split->outer()->isDeviceDim()) {
+        outer_value = builder.getInt64(1);
+      }
+      if(split->inner()->isDeviceDim()) {
+        inner_value = builder.getInt64(1);
+      }
       llvm::Value* in_value = builder.CreateMul(outer_value, inner_value);
       level_order_domains.insert(inner_i, split->in(), in_value);
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
@@ -449,13 +455,15 @@ void inferTensorStridesReorderedBackward(
       // currently we just pad inner value, so dividend is outer value
       // so inner = out / outer
       llvm::Value* outer_value = getOrCreateValueForExtent(merge->out(), val_to_value, builder);
-      level_order_domains.insert(out_i, merge->outer(), outer_value);
       llvm::Value* inner_value = builder.CreateUDiv(out_value, outer_value);
+      level_order_domains.insert(out_i, merge->outer(), outer_value);
       level_order_domains.insert(out_i + 1, merge->inner(), inner_value);
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
+
+  // TODO: last level check to see if each expression's inner and outer are adjacent
 }
 
 // Infer Tensor Strides with reordering
