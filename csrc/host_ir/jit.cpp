@@ -10,14 +10,13 @@
 #include <memory>
 #include <unordered_map>
 
-#include <instrumentation.h>
 #include <llvm/ExecutionEngine/JITLink/JITLink.h>
 #include <llvm/ExecutionEngine/Orc/CompileUtils.h>
 #include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
-#include "llvm/ADT/SmallVector.h"
+#include <llvm/ADT/SmallVector.h>
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -38,12 +37,15 @@
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
+#include <instrumentation.h>
+#include <linked_hash_map.h>
 
 namespace nvfuser {
 
 using main_func_t = void (*)(const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
+constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
 constexpr std::string_view kNewTensorFuncName = "new_tensor";
 constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
@@ -73,11 +75,9 @@ struct HostIrJitImpl {
   }
 
  private:
-  // Implementation methods
   void compile();
   void registerExternalFunctions();
 
-  // data members
   std::unique_ptr<llvm::orc::LLJIT> jit_;
   std::unique_ptr<hir::HostIrContainer> container_;
   main_func_t main_func_;
@@ -129,10 +129,6 @@ llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
   return llvm::Type::getInt64Ty(context)->getPointerTo();
 }
 
-llvm::Type* getVoidType(llvm::LLVMContext& context) {
-  return llvm::Type::getVoidTy(context);
-}
-
 // Helper function to generate LLVM IR that extracts tensor size for a given
 // dimension
 llvm::Value* generateTensorSizeExtraction(
@@ -146,6 +142,19 @@ llvm::Value* generateTensorSizeExtraction(
   llvm::Value* dim_val = builder.getInt64(dim);
 
   return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
+}
+
+// Helper function to generate LLVM IR that extracts tensor stride for a given
+// dimension
+llvm::Value* generateTensorStrideExtraction(
+    llvm::Value* tensor_ptr,
+    int64_t dim,
+    llvm::IRBuilder<>& builder) {
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* tensor_stride_func = module->getFunction(kTensorStrideFuncName);
+  llvm::Value* dim_val = builder.getInt64(dim);
+
+  return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
 }
 
 // Helper function to register external functions in JIT
@@ -166,6 +175,400 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
+
+llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto it = val_to_value.find(extent);
+  if (it != val_to_value.end()) {
+    return it->second;
+  }
+  llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
+  it->second = value;
+  return value;
+}
+
+llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto* lhs = binary_op->lhs()->as<Val>();
+  auto* rhs = binary_op->rhs()->as<Val>();
+  auto* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
+  auto* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
+  auto* out_value = nullptr;
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      out_value = builder.CreateAdd(lhs_value, rhs_value);
+      break;
+    case BinaryOpType::Sub:
+      out_value = builder.CreateSub(lhs_value, rhs_value);
+      break;
+    case BinaryOpType::Mul:
+      out_value = builder.CreateMul(lhs_value, rhs_value);
+      break;
+    case BinaryOpType::CeilDiv:
+      // Implement ceilDiv as (a + b - 1) / b
+      llvm::Value* numerator =
+      builder.CreateAdd(lhs_value, rhs_value);
+      llvm::Value* one = builder.getInt64(1);
+      numerator = builder.CreateSub(numerator, one);
+      out_value = builder.CreateUDiv(numerator, rhs_value);
+      break;
+    default:
+      NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
+  }
+  return out_value;
+}
+
+llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto* in = unary_op->in()->as<Val>();
+  auto* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
+  auto* out_value = nullptr;
+  switch (unary_op->getUnaryOpType()) {
+    case UnaryOpType::Cast:
+      out_value = in_value;
+      break;
+    case UnaryOpType::Abs:
+      llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
+      llvm::Value* negated = builder.CreateNeg(in_value);
+      out_value = builder.CreateSelect(is_negative, negated, in_value);
+      break;
+    case UnaryOpType::Neg:
+      out_value = builder.CreateNeg(in_value);
+      break;
+    default:
+      NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
+  }
+  return out_value;
+}
+
+llvm::Value* createValueForExtent(
+    Val* val,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  llvm::Value* out_value = nullptr;
+  if (val->isA<IterDomain>()) {
+    if (val->as<IterDomain>()->hasExpandedExtent()) {
+      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+    } else {
+      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+    }
+  } else if (val->isConst()) {
+    out_value = builder.getInt64(val->value().as<int64_t>());
+  } else if (Expr* def = val->definition()) {
+    if (auto* binary_op = def->as<BinaryOp>()) {
+      out_value = createValueForBinaryOp(binary_op, val_to_value, builder);
+    } else if (auto* unary_op = def->as<UnaryOp>()) {
+      out_value = createValueForUnaryOp(unary_op, val_to_value, builder);
+    } else {
+      NVF_THROW(
+        "LLVM Lowering Error: createValueForExtent called with unsupported "
+        "operation type: ",
+        def->getOpString());
+    }
+  } else {
+    NVF_THROW(
+        "LLVM Lowering Error: createValueForExtent called with unsupported "
+        "operation type: ",
+        val->toString());
+  }
+  return out_value;
+}
+
+Val* mapToInputDomain(
+    Val* currentDomain,
+    std::unordered_map<Val*, bool>& boundary_vals) {
+  for (auto it = boundary_vals.begin(); it != boundary_vals.end(); ++it) {
+    auto* domain = it->first->as<IterDomain>();
+    if (currentDomain->as<IterDomain>() == domain) {
+      return it->first;
+    }
+  }
+  return nullptr;
+}
+
+
+// Infer Tensor Shape
+void inferShape(
+    const TensorView* tv,
+    std::vector<Val*> symbolic_sizes,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes) {
+  for (const auto i : arange(symbolic_sizes.size())) {
+    auto* symbolic_size = symbolic_sizes[i];
+    auto* inferred_val = getOrCreateValueForExtent(symbolic_size, val_to_value, builder);
+    NVF_ERROR(
+        inferred_val != nullptr,
+        "LLVM Lowering Error: inferred_val is nullptr for ",
+        symbolic_size);
+    sizes.push_back(inferred_val);
+  }
+  NVF_ERROR_EQ(sizes.size(), symbolic_sizes.size());
+  return;
+}
+
+// Infer Tensor Stride
+void inferStride(
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    std::vector<bool> expand_flags,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
+  strides.resize(sizes.size());
+  llvm::LLVMContext& context = builder.getContext();
+  NVF_ERROR_EQ(sizes.size(), expand_flags.size());
+  llvm::Value* cur_stride = builder.getInt64(1);
+  for (auto i = sizes.size(); i > 0; --i) {
+    llvm::Value* size = sizes[i - 1];
+    llvm::Value* stride = cur_stride;
+    // If expanded, stride is 0
+    if (expand_flags.at(i - 1)) {
+      stride = builder.getInt64(0);
+    } else {
+      // Handle null size values by treating them as size 1 (safety check)
+      if (size == nullptr) {
+        size = builder.getInt64(1);
+      }
+      // Create comparison: size == 0
+      llvm::Value* is_zero = builder.CreateICmpEQ(size, builder.getInt64(0));
+
+      // Get current function for creating basic blocks
+      llvm::Function* current_function = builder.GetInsertBlock()->getParent();
+
+      // Create basic blocks
+      llvm::BasicBlock* zero_block =
+          llvm::BasicBlock::Create(context, "size_zero", current_function);
+      llvm::BasicBlock* nonzero_block =
+          llvm::BasicBlock::Create(context, "size_nonzero", current_function);
+      llvm::BasicBlock* merge_block =
+          llvm::BasicBlock::Create(context, "stride_merge", current_function);
+
+      // Conditional branch
+      builder.CreateCondBr(is_zero, zero_block, nonzero_block);
+
+      // Handle size == 0 case
+      builder.SetInsertPoint(zero_block);
+      llvm::Value* stride_if_zero = builder.getInt64(1);
+      builder.CreateBr(merge_block);
+
+      // Handle size != 0 case
+      builder.SetInsertPoint(nonzero_block);
+      llvm::Value* new_cur_stride = builder.CreateMul(cur_stride, size);
+      builder.CreateBr(merge_block);
+
+      // Merge the results
+      builder.SetInsertPoint(merge_block);
+      llvm::PHINode* stride_phi =
+          builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      stride_phi->addIncoming(stride_if_zero, zero_block);
+      stride_phi->addIncoming(cur_stride, nonzero_block);
+      stride = stride_phi;
+
+      // Update cur_stride for next iteration
+      llvm::PHINode* cur_stride_phi =
+          builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
+      cur_stride_phi->addIncoming(
+          cur_stride, zero_block); // Don't update if size is 0
+      cur_stride_phi->addIncoming(
+          new_cur_stride, nonzero_block); // Update if size != 0
+      cur_stride = cur_stride_phi;
+    }
+    strides[i - 1] = stride;
+  }
+  return;
+}
+
+// Infer Tensor Shape and Strides without reordering
+void inferShapeAndStridesNoReorder(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
+  std::vector<Val*> symbolic_sizes;
+  std::vector<bool> expand_flags;
+
+  // NOTE: the original design used getMaybeAllocationDomain to infer shape,
+  // but it's not efficient, since if there is a real allocation domain,
+  // both size and stride will be recalculated. getMaybeAllocationDomain is
+  // actually getting the logical domain. By using getLogicalDomain, we can
+  // avoid the extra calculation of shape, and only stride will be recalculated.
+  for (const auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+
+    // Skip DIDx parallel domains to match inferTensorStrides filtering
+    if (id->getParallelType() == ParallelType::DIDx ||
+        id->getParallelType() == ParallelType::DIDy ||
+        id->getParallelType() == ParallelType::DIDz) {
+      continue;
+    }
+
+    if (id->isDeviceDim()) {
+      symbolic_sizes.push_back(id->container()->oneVal());
+    } else {
+      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
+    }
+    if (id->hasExpandedExtent()) {
+      NVF_ERROR(
+          id->isBroadcast(),
+          "Non-broadcast domain should not have an expanded extent: ",
+          id->toString());
+      expand_flags.push_back(true);
+    } else {
+      expand_flags.push_back(false);
+    }
+  }
+  inferShape(tv, symbolic_sizes, val_to_value, builder, sizes);
+  inferStride(sizes, expand_flags, builder, strides);
+  return;
+}
+
+
+
+// Infer Tensor Strides with reordering
+void inferTensorStridesReordered(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  std::unordered_map<IterDomain*, bool> boundary_vals;
+  LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
+  
+  // push all logical domains as boundary values
+  for(const IterDomain* id : logical_domain) {
+    boundary_vals[id] = false;
+  }
+
+  // push all allocation domains extents in regular order
+  for (const IterDomain* id : allocation_domain) {
+    llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
+    level_order_domains.pushBack(id, std::make_pair(extent_value, nullptr));
+  }
+
+  // calculate strides of allocation domains in reverse order
+  llvm::Value* stride_value = builder.getInt64(1);
+  for (const IterDomain* id : allocation_domain | std::views::reverse) {
+    level_order_domains[id].second = stride_value;
+    stride_value = builder.CreateMul(stride_value, level_order_domains[id].first);
+  }
+
+  std::vector<Merge*> last_level_merge_ops;
+
+  // traverse backward from allocation domains to logical domains
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+    {logical_domain.begin(), logical_domain.end()},
+    {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      const auto [outer_pair, outer_i] = level_order_domains.erase(split->outer());
+      NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
+      const auto [inner_pair, inner_i] = level_order_domains.erase(split->inner());
+      
+      // Handle device dimensions
+      llvm::Value* outer_extent_value = outer_pair.first;
+      llvm::Value* inner_extent_value = inner_pair.first;
+      llvm::Value* outer_stride_value = outer_pair.second;
+      llvm::Value* inner_stride_value = inner_pair.second;
+      
+      // Calculate input extent(size) and stride
+      llvm::Value* in_extent = nullptr;
+      llvm::Value* in_stride = nullptr;
+
+      // NOTE: how do we handle device dimension? Currently we just divide it out in split
+      // However, if both dimension are device dimension, do we need to collapse them?
+      // So that in a merge op, we can merge between two local iter domain between one device dimension?
+
+      // both are device dimension, we just set everything to 1
+      if(split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
+        in_extent = builder.getInt64(1);
+        in_stride = builder.getInt64(1);
+      }
+      // inner is device dimension, we just use outer extent and divide the device dimension out in outer stride
+      else if(!split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
+        in_extent = outer_extent_value;
+        in_stride = builder.CreateUDiv(outer_stride_value, inner_extent_value);
+      }
+      // outer is device dimension, we just use inner extent and stride
+      else if(split->outer()->isDeviceDim() && !split->inner()->isDeviceDim()) {
+        in_extent = inner_extent_value;
+        in_stride = inner_stride_value;
+      }
+      // common case where both dimensions are not device dimensions
+      else {
+        in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
+        in_stride = outer_stride_value;
+      }
+
+      level_order_domains.insert(inner_i, split->in(), std::make_pair(in_extent, in_stride));
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+      if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
+        mapToInputDomain(merge->inner(), boundary_vals)!= nullptr) {
+        last_level_merge_ops.push_back(merge);
+      }
+      const auto [out_pair, out_i] = level_order_domains.erase(merge->out());
+      
+      // NOTE: we don't have a protocol to decide which iter domain to pad,
+      // currently we just pad inner value, so dividend is outer value
+      // so inner = (out + outer - 1) / outer, which is a ceilDiv
+      llvm::Value* outer_extent_value = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
+      llvm::Value* minus_one = builder.CreateSub(outer_extent_value, builder.getInt64(1));
+      llvm::Value* plus_value = builder.CreateAdd(out_pair.first, minus_one);
+      llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
+      
+      // For merge, the outer dimension gets the original stride
+      // The inner dimension gets stride / outer_extent
+      llvm::Value* outer_stride_value = out_pair.second;
+      llvm::Value* inner_stride_value = builder.CreateUDiv(out_pair.second, outer_extent_value);
+      
+      level_order_domains.insert(out_i, merge->outer(), std::make_pair(outer_extent_value, outer_stride_value));
+      level_order_domains.insert(out_i, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
+    } else {
+      NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
+    }
+  }
+
+  // Push last level size and stride into result
+  for (const auto* id : logical_domain) {
+    if (id->isDeviceDim()) {
+      continue;
+    }
+    auto it = level_order_domains.find(id);
+    sizes.push_back(it->second.first);
+    strides.push_back(it->second.second);
+  }
+
+  // We need to check last level merge ops, since there might be invalid order of merges
+  for (const auto* merge : last_level_merge_ops) {
+    const auto [outer_pair, outer_i] = level_order_domains.erase(merge->out());
+    NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
+    level_order_domains.insert(outer_i, merge->outer(), std::make_pair(outer_pair.first, outer_pair.second));
+    const auto [inner_pair, inner_i] = level_order_domains.erase(merge->inner());
+    NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
+    level_order_domains.insert(inner_i, merge->inner(), std::make_pair(inner_pair.first, inner_pair.second));
+  }
+}
+
+// Non Aliased Tensor Shape and Strides Inference
+void inferTensorShapesAndStridesNonAliased(
+    const TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& strides) {
+  // Without allocation, we can directly get the size and stride
+  inferShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
+  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  NVF_ERROR_EQ(sizes.size(), logical_domain.size());
+  NVF_ERROR_EQ(strides.size(), logical_domain.size());
+  // No allocation, we can directly return regular size and stride
+  if (!tv->hasAllocation()) {
+    return;
+  }
+  // With allocation, we need to reorder the stride
+  sizes.clear();
+  strides.clear();
+  inferTensorStridesReordered(tv, val_to_value, builder, sizes, strides);
+  NVF_ERROR_EQ(strides.size(), TensorDomain::noReductions(tv->getLogicalDomain()).size());
+  return;
+}
+
 // Helper function to infer tensor shapes and strides
 // Currently, we support only tensors with a constant shape and strides. This
 // is to demonstrate a aten tensor is able to be allocated and deallocated
@@ -177,16 +580,28 @@ void inferTensorShapesAndStrides(
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  llvm::Value* stride = builder.getInt64(1);
-  for (const auto& id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-    NVF_ERROR(id->extent()->isConst(), "Extent is not constant", id->extent());
-    llvm::Value* extent_value =
-        builder.getInt64(id->extent()->evaluate().as<int64_t>());
-    val_to_value[id->extent()] = extent_value;
-    sizes.push_back(val_to_value[id->extent()]);
-    strides.push_back(stride);
-    stride = builder.CreateMul(stride, extent_value);
+  auto alias_info = tv->fusion()->getOutputAlias(tv);
+  if (alias_info.type != AllocationType::New) {
+    // For reuse aten tensor alias, we directly get the aliased at::Tensor
+    // size/stride
+    const TensorView* tensor_to_use = tv;
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tensor_to_use = alias_info.aliased_io->as<TensorView>();
+    }
+    llvm::Value* tensor_ptr =
+        val_to_value[const_cast<Val*>(tensor_to_use->as<Val>())];
+    auto logical_domain =
+        TensorDomain::noReductions(tensor_to_use->getLogicalDomain());
+    for (int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++) {
+      sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
+      strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
+    }
+    return;
   }
+
+  inferTensorShapesAndStridesNonAliased(
+      tv, val_to_value, builder, sizes, strides);
+  return;
 }
 
 void unpackInputs(
@@ -213,10 +628,8 @@ void unpackInputs(
     llvm::Value* tensor = builder.CreateLoad(tensor_ptr_type, tensor_addr);
     tensor->setName("input_aten_tensor");
     // bind input aten tensor sizes to val_to_value
-    const std::vector<IterDomain*> logical_domain =
-        TensorDomain::noReductions(tv->getLogicalDomain());
     // TODO: We should validate const size and strides here, ie. dim check
-    for (const auto& [dim_idx, id] : enumerate(logical_domain)) {
+    for (const auto& [dim_idx, id] : enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast()) {
         val_to_value[id->extent()] = builder.getInt64(1);
         if (id->hasExpandedExtent()) {
@@ -270,8 +683,8 @@ void packOutputs(
 void compileFunctionDeclarations(
     llvm::Module* module,
     llvm::LLVMContext& context) {
-  // get the types
-  auto* void_type = getVoidType(context);
+  // Get the types
+  auto* void_type = llvm::Type::getVoidTy(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
   auto* int64_type = llvm::Type::getInt64Ty(context);
   auto* int64_ptr_type = getInt64PtrType(context);
@@ -365,20 +778,20 @@ class HostIrCompileDispatcher : public OptInDispatch {
         it != val_to_value_.end(), "input tensor is not found in val_to_value");
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::Value* in_tensor = it->second;
-    // allocate a new tensor
+    // Create a new tensor
     llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
     llvm::Value* out_tensor =
         builder_.CreateCall(new_tensor_func, {}, "out_tensor");
 
-    // set the output tensor to the input tensor
+    // Set the output tensor to the input tensor
     llvm::Function* set_tensor_func = module->getFunction(kSetTensorFuncName);
     builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
 
-    // bind the output tensor to val_to_value
+    // Bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
   }
 
-  // Allocate Function LLVM IR Generation
+  // Create Function LLVM IR Generation
   void handle(kir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
@@ -435,7 +848,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides_ndim_arg = builder_.getInt64(tensor_strides.size());
 
     // Create output tensor
-    llvm::Value* raw_tensor_ptr = builder_.CreateCall(
+    llvm::Value* out_tensor = builder_.CreateCall(
         module->getFunction(kNewTensorFuncName), {}, "out_tensor");
 
     // Create constants for type and device from params
@@ -461,8 +874,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
          strides_ndim_arg,
          dtype_constant,
          device_index_constant,
-         raw_tensor_ptr});
-    val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
+         out_tensor});
+    val_to_value_[allocate->buffer()->as<Val>()] = out_tensor;
   }
 
   // Deallocation Function LLVM IR Generation
@@ -553,14 +966,24 @@ void HostIrJitImpl::registerExternalFunctions() {
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           jit_->getDataLayout().getGlobalPrefix())));
 
-  // tensor size and stride extraction functions
+  // tensor size extraction function
   void* extract_tensor_size_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
         NVF_ERROR(tensor != nullptr, kTensorSizeFuncName, " tensor is nullptr");
+        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
         return tensor->size(dim);
       });
 
-  // raw tensor allocation, we only allocate a wrapper here
+  // tensor stride extraction function
+  void* extract_tensor_stride_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
+        NVF_ERROR(
+            tensor != nullptr, kTensorStrideFuncName, " tensor is nullptr");
+        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
+        return tensor->stride(dim);
+      });
+
+  // new at::Tensor() wrapper instead of real tensor allocation
   void* new_tensor_func_ptr = reinterpret_cast<void*>(
       +[]() -> at::Tensor* { return new at::Tensor(); });
 
@@ -606,6 +1029,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       name_to_symbol,
       mangler,
       kTensorSizeFuncName);
+  registerExternalFunction(
+      extract_tensor_stride_func_ptr,
+      name_to_symbol,
+      mangler,
+      kTensorStrideFuncName);
   registerExternalFunction(
       new_tensor_func_ptr, name_to_symbol, mangler, kNewTensorFuncName);
   registerExternalFunction(
