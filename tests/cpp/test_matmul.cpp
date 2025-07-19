@@ -3685,7 +3685,7 @@ MatmulParams defaultHopperParams() {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
   return mparams;
 }
@@ -3863,7 +3863,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3919,7 +3919,7 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3980,7 +3980,7 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4041,7 +4041,7 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4108,7 +4108,7 @@ class MLPBenchmarkTest
     mparams.splitk_factor = 1;
     mparams.grid_traversal_factor = {8, 1};
     mparams.use_smem_epilogue = true;
-    mparams.cluster_dims = {2, 1, 1};
+    mparams.cluster_dims = {2, 1};
     mparams.promote_prologue_smem_reuse = true;
   }
 };
@@ -4718,7 +4718,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4784,7 +4784,7 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4844,7 +4844,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   constexpr int64_t M = 1 << 17, N = 256, K = 1 << 17;
@@ -5172,7 +5172,7 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   // Legacy launch is faster than Cluster launch when using full 132 SM grid.
   // Cluster launch is better when using 128 SM grid that matches 2d grid
   // traveral.
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5253,7 +5253,7 @@ TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5334,7 +5334,7 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5405,7 +5405,7 @@ TEST_F(BlackwellMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5486,7 +5486,7 @@ TEST_F(BlackwellMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5556,7 +5556,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = false;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5746,7 +5746,7 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 2;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 2, 1};
+  mparams.cluster_dims = {1, 2};
   mparams.promote_prologue_smem_reuse = true;
   mparams.grid_traversal_factor = {16, 8};
 
