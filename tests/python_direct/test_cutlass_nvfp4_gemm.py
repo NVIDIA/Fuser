@@ -17,6 +17,7 @@ from narrow_precision import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     dequantize_to_dtype,
+    linear_to_swizzled_128_4,
     pytorch_nvfp4_quantize,
 )
 
