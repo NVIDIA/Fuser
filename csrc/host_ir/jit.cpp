@@ -446,6 +446,8 @@ void inferTensorStridesReordered(
     stride_value = builder.CreateMul(stride_value, level_order_domains[id].first);
   }
 
+  std::vector<Merge*> last_level_merge_ops;
+
   // traverse backward from allocation domains to logical domains
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
     {logical_domain.begin(), logical_domain.end()},
@@ -476,6 +478,10 @@ void inferTensorStridesReordered(
       
       level_order_domains.insert(inner_i, split->in(), std::make_pair(in_extent, in_stride));
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+      if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
+        mapToInputDomain(merge->inner(), boundary_vals)!= nullptr) {
+        last_level_merge_ops.push_back(merge);
+      }
       const auto [out_pair, out_i] = level_order_domains.erase(merge->out());
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
@@ -492,23 +498,27 @@ void inferTensorStridesReordered(
       llvm::Value* inner_stride_value = builder.CreateUDiv(out_pair.second, outer_extent_value);
       
       level_order_domains.insert(out_i, merge->outer(), std::make_pair(outer_extent_value, outer_stride_value));
-      level_order_domains.insert(out_i + 1, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
+      level_order_domains.insert(out_i, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
 
-  // Extract strides from logical domain order
-  strides.clear();
+  // Push last level size and stride into result
   for (const auto* id : logical_domain) {
-    auto it = level_order_domains.begin();
-    for (; it != level_order_domains.end(); ++it) {
-      if (it->first == id) {
-        strides.push_back(it->second.second);
-        break;
-      }
-    }
-    NVF_ERROR(it != level_order_domains.end(), "Could not find stride for logical domain: ", id->toString());
+    auto it = level_order_domains.find(id);
+    sizes.push_back(it->second.first);
+    strides.push_back(it->second.second);
+  }
+
+  // We need to check last level merge ops, since there might be invalid order of merges
+  for (const auto* merge : last_level_merge_ops) {
+    const auto [outer_pair, outer_i] = level_order_domains.erase(merge->out());
+    NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
+    level_order_domains.insert(outer_i, merge->outer(), std::make_pair(outer_pair.first, outer_pair.second));
+    const auto [inner_pair, inner_i] = level_order_domains.erase(merge->inner());
+    NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
+    level_order_domains.insert(inner_i, merge->inner(), std::make_pair(inner_pair.first, inner_pair.second));
   }
 }
 
