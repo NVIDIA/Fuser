@@ -412,7 +412,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerReplace(
         fence,
         IrBuilder::create<kir::Asm>(
-            "fence.proxy.async",
+            "fence.proxy.async.shared::cta",
             std::vector<Val*>{},
             std::vector<Val*>{},
             kir::Asm::Options{/*volatile=*/true}));
