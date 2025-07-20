@@ -452,7 +452,7 @@ std::string Asm::utility() const {
       {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
        "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
-      {"fence.proxy.async", "fenceAsyncProxy"},
+      {"fence.proxy.async.shared::cta", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
       {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
       {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
@@ -634,7 +634,7 @@ FenceAsyncProxy::FenceAsyncProxy(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string FenceAsyncProxy::toString(int indent_size) const {
-  return "fence.proxy.async\n";
+  return "fence.proxy.async.shared::cta\n";
 }
 
 std::string FenceAsyncProxy::toInlineString(int indent_size) const {
@@ -651,7 +651,7 @@ WgMmaFence::WgMmaFence(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string WgMmaFence::toString(int indent_size) const {
-  return "fence.proxy.async\n";
+  return "wgmma.fence.sync.aligned\n";
 }
 
 std::string WgMmaFence::toInlineString(int indent_size) const {
