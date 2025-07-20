@@ -256,6 +256,7 @@ llvm::Value* createValueForExtent(
         "operation type: ",
         val->toString());
   }
+  NVF_ERROR(out_value != nullptr, "LLVM Lowering Error: out_value is nullptr for ", val->toString());
   return out_value;
 }
 
@@ -266,7 +267,8 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
     return it->second;
   }
   llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
-  it->second = value;
+  // after recursive call, the original iterator may no longer be valid
+  val_to_value[extent] = value;
   return value;
 }
 
