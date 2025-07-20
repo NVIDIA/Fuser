@@ -229,8 +229,11 @@ llvm::Value* createValueForExtent(
     llvm::IRBuilder<>& builder) {
   llvm::Value* out_value = nullptr;
   if (val->isA<IterDomain>()) {
-    if (val->as<IterDomain>()->hasExpandedExtent()) {
-      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+    if(val->as<IterDomain>()->isBroadcast()) {
+      out_value = builder.getInt64(1);
+      if (val->as<IterDomain>()->hasExpandedExtent()) {
+        out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+      } 
     } else {
       out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
     }
