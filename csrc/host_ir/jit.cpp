@@ -422,102 +422,65 @@ void inferTensorStridesReordered(
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::unordered_map<Val*, bool> boundary_vals;
-  LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
+  LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
+  std::vector<Merge*> last_level_merge_ops;
   
   // push all logical domains as boundary values
   for(IterDomain* id : logical_domain) {
     boundary_vals[id->as<Val>()] = false;
   }
 
-  llvm::Value* stride_value = builder.getInt64(1);
-  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides_raw;
-  for(IterDomain* id : allocation_domain | std::views::reverse) {
-    strides_raw.push_back(stride_value);
-    llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
-    stride_value = builder.CreateMul(stride_value, extent_value);
-  }
-
-
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
-    level_order_domains.pushBack(id, std::make_pair(extent_value, strides_raw[allocation_domain.size() - i - 1]));
+    level_order_domains.pushBack(id, extent_value);
   }
-
-  std::vector<Merge*> last_level_merge_ops;
 
   // traverse backward from allocation domains to logical domains
   for (Expr* transform : DependencyCheck::getAllExprsBetween(
     {logical_domain.begin(), logical_domain.end()},
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_pair, outer_i] = level_order_domains.erase(split->outer());
+      const auto [outer_extent_value, outer_i] = level_order_domains.erase(split->outer());
       NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
-      const auto [inner_pair, inner_i] = level_order_domains.erase(split->inner());
-      
-      // Handle device dimensions
-      llvm::Value* outer_extent_value = outer_pair.first;
-      llvm::Value* inner_extent_value = inner_pair.first;
-      llvm::Value* outer_stride_value = outer_pair.second;
-      llvm::Value* inner_stride_value = inner_pair.second;
-      
-      // Calculate input extent(size) and stride
-      llvm::Value* in_extent = nullptr;
-      llvm::Value* in_stride = nullptr;
-
+      const auto [inner_extent_value, inner_i] = level_order_domains.erase(split->inner());
+            
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
       // So that in a merge op, we can merge between two local iter domain between one device dimension?
+      if(split->outer()->isDeviceDim()) {
+        inner_extent_value = builder.getInt64(1);
+      }
+      if(split->inner()->isDeviceDim()) {
+        outer_extent_value = builder.getInt64(1);
+      }
+      
+      llvm::Value* in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
+      level_order_domains.insert(inner_i, split->in(), in_extent);
 
-      // both are device dimension, we just set everything to 1
-      if(split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
-        in_extent = builder.getInt64(1);
-        in_stride = builder.getInt64(1);
-      }
-      // inner is device dimension, we just use outer extent and divide the device dimension out in outer stride
-      else if(!split->outer()->isDeviceDim() && split->inner()->isDeviceDim()) {
-        in_extent = outer_extent_value;
-        in_stride = builder.CreateUDiv(outer_stride_value, inner_extent_value);
-      }
-      // outer is device dimension, we just use inner extent and stride
-      else if(split->outer()->isDeviceDim() && !split->inner()->isDeviceDim()) {
-        in_extent = inner_extent_value;
-        in_stride = inner_stride_value;
-      }
-      // common case where both dimensions are not device dimensions
-      else {
-        in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
-        in_stride = outer_stride_value;
-      }
-
-      level_order_domains.insert(inner_i, split->in(), std::make_pair(in_extent, in_stride));
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
         mapToInputDomain(merge->inner(), boundary_vals)!= nullptr) {
         last_level_merge_ops.push_back(merge);
       }
-      const auto [out_pair, out_i] = level_order_domains.erase(merge->out());
+      const auto [out_extent_value, out_i] = level_order_domains.erase(merge->out());
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
       // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which is a ceilDiv
       llvm::Value* outer_extent_value = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
       llvm::Value* minus_one = builder.CreateSub(outer_extent_value, builder.getInt64(1));
-      llvm::Value* plus_value = builder.CreateAdd(out_pair.first, minus_one);
+      llvm::Value* plus_value = builder.CreateAdd(out_extent_value, minus_one);
       llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
-      
-      // For merge, the outer stride gets the consumer stride of merge op
-      // The inner stride gets outer stride / inner extent
-      llvm::Value* outer_stride_value = out_pair.second;
-      llvm::Value* inner_stride_value = builder.CreateUDiv(outer_stride_value, inner_extent_value);
-      
-      level_order_domains.insert(out_i, merge->outer(), std::make_pair(outer_extent_value, outer_stride_value));
-      level_order_domains.insert(out_i, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
+        
+      level_order_domains.insert(out_i, merge->outer(), outer_extent_value);
+      level_order_domains.insert(out_i, merge->inner(), inner_extent_value);
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
 
+  // This should contains same iter domains as logical domain, but in different order
   std::vector<IterDomain*> propogated_allocation_domains;
   for(auto it : level_order_domains) {
     propogated_allocation_domains.push_back(it.first);
@@ -533,19 +496,28 @@ void inferTensorStridesReordered(
   // corresponding logical domain, we actually don't need to calculate stride before,
   // since we only need the order of logical domain and can calculate stride later
   llvm::Value* alter_stride_value = builder.getInt64(1);
+  std::vector<llvm::Value*> allocation_sizes_values;
+  std::vector<llvm::Value*> allocation_strides_values;
   for(auto it : propogated_allocation_domains | std::views::reverse) {
     if(it->isDeviceDim()) {
       continue;
     }
     if(it->isBroadcast()) {
-      sizes.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
-      strides.push_back(builder.getInt64(0));
+      allocation_sizes_values.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
+      allocation_strides_values.push_back(builder.getInt64(0));
     }
     else{
-      sizes.push_back(it.second.first);
-      strides.push_back(alter_stride_value);
-      alter_stride_value = builder.CreateMul(alter_stride_value, it.second.first);
+      allocation_sizes_values.push_back(it.second);
+      allocation_strides_values.push_back(alter_stride_value);
+      alter_stride_value = builder.CreateMul(alter_stride_value, it.second);
     }
+  }
+
+  sizes.resize(allocation_sizes_values.size());
+  strides.resize(allocation_strides_values.size());
+  for(auto [i, it] : enumerate(allocation_sizes_values) | std::views::reverse) {
+    sizes[permutation[i]] = it;
+    strides[permutation[i]] = allocation_strides_values[i];
   }
 
 
