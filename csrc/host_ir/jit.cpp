@@ -518,14 +518,38 @@ void inferTensorStridesReordered(
     }
   }
 
-  // Push last level size and stride into result
-  for (auto it : level_order_domains) {
-    if (it.first->isDeviceDim()) {
+  std::vector<IterDomain*> propogated_allocation_domains;
+  for(auto it : level_order_domains) {
+    propogated_allocation_domains.push_back(it.first);
+  }
+
+  auto permutation = ir_utils::computePermutation(
+    logical_domain, propogated_allocation_domains);
+  NVF_ERROR(permutation.has_value(), "LLVM Lowering Error: Failed to compute permutation");
+  
+  // TODO: we need to map to correct logical domain, corrently we use the order of propogated_allocation_domains
+  // but we should use permutation to map to correct logical domain
+  // traverse level_order_domains in reverse order, and push back sizes and strides in
+  // corresponding logical domain, we actually don't need to calculate stride before,
+  // since we only need the order of logical domain and can calculate stride later
+  llvm::Value* alter_stride_value = builder.getInt64(1);
+  for(auto it : propogated_allocation_domains | std::views::reverse) {
+    if(it->isDeviceDim()) {
       continue;
     }
-    sizes.push_back(it.second.first);
-    strides.push_back(it.second.second);
+    if(it->isBroadcast()) {
+      sizes.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
+      strides.push_back(builder.getInt64(0));
+    }
+    else{
+      sizes.push_back(it.second.first);
+      strides.push_back(alter_stride_value);
+      alter_stride_value = builder.CreateMul(alter_stride_value, it.second.first);
+    }
   }
+
+
+  
 
   // We need to check last level merge ops, since there might be invalid order of merges
   for (const auto* merge : last_level_merge_ops) {
