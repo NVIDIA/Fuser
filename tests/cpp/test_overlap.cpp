@@ -64,13 +64,16 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   //                      |
   //                   [t, 4h, r{h}]
   //                   /\  /\.
-  //                  s   d
+  //                  s*  d
   //
-  // Notes:
-  // - The `set` will be lowered to a cyclic-shift communication like XLA's
-  // CollectivePermute.
+  // Notes for this test and many other RingBasedOverlapTest below:
+  // - A `set` from `/d` to `/s` (or vice versa) will be lowered to a
+  // cyclic-shift communication like XLA's CollectivePermute.
   // - All `s`s are parallelized on `Stream` and all `d`s are parallelized on
   // `DIDx`.
+  // - `s*`s are parallelized on `Stream` in loop but replicated in allocation.
+  // Fusion inputs/outputs can't be allocated per stream because the
+  // user of a FusionDefinition can't inline external ops into a loop inside.
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
@@ -107,7 +110,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   //
   //   [t, h]                                  [t,  4h]
   //   /\                                      /\   /\.
-  //  d                                       s    d
+  //  d                                       s*   d
   //    |                                        |
   //    | set                                    | permute
   //    |                                        |
@@ -131,12 +134,12 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   //                   d
   //
   // Notes:
-  // - `s*` in the matmul output is parallelized on `Stream` in loop but not
-  // in allocation. This dimension should eventually be parallelized on `Stream`
+  // - The matmul output is parallelized on `Stream` in loop but not in
+  // allocation. This dimension should eventually be parallelized on `Stream`
   // in allocation as well. This way, host IR lowering will fuse `sum` into the
-  // same loop as `matmul` as an add, saving time and memory. It's not yet clear
-  // to me how to implement this in host IR lowering, so I recommend we go with
-  // `s*` for now for simplicity.
+  // same loop as `matmul` as an add, saving time and memory. It's not yet
+  // clear to me how to implement this in host IR lowering, so I recommend we
+  // go with `s*` for now for simplicity.
 }
 
 TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
@@ -181,7 +184,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_InputGrad) {
   //
   //   [t, 4h]                                 [4h,  h]
   //   /\  /\                                   /\.
-  //  s   d                                    d
+  //  s*  d                                    d
   //                      |
   //                      | matmul
   //                      |
@@ -287,7 +290,7 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   //                                             |
   //   [t, 4h]                                [h, t]
   //   /\  /\                                    /\.
-  //  s   d                                     s
+  //  s*  d                                     s
   //           \                          /
   //          (operand B)         (operand A)
   //                      | matmul
@@ -389,7 +392,7 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //
   //   [t, 4h]                                 [h, 4h]
   //   /\  /\                                      /\.
-  //  s   d                                       d
+  //  s*  d                                       d
   //                      |
   //                      | linear
   //                      |
@@ -403,7 +406,7 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //                     |
   //                  [t, h, r{d}]
   //                  /\.
-  //                 s
+  //                 s*
 }
 
 } // namespace nvfuser
