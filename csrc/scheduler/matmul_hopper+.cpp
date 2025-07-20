@@ -145,11 +145,6 @@ void HopperPlus::validate() const {
   }
 
   NVF_CHECK(
-      params_->cluster_dims.z == 1,
-      "Cluster dims must have 1 in Z dimension but found ",
-      params_->cluster_dims.z);
-
-  NVF_CHECK(
       params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper+ matmul scheduler does not support distributing stages across "
@@ -373,8 +368,8 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
   // TODO: It might be more natural to just have a "CGA tile" as part of
   // params_->tile_sizes and infer cluster_dims from that
   GemmTile cga_tile{
-      params_->tile_sizes.cta_tile.m * params_->cluster_dims.x,
-      params_->tile_sizes.cta_tile.n * params_->cluster_dims.y,
+      params_->tile_sizes.cta_tile.m * params_->cluster_dims.m,
+      params_->tile_sizes.cta_tile.n * params_->cluster_dims.n,
       params_->tile_sizes.cta_tile.k};
 
   merged_roles = mma_utils::makeTile(tv, cga_tile, orig_merged_roles);
@@ -417,7 +412,7 @@ std::vector<MatmulDimRole> HopperPlus::applyCgaAndCtaTilingWithSwizzling(
         if (inner_extent.hasValue() && inner_extent.as<int64_t>() == 1L) {
           /* Special case: static shapes
           Suppose we have static shapes M=512, N=128 K=256 and our config is
-          cluster_dims={1, 1, 1}, cta_tile={128, 256, 64}, column major.
+          cluster_dims={1, 1}, cta_tile={128, 256, 64}, column major.
           This is the case in the AllocationDomainTest.BasicMatmul test.
           Then we will normally do the following non-persistent schedule for
           the N dimensions:
@@ -669,9 +664,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
 int64_t HopperPlus::numCGAs() const {
   const int64_t num_sms =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  return num_sms /
-      (params_->cluster_dims.x * params_->cluster_dims.y *
-       params_->cluster_dims.z);
+  return num_sms / (params_->cluster_dims.m * params_->cluster_dims.n);
 }
 
 void HopperPlus::inspectPrologues() const {
