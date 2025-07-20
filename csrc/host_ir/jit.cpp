@@ -53,6 +53,9 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr size_t kMaxTensorDim = 8;
 
+// Function Declarations
+llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder);
+
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
  public:
@@ -175,69 +178,51 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
-
-llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
-  auto it = val_to_value.find(extent);
-  if (it != val_to_value.end()) {
-    return it->second;
-  }
-  llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
-  it->second = value;
-  return value;
-}
-
+// Helper function to create value for binary operation
 llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
-  auto* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
-  auto* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
-  auto* out_value = nullptr;
-  switch (binary_op->getBinaryOpType()) {
-    case BinaryOpType::Add:
-      out_value = builder.CreateAdd(lhs_value, rhs_value);
-      break;
-    case BinaryOpType::Sub:
-      out_value = builder.CreateSub(lhs_value, rhs_value);
-      break;
-    case BinaryOpType::Mul:
-      out_value = builder.CreateMul(lhs_value, rhs_value);
-      break;
-    case BinaryOpType::CeilDiv:
-      // Implement ceilDiv as (a + b - 1) / b
-      llvm::Value* numerator =
-      builder.CreateAdd(lhs_value, rhs_value);
-      llvm::Value* one = builder.getInt64(1);
-      numerator = builder.CreateSub(numerator, one);
-      out_value = builder.CreateUDiv(numerator, rhs_value);
-      break;
-    default:
-      NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
+  llvm::Value* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
+  llvm::Value* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
+  llvm::Value* out_value = nullptr;
+  if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
+    out_value = builder.CreateAdd(lhs_value, rhs_value);
+  } else if(binary_op->getBinaryOpType() == BinaryOpType::Sub) {
+    out_value = builder.CreateSub(lhs_value, rhs_value);
+  } else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
+    out_value = builder.CreateMul(lhs_value, rhs_value);
+  } else if(binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
+    // Implement ceilDiv as (a + b - 1) / b
+    llvm::Value* numerator =
+    builder.CreateAdd(lhs_value, rhs_value);
+    llvm::Value* one = builder.getInt64(1);
+    numerator = builder.CreateSub(numerator, one);
+    out_value = builder.CreateUDiv(numerator, rhs_value);
+  } else {
+    NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
   }
   return out_value;
 }
 
+// Helper function to create value for unary operation
 llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
-  auto* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
-  auto* out_value = nullptr;
-  switch (unary_op->getUnaryOpType()) {
-    case UnaryOpType::Cast:
-      out_value = in_value;
-      break;
-    case UnaryOpType::Abs:
-      llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
-      llvm::Value* negated = builder.CreateNeg(in_value);
-      out_value = builder.CreateSelect(is_negative, negated, in_value);
-      break;
-    case UnaryOpType::Neg:
-      out_value = builder.CreateNeg(in_value);
-      break;
-    default:
-      NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
+  llvm::Value* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
+  llvm::Value* out_value = nullptr;
+  if(unary_op->getUnaryOpType() == UnaryOpType::Cast) {
+    out_value = in_value;
+  } else if(unary_op->getUnaryOpType() == UnaryOpType::Abs) {
+    llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
+    llvm::Value* negated = builder.CreateNeg(in_value);
+    out_value = builder.CreateSelect(is_negative, negated, in_value);
+  } else if(unary_op->getUnaryOpType() == UnaryOpType::Neg) {
+    out_value = builder.CreateNeg(in_value);
+  } else {
+    NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
   }
   return out_value;
 }
-
+// Helper function to create value for extent
 llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -271,6 +256,18 @@ llvm::Value* createValueForExtent(
   return out_value;
 }
 
+// Helper function to get or create value for extent
+llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+  auto it = val_to_value.find(extent);
+  if (it != val_to_value.end()) {
+    return it->second;
+  }
+  llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
+  it->second = value;
+  return value;
+}
+
+// Helper function to map to input domain
 Val* mapToInputDomain(
     Val* currentDomain,
     std::unordered_map<Val*, bool>& boundary_vals) {
@@ -429,25 +426,27 @@ void inferTensorStridesReordered(
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  std::unordered_map<IterDomain*, bool> boundary_vals;
+  std::unordered_map<Val*, bool> boundary_vals;
   LinkedHashMap<IterDomain*, std::pair<llvm::Value*, llvm::Value*>> level_order_domains;
   
   // push all logical domains as boundary values
-  for(const IterDomain* id : logical_domain) {
-    boundary_vals[id] = false;
+  for(IterDomain* id : logical_domain) {
+    boundary_vals[id->as<Val>()] = false;
   }
+
+  llvm::Value* stride_value = builder.getInt64(1);
+  llvm::SmallVector<llvm::Value*, kMaxTensorDim> strides_raw;
+  for(IterDomain* id : allocation_domain | std::views::reverse) {
+    strides_raw.push_back(stride_value);
+    llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
+    stride_value = builder.CreateMul(stride_value, extent_value);
+  }
+
 
   // push all allocation domains extents in regular order
-  for (const IterDomain* id : allocation_domain) {
+  for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
-    level_order_domains.pushBack(id, std::make_pair(extent_value, nullptr));
-  }
-
-  // calculate strides of allocation domains in reverse order
-  llvm::Value* stride_value = builder.getInt64(1);
-  for (const IterDomain* id : allocation_domain | std::views::reverse) {
-    level_order_domains[id].second = stride_value;
-    stride_value = builder.CreateMul(stride_value, level_order_domains[id].first);
+    level_order_domains.pushBack(id, std::make_pair(extent_value, strides_raw[allocation_domain.size() - i - 1]));
   }
 
   std::vector<Merge*> last_level_merge_ops;
@@ -506,16 +505,16 @@ void inferTensorStridesReordered(
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
-      // so inner = (out + outer - 1) / outer, which is a ceilDiv
+      // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which is a ceilDiv
       llvm::Value* outer_extent_value = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
       llvm::Value* minus_one = builder.CreateSub(outer_extent_value, builder.getInt64(1));
       llvm::Value* plus_value = builder.CreateAdd(out_pair.first, minus_one);
       llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
       
-      // For merge, the outer dimension gets the original stride
-      // The inner dimension gets stride / outer_extent
+      // For merge, the outer stride gets the consumer stride of merge op
+      // The inner stride gets outer stride / inner extent
       llvm::Value* outer_stride_value = out_pair.second;
-      llvm::Value* inner_stride_value = builder.CreateUDiv(out_pair.second, outer_extent_value);
+      llvm::Value* inner_stride_value = builder.CreateUDiv(outer_stride_value, inner_extent_value);
       
       level_order_domains.insert(out_i, merge->outer(), std::make_pair(outer_extent_value, outer_stride_value));
       level_order_domains.insert(out_i, merge->inner(), std::make_pair(inner_extent_value, inner_stride_value));
@@ -525,13 +524,12 @@ void inferTensorStridesReordered(
   }
 
   // Push last level size and stride into result
-  for (const auto* id : logical_domain) {
-    if (id->isDeviceDim()) {
+  for (auto it : level_order_domains) {
+    if (it.first->isDeviceDim()) {
       continue;
     }
-    auto it = level_order_domains.find(id);
-    sizes.push_back(it->second.first);
-    strides.push_back(it->second.second);
+    sizes.push_back(it.second.first);
+    strides.push_back(it.second.second);
   }
 
   // We need to check last level merge ops, since there might be invalid order of merges
