@@ -494,19 +494,18 @@ void inferTensorStridesReordered(
     logical_domain, propogated_allocation_domains);
   NVF_ERROR(permutation.has_value(), "LLVM Lowering Error: Failed to compute permutation");
   
-  // TODO: we need to map to correct logical domain, corrently we use the order of propogated_allocation_domains
-  // but we should use permutation to map to correct logical domain
-  // traverse level_order_domains in reverse order, and push back sizes and strides in
-  // corresponding logical domain, we actually don't need to calculate stride before,
-  // since we only need the order of logical domain and can calculate stride later
+  // Map last level propagated allocation domains to logical domain
+  // we should be able to get the permutation between them
   llvm::Value* alter_stride_value = builder.getInt64(1);
   std::vector<llvm::Value*> allocation_sizes_values;
   std::vector<llvm::Value*> allocation_strides_values;
   for(auto it : propogated_allocation_domains | std::views::reverse) {
     if(it->isDeviceDim()) {
-      continue;
+      // Dummy value, we will filter out this dimension in the end
+      allocation_sizes_values.push_back(builder.getInt64(-1));
+      allocation_strides_values.push_back(builder.getInt64(-1));
     }
-    if(it->isBroadcast()) {
+    else if(it->isBroadcast()) {
       allocation_sizes_values.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
       allocation_strides_values.push_back(builder.getInt64(0));
     }
@@ -518,16 +517,26 @@ void inferTensorStridesReordered(
       alter_stride_value = builder.CreateMul(alter_stride_value, extent_value);
     }
   }
+  std::reverse(allocation_sizes_values.begin(), allocation_sizes_values.end());
+  std::reverse(allocation_strides_values.begin(), allocation_strides_values.end());
 
   sizes.resize(allocation_sizes_values.size());
   strides.resize(allocation_strides_values.size());
-  for(auto [i, it] : enumerate(allocation_sizes_values) | std::views::reverse) {
-    sizes[permutation.value()[i]] = it;
-    strides[permutation.value()[i]] = allocation_strides_values[i];
+  
+  // Apply permutation correctly by mapping from allocation domain order to logical domain order
+  for(size_t i = 0; i < allocation_sizes_values.size(); ++i) {
+    size_t logical_idx = permutation.value()[i];
+    sizes[logical_idx] = allocation_sizes_values[i];
+    strides[logical_idx] = allocation_strides_values[i];
   }
 
-
-  
+  // Filter out device dimensions
+  for(size_t i = 0; i < sizes.size(); ++i) {
+    if(sizes[i] == builder.getInt64(-1)) {
+      sizes.erase(sizes.begin() + i);
+      strides.erase(strides.begin() + i);
+    }
+  }
 
   // We need to check last level merge ops, since there might be invalid order of merges
   for (const auto* merge : last_level_merge_ops) {
