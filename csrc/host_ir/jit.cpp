@@ -448,14 +448,16 @@ void inferTensorStridesReordered(
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
       // So that in a merge op, we can merge between two local iter domain between one device dimension?
+      llvm::Value* lhs = outer_extent_value;
+      llvm::Value* rhs = inner_extent_value;
       if(split->outer()->isDeviceDim()) {
-        inner_extent_value = builder.getInt64(1);
+        lhs = builder.getInt64(1);
       }
       if(split->inner()->isDeviceDim()) {
-        outer_extent_value = builder.getInt64(1);
+        rhs = builder.getInt64(1);
       }
       
-      llvm::Value* in_extent = builder.CreateMul(outer_extent_value, inner_extent_value);
+      llvm::Value* in_extent = builder.CreateMul(lhs, rhs);
       level_order_domains.insert(inner_i, split->in(), in_extent);
 
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
@@ -507,17 +509,19 @@ void inferTensorStridesReordered(
       allocation_strides_values.push_back(builder.getInt64(0));
     }
     else{
-      allocation_sizes_values.push_back(it.second);
+      auto [extent_value, out_i] = level_order_domains.erase(it);
+      level_order_domains.insert(out_i, it, extent_value);
+      allocation_sizes_values.push_back(extent_value);
       allocation_strides_values.push_back(alter_stride_value);
-      alter_stride_value = builder.CreateMul(alter_stride_value, it.second);
+      alter_stride_value = builder.CreateMul(alter_stride_value, extent_value);
     }
   }
 
   sizes.resize(allocation_sizes_values.size());
   strides.resize(allocation_strides_values.size());
   for(auto [i, it] : enumerate(allocation_sizes_values) | std::views::reverse) {
-    sizes[permutation[i]] = it;
-    strides[permutation[i]] = allocation_strides_values[i];
+    sizes[permutation.value()[i]] = it;
+    strides[permutation.value()[i]] = allocation_strides_values[i];
   }
 
 
@@ -525,12 +529,12 @@ void inferTensorStridesReordered(
 
   // We need to check last level merge ops, since there might be invalid order of merges
   for (const auto* merge : last_level_merge_ops) {
-    const auto [outer_pair, outer_i] = level_order_domains.erase(merge->out());
+    const auto [outer_extent_value, outer_i] = level_order_domains.erase(merge->out());
     NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
-    level_order_domains.insert(outer_i, merge->outer(), std::make_pair(outer_pair.first, outer_pair.second));
-    const auto [inner_pair, inner_i] = level_order_domains.erase(merge->inner());
+    level_order_domains.insert(outer_i, merge->outer(), outer_extent_value);
+    const auto [inner_extent_value, inner_i] = level_order_domains.erase(merge->inner());
     NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
-    level_order_domains.insert(inner_i, merge->inner(), std::make_pair(inner_pair.first, inner_pair.second));
+    level_order_domains.insert(inner_i, merge->inner(), inner_extent_value);
   }
 }
 
