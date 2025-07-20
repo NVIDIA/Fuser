@@ -390,14 +390,6 @@ void inferShapeAndStridesNoReorder(
   // actually getting the logical domain. By using getLogicalDomain, we can
   // avoid the extra calculation of shape, and only stride will be recalculated.
   for (const auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-
-    // Skip DIDx parallel domains to match inferTensorStrides filtering
-    if (id->getParallelType() == ParallelType::DIDx ||
-        id->getParallelType() == ParallelType::DIDy ||
-        id->getParallelType() == ParallelType::DIDz) {
-      continue;
-    }
-
     if (id->isDeviceDim()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
