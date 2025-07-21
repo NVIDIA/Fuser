@@ -178,7 +178,7 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
-// Helper function to create value for binary operation
+// Helper function to translate: nvfuser binary op -> llvm binary instruction
 llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
@@ -204,7 +204,7 @@ llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*
   return out_value;
 }
 
-// Helper function to create value for unary operation
+// Helper function to translate: nvfuser unary op -> llvm unary instruction
 llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
   llvm::Value* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
@@ -222,7 +222,8 @@ llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, l
   }
   return out_value;
 }
-// Helper function to create value for extent
+
+// Helper function to generically translate: nvfuser val -> llvm value
 llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -247,20 +248,20 @@ llvm::Value* createValueForExtent(
     } else {
       NVF_THROW(
         "LLVM Lowering Error: createValueForExtent called with unsupported "
-        "operation type: ",
+        "expression type: ",
         def->getOpString());
     }
   } else {
     NVF_THROW(
-        "LLVM Lowering Error: createValueForExtent called with unsupported "
-        "operation type: ",
+        "LLVM Lowering Error: createValueForExtent called with unfounded "
+        "val: ",
         val->toString());
   }
   NVF_ERROR(out_value != nullptr, "LLVM Lowering Error: out_value is nullptr for ", val->toString());
   return out_value;
 }
 
-// Helper function to get or create value for extent
+// Helper function to lookup llvm value for nvfuser val, if not found, recursively create it
 llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto it = val_to_value.find(extent);
   if (it != val_to_value.end()) {
@@ -272,7 +273,7 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
   return value;
 }
 
-// Helper function to map to input domain
+// Helper function to map current domain to input domain
 Val* mapToInputDomain(
     Val* currentDomain,
     std::unordered_map<Val*, bool>& boundary_vals) {
@@ -286,8 +287,8 @@ Val* mapToInputDomain(
 }
 
 
-// Infer Tensor Shape
-void inferShape(
+// Infer Tensor Shape without reordering
+void inferTensorShapeNoReorder(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -306,8 +307,8 @@ void inferShape(
   return;
 }
 
-// Infer Tensor Stride
-void inferStride(
+// Infer Tensor Stride without reordering
+void inferTensorStrideNoReorder(
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     std::vector<bool> expand_flags,
     llvm::IRBuilder<>& builder,
@@ -377,7 +378,7 @@ void inferStride(
 }
 
 // Infer Tensor Shape and Strides without reordering
-void inferShapeAndStridesNoReorder(
+void inferTensorShapeAndStridesNoReorder(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
@@ -407,15 +408,15 @@ void inferShapeAndStridesNoReorder(
       expand_flags.push_back(false);
     }
   }
-  inferShape(tv, symbolic_sizes, val_to_value, builder, sizes);
-  inferStride(sizes, expand_flags, builder, strides);
+  inferTensorShapeNoReorder(tv, symbolic_sizes, val_to_value, builder, sizes);
+  inferTensorStrideNoReorder(sizes, expand_flags, builder, strides);
   return;
 }
 
 
 
-// Infer Tensor Strides with reordering
-void inferTensorStridesReordered(
+// Infer Tensor Shape and Strides with reordering
+void inferTensorShapeAndStridesReordered(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
@@ -556,21 +557,19 @@ void inferTensorShapesAndStridesNonAliased(
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  // Without allocation, we can directly get the size and stride
-  inferShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
+  // Codepath 1: No allocation domain for given tensor, we can directly return regular size and stride
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR_EQ(sizes.size(), logical_domain.size());
-  NVF_ERROR_EQ(strides.size(), logical_domain.size());
-  // No allocation, we can directly return regular size and stride
-  if (!tv->hasAllocation()) {
-    return;
+  if(!tv->hasAllocation()) {
+    inferTensorShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
+    NVF_ERROR_EQ(sizes.size(), logical_domain.size());
+    NVF_ERROR_EQ(strides.size(), logical_domain.size());
   }
-  // With allocation, we need to reorder the stride
-  sizes.clear();
-  strides.clear();
-  inferTensorStridesReordered(tv, val_to_value, builder, sizes, strides);
-  NVF_ERROR_EQ(strides.size(), TensorDomain::noReductions(tv->getLogicalDomain()).size());
-  return;
+  // Codepath 2: With allocation, we need to reorder the stride and reverse induct the sizes
+  else{
+    inferTensorShapeAndStridesReordered(tv, val_to_value, builder, sizes, strides);
+    NVF_ERROR_EQ(strides.size(), logical_domain.size());
+    NVF_ERROR_EQ(sizes.size(), logical_domain.size());
+  }
 }
 
 // Helper function to infer tensor shapes and strides
