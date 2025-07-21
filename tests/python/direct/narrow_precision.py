@@ -59,6 +59,7 @@ def swizzled_to_linear_128_4(a_sf_swizzled: torch.Tensor, mn, k):
     tmp = torch.reshape(a_sf_swizzled, (m_tiles, k_tiles, 32, 4, 4))
     return tmp.transpose(1, 3).reshape(mn_padded, sf_k_padded)[:mn, :k]
 
+
 # apply swizzled on block scaling factor:
 # 1. apply padding to [mn_t * 128 , k_t * 4]
 # 2. apply swizzle
@@ -69,12 +70,15 @@ def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
     k_tiles = (sf_k + 4 - 1) // 4
     k_padded = k_tiles * 4
     if mn_padded != mn or k_padded != sf_k:
-        a_sf_padded = torch.empty(mn_padded, k_padded, dtype=a_sf_linear.dtype, device=a_sf_linear.device)
+        a_sf_padded = torch.empty(
+            mn_padded, k_padded, dtype=a_sf_linear.dtype, device=a_sf_linear.device
+        )
         a_sf_padded[0:mn, 0:sf_k] = a_sf_linear
     else:
         a_sf_padded = a_sf_linear
     tmp = torch.reshape(a_sf_padded, (m_tiles, 32, 4, k_tiles, 4))
     return tmp.transpose(1, 3).reshape(mn, sf_k)
+
 
 def dequantize_to_dtype(
     tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16
