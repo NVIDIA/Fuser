@@ -10,13 +10,13 @@
 #include <memory>
 #include <unordered_map>
 
-#include <llvm/ADT/SmallVector.h>
-#include <llvm/ExecutionEngine/JITLink/JITLink.h>
-#include <llvm/ExecutionEngine/Orc/CompileUtils.h>
-#include <llvm/ExecutionEngine/Orc/IRCompileLayer.h>
-#include <llvm/ExecutionEngine/Orc/LLJIT.h>
-#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
-#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ExecutionEngine/JITLink/JITLink.h"
+#include "llvm/ExecutionEngine/Orc/CompileUtils.h"
+#include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
+#include "llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h"
+#include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
@@ -539,8 +539,8 @@ void inferTensorShapeAndStridesReordered(
   }
 }
 
-// Non Aliased Tensor Shape and Strides Inference
-void inferTensorShapesAndStridesNonAliased(
+// Tensor Shape and Strides Inference
+void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
@@ -550,51 +550,15 @@ void inferTensorShapesAndStridesNonAliased(
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   if(!tv->hasAllocation()) {
     inferTensorShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
-    NVF_ERROR_EQ(sizes.size(), logical_domain.size());
-    NVF_ERROR_EQ(strides.size(), logical_domain.size());
   }
   // Codepath 2: With allocation, we need to reorder the stride and reverse induct the sizes
   else{
     inferTensorShapeAndStridesReordered(tv, val_to_value, builder, sizes, strides);
-    NVF_ERROR_EQ(strides.size(), logical_domain.size());
-    NVF_ERROR_EQ(sizes.size(), logical_domain.size());
   }
+  NVF_ERROR_EQ(sizes.size(), logical_domain.size());
+  NVF_ERROR_EQ(strides.size(), logical_domain.size());
 }
 
-// Helper function to infer tensor shapes and strides
-// Currently, we support only tensors with a constant shape and strides. This
-// is to demonstrate a aten tensor is able to be allocated and deallocated
-// properly, we will support more complex tensor shapes and strides in future
-// PRs.
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  auto alias_info = tv->fusion()->getOutputAlias(tv);
-  if (alias_info.type != AllocationType::New) {
-    // For reuse aten tensor alias, we directly get the aliased at::Tensor
-    // size/stride
-    const TensorView* tensor_to_use = tv;
-    if (alias_info.type == AllocationType::ReuseBuffer) {
-      tensor_to_use = alias_info.aliased_io->as<TensorView>();
-    }
-    llvm::Value* tensor_ptr =
-        val_to_value[const_cast<Val*>(tensor_to_use->as<Val>())];
-    auto logical_domain =
-        TensorDomain::noReductions(tensor_to_use->getLogicalDomain());
-    for (int64_t i = 0; i < static_cast<int64_t>(logical_domain.size()); i++) {
-      sizes.push_back(generateTensorSizeExtraction(tensor_ptr, i, builder));
-      strides.push_back(generateTensorStrideExtraction(tensor_ptr, i, builder));
-    }
-    return;
-  }
-
-  inferTensorShapesAndStridesNonAliased(
-      tv, val_to_value, builder, sizes, strides);
-  return;
-}
 
 void unpackInputs(
     const hir::HostIrContainer* container,
