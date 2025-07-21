@@ -49,6 +49,7 @@ constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
+constexpr std::string_view kMainFuncOutputTensorName = "main_output_aten_tensor";
 constexpr size_t kMaxTensorDim = 8;
 
 // Pimpl for HostIrJit
@@ -142,15 +143,19 @@ llvm::Type* getVoidType(llvm::LLVMContext& context) {
 // After main function is generated, we can analyze the last use of each new tensor pointer,
 // in llvm ir and insert deallocation instructions for the tensors that are not used anymore.
 // We assume there is no control flow of new tensors
-void memoryAnalysis(llvm::Function* main_func) {
+void memoryAnalysis(llvm::IRBuilder<>& builder) {
+
   // Map from tensor pointer to its last use instruction
   std::unordered_map<llvm::Value*, llvm::Instruction*> last_use;
   // Set of all tensor pointers allocated by new_tensor
   std::unordered_set<llvm::Value*> tensor_ptrs;
 
-  llvm::Module* module = main_func->getParent();
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* main_func = module->getFunction(kMainFuncName);
   llvm::Function* delete_tensor_func = module->getFunction(kDeleteTensorFuncName);
-  if (!delete_tensor_func) return;
+  if (!delete_tensor_func) {
+    return; // No delete function available
+  }
 
   // First pass: find all new_tensor allocations and track uses
   for (llvm::BasicBlock& bb : *main_func) {
@@ -185,20 +190,23 @@ void memoryAnalysis(llvm::Function* main_func) {
 
   // Second pass: insert delete_tensor after last use (unless output)
   for (const auto& [tensor, inst] : last_use) {
-    // Heuristic: skip if tensor is stored to output_aten_tensor_addr
+    // Check if tensor is stored to output array (skip deletion for outputs)
     bool is_output = false;
     for (const llvm::User* user : tensor->users()) {
       if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(user)) {
         llvm::Value* ptr = store->getPointerOperand();
-        if (ptr->hasName() && ptr->getName().contains("output_aten_tensor_addr")) {
+        if (ptr->hasName() && ptr->getName().contains(kMainFuncOutputTensorName)) {
           is_output = true;
           break;
         }
       }
     }
-    if (is_output) continue;
-    llvm::IRBuilder<> builder(inst->getNextNode());
-    builder.CreateCall(delete_tensor_func, {tensor});
+    
+    if (!is_output) {
+      // Insert delete instruction after the last use
+      builder.SetInsertPoint(inst->getNextNode());
+      builder.CreateCall(delete_tensor_func, {tensor});
+    }
   }
 }
 
@@ -323,7 +331,7 @@ void packOutputs(
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
     llvm::Value* tensor_addr = builder.CreateGEP(
         aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
-    tensor_addr->setName("output_aten_tensor_addr");
+    tensor_addr->setName(kMainFuncOutputTensorName);
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
@@ -579,6 +587,9 @@ void HostIrJitImpl::compile() {
 
   // compile outputs in llvm ir
   packOutputs(container_.get(), builder, val_to_value);
+
+  // memory analysis and insert deallocations
+  memoryAnalysis(builder);
 
   // verify the module
   std::string error;
