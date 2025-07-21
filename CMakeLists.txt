@@ -479,7 +479,7 @@ target_link_libraries(codegen_internal PUBLIC
   dl
 )
 if(BUILD_CUTLASS)
-  target_link_libraries(codegen_internal PRIVATE nvf_cutlass)
+  target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
   target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
 
