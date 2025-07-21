@@ -134,30 +134,28 @@ llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
 
 // Helper function to generate LLVM IR that extracts tensor size for a given
 // dimension
-llvm::Value* generateTensorSizeExtraction(
-    llvm::Value* tensor_ptr,
+llvm::Value* createTensorSize(
+    llvm::Value* tensor,
     int64_t dim,
     llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-
-  // Look up the tensor_size wrapper function
   llvm::Function* tensor_size_func = module->getFunction(kTensorSizeFuncName);
   llvm::Value* dim_val = builder.getInt64(dim);
 
-  return builder.CreateCall(tensor_size_func, {tensor_ptr, dim_val});
+  return builder.CreateCall(tensor_size_func, {tensor, dim_val});
 }
 
 // Helper function to generate LLVM IR that extracts tensor stride for a given
 // dimension
-llvm::Value* generateTensorStrideExtraction(
-    llvm::Value* tensor_ptr,
+llvm::Value* createTensorStride(
+    llvm::Value* tensor,
     int64_t dim,
     llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Function* tensor_stride_func = module->getFunction(kTensorStrideFuncName);
   llvm::Value* dim_val = builder.getInt64(dim);
 
-  return builder.CreateCall(tensor_stride_func, {tensor_ptr, dim_val});
+  return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
 }
 
 // Helper function to register external functions in JIT
@@ -265,7 +263,6 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
   return value;
 }
 
-// Infer Tensor Shape and Strides
 void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -433,11 +430,11 @@ void unpackInputs(
         val_to_value[id->extent()] = builder.getInt64(1);
         if (id->hasExpandedExtent()) {
           val_to_value[id->expandedExtent()] =
-              generateTensorSizeExtraction(tensor, dim_idx, builder);
+              createTensorSize(tensor, dim_idx, builder);
         }
       } else {
         val_to_value[id->extent()] =
-            generateTensorSizeExtraction(tensor, dim_idx, builder);
+            createTensorSize(tensor, dim_idx, builder);
       }
     }
     // bind input aten tensor to val_to_value
