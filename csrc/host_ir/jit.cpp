@@ -275,7 +275,7 @@ void inferTensorShapesAndStrides(
   const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   const std::vector<IterDomain*> allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::unordered_map<Val*, bool> boundary_vals;
-  LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
+  LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
   std::vector<Merge*> last_level_merge_ops;
   
   // push all logical domains as boundary values
@@ -286,7 +286,7 @@ void inferTensorShapesAndStrides(
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
-    level_order_domains.pushBack(id, extent_value);
+    id_to_allocation_size.pushBack(id, extent_value);
   }
 
   // traverse backward from allocation domains to logical domains
@@ -294,9 +294,9 @@ void inferTensorShapesAndStrides(
     {logical_domain.begin(), logical_domain.end()},
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_extent_value, outer_i] = level_order_domains.erase(split->outer());
-      NVF_ERROR(outer_i != level_order_domains.end() && outer_i->first == split->inner(), split->toString(), " is not a valid split");
-      const auto [inner_extent_value, inner_i] = level_order_domains.erase(split->inner());
+      const auto [outer_extent_value, outer_i] = id_to_allocation_size.erase(split->outer());
+      NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " is not a valid split");
+      const auto [inner_extent_value, inner_i] = id_to_allocation_size.erase(split->inner());
             
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
@@ -311,10 +311,10 @@ void inferTensorShapesAndStrides(
       }
       
       llvm::Value* in_extent = builder.CreateMul(lhs, rhs);
-      level_order_domains.insert(inner_i, split->in(), in_extent);
+      id_to_allocation_size.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_extent_value, out_i] = level_order_domains.erase(merge->out());
+      const auto [out_extent_value, out_i] = id_to_allocation_size.erase(merge->out());
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
@@ -324,21 +324,21 @@ void inferTensorShapesAndStrides(
       llvm::Value* plus_value = builder.CreateAdd(out_extent_value, minus_one);
       llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
         
-      level_order_domains.insert(out_i, merge->outer(), outer_extent_value);
-      level_order_domains.insert(out_i, merge->inner(), inner_extent_value);
+      id_to_allocation_size.insert(out_i, merge->outer(), outer_extent_value);
+      id_to_allocation_size.insert(out_i, merge->inner(), inner_extent_value);
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
 
   // This should contains same iter domains as logical domain, but in different order
-  std::vector<IterDomain*> propogated_allocation_domains;
-  for(auto it : level_order_domains) {
-    propogated_allocation_domains.push_back(it.first);
+  std::vector<IterDomain*> propagated_allocation_domains;
+  for(auto it : id_to_allocation_size) {
+    propagated_allocation_domains.push_back(it.first);
   }
 
   auto permutation = ir_utils::computePermutation(
-    logical_domain, propogated_allocation_domains);
+    logical_domain, propagated_allocation_domains);
   NVF_ERROR(permutation.has_value(), "LLVM Lowering Error: Failed to compute permutation");
   
   // Map last level propagated allocation domains to logical domain
@@ -346,7 +346,7 @@ void inferTensorShapesAndStrides(
   llvm::Value* alter_stride_value = builder.getInt64(1);
   std::vector<llvm::Value*> allocation_sizes_values;
   std::vector<llvm::Value*> allocation_strides_values;
-  for(auto it : propogated_allocation_domains | std::views::reverse) {
+  for(auto it : propagated_allocation_domains | std::views::reverse) {
     if(it->isDeviceDim()) {
       // Dummy value, we will filter out this dimension in the end
       allocation_sizes_values.push_back(builder.getInt64(-1));
@@ -357,8 +357,8 @@ void inferTensorShapesAndStrides(
       allocation_strides_values.push_back(builder.getInt64(0));
     }
     else{
-      auto [extent_value, out_i] = level_order_domains.erase(it);
-      level_order_domains.insert(out_i, it, extent_value);
+      auto [extent_value, out_i] = id_to_allocation_size.erase(it);
+      id_to_allocation_size.insert(out_i, it, extent_value);
       allocation_sizes_values.push_back(extent_value);
       allocation_strides_values.push_back(alter_stride_value);
       alter_stride_value = builder.CreateMul(alter_stride_value, extent_value);
@@ -386,17 +386,17 @@ void inferTensorShapesAndStrides(
   }
 
   // We need to check last level merge ops, since there might be invalid order of merges
-  for (const auto& it: level_order_domains) {
+  for (const auto& it: id_to_allocation_size) {
     auto* iter_domain = it.first;
     for(auto use : iter_domain->uses()) {
       if(auto* merge = dynamic_cast<Merge*>(use)) {
-        if(level_order_domains.contains(merge->inner()) && level_order_domains.contains(merge->outer())) {
-          const auto [outer_extent_value, outer_i] = level_order_domains.erase(merge->out());
-          NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
-          level_order_domains.insert(outer_i, merge->outer(), outer_extent_value);
-          const auto [inner_extent_value, inner_i] = level_order_domains.erase(merge->inner());
-          NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
-          level_order_domains.insert(inner_i, merge->inner(), inner_extent_value);
+        if(id_to_allocation_size.contains(merge->inner()) && id_to_allocation_size.contains(merge->outer())) {
+          const auto [outer_extent_value, outer_i] = id_to_allocation_size.erase(merge->out());
+          NVF_ERROR(outer_i == id_to_allocation_size.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
+          id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent_value);
+          const auto [inner_extent_value, inner_i] = id_to_allocation_size.erase(merge->inner());
+          NVF_ERROR(inner_i == id_to_allocation_size.end(), merge->toString(), " is not a valid merge");
+          id_to_allocation_size.insert(inner_i, merge->inner(), inner_extent_value);
         }
       }
     }
