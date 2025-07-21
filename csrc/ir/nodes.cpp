@@ -4422,8 +4422,7 @@ std::string PadOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
   indent(ss, indent_size) << "   = pad( " << in()->toString() << ", {"
-                          << toDelimitedString(getPadWidths()) << "}"
-                          << " )\n";
+                          << toDelimitedString(getPadWidths()) << "}" << " )\n";
   return ss.str();
 }
 
@@ -5891,26 +5890,19 @@ std::string GroupedMmaOp::toString(int indent_size) const {
   if (outGamma() != nullptr) {
     ss << ", " << outGamma();
   }
-  ss << " = GroupedMmaOp("
-     << "mat1=" << matrix1() << ", "
-     << "mat2=" << matrix2() << ", "
-     << "offsets=" << offsets();
+  ss << " = GroupedMmaOp(" << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", " << "offsets=" << offsets();
   if (hasScale()) {
-    ss << ", "
-       << "scale1=" << scale1() << ", "
-       << "scale2=" << scale2();
+    ss << ", " << "scale1=" << scale1() << ", " << "scale2=" << scale2();
   }
   if (hasAlpha()) {
-    ss << ", "
-       << "alpha=" << alpha();
+    ss << ", " << "alpha=" << alpha();
   }
   if (hasBias()) {
-    ss << ", "
-       << "bias=" << bias();
+    ss << ", " << "bias=" << bias();
   }
   if (hasBeta()) {
-    ss << ", "
-       << "beta=" << beta();
+    ss << ", " << "beta=" << beta();
   }
   ss << ")\n";
   return ss.str();
@@ -6326,128 +6318,128 @@ std::string ScanOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScanOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  // Assert that only inclusive scan is supported in evaluate
-  NVF_ERROR(!hasExclusive(), "ScanOp::evaluate only supports inclusive scans, exclusive not supported");
-  NVF_ERROR(!hasReduction(), "ScanOp::evaluate only supports inclusive scans, reduction not supported");
-  NVF_ERROR(discountFactor() == nullptr, "ScanOp::evaluate does not support discount factors");
-  
   auto input = inputs.at(0).as<at::Tensor>();
-  NVF_ERROR(inputs.size() == 1, "ScanOp::evaluate expects exactly one input");
 
+  // Helper to get identity value for operation
+  auto getIdentity = [this]() -> float {
+    switch (opType()) {
+      case BinaryOpType::Add: return 0.0f;
+      case BinaryOpType::Max: return -std::numeric_limits<float>::infinity();
+      case BinaryOpType::Min: return std::numeric_limits<float>::infinity();
+      case BinaryOpType::Mul: return 1.0f;
+      default: NVF_THROW("Unhandled opType() ", opType());
+    }
+  };
+
+  // Helper to apply binary operation
+  auto applyOp = [this](const at::Tensor& a, const at::Tensor& b) -> at::Tensor {
+    switch (opType()) {
+      case BinaryOpType::Add: return a + b;
+      case BinaryOpType::Max: return a.maximum(b);
+      case BinaryOpType::Min: return a.minimum(b);
+      case BinaryOpType::Mul: return a * b;
+      default: NVF_THROW("Unhandled opType() ", opType());
+    }
+  };
+
+  // Helper to create slice position
+  auto makeSlicePos = [this, &input](int64_t idx) {
+    std::vector<at::indexing::TensorIndex> pos;
+    pos.reserve((size_t)input.dim());
+    for (int64_t i : arange(input.dim())) {
+      pos.push_back(i == scanDim() ? at::indexing::TensorIndex(idx) : at::indexing::Slice());
+    }
+    return pos;
+  };
+
+  // Simple case: no discount factor
   if (discountFactor() == nullptr) {
+    NVF_ERROR(inputs.size() == 1, "ScanOp::evaluate without discount factor expects exactly one input");
 
     at::Tensor out_inclusive;
-    float identity;
+    float identity = getIdentity();
+
     switch (opType()) {
-      case BinaryOpType::Add:
-        out_inclusive = at::cumsum(input, scanDim());
-        identity = 0.0;
-        break;
-      case BinaryOpType::Max:
-        out_inclusive = std::get<0>(at::cummax(input, scanDim()));
-        identity = -std::numeric_limits<float>::infinity();
-        break;
-      case BinaryOpType::Min:
-        out_inclusive = std::get<0>(at::cummin(input, scanDim()));
-        identity = std::numeric_limits<float>::infinity();
-        break;
-      case BinaryOpType::Mul:
-        out_inclusive = at::cumprod(input, scanDim());
-        identity = 1.0;
-        break;
-      default:
-        NVF_THROW("Unhandled opType() ", opType());
+      case BinaryOpType::Add: out_inclusive = at::cumsum(input, scanDim()); break;
+      case BinaryOpType::Max: out_inclusive = std::get<0>(at::cummax(input, scanDim())); break;
+      case BinaryOpType::Min: out_inclusive = std::get<0>(at::cummin(input, scanDim())); break;
+      case BinaryOpType::Mul: out_inclusive = at::cumprod(input, scanDim()); break;
+      default: NVF_THROW("Unhandled opType() ", opType());
     }
-    if (outExclusive() == nullptr) {
-      return {out_inclusive};
-    } else {
-      std::vector<int64_t> pad_widths(
-          2 * ((int64_t)input.dim() - scanDim()), 0L);
+
+    std::vector<PolymorphicValue> results = {out_inclusive};
+
+    if (hasExclusive()) {
+      std::vector<int64_t> pad_widths(2 * ((int64_t)input.dim() - scanDim()), 0L);
       pad_widths[pad_widths.size() - 2] = 1L;
       pad_widths[pad_widths.size() - 1] = -1L;
-      at::Tensor out_exclusive =
-          at::pad(out_inclusive, pad_widths, "constant", identity);
-      return {out_inclusive, out_exclusive};
+      results.push_back(at::pad(out_inclusive, pad_widths, "constant", identity));
     }
-  } else {
-    // auto discount_factor = inputs.at(1).as<at::Tensor>();
-    NVF_ERROR(inputs.size() == 2);
 
-    const PolymorphicValue& df = inputs.at(1);
-
-    NVF_ERROR(df.hasValue());
-
-    at::Tensor out = at::zeros_like(input);
-    at::Tensor out_exclusive;
-
-    if (outExclusive() != nullptr) {
-      out_exclusive = at::ones_like(out);
-      PolymorphicValue init_pv = init()->value();
-      if (init_pv.is<int64_t>()) {
-        out_exclusive *= init_pv.as<int64_t>();
-      } else if (init_pv.is<double>()) {
-        out_exclusive *= init_pv.as<double>();
-      } else {
-        NVF_THROW("Unsupported type for evaluation: ", init()->dtype());
+    if (hasReduction()) {
+      switch (opType()) {
+        case BinaryOpType::Add: results.push_back(at::sum(input, scanDim(), false)); break;
+        case BinaryOpType::Max: results.push_back(std::get<0>(at::max(input, scanDim(), false))); break;
+        case BinaryOpType::Min: results.push_back(std::get<0>(at::min(input, scanDim(), false))); break;
+        case BinaryOpType::Mul: results.push_back(at::prod(input, scanDim(), false)); break;
+        default: NVF_THROW("Unhandled opType() ", opType());
       }
     }
+    return results;
+  }
 
-    at::Tensor cur;
-    std::vector<at::indexing::TensorIndex> slice_pos;
-    slice_pos.reserve((size_t)input.dim());
-    for ([[maybe_unused]] int64_t i : arange(input.dim())) {
-      slice_pos.push_back(at::indexing::Slice());
-    }
-    for (int64_t i : arange(input.size(scanDim()))) {
-      slice_pos.at((size_t)scanDim()) = at::indexing::TensorIndex((int64_t)i);
+  // Complex case: with discount factor
+  NVF_ERROR(inputs.size() == 2, "Discount factor case requires exactly 2 inputs");
+  const PolymorphicValue& df = inputs.at(1);
+  NVF_ERROR(df.hasValue(), "Discount factor must have a value");
 
-      at::Tensor next_slice = input.index(slice_pos);
+  auto applyDiscount = [&df](const at::Tensor& prev) -> at::Tensor {
+    if (df.is<double>()) return prev * df.as<double>();
+    if (df.is<int64_t>()) return prev * df.as<int64_t>();
+    NVF_THROW("Unsupported discount factor type");
+  };
 
-      if (i == 0) {
-        cur = next_slice;
-      } else {
-        if (outExclusive() != nullptr) {
-          out_exclusive.index(slice_pos).copy_(cur);
-        }
-
-        if (df.is<double>()) {
-          cur *= df.as<double>();
-        } else if (df.is<int64_t>()) {
-          cur *= df.as<int64_t>();
-        } else if (df.is<at::Tensor>()) {
-          // TODO: handle case where scanDim() is broadcast in discount factor
-          cur *= df.as<at::Tensor>().index(slice_pos);
-        } else {
-          NVF_THROW("Unhandled discount factor type");
-        }
-
-        switch (opType()) {
-          case BinaryOpType::Add:
-            cur += next_slice;
-            break;
-          case BinaryOpType::Max:
-            cur = cur.maximum(next_slice);
-            break;
-          case BinaryOpType::Min:
-            cur = cur.minimum(next_slice);
-            break;
-          case BinaryOpType::Mul:
-            cur *= next_slice;
-            break;
-          default:
-            NVF_THROW("Unhandled opType() ", opType());
-        }
-      }
-
-      out.index(slice_pos).copy_(cur);
-    }
-
-    if (outExclusive() == nullptr) {
-      return {out};
+  // Compute inclusive scan with discount factor
+  at::Tensor out_inclusive = at::zeros_like(input);
+  int64_t scan_size = input.size(scanDim());
+  
+  for (int64_t i : arange(scan_size)) {
+    auto pos = makeSlicePos(i);
+    at::Tensor current_input = input.index(pos);
+    
+    if (i == 0) {
+      out_inclusive.index(pos).copy_(current_input);
     } else {
-      return {out, out_exclusive};
+      auto prev_pos = makeSlicePos(i - 1);
+      at::Tensor prev_result = out_inclusive.index(prev_pos);
+      at::Tensor new_result = applyOp(applyDiscount(prev_result), current_input);
+      out_inclusive.index(pos).copy_(new_result);
     }
   }
+
+  std::vector<PolymorphicValue> results = {out_inclusive};
+
+  // Compute exclusive scan if requested
+  if (hasExclusive()) {
+    at::Tensor out_exclusive = at::zeros_like(input);
+    out_exclusive.index(makeSlicePos(0)).fill_(getIdentity());
+    
+    for (int64_t i : arange(1, scan_size)) {
+      auto prev_pos = makeSlicePos(i - 1);
+      at::Tensor prev_exclusive = out_exclusive.index(prev_pos);
+      at::Tensor prev_input = input.index(prev_pos);
+      at::Tensor new_result = applyOp(applyDiscount(prev_exclusive), prev_input);
+      out_exclusive.index(makeSlicePos(i)).copy_(new_result);
+    }
+    results.push_back(out_exclusive);
+  }
+
+  // Compute reduction if requested (last element of inclusive scan)
+  if (hasReduction()) {
+    results.push_back(out_inclusive.index(makeSlicePos(scan_size - 1)));
+  }
+
+  return results;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)

@@ -26,8 +26,20 @@ TEST_F(ScanTest, BasicScanAdd) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/1,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -38,6 +50,54 @@ TEST_F(ScanTest, BasicScanAdd) {
   testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
 }
 
+// Test scan with discount factor support - manual validation
+TEST_F(ScanTest, ScanAddDiscountFactor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // Create discount factor - a scalar value
+  float discount = 0.5f;
+  auto discount_factor = IrBuilder::create<Val>(discount, DataType::Float);
+
+  // Call scan with discount factor and return all 3 results: inclusive,
+  // exclusive, and reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/0,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/discount_factor,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
+
+  // Use fixed input values for manual verification of the validation
+  at::Tensor input_tensor = at::tensor(
+      {1.0f, 2.0f, 3.0f, 4.0f},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input_tensor});
+  auto expected_inclusive = at::tensor(
+      {1.0f, 2.5f, 4.25f, 6.125f},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto expected_exclusive = at::tensor(
+      {0.0f, 1.0f, 2.5f, 4.25f},
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto expected_reduction = at::tensor(
+      {6.125f}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  ASSERT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), expected_inclusive));
+  ASSERT_TRUE(at::allclose(outputs[1].as<at::Tensor>(), expected_exclusive));
+  ASSERT_TRUE(at::allclose(outputs[2].as<at::Tensor>(), expected_reduction));
+  testValidate(
+      executor_cache.fusion(), outputs, {input_tensor}, __LINE__, __FILE__);
+}
+
 // Basic functionality test for scan with Max operation (cummax)
 TEST_F(ScanTest, BasicScanMax) {
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -46,8 +106,20 @@ TEST_F(ScanTest, BasicScanMax) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/1,
+      BinaryOpType::Max,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -66,8 +138,20 @@ TEST_F(ScanTest, BasicScanMin) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/1,
+      BinaryOpType::Min,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -86,8 +170,20 @@ TEST_F(ScanTest, BasicScanMul) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/1,
+      BinaryOpType::Mul,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -106,8 +202,20 @@ TEST_F(ScanTest, ScanDifferentDimensions) {
 
   auto tv0 = makeConcreteTensor({2, 4, 6});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/0,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 4, 6}, options);
@@ -126,8 +234,20 @@ TEST_F(ScanTest, Scan1D) {
 
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
-  fusion.addOutput(tv_result);
+
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv0,
+      /*dim=*/0,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({10}, options);
@@ -154,10 +274,19 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   // Single arithmetic operation before scan
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
-  // Scan operation
-  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
-
-  fusion.addOutput(tv2);
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv1,
+      /*dim=*/1,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
+  fusion.addOutput(scan_result.inclusive);
+  fusion.addOutput(scan_result.exclusive);
+  fusion.addOutput(scan_result.reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
@@ -183,13 +312,25 @@ TEST_F(ScanTest, ScanWithArithmeticOps) {
   auto tv2 = mul(tv1, IrBuilder::create<Val>(2.0));
   auto tv3 = sub(tv2, IrBuilder::create<Val>(0.5));
 
-  // Scan operation
-  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add).inclusive;
+  // Call scan once and return all 3 results: inclusive, exclusive, and
+  // reduction
+  auto scan_result = scan(
+      tv3,
+      /*dim=*/1,
+      BinaryOpType::Add,
+      /*init=*/nullptr,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true,
+      /*return_reduction=*/true);
 
-  // Additional operation after scan
-  auto tv5 = div(tv4, IrBuilder::create<Val>(3.0));
+  // Additional operations after scan
+  auto tv5_inclusive = div(scan_result.inclusive, IrBuilder::create<Val>(3.0));
+  auto tv5_exclusive = div(scan_result.exclusive, IrBuilder::create<Val>(3.0));
+  auto tv5_reduction = div(scan_result.reduction, IrBuilder::create<Val>(3.0));
 
-  fusion.addOutput(tv5);
+  fusion.addOutput(tv5_inclusive);
+  fusion.addOutput(tv5_exclusive);
+  fusion.addOutput(tv5_reduction);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({4, 8}, options);
