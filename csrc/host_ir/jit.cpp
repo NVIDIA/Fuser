@@ -285,8 +285,8 @@ void inferTensorShapesAndStrides(
 
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
-    llvm::Value* extent_value = getOrCreateValueForExtent(id, val_to_value, builder);
-    id_to_allocation_size.pushBack(id, extent_value);
+    llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
+    id_to_allocation_size.pushBack(id, extent);
   }
 
   // traverse backward from allocation domains to logical domains
@@ -294,15 +294,15 @@ void inferTensorShapesAndStrides(
     {logical_domain.begin(), logical_domain.end()},
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_extent_value, outer_i] = id_to_allocation_size.erase(split->outer());
+      const auto [outer_extent, outer_i] = id_to_allocation_size.erase(split->outer());
       NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " is not a valid split");
-      const auto [inner_extent_value, inner_i] = id_to_allocation_size.erase(split->inner());
+      const auto [inner_extent, inner_i] = id_to_allocation_size.erase(split->inner());
             
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
       // So that in a merge op, we can merge between two local iter domain between one device dimension?
-      llvm::Value* lhs = outer_extent_value;
-      llvm::Value* rhs = inner_extent_value;
+      llvm::Value* lhs = outer_extent;
+      llvm::Value* rhs = inner_extent;
       if(split->outer()->isDeviceDim()) {
         lhs = builder.getInt64(1);
       }
@@ -314,28 +314,26 @@ void inferTensorShapesAndStrides(
       id_to_allocation_size.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_extent_value, out_i] = id_to_allocation_size.erase(merge->out());
+      const auto [out_extent, out_i] = id_to_allocation_size.erase(merge->out());
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
       // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which is a ceilDiv
-      llvm::Value* outer_extent_value = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
-      llvm::Value* minus_one = builder.CreateSub(outer_extent_value, builder.getInt64(1));
-      llvm::Value* plus_value = builder.CreateAdd(out_extent_value, minus_one);
-      llvm::Value* inner_extent_value = builder.CreateUDiv(plus_value, outer_extent_value);
+      llvm::Value* outer_extent = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
+      llvm::Value* minus_one = builder.CreateSub(outer_extent, builder.getInt64(1));
+      llvm::Value* plus_value = builder.CreateAdd(out_extent, minus_one);
+      llvm::Value* inner_extent = builder.CreateUDiv(plus_value, outer_extent);
         
-      id_to_allocation_size.insert(out_i, merge->outer(), outer_extent_value);
-      id_to_allocation_size.insert(out_i, merge->inner(), inner_extent_value);
+      id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
+      id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
     } else {
       NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
     }
   }
 
   // This should contains same iter domains as logical domain, but in different order
-  std::vector<IterDomain*> propagated_allocation_domains;
-  for(auto it : id_to_allocation_size) {
-    propagated_allocation_domains.push_back(it.first);
-  }
+  auto new_allocation_domains = std::views::keys(id_to_allocation_size);
+  std::vector<IterDomain*> propagated_allocation_domains(new_allocation_domains.begin(), new_allocation_domains.end());
 
   auto permutation = ir_utils::computePermutation(
     logical_domain, propagated_allocation_domains);
@@ -357,11 +355,11 @@ void inferTensorShapesAndStrides(
       allocation_strides_values.push_back(builder.getInt64(0));
     }
     else{
-      auto [extent_value, out_i] = id_to_allocation_size.erase(it);
-      id_to_allocation_size.insert(out_i, it, extent_value);
-      allocation_sizes_values.push_back(extent_value);
+      auto [extent, out_i] = id_to_allocation_size.erase(it);
+      id_to_allocation_size.insert(out_i, it, extent);
+      allocation_sizes_values.push_back(extent);
       allocation_strides_values.push_back(alter_stride_value);
-      alter_stride_value = builder.CreateMul(alter_stride_value, extent_value);
+      alter_stride_value = builder.CreateMul(alter_stride_value, extent);
     }
   }
   std::reverse(allocation_sizes_values.begin(), allocation_sizes_values.end());
@@ -391,12 +389,12 @@ void inferTensorShapesAndStrides(
     for(auto use : iter_domain->uses()) {
       if(auto* merge = dynamic_cast<Merge*>(use)) {
         if(id_to_allocation_size.contains(merge->inner()) && id_to_allocation_size.contains(merge->outer())) {
-          const auto [outer_extent_value, outer_i] = id_to_allocation_size.erase(merge->out());
+          const auto [outer_extent, outer_i] = id_to_allocation_size.erase(merge->out());
           NVF_ERROR(outer_i == id_to_allocation_size.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
-          id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent_value);
-          const auto [inner_extent_value, inner_i] = id_to_allocation_size.erase(merge->inner());
+          id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent);
+          const auto [inner_extent, inner_i] = id_to_allocation_size.erase(merge->inner());
           NVF_ERROR(inner_i == id_to_allocation_size.end(), merge->toString(), " is not a valid merge");
-          id_to_allocation_size.insert(inner_i, merge->inner(), inner_extent_value);
+          id_to_allocation_size.insert(inner_i, merge->inner(), inner_extent);
         }
       }
     }
