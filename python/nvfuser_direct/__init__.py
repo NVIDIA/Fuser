@@ -45,8 +45,8 @@ def execute_with_dtensors(fd, in_dtensors):
     from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 
     inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
-    out_tensors = self.execute(inputs, auto_schedule=True)
-    out_shardings = self.fec.get_output_shardings()
+    out_tensors = fd.execute(inputs, auto_schedule=True)
+    out_shardings = fd.fec.get_output_shardings()
     assert len(out_tensors) == len(out_shardings)
 
     out_dtensors: list[DTensor] = []
