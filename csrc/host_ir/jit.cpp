@@ -279,27 +279,7 @@ Val* mapToInputDomain(
   return nullptr;
 }
 
-
-// Infer Tensor Shape without reordering
-void inferTensorShapeNoReorder(
-    std::vector<Val*> symbolic_sizes,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes) {
-  for (auto* symbolic_size : symbolic_sizes) {
-    auto* inferred_val = getOrCreateValueForExtent(symbolic_size, val_to_value, builder);
-    NVF_ERROR(
-        inferred_val != nullptr,
-        "LLVM Lowering Error: inferred_val is nullptr for ",
-        symbolic_size);
-    sizes.push_back(inferred_val);
-  }
-  NVF_ERROR_EQ(sizes.size(), symbolic_sizes.size());
-  return;
-}
-
-
-// Infer Tensor Shape and Strides with reordering
+// Infer Tensor Shape and Strides
 void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
