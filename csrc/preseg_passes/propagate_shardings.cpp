@@ -488,10 +488,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       sharding_candidates.push_back(tv);
     }
 
-    if (sharding_candidates.empty()) {
-      continue;
-    }
-
     for (TensorView* target : sharding_candidates) {
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate({target});
