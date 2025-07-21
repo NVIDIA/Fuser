@@ -184,43 +184,41 @@ llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*
   auto* rhs = binary_op->rhs()->as<Val>();
   llvm::Value* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
   llvm::Value* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
-  llvm::Value* out_value = nullptr;
   if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
-    out_value = builder.CreateAdd(lhs_value, rhs_value);
+    return builder.CreateAdd(lhs_value, rhs_value);
   } else if(binary_op->getBinaryOpType() == BinaryOpType::Sub) {
-    out_value = builder.CreateSub(lhs_value, rhs_value);
+    return builder.CreateSub(lhs_value, rhs_value);
   } else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
-    out_value = builder.CreateMul(lhs_value, rhs_value);
+    return builder.CreateMul(lhs_value, rhs_value);
   } else if(binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
     // Implement ceilDiv as (a + b - 1) / b
     llvm::Value* numerator =
     builder.CreateAdd(lhs_value, rhs_value);
     llvm::Value* one = builder.getInt64(1);
     numerator = builder.CreateSub(numerator, one);
-    out_value = builder.CreateUDiv(numerator, rhs_value);
+    return builder.CreateUDiv(numerator, rhs_value);
   } else {
     NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
   }
-  return out_value;
+  return nullptr;
 }
 
 // Helper function to translate: nvfuser unary op -> llvm unary instruction
 llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
   llvm::Value* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
-  llvm::Value* out_value = nullptr;
   if(unary_op->getUnaryOpType() == UnaryOpType::Cast) {
-    out_value = in_value;
+    return in_value;
   } else if(unary_op->getUnaryOpType() == UnaryOpType::Abs) {
     llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
     llvm::Value* negated = builder.CreateNeg(in_value);
-    out_value = builder.CreateSelect(is_negative, negated, in_value);
+    return builder.CreateSelect(is_negative, negated, in_value);
   } else if(unary_op->getUnaryOpType() == UnaryOpType::Neg) {
-    out_value = builder.CreateNeg(in_value);
+    return builder.CreateNeg(in_value);
   } else {
     NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
   }
-  return out_value;
+  return nullptr;
 }
 
 // Helper function to generically translate: nvfuser val -> llvm value
@@ -228,23 +226,22 @@ llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-  llvm::Value* out_value = nullptr;
   if (val->isA<IterDomain>()) {
     if(val->as<IterDomain>()->isBroadcast()) {
-      out_value = builder.getInt64(1);
       if (val->as<IterDomain>()->hasExpandedExtent()) {
-        out_value = getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
-      } 
+        return getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+      }
+      return builder.getInt64(1);
     } else {
-      out_value = getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+      return getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
     }
   } else if (val->isConst()) {
-    out_value = builder.getInt64(val->value().as<int64_t>());
+    return builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
     if (auto* binary_op = def->as<BinaryOp>()) {
-      out_value = createValueForBinaryOp(binary_op, val_to_value, builder);
+      return createValueForBinaryOp(binary_op, val_to_value, builder);
     } else if (auto* unary_op = def->as<UnaryOp>()) {
-      out_value = createValueForUnaryOp(unary_op, val_to_value, builder);
+      return createValueForUnaryOp(unary_op, val_to_value, builder);
     } else {
       NVF_THROW(
         "LLVM Lowering Error: createValueForExtent called with unsupported "
@@ -257,8 +254,7 @@ llvm::Value* createValueForExtent(
         "val: ",
         val->toString());
   }
-  NVF_ERROR(out_value != nullptr, "LLVM Lowering Error: out_value is nullptr for ", val->toString());
-  return out_value;
+  return nullptr;
 }
 
 // Helper function to lookup llvm value for nvfuser val, if not found, recursively create it
@@ -632,7 +628,7 @@ void unpackInputs(
     tensor->setName("input_aten_tensor");
     // bind input aten tensor sizes to val_to_value
     // TODO: We should validate const size and strides here, ie. dim check
-    for (const auto& [dim_idx, id] : enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
+    for (const auto [dim_idx, id] : enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast()) {
         val_to_value[id->extent()] = builder.getInt64(1);
         if (id->hasExpandedExtent()) {
@@ -878,7 +874,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          dtype_constant,
          device_index_constant,
          out_tensor});
-    val_to_value_[allocate->buffer()->as<Val>()] = out_tensor;
+    val_to_value_[allocate->buffer()] = out_tensor;
   }
 
   // Deallocation Function LLVM IR Generation
@@ -888,7 +884,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         module->getFunction(kDeleteTensorFuncName);
     builder_.CreateCall(
         delete_tensor_func,
-        {val_to_value_.at(deallocate->buffer()->as<Val>())});
+        {val_to_value_.at(deallocate->buffer())});
   }
 
  private:
