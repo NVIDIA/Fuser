@@ -295,7 +295,7 @@ void inferTensorShapesAndStrides(
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
       const auto [outer_extent, outer_i] = id_to_allocation_size.erase(split->outer());
-      NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " is not a valid split");
+      NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " invalid split: inner is expected to appear immediately after outer");
       const auto [inner_extent, inner_i] = id_to_allocation_size.erase(split->inner());
             
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
@@ -389,12 +389,9 @@ void inferTensorShapesAndStrides(
     for(auto use : iter_domain->uses()) {
       if(auto* merge = dynamic_cast<Merge*>(use)) {
         if(id_to_allocation_size.contains(merge->inner()) && id_to_allocation_size.contains(merge->outer())) {
-          const auto [outer_extent, outer_i] = id_to_allocation_size.erase(merge->out());
-          NVF_ERROR(outer_i == id_to_allocation_size.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
+          const auto [outer_extent, outer_i] = id_to_allocation_size.erase(merge->outer());
+          NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == merge->inner(), merge->toString(), " invalid merge: inner is expected to appear immediately after outer");
           id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent);
-          const auto [inner_extent, inner_i] = id_to_allocation_size.erase(merge->inner());
-          NVF_ERROR(inner_i == id_to_allocation_size.end(), merge->toString(), " is not a valid merge");
-          id_to_allocation_size.insert(inner_i, merge->inner(), inner_extent);
         }
       }
     }
