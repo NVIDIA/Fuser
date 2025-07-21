@@ -50,7 +50,9 @@ constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kMainFuncOutputTensorName = "main_output_aten_tensor";
+constexpr std::string_view kFuserPerfScopeFuncName = "fuser_perf_scope";
 constexpr size_t kMaxTensorDim = 8;
+constexpr bool kEnableHostIrJitFuserPerfScope = true;
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -134,6 +136,37 @@ llvm::Type* getVoidType(llvm::LLVMContext& context) {
   return llvm::Type::getVoidTy(context);
 }
 
+// Helper function to insert FUSER_PERF_SCOPE call
+void insertFuserPerfScope(const char* op_name, llvm::IRBuilder<>& builder) {
+  if (!kEnableHostIrJitFuserPerfScope) {
+    return;
+  }
+  
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* fuser_perf_scope_func = module->getFunction(kFuserPerfScopeFuncName);
+  if (!fuser_perf_scope_func) {
+    return; // Function not available
+  }
+  
+  // Create string constant and global variable (required for LLVM, otherwise there is a bitcast error)
+  llvm::Constant* op_name_constant = llvm::ConstantDataArray::getString(
+      module->getContext(), op_name, true);
+  llvm::GlobalVariable* op_name_global = new llvm::GlobalVariable(
+      *module,
+      op_name_constant->getType(),
+      true, // isConstant
+      llvm::GlobalValue::PrivateLinkage,
+      op_name_constant,
+      "nvfuser_op_name");
+  
+  // Get pointer to the string
+  llvm::Value* op_name_ptr = builder.CreateBitCast(
+      op_name_global, getInt8PtrType(module->getContext()));
+
+  // Call FUSER_PERF_SCOPE function
+  builder.CreateCall(fuser_perf_scope_func, {op_name_ptr});
+}
+
 // Helper function to do memory analysis, which is similar to the one in
 // insert_deallocations.cpp
 // However, in current protocol, we have 3 types of instructions:
@@ -153,10 +186,7 @@ void memoryAnalysis(llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Function* main_func = module->getFunction(kMainFuncName);
   llvm::Function* delete_tensor_func = module->getFunction(kDeleteTensorFuncName);
-  if (!delete_tensor_func) {
-    return; // No delete function available
-  }
-
+  
   // First pass: find all new_tensor allocations
   for (llvm::BasicBlock& bb : *main_func) {
     for (llvm::Instruction& inst : bb) {
@@ -361,6 +391,7 @@ void compileFunctionDeclarations(
   auto* int64_ptr_type = getInt64PtrType(context);
   auto* int32_type = llvm::Type::getInt32Ty(context);
   auto* tensor_ptr_type = getTensorPtrType(context);
+  auto* int8_ptr_type = getInt8PtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   auto* tensor_size_type =
@@ -416,6 +447,14 @@ void compileFunctionDeclarations(
       llvm::Function::ExternalLinkage,
       kDeleteTensorFuncName,
       module);
+  
+  // fuser_perf_scope function: void fuser_perf_scope(const char* name)
+  auto* fuser_perf_scope_type = llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
+  llvm::Function::Create(
+      fuser_perf_scope_type,
+      llvm::Function::ExternalLinkage,
+      kFuserPerfScopeFuncName,
+      module);
 
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
@@ -460,6 +499,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
+    
+    insertFuserPerfScope(load_store_op->getOpString(), builder_);
   }
 
   // Allocate Function LLVM IR Generation
@@ -547,6 +588,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
          device_index_constant,
          raw_tensor_ptr});
     val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
+    
+    insertFuserPerfScope(allocate->getOpString(), builder_);
   }
 
   // Deallocation Function LLVM IR Generation
@@ -557,6 +600,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     builder_.CreateCall(
         delete_tensor_func,
         {val_to_value_.at(deallocate->buffer()->as<Val>())});
+    
+    insertFuserPerfScope(deallocate->getOpString(), builder_);
   }
 
  private:
@@ -686,6 +731,11 @@ void HostIrJitImpl::registerExternalFunctions() {
   void* delete_tensor_func_ptr = reinterpret_cast<void*>(
       +[](at::Tensor* tensor) -> void { delete tensor; });
 
+  // insert fuser perf scope
+  void* fuser_perf_scope_func_ptr = reinterpret_cast<void*>(+[](const char* name) -> void {
+    FUSER_PERF_SCOPE(name);
+  });
+
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
   registerExternalFunction(
@@ -704,6 +754,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       name_to_symbol,
       mangler,
       kAtEmptyStridedCudaWrapper);
+  registerExternalFunction(
+      fuser_perf_scope_func_ptr,
+      name_to_symbol,
+      mangler,
+      kFuserPerfScopeFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
