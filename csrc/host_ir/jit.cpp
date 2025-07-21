@@ -298,114 +298,9 @@ void inferTensorShapeNoReorder(
   return;
 }
 
-// Infer Tensor Stride without reordering
-void inferTensorStrideNoReorder(
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    std::vector<bool> expand_flags,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  strides.resize(sizes.size());
-  llvm::LLVMContext& context = builder.getContext();
-  NVF_ERROR_EQ(sizes.size(), expand_flags.size());
-  llvm::Value* cur_stride = builder.getInt64(1);
-  for (auto i = sizes.size(); i > 0; --i) {
-    llvm::Value* size = sizes[i - 1];
-    llvm::Value* stride = cur_stride;
-    // If expanded, stride is 0
-    if (expand_flags.at(i - 1)) {
-      stride = builder.getInt64(0);
-    } else {
-      // Handle null size values by treating them as size 1 (safety check)
-      NVF_ERROR(size != nullptr, "LLVM Lowering Error: inferTensorStrideNoReorder called with nullptr size for ", i);
-      // Create comparison: size == 0
-      llvm::Value* is_zero = builder.CreateICmpEQ(size, builder.getInt64(0));
-
-      // Get current function for creating basic blocks
-      llvm::Function* current_function = builder.GetInsertBlock()->getParent();
-
-      // Create basic blocks
-      llvm::BasicBlock* zero_block =
-          llvm::BasicBlock::Create(context, "size_zero", current_function);
-      llvm::BasicBlock* nonzero_block =
-          llvm::BasicBlock::Create(context, "size_nonzero", current_function);
-      llvm::BasicBlock* merge_block =
-          llvm::BasicBlock::Create(context, "stride_merge", current_function);
-
-      // Conditional branch
-      builder.CreateCondBr(is_zero, zero_block, nonzero_block);
-
-      // Handle size == 0 case
-      builder.SetInsertPoint(zero_block);
-      llvm::Value* stride_if_zero = builder.getInt64(1);
-      builder.CreateBr(merge_block);
-
-      // Handle size != 0 case
-      builder.SetInsertPoint(nonzero_block);
-      llvm::Value* new_cur_stride = builder.CreateMul(cur_stride, size);
-      builder.CreateBr(merge_block);
-
-      // Merge the results
-      builder.SetInsertPoint(merge_block);
-      llvm::PHINode* stride_phi =
-          builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
-      stride_phi->addIncoming(stride_if_zero, zero_block);
-      stride_phi->addIncoming(cur_stride, nonzero_block);
-      stride = stride_phi;
-
-      // Update cur_stride for next iteration
-      llvm::PHINode* cur_stride_phi =
-          builder.CreatePHI(llvm::Type::getInt64Ty(context), 2);
-      cur_stride_phi->addIncoming(
-          cur_stride, zero_block); // Don't update if size is 0
-      cur_stride_phi->addIncoming(
-          new_cur_stride, nonzero_block); // Update if size != 0
-      cur_stride = cur_stride_phi;
-    }
-    strides[i - 1] = stride;
-  }
-  return;
-}
-
-// Infer Tensor Shape and Strides without reordering
-void inferTensorShapeAndStridesNoReorder(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  std::vector<Val*> symbolic_sizes;
-  std::vector<bool> expand_flags;
-
-  // NOTE: the original design used getMaybeAllocationDomain to infer shape,
-  // but it's not efficient, since if there is a real allocation domain,
-  // both size and stride will be recalculated. getMaybeAllocationDomain is
-  // actually getting the logical domain. By using getLogicalDomain, we can
-  // avoid the extra calculation of shape, and only stride will be recalculated.
-  for (const auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-    if (id->isDeviceDim()) {
-      symbolic_sizes.push_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    }
-    if (id->hasExpandedExtent()) {
-      NVF_ERROR(
-          id->isBroadcast(),
-          "Non-broadcast domain should not have an expanded extent: ",
-          id->toString());
-      expand_flags.push_back(true);
-    } else {
-      expand_flags.push_back(false);
-    }
-  }
-  inferTensorShapeNoReorder(symbolic_sizes, val_to_value, builder, sizes);
-  inferTensorStrideNoReorder(sizes, expand_flags, builder, strides);
-  return;
-}
-
-
 
 // Infer Tensor Shape and Strides with reordering
-void inferTensorShapeAndStridesReordered(
+void inferTensorShapesAndStrides(
     const TensorView* tv,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
@@ -451,7 +346,7 @@ void inferTensorShapeAndStridesReordered(
       
       llvm::Value* in_extent = builder.CreateMul(lhs, rhs);
       level_order_domains.insert(inner_i, split->in(), in_extent);
-
+      // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
         mapToInputDomain(merge->inner(), boundary_vals)!= nullptr) {
@@ -537,24 +432,8 @@ void inferTensorShapeAndStridesReordered(
     NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
     level_order_domains.insert(inner_i, merge->inner(), inner_extent_value);
   }
-}
 
-// Tensor Shape and Strides Inference
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  // Codepath 1: No allocation domain for given tensor, we can directly return regular size and stride
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  if(!tv->hasAllocation()) {
-    inferTensorShapeAndStridesNoReorder(tv, val_to_value, builder, sizes, strides);
-  }
-  // Codepath 2: With allocation, we need to reorder the stride and reverse induct the sizes
-  else{
-    inferTensorShapeAndStridesReordered(tv, val_to_value, builder, sizes, strides);
-  }
+  // Check if sizes and strides are the same size as logical domain
   NVF_ERROR_EQ(sizes.size(), logical_domain.size());
   NVF_ERROR_EQ(strides.size(), logical_domain.size());
 }
