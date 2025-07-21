@@ -282,7 +282,6 @@ Val* mapToInputDomain(
 
 // Infer Tensor Shape without reordering
 void inferTensorShapeNoReorder(
-    const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
@@ -398,7 +397,7 @@ void inferTensorShapeAndStridesNoReorder(
       expand_flags.push_back(false);
     }
   }
-  inferTensorShapeNoReorder(tv, symbolic_sizes, val_to_value, builder, sizes);
+  inferTensorShapeNoReorder(symbolic_sizes, val_to_value, builder, sizes);
   inferTensorStrideNoReorder(sizes, expand_flags, builder, strides);
   return;
 }
