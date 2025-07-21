@@ -267,15 +267,8 @@ void inferTensorShapesAndStrides(
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   const std::vector<IterDomain*> allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  std::unordered_map<Val*, bool> boundary_vals;
   LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
-  std::vector<Merge*> last_level_merge_ops;
   
-  // push all logical domains as boundary values
-  for(IterDomain* id : logical_domain) {
-    boundary_vals[id->as<Val>()] = false;
-  }
-
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
@@ -369,7 +362,7 @@ void inferTensorShapesAndStrides(
   }
 
   // Filter out device dimensions
-  for(size_t i = 0; i < sizes.size(); ++i) {
+  for (auto i : arange(std::ssize(sizes)) | std::views::reverse) {
     if(sizes[i] == builder.getInt64(-1)) {
       sizes.erase(sizes.begin() + i);
       strides.erase(strides.begin() + i);
