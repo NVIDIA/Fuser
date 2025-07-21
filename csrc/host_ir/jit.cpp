@@ -249,15 +249,25 @@ llvm::Value* createValueForExtent(
 }
 
 llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
-  auto it = val_to_value.find(extent);
-  if (it != val_to_value.end()) {
+  if(auto it = val_to_value.find(extent); it != val_to_value.end()) {
     return it->second;
   }
-  llvm::Value* value = createValueForExtent(extent, val_to_value, builder);
-  // after recursive call, the original iterator may no longer be valid
-  val_to_value[extent] = value;
-  return value;
+  val_to_value[extent] = createValueForExtent(extent, val_to_value, builder);
+  return val_to_value[extent];
 }
+
+/*
+
+Transformations Example:
+logical domain: [a, b, c, d]
+allocation domain: [b, a, c, d]
+
+we want to propagate the allocation domain to the logical domain,
+so we can get:
+1. correct order of sizes and strides
+2. refined logical sizes (without device dimensions)
+
+*/
 
 void inferTensorShapesAndStrides(
     const TensorView* tv,
