@@ -172,8 +172,7 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // short-circuit: wrap tma and blackwell mma expressions with elect sync
     // predicate
-    if (ir_utils::isCpAsyncBulkTensorTile(expr) ||
-        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
+    if (auto* mma = dynamic_cast<MmaOp*>(expr); mma && mma->isBlackwell()) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::ElectSync, expr, thread_pred);

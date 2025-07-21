@@ -502,6 +502,16 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       registerInsertBefore(expr, fence_async, scope);
     }
 
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      // Add an ElectSync predicate to TMA store
+      auto* elect_sync_pred =
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+      Expr* expr_pred = expr->withPredicate(elect_sync_pred);
+      registerReplace(expr, expr_pred);
+      auto& mbmap = GpuLower::current()->mbarrierMap();
+      mbmap[expr_pred] = mbmap.at(expr);
+    }
+
     // Insert sync exprs after async ops. For example, insert
     //   wgmma.commit_group.sync.aligned
     //   wgmma.wait_group.sync.aligned 0
