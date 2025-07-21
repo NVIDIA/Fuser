@@ -83,7 +83,7 @@ SPDX-License-Identifier: BSD-3-Clause
         </button>
         <button id="explainbutton_{{ outer_index }}_{{ loop.index }}"
                 onclick="explainDifference({{ outer_index }}, {{ loop.index }})"
-                style="background-color: #e8f4fd; margin-left: 10px;">
+                class="explanation_button">
             Explain
         </button>
     </span>
@@ -140,15 +140,15 @@ SPDX-License-Identifier: BSD-3-Clause
     <div id="ptxdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-diff">{{ kernel_diff.ptx_diff|e }}</code></pre>
     </div>
-    <div id="explanation_{{ outer_index }}_{{ loop.index }}" style="display:none; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin-top: 10px;">
-        <h4 style="margin-top: 0; color: #495057;">Code Difference Explanation</h4>
-        <div id="explanation_content_{{ outer_index }}_{{ loop.index }}" style="white-space: pre-wrap;">
+    <div id="explanation_{{ outer_index }}_{{ loop.index }}" class="explanation_div">
+        <h4 class="explanation_title">Code Difference Explanation</h4>
+        <div id="explanation_content_{{ outer_index }}_{{ loop.index }}" class="explanation_content">
             Loading explanation...
         </div>
-        <button onclick="hideExplanation({{ outer_index }}, {{ loop.index }})" style="float: right; margin-top: 10px; background-color: #6c757d; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer;">
+        <button onclick="hideExplanation({{ outer_index }}, {{ loop.index }})" class="explanation_close_button">
             Close
         </button>
-        <div style="clear: both;"></div>
+        <div class="explanation_clear"></div>
     </div>
 {%- endif -%}
 {%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}
