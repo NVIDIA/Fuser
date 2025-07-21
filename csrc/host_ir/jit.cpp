@@ -265,20 +265,6 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
   return value;
 }
 
-// Helper function to map current domain to input domain, 
-// boundary_vals tracks which high level domain has been visited
-Val* mapToInputDomain(
-    Val* currentDomain,
-    std::unordered_map<Val*, bool>& boundary_vals) {
-  for (auto it = boundary_vals.begin(); it != boundary_vals.end(); ++it) {
-    auto* domain = it->first->as<IterDomain>();
-    if (currentDomain->as<IterDomain>() == domain) {
-      return it->first;
-    }
-  }
-  return nullptr;
-}
-
 // Infer Tensor Shape and Strides
 void inferTensorShapesAndStrides(
     const TensorView* tv,
@@ -286,8 +272,8 @@ void inferTensorShapesAndStrides(
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  auto allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+  const std::vector<IterDomain*> allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   std::unordered_map<Val*, bool> boundary_vals;
   LinkedHashMap<IterDomain*, llvm::Value*> level_order_domains;
   std::vector<Merge*> last_level_merge_ops;
@@ -309,7 +295,7 @@ void inferTensorShapesAndStrides(
     {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
       const auto [outer_extent_value, outer_i] = level_order_domains.erase(split->outer());
-      NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != split->inner(), split->toString(), " is not a valid split");
+      NVF_ERROR(outer_i != level_order_domains.end() && outer_i->first == split->inner(), split->toString(), " is not a valid split");
       const auto [inner_extent_value, inner_i] = level_order_domains.erase(split->inner());
             
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
@@ -328,10 +314,6 @@ void inferTensorShapesAndStrides(
       level_order_domains.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      if(mapToInputDomain(merge->out(), boundary_vals)!= nullptr && 
-        mapToInputDomain(merge->inner(), boundary_vals)!= nullptr) {
-        last_level_merge_ops.push_back(merge);
-      }
       const auto [out_extent_value, out_i] = level_order_domains.erase(merge->out());
       
       // NOTE: we don't have a protocol to decide which iter domain to pad,
@@ -404,13 +386,20 @@ void inferTensorShapesAndStrides(
   }
 
   // We need to check last level merge ops, since there might be invalid order of merges
-  for (const auto* merge : last_level_merge_ops) {
-    const auto [outer_extent_value, outer_i] = level_order_domains.erase(merge->out());
-    NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
-    level_order_domains.insert(outer_i, merge->outer(), outer_extent_value);
-    const auto [inner_extent_value, inner_i] = level_order_domains.erase(merge->inner());
-    NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
-    level_order_domains.insert(inner_i, merge->inner(), inner_extent_value);
+  for (const auto& it: level_order_domains) {
+    auto* iter_domain = it.first;
+    for(auto use : iter_domain->uses()) {
+      if(auto* merge = dynamic_cast<Merge*>(use)) {
+        if(level_order_domains.contains(merge->inner()) && level_order_domains.contains(merge->outer())) {
+          const auto [outer_extent_value, outer_i] = level_order_domains.erase(merge->out());
+          NVF_ERROR(outer_i == level_order_domains.end() || outer_i->first != merge->inner(), merge->toString(), " is not a valid merge");
+          level_order_domains.insert(outer_i, merge->outer(), outer_extent_value);
+          const auto [inner_extent_value, inner_i] = level_order_domains.erase(merge->inner());
+          NVF_ERROR(inner_i == level_order_domains.end(), merge->toString(), " is not a valid merge");
+          level_order_domains.insert(inner_i, merge->inner(), inner_extent_value);
+        }
+      }
+    }
   }
 
   // Check if sizes and strides are the same size as logical domain
@@ -625,7 +614,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         tensor_strides);
 
     // Bounds checking for ndim
-    auto logical_domain = TensorDomain::noReductions(
+    const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(
         allocate->buffer()->as<TensorView>()->getLogicalDomain());
 
     NVF_ERROR_EQ(tensor_sizes.size(), logical_domain.size());
