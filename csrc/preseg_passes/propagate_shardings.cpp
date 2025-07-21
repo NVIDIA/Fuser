@@ -68,8 +68,8 @@ std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
         if (a_device_dims != b_device_dims) {
           return a_device_dims > b_device_dims;
         }
-        // Break ties by the total number of dimensions
-        return a->nDims() > b->nDims();
+        // Break ties by rank of device mesh.
+        return a->getDeviceMesh().rank() > b->getDeviceMesh().rank();
       });
 
   return tvs_with_mesh;
@@ -183,6 +183,10 @@ void transformLoopDomain(
     const TensorView* ref,
     const std::unordered_set<IterDomain*>& device_ids,
     PropagateDirection direction) {
+  if (!target->hasDeviceMesh()) {
+    target->setDeviceMesh(ref->getDeviceMesh());
+  }
+
   std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, target, direction);
 
@@ -312,16 +316,33 @@ void propagateDIDTransform(
     TensorView* tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
-  tv->setDeviceMesh(ref->getDeviceMesh());
-
   std::unordered_set<IterDomain*> device_ids;
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, tv, direction);
+
+  const auto& ref_mesh = ref->getDeviceMesh();
 
   for (IterDomain* device_id : ref->getLoopDomain()) {
     if (selected_parallel_types.count(device_id->getParallelType()) == 0) {
       continue;
     }
+
+    // If the target has a device mesh, the device id can only be propagated
+    // iff:
+    // 1. The device id parallel type is present in the device mesh.
+    // 2. The number of devices corresponding to the parallel type is same
+    // between the reference and target.
+    if (tv->hasDeviceMesh()) {
+      const auto& target_mesh = tv->getDeviceMesh();
+      const auto parallel_type = device_id->getParallelType();
+      if (!target_mesh.hasParallelType(parallel_type)) {
+        continue;
+      }
+      if (ref_mesh.size(parallel_type) != target_mesh.size(parallel_type)) {
+        continue;
+      }
+    }
+
     // Get input of device_id in the root / logical domain
     // that will be present in ref2target mapping.
     std::unordered_set<IterDomain*> inputs =
@@ -464,23 +485,22 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         tv->setDeviceMesh(ref_output->getDeviceMesh());
         continue;
       }
-      if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
-        sharding_candidates.push_back(tv);
-      }
+      sharding_candidates.push_back(tv);
     }
 
     if (sharding_candidates.empty()) {
       continue;
     }
 
-    std::unordered_set<ParallelType> selected_parallel_types =
-        getParallelTypesToPropagate(sharding_candidates);
-
-    propagateDIDTransform(
-        /*ref=*/ref_output,
-        /*tvs=*/sharding_candidates,
-        selected_parallel_types,
-        PropagateDirection::kBackward);
+    for (TensorView* target : sharding_candidates) {
+      std::unordered_set<ParallelType> selected_parallel_types =
+          getParallelTypesToPropagate({target});
+      propagateDIDTransform(
+          /*ref=*/ref_output,
+          /*tvs=*/{target},
+          selected_parallel_types,
+          PropagateDirection::kBackward);
+    }
   }
 }
 
