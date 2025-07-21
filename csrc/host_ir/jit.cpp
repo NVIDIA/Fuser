@@ -287,8 +287,7 @@ void inferTensorShapeNoReorder(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& sizes) {
-  for (const auto i : arange(symbolic_sizes.size())) {
-    auto* symbolic_size = symbolic_sizes[i];
+  for (auto* symbolic_size : symbolic_sizes) {
     auto* inferred_val = getOrCreateValueForExtent(symbolic_size, val_to_value, builder);
     NVF_ERROR(
         inferred_val != nullptr,
@@ -318,9 +317,7 @@ void inferTensorStrideNoReorder(
       stride = builder.getInt64(0);
     } else {
       // Handle null size values by treating them as size 1 (safety check)
-      if (size == nullptr) {
-        size = builder.getInt64(1);
-      }
+      NVF_ERROR(size != nullptr, "LLVM Lowering Error: inferTensorStrideNoReorder called with nullptr size for ", i);
       // Create comparison: size == 0
       llvm::Value* is_zero = builder.CreateICmpEQ(size, builder.getInt64(0));
 
