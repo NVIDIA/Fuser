@@ -194,9 +194,8 @@ llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*
     llvm::Value* one = builder.getInt64(1);
     numerator = builder.CreateSub(numerator, one);
     return builder.CreateUDiv(numerator, rhs_value);
-  } else {
-    NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
   }
+  NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
   return nullptr;
 }
 
@@ -211,9 +210,8 @@ llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, l
     return builder.CreateSelect(is_negative, negated, in_value);
   } else if(unary_op->getUnaryOpType() == UnaryOpType::Neg) {
     return builder.CreateNeg(in_value);
-  } else {
-    NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
   }
+  NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
   return nullptr;
 }
 
@@ -227,9 +225,8 @@ llvm::Value* createValueForExtent(
         return getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
       }
       return builder.getInt64(1);
-    } else {
-      return getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
     }
+    return getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
   } else if (val->isConst()) {
     return builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
@@ -237,18 +234,17 @@ llvm::Value* createValueForExtent(
       return createValueForBinaryOp(binary_op, val_to_value, builder);
     } else if (auto* unary_op = def->as<UnaryOp>()) {
       return createValueForUnaryOp(unary_op, val_to_value, builder);
-    } else {
-      NVF_THROW(
-        "LLVM Lowering Error: createValueForExtent called with unsupported "
-        "expression type: ",
-        def->getOpString());
     }
-  } else {
     NVF_THROW(
-        "LLVM Lowering Error: createValueForExtent called with unfounded "
-        "val: ",
-        val->toString());
+      "LLVM Lowering Error: createValueForExtent called with unsupported "
+      "expression type: ",
+      def->getOpString());
+    return nullptr;
   }
+  NVF_THROW(
+      "LLVM Lowering Error: createValueForExtent called with unfounded "
+      "val: ",
+      val->toString());
   return nullptr;
 }
 
