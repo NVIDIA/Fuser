@@ -278,7 +278,7 @@ void inferTensorShapesAndStrides(
   const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   const std::vector<IterDomain*> allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
   LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
-  
+
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
@@ -293,7 +293,7 @@ void inferTensorShapesAndStrides(
       const auto [outer_extent, outer_i] = id_to_allocation_size.erase(split->outer());
       NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " invalid split: inner is expected to appear immediately after outer");
       const auto [inner_extent, inner_i] = id_to_allocation_size.erase(split->inner());
-            
+
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
       // So that in a merge op, we can merge between two local iter domain between one device dimension?
@@ -305,13 +305,13 @@ void inferTensorShapesAndStrides(
       if(split->inner()->isDeviceDim()) {
         rhs = builder.getInt64(1);
       }
-      
+
       llvm::Value* in_extent = builder.CreateMul(lhs, rhs);
       id_to_allocation_size.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       const auto [out_extent, out_i] = id_to_allocation_size.erase(merge->out());
-      
+
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
       // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which is a ceilDiv
@@ -319,7 +319,7 @@ void inferTensorShapesAndStrides(
       llvm::Value* minus_one = builder.CreateSub(outer_extent, builder.getInt64(1));
       llvm::Value* plus_value = builder.CreateAdd(out_extent, minus_one);
       llvm::Value* inner_extent = builder.CreateUDiv(plus_value, outer_extent);
-        
+
       id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
       id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
     } else {
@@ -334,7 +334,7 @@ void inferTensorShapesAndStrides(
   auto permutation = ir_utils::computePermutation(
     logical_domain, propagated_allocation_domains);
   NVF_ERROR(permutation.has_value(), "LLVM Lowering Error: Failed to compute permutation");
-  
+
   // Map last level propagated allocation domains to logical domain
   // we should be able to get the permutation between them
   llvm::Value* alter_stride_value = builder.getInt64(1);
@@ -363,7 +363,7 @@ void inferTensorShapesAndStrides(
 
   sizes.resize(allocation_sizes_values.size());
   strides.resize(allocation_strides_values.size());
-  
+
   // Apply permutation correctly by mapping from allocation domain order to logical domain order
   for(size_t i = 0; i < allocation_sizes_values.size(); ++i) {
     size_t logical_idx = permutation.value()[i];
