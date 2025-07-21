@@ -157,28 +157,22 @@ void memoryAnalysis(llvm::IRBuilder<>& builder) {
     return; // No delete function available
   }
 
-  // First pass: find all new_tensor allocations and track uses
+  // First pass: find all new_tensor allocations
   for (llvm::BasicBlock& bb : *main_func) {
     for (llvm::Instruction& inst : bb) {
       // Track new_tensor allocations
       if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
         if (auto* callee = call->getCalledFunction()) {
-          if (callee->getName() == kNewTensorFuncName) {
+          if (callee->getName() == llvm::StringRef(kNewTensorFuncName)) {
             tensor_ptrs.insert(call);
             last_use[call] = &inst;
           }
         }
       }
-      // Track uses of tensor pointers
-      for (llvm::Value* op : inst.operands()) {
-        if (tensor_ptrs.count(op)) {
-          last_use[op] = &inst;
-        }
-      }
       // Remove from tracking if already deleted
       if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
         if (auto* callee = call->getCalledFunction()) {
-          if (callee->getName() == kDeleteTensorFuncName) {
+          if (callee->getName() == llvm::StringRef(kDeleteTensorFuncName)) {
             llvm::Value* arg = call->getArgOperand(0);
             tensor_ptrs.erase(arg);
             last_use.erase(arg);
@@ -188,13 +182,26 @@ void memoryAnalysis(llvm::IRBuilder<>& builder) {
     }
   }
 
-  // Second pass: insert delete_tensor after last use (unless output)
+  // Second pass: find last use of each tensor using LLVM's getUses()
+  for (llvm::Value* tensor : tensor_ptrs) {
+    for (const llvm::Use& use : tensor->uses()) {
+      if (auto* inst = llvm::dyn_cast<llvm::Instruction>(use.getUser())) {
+        // Update last use if this instruction comes after current last use
+        auto it = last_use.find(tensor);
+        if (it == last_use.end() || inst->comesBefore(it->second)) {
+          last_use[tensor] = inst;
+        }
+      }
+    }
+  }
+
+  // Third pass: insert delete_tensor after last use (unless output)
   for (const auto& [tensor, inst] : last_use) {
     // Check if tensor is stored to output array (skip deletion for outputs)
     bool is_output = false;
-    for (const llvm::User* user : tensor->users()) {
-      if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(user)) {
-        llvm::Value* ptr = store->getPointerOperand();
+    for (const llvm::Use& use : tensor->uses()) {
+      if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(use.getUser())) {
+        const llvm::Value* ptr = store->getPointerOperand();
         if (ptr->hasName() && ptr->getName().contains(kMainFuncOutputTensorName)) {
           is_output = true;
           break;
