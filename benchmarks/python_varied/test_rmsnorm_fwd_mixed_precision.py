@@ -8,9 +8,8 @@ from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXEC
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
-from .torch_ops import rmsnorm
 
-# purpose: test fusion with mixed data types for vectorization.
+# purpose: test fusion with mixed input precisions.
 # inputs: [bfloat16, float32]
 # output: [bfloat16]
 def rmsnorm_x_fp16_weight_fp32_out_fp16(inputs: list):
@@ -18,8 +17,6 @@ def rmsnorm_x_fp16_weight_fp32_out_fp16(inputs: list):
     squared_mean = (inp**2).mean(1, keepdim=True)
     rms_eps = torch.sqrt(squared_mean + 1e-5)
     output = weights * (inp / rms_eps)
-    # input has float32, thunder's policy will return output as float32
-    # but we want to return it as bfloat16
     return output.to(dtype=inp.dtype)
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))

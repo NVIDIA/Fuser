@@ -968,20 +968,19 @@ PersistentKernelProperties getPersistentKernelProperties(
   vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
+  // Allow to use 256-bit vectorization for inner persistent scheduler.
+  // TODO: check outer persistent scheduler.
   vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       reduced_tv,
       data_cache,
       vec_break_point.get(),
-      std::getenv("USE_MAIN") || !properties.fastest_dim_reduction
-          ? 128
-          : getMaxVectorizationSizeInBit());
+      properties.fastest_dim_reduction ? getMaxVectorizationSizeInBit() : 128);
 
   // Used by inner persistent and outer persistent kernels.
   // These two heurisics were tuned to work with a maximum vectorization factor
   // of 8. This change is to allow the use of vectorization of 8 when there are
-  // both bfloat16 and float tensors in the fusion inputs, e.g. rms norm may
-  // have input tensor as bfloat16 and weight as float.
+  // both bfloat16 and float tensors in the fusion inputs or outputs.
   vectorize_factor = std::min(vectorize_factor, (int64_t)8);
 
   auto persistent_buffer_info_entry =
