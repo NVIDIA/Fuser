@@ -178,7 +178,6 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
-// Helper function to translate: nvfuser binary op -> llvm binary instruction
 llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
@@ -203,7 +202,6 @@ llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*
   return nullptr;
 }
 
-// Helper function to translate: nvfuser unary op -> llvm unary instruction
 llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
   llvm::Value* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
@@ -221,7 +219,6 @@ llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, l
   return nullptr;
 }
 
-// Helper function to generically translate: nvfuser val -> llvm value
 llvm::Value* createValueForExtent(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -257,7 +254,6 @@ llvm::Value* createValueForExtent(
   return nullptr;
 }
 
-// Helper function to lookup llvm value for nvfuser val, if not found, recursively create it
 llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
   auto it = val_to_value.find(extent);
   if (it != val_to_value.end()) {
@@ -269,7 +265,8 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
   return value;
 }
 
-// Helper function to map current domain to input domain
+// Helper function to map current domain to input domain, 
+// boundary_vals tracks which high level domain has been visited
 Val* mapToInputDomain(
     Val* currentDomain,
     std::unordered_map<Val*, bool>& boundary_vals) {
