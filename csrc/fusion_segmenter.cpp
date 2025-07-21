@@ -4508,7 +4508,7 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
             upcast_op->input(0)->as<TensorView>());
 
         TransformReplay::selfReplay(
-            maybe_upcast_out_tv->domain(), out_tv_clone->domain());
+            maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
 
       } else {
         auto squeeze_op =
