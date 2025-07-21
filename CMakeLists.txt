@@ -478,7 +478,7 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
-if(BUILD_CUTLASS)
+if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
   target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
   target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
