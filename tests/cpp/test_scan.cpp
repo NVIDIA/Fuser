@@ -26,7 +26,7 @@ TEST_F(ScanTest, BasicScanAdd) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -46,7 +46,7 @@ TEST_F(ScanTest, BasicScanMax) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Max).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -66,7 +66,7 @@ TEST_F(ScanTest, BasicScanMin) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Min).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -86,7 +86,7 @@ TEST_F(ScanTest, BasicScanMul) {
 
   auto tv0 = makeConcreteTensor({4, 8});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul);
+  auto tv_result = scan(tv0, /*dim=*/1, BinaryOpType::Mul).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -106,7 +106,7 @@ TEST_F(ScanTest, ScanDifferentDimensions) {
 
   auto tv0 = makeConcreteTensor({2, 4, 6});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -126,7 +126,7 @@ TEST_F(ScanTest, Scan1D) {
 
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
-  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add);
+  auto tv_result = scan(tv0, /*dim=*/0, BinaryOpType::Add).inclusive;
   fusion.addOutput(tv_result);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -155,7 +155,7 @@ TEST_F(ScanTest, ScanWithSimpleArithmetic) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
 
   // Scan operation
-  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add);
+  auto tv2 = scan(tv1, /*dim=*/1, BinaryOpType::Add).inclusive;
 
   fusion.addOutput(tv2);
 
@@ -184,7 +184,7 @@ TEST_F(ScanTest, ScanWithArithmeticOps) {
   auto tv3 = sub(tv2, IrBuilder::create<Val>(0.5));
 
   // Scan operation
-  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add);
+  auto tv4 = scan(tv3, /*dim=*/1, BinaryOpType::Add).inclusive;
 
   // Additional operation after scan
   auto tv5 = div(tv4, IrBuilder::create<Val>(3.0));

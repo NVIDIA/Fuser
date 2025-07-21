@@ -2554,50 +2554,94 @@ TopKResult topk(
       out_values->as<TensorView>(), out_indices->as<TensorView>());
 }
 
-TensorView* scan(
-    TensorView* in_tv,
+ScanResult scan(
+    TensorView* tv,
     int64_t dim,
     BinaryOpType op_type,
-    Val* init) {
+    Val* init,
+    Val* discount_factor,
+    bool return_exclusive,
+    bool return_reduction) {
   const std::vector<IterDomain*> logical_dom =
-      TensorDomain::noReductions(in_tv->getLogicalDomain());
+      TensorDomain::noReductions(tv->getLogicalDomain());
 
   dim = wrapDim(dim, (int64_t)logical_dom.size());
 
   IterDomain* scan_id = logical_dom.at((size_t)dim);
 
-  // Special case: scanning along broadcast dimension is no-op
-  // Assumes init is identity for op_type
-  if (scan_id->isBroadcast()) {
-    NVF_ERROR(
-        !scan_id->hasExpandedExtent(),
-        "Closed-form scan of expanded dimension is not yet implemented");
-    return set(in_tv);
-  }
-
-  DataType dtype = in_tv->dtype();
-  auto new_dom = ops::newOutputDomain({in_tv});
-  auto* td = IrBuilder::create<TensorDomain>(
-      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  auto out_tv = IrBuilder::create<TensorView>(td, in_tv->dtype());
-
   if (init == nullptr) {
-    init = ops::binOpIdentity(op_type, dtype);
+    init = ops::binOpIdentity(op_type, tv->dtype());
     NVF_ERROR(init != nullptr);
   }
 
-  IrBuilder::createInContainer<ScanOp>(
-      in_tv->container(), op_type, init, out_tv, in_tv, dim);
+  // Special case: scanning along broadcast dimension is no-op
+  // Assumes init is identity for op_type
+  if (scan_id->isBroadcast()) {
+    if (scan_id->hasExpandedExtent()) {
+      NVF_THROW(
+          "Closed-form scan of expanded dimension is not yet implemented");
+    }
+    // Exclusive scan is just the init val
+    return {set(tv), mul(init, ones_like(tv))};
+  }
 
-  return out_tv;
+  std::vector<IterDomain*> new_dom;
+  DataType dtype = tv->dtype();
+  if (discount_factor == nullptr) {
+    new_dom = ops::newOutputDomain({tv});
+  } else {
+    new_dom = ops::newOutputDomain({tv, discount_factor});
+    dtype = promoteType(tv->dtype(), discount_factor->dtype());
+    tv = maybeCastOp(dtype, tv);
+    discount_factor = maybeCastOp(dtype, discount_factor);
+  }
+  new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
+                                .iter_type(IterType::Scan)
+                                .build();
+  auto* td = IrBuilder::create<TensorDomain>(
+      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
+
+  ScanResult result;
+
+  result.inclusive = IrBuilder::create<TensorView>(td, tv->dtype());
+
+  if (return_exclusive) {
+    result.exclusive = ops::newOutputTV({result.inclusive}, tv->dtype());
+  }
+
+  if (return_reduction) {
+    std::vector<IterDomain*> red_dom = ops::newOutputDomain({tv});
+    red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
+                                  .iter_type(IterType::Reduction)
+                                  .build();
+    auto* red_td = IrBuilder::create<TensorDomain>(
+        red_dom, TensorDomain::getContiguityFilledWith(red_dom, true));
+
+    result.reduction = IrBuilder::create<TensorView>(red_td, tv->dtype());
+  }
+
+  IrBuilder::createInContainer<ScanOp>(
+      tv->container(),
+      op_type,
+      result.inclusive,
+      result.exclusive,
+      result.reduction,
+      tv,
+      discount_factor,
+      init,
+      dim);
+
+  return result;
 }
 
-TensorView* prefixSum(TensorView* tv, int64_t dim) {
+TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
   return scan(
-      tv,
-      dim,
-      BinaryOpType::Add,
-      /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+             tv,
+             dim,
+             BinaryOpType::Add,
+             /*init=*/tv->fusion()->zeroVal(tv->dtype()),
+             discount_factor)
+      .inclusive;
 }
 
 } // namespace nvfuser

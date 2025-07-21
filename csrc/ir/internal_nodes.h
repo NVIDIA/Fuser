@@ -3311,12 +3311,17 @@ class ScanOp : public Expr {
  public:
   using Expr::Expr;
 
+  // NOTE: We translate these nodes to other nodes during indexing, so we should
+  // never expect to receive TensorIndex arguments here
   ScanOp(
       IrBuilderPasskey,
       BinaryOpType op_type,
+      TensorView* output_inclusive,
+      TensorView* output_exclusive,
+      TensorView* output_reduction,
+      TensorView* input,
+      Val* discount_factor,
       Val* init,
-      Val* out,
-      Val* in,
       int64_t dim);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -3329,24 +3334,52 @@ class ScanOp : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   //! Returns the inclusive scan output
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* in() const {
-    return input(0);
+  //! Returns the exclusive scan output if available, otherwise nullptr
+  TensorView* outExclusive() const {
+    if (!hasExclusive()) {
+      return nullptr;
+    }
+    return output(1)->as<TensorView>();
   }
 
-  Val* init() const {
-    return attributeVal(0);
+  //! Returns the exclusive scan output if available, otherwise nullptr
+  TensorView* outReduction() const {
+    if (!hasReduction()) {
+      return nullptr;
+    }
+    return output(hasExclusive() ? 2 : 1)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  Val* discountFactor() const {
+    return inputs().size() > 1 ? input(1) : nullptr;
   }
 
   BinaryOpType opType() const {
-    return attribute<BinaryOpType>(1);
+    return attribute<BinaryOpType>(0);
   }
 
   int64_t scanDim() const {
-    return attribute<int64_t>(2);
+    return attribute<int64_t>(1);
+  }
+
+  bool hasExclusive() const {
+    return attribute<bool>(2);
+  }
+
+  bool hasReduction() const {
+    return attribute<bool>(3);
+  }
+
+  Val* init() const {
+    return attributeVal(4);
   }
 
   std::vector<PolymorphicValue> evaluate(
