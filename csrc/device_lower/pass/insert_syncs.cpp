@@ -737,6 +737,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // last_writes is in the generic proxy
     const lower_utils::MemoryProxy consumer_proxy =
         lower_utils::getMemoryProxy(insert_before_expr);
+    // TODO: make this a utility and handle other ops
+    bool consumer_is_single_warp_collective =
+        ir_utils::isCpAsyncBulkStore(insert_before_expr);
     std::unordered_set<MemoryType> guarded_memtypes;
     bool needs_proxy_fence = false;
     for (Expr* write_expr : last_writes) {
@@ -770,7 +773,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
               guarded_memtypes.count(MemoryType::Shared) == 1,
           "We currently only support fence.proxy.async.shared::cta, but other "
           "memory types were detected.");
-      auto* fence_expr = IrBuilder::create<kir::FenceAsyncProxy>();
+      Expr* fence_expr = IrBuilder::create<kir::FenceAsyncProxy>();
+
+      if (consumer_is_single_warp_collective) {
+        // Add an ElectSync predicate to TMA store
+        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+        Val* select_first_warp = IrBuilder::ltExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+        auto* select_warp_pred =
+            IrBuilder::create<kir::Predicate>(select_first_warp);
+        fence_expr = fence_expr->withPredicate(select_warp_pred);
+      }
+
       registerInsertBefore(place_before, fence_expr, &placed_in_fl->body());
     }
 

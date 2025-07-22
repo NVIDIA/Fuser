@@ -243,6 +243,11 @@ void UnrollPass::dispatch(Expr* expr) {
       elect_sync_scope_ = scope_.back();
     }
     kir::ExprMutator::handle(ite);
+  } else if (kir::Predicate* pred = expr->predicate()) {
+    // For non-TV ops that have a predicate
+    kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+    kir::ExprMutator::registerReplace(expr, inline_ite);
+    inline_ite->thenBody().push_back(expr);
   }
 }
 
