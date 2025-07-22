@@ -731,10 +731,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       placed_in_fl = place_in;
     }
 
-    // Insert fence if necessary
     // We insert a ProxyFence whenever the consuming operation
     // (insert_before_expr) is in the async proxy and any of the definitions of
-    // last_writes is in the generic proxy
+    // last_writes is in the generic proxy or vice versa. So here we check
+    // whether the proxies match between consumer and every last_write.
     const lower_utils::MemoryProxy consumer_proxy =
         lower_utils::getMemoryProxy(insert_before_expr);
     // TODO: make this a utility and handle other ops
