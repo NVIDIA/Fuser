@@ -498,7 +498,15 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       // Add a fence before TMA store so that writes in the generic proxy is
       // visible to the async proxy.
       auto scope = scope_.empty() ? nullptr : scope_.back();
-      auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+      Expr* fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+      // Predicate the fence to select the first warp. TMA store is warp
+      // collective so ElectSync is not needed.
+      Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+      Val* select_first_warp = IrBuilder::ltExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+      auto* select_warp_pred =
+          IrBuilder::create<kir::Predicate>(select_first_warp);
+      fence_async = fence_async->withPredicate(select_warp_pred);
       registerInsertBefore(expr, fence_async, scope);
     }
 
