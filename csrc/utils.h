@@ -73,6 +73,9 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
+// Get the maximum vectorization size in bits for the current CUDA device
+int64_t getMaxVectorizationSizeInBit();
+
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.
 bool useFallback();
