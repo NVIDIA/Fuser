@@ -770,8 +770,16 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
               guarded_memtypes.count(MemoryType::Shared) == 1,
           "We currently only support fence.proxy.async.shared::cta, but other "
           "memory types were detected.");
-      auto* fence_expr = IrBuilder::create<kir::FenceAsyncProxy>();
-      registerInsertBefore(place_before, fence_expr, &placed_in_fl->body());
+      Expr* fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+      // Predicate the fence to select the first warp. TMA store is warp
+      // collective so ElectSync is not needed.
+      Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+      Val* select_first_warp = IrBuilder::ltExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+      auto* select_warp_pred =
+          IrBuilder::create<kir::Predicate>(select_first_warp);
+      fence_async = fence_async->withPredicate(select_warp_pred);
+      registerInsertBefore(place_before, fence_async, &placed_in_fl->body());
     }
 
     return placed_in_fl;
