@@ -4476,6 +4476,11 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         continue;
       }
 
+      if (maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>() &&
+          maybe_upcast_squeeze_out_tv->uses().size() > 2) {
+        continue; // SqueezeOp with more than 2 uses is not supported
+      }
+
       // Check if there's multiple uses of the upcast/squeeze output
       auto uses_of_out_tv = maybe_upcast_squeeze_out_tv->uses();
       if (uses_of_out_tv.size() < 2) {
