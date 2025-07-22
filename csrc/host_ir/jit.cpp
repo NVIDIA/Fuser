@@ -50,9 +50,9 @@ constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kMainFuncOutputTensorName = "main_output_aten_tensor";
-constexpr std::string_view kFuserPerfScopeFuncName = "fuser_perf_scope";
+constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
+constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr size_t kMaxTensorDim = 8;
-constexpr bool kEnableHostIrJitFuserPerfScope = true;
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -136,14 +136,10 @@ llvm::Type* getVoidType(llvm::LLVMContext& context) {
   return llvm::Type::getVoidTy(context);
 }
 
-// Helper function to insert FUSER_PERF_SCOPE call
-void insertFuserPerfScope(const char* op_name, llvm::IRBuilder<>& builder) {
-  if (!kEnableHostIrJitFuserPerfScope) {
-    return;
-  }
-  
+// Helper function to insert nvtxRangePush call
+void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* fuser_perf_scope_func = module->getFunction(kFuserPerfScopeFuncName);
+  llvm::Function* nvtx_range_push_func = module->getFunction(kNvtxRangePushFuncName);
   
   // Create string constant and global variable (required for LLVM, otherwise there is a bitcast error)
   llvm::Constant* op_name_constant = llvm::ConstantDataArray::getString(
@@ -160,8 +156,16 @@ void insertFuserPerfScope(const char* op_name, llvm::IRBuilder<>& builder) {
   llvm::Value* op_name_ptr = builder.CreateBitCast(
       op_name_global, getInt8PtrType(module->getContext()));
 
-  // Call FUSER_PERF_SCOPE function
-  builder.CreateCall(fuser_perf_scope_func, {op_name_ptr});
+  // Call nvtxRangePush function
+  builder.CreateCall(nvtx_range_push_func, {op_name_ptr});
+}
+
+void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* nvtx_range_pop_func = module->getFunction(kNvtxRangePopFuncName);
+  
+  // Call nvtxRangePop function
+  builder.CreateCall(nvtx_range_pop_func, {});
 }
 
 // Helper function to do memory analysis, which is similar to the one in
@@ -306,6 +310,8 @@ void unpackInputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
 
+  insertNvtxRangePush(builder);
+
   // Get the current function (main) and its first argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* aten_tensor_array_ptr = func->getArg(0);
@@ -342,7 +348,7 @@ void unpackInputs(
     // bind input aten tensor to val_to_value
     val_to_value[tv] = tensor;
   }
-
+  insertNvtxRangePop(builder);
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     printLlvmIr(func, "Main Function Inputs");
   }
@@ -353,7 +359,7 @@ void packOutputs(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
-
+  insertNvtxRangePush(builder);
   // Get the current function (main) and its second argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* aten_tensor_array_ptr = func->getArg(1);
@@ -373,6 +379,7 @@ void packOutputs(
     builder.CreateStore(tensor_from_val_to_value, tensor_addr);
   }
   builder.CreateRetVoid();
+  insertNvtxRangePop(builder);
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     printLlvmIr(func, "Main Function Outputs");
   }
@@ -445,12 +452,20 @@ void compileFunctionDeclarations(
       kDeleteTensorFuncName,
       module);
   
-  // fuser_perf_scope function: void fuser_perf_scope(const char* name)
-  auto* fuser_perf_scope_type = llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
+  // nvtx_range_push function: void nvtx_range_push(const char* name)
+  auto* nvtx_range_push_type = llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
   llvm::Function::Create(
-      fuser_perf_scope_type,
+      nvtx_range_push_type,
       llvm::Function::ExternalLinkage,
-      kFuserPerfScopeFuncName,
+      kNvtxRangePushFuncName,
+      module);
+
+  // nvtx_range_pop function: void nvtx_range_pop()
+  auto* nvtx_range_pop_type = llvm::FunctionType::get(void_type, {}, false);
+  llvm::Function::Create(
+      nvtx_range_pop_type,
+      llvm::Function::ExternalLinkage,
+      kNvtxRangePopFuncName,
       module);
 
   // main function: void main(void** input_tensors, void** output_tensors)
@@ -496,8 +511,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
-    
-    insertFuserPerfScope(load_store_op->getOpString(), builder_);
   }
 
   // Allocate Function LLVM IR Generation
@@ -586,7 +599,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
          raw_tensor_ptr});
     val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
     
-    insertFuserPerfScope(allocate->getOpString(), builder_);
   }
 
   // Deallocation Function LLVM IR Generation
@@ -598,7 +610,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
         delete_tensor_func,
         {val_to_value_.at(deallocate->buffer()->as<Val>())});
     
-    insertFuserPerfScope(deallocate->getOpString(), builder_);
   }
 
  private:
@@ -628,7 +639,9 @@ void HostIrJitImpl::compile() {
   HostIrCompileDispatcher dispatcher(builder, val_to_value);
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
+    insertNvtxRangePush(expr->getOpString(), builder);
     dispatcher.dispatch(expr);
+    insertNvtxRangePop(builder);
     if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
       printLlvmIr(builder.GetInsertBlock()->getParent(), expr->getOpString());
     }
@@ -729,8 +742,12 @@ void HostIrJitImpl::registerExternalFunctions() {
       +[](at::Tensor* tensor) -> void { delete tensor; });
 
   // insert fuser perf scope
-  void* fuser_perf_scope_func_ptr = reinterpret_cast<void*>(+[](const char* name) -> void {
-    FUSER_PERF_SCOPE(name);
+  void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(+[](const char* name) -> void {
+    nvtxRangePush(name);
+  });
+
+  void* nvtx_range_pop_func_ptr = reinterpret_cast<void*>(+[]() -> void {
+    nvtxRangePop();
   });
 
   // Register wrapper functions in JIT
@@ -752,10 +769,15 @@ void HostIrJitImpl::registerExternalFunctions() {
       mangler,
       kAtEmptyStridedCudaWrapper);
   registerExternalFunction(
-      fuser_perf_scope_func_ptr,
+      nvtx_range_push_func_ptr,
       name_to_symbol,
       mangler,
-      kFuserPerfScopeFuncName);
+      kNvtxRangePushFuncName);
+  registerExternalFunction(
+      nvtx_range_pop_func_ptr,
+      name_to_symbol,
+      mangler,
+      kNvtxRangePopFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
