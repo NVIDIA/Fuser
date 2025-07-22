@@ -144,9 +144,6 @@ void insertFuserPerfScope(const char* op_name, llvm::IRBuilder<>& builder) {
   
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
   llvm::Function* fuser_perf_scope_func = module->getFunction(kFuserPerfScopeFuncName);
-  if (!fuser_perf_scope_func) {
-    return; // Function not available
-  }
   
   // Create string constant and global variable (required for LLVM, otherwise there is a bitcast error)
   llvm::Constant* op_name_constant = llvm::ConstantDataArray::getString(
