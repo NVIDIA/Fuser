@@ -1668,8 +1668,6 @@ TEST_F(AllocationDomainTest, SmemAllocationDomainChanged) {
   tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
   ASSERT_FALSE(fusion->bankConflictInfo().empty());
 
-  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   // shape: (x, y), alloc: (y, x), stride: (1, x)
   auto t0 = at::randn({512, 32}, options).as_strided({512, 32}, {1, 512});
