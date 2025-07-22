@@ -310,7 +310,7 @@ void unpackInputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
 
-  insertNvtxRangePush(builder);
+  insertNvtxRangePush("unpackInputs", builder);
 
   // Get the current function (main) and its first argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
@@ -359,7 +359,7 @@ void packOutputs(
     llvm::IRBuilder<>& builder,
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
-  insertNvtxRangePush(builder);
+  insertNvtxRangePush("packOutputs", builder);
   // Get the current function (main) and its second argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* aten_tensor_array_ptr = func->getArg(1);
