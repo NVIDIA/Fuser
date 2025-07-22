@@ -333,39 +333,39 @@ void inferTensorShapesAndStrides(
 
   // Map last level propagated allocation domains to logical domain
   // we should be able to get the permutation between them
-  llvm::Value* alter_stride_value = builder.getInt64(1);
-  std::vector<llvm::Value*> allocation_sizes_values;
-  std::vector<llvm::Value*> allocation_strides_values;
+  llvm::Value* allocation_order_stride = builder.getInt64(1);
+  std::vector<llvm::Value*> propagated_allocation_sizes;
+  std::vector<llvm::Value*> propagated_allocation_strides;
   for(auto it : propagated_allocation_domains | std::views::reverse) {
     if(it->isBroadcast()) {
-      allocation_sizes_values.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
-      allocation_strides_values.push_back(builder.getInt64(0));
+      propagated_allocation_sizes.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
+      propagated_allocation_strides.push_back(builder.getInt64(0));
     }
     else{
       auto [extent, out_i] = id_to_allocation_size.erase(it);
       id_to_allocation_size.insert(out_i, it, extent);
-      allocation_sizes_values.push_back(extent);
-      allocation_strides_values.push_back(alter_stride_value);
-      alter_stride_value = builder.CreateMul(alter_stride_value, extent);
+      propagated_allocation_sizes.push_back(extent);
+      propagated_allocation_strides.push_back(allocation_order_stride);
+      allocation_order_stride = builder.CreateMul(allocation_order_stride, extent);
     }
   }
-  std::reverse(allocation_sizes_values.begin(), allocation_sizes_values.end());
-  std::reverse(allocation_strides_values.begin(), allocation_strides_values.end());
+  std::reverse(propagated_allocation_sizes.begin(), propagated_allocation_sizes.end());
+  std::reverse(propagated_allocation_strides.begin(), propagated_allocation_strides.end());
 
-  sizes.resize(allocation_sizes_values.size());
-  strides.resize(allocation_strides_values.size());
+  sizes.resize(propagated_allocation_sizes.size());
+  strides.resize(propagated_allocation_strides.size());
 
   // Apply permutation correctly by mapping from allocation domain order to logical domain order
   // Skip reduction dimensions, since they don't contribute to the actual tensor memory allocation
-  for(size_t i = 0; i < allocation_sizes_values.size(); ++i) {
+  for(size_t i = 0; i < propagated_allocation_sizes.size(); ++i) {
     size_t logical_idx = permutation.value()[i];
     if(logical_domain[logical_idx]->isReduction()) {
       sizes.erase(sizes.begin() + logical_idx);
       strides.erase(strides.begin() + logical_idx);
       continue;
     }
-    sizes[logical_idx] = allocation_sizes_values[i];
-    strides[logical_idx] = allocation_strides_values[i];
+    sizes[logical_idx] = propagated_allocation_sizes[i];
+    strides[logical_idx] = propagated_allocation_strides[i];
   }
 
   // We need to check last level merge ops, since there might be invalid order of merges
