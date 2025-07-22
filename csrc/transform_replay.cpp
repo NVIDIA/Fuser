@@ -181,9 +181,6 @@ class ReplaySelf : public ReplayTransformations {
     setErrorOnFailure(false);
   }
   const std::vector<IterDomain*>& getReplayedOrderedDomain() const {
-    if (!ran_replay_) {
-      runReplay();
-    }
     return ordered_domain_;
   }
 };
@@ -1501,8 +1498,9 @@ void selfReplayLoopToAllocation(TensorView* tv) {
   // 1. Given a loop domain, find the logical domain that poduces it.
   // 2. Map the logical domain to the allocation domain.
   // 3. Do the same transformation on the allocation domain.
-  std::vector<IterDomain*> alloc_copy = alloc;
-  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map, alloc_copy);
+  // The mapping flow is: loop --> logical --> alloc --> transformed alloc
+  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map, alloc);
+  replay.runReplay();
   tv->setAllocationDomain(replay.getReplayedOrderedDomain(), true);
 }
 

@@ -100,8 +100,9 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -139,8 +140,9 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -179,8 +181,9 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -226,8 +229,9 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(
       &fusion,
@@ -286,8 +290,9 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(
       &fusion,
@@ -347,8 +352,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -407,8 +413,9 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -463,8 +470,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -524,8 +532,9 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -593,8 +602,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -658,8 +668,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -736,8 +747,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -801,8 +813,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -872,8 +885,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -944,8 +958,9 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1035,8 +1050,9 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(
+      cg_outputs[0].as<at::Tensor>().is_contiguous(
+          at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1595,8 +1611,6 @@ TEST_F(AllocationDomainTest, ManualReplayLoopToAllocation) {
   // }
   // where iS11{3} and iS15{3} are in the same set.
 
-  fusion->print();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
   auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
@@ -1630,7 +1644,15 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
   selfReplayLoopToAllocation(tv1);
 
-  fusion->print();
+  // check allocation domain of tv1, expect:
+  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+  const auto& alloc = tv1->getMaybeAllocationDomain();
+  ASSERT_EQ(alloc.size(), 4);
+  ASSERT_EQ(alloc[0]->extent()->value(), tv1->axis(1)->extent()->value());
+  ASSERT_EQ(alloc[1]->extent()->value(), tv1->axis(2)->extent()->value());
+  ASSERT_EQ(alloc[2]->extent()->value(), tv1->axis(0)->extent()->value());
+  ASSERT_EQ(alloc[3]->extent()->value(), tv1->axis(3)->extent()->value());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
