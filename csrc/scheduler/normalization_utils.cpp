@@ -1622,8 +1622,8 @@ void schedulePersistentKernel(
   // input if it is a persistent buffer. This won't increase register usage
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
-  bool unroll_persistent_cached_inputs =
-      rparams->vectorize_inner_reduction && rparams->fastest_dim;
+  bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
+      rparams->fastest_dim && !rparams->schedule_3D;
   if (unroll_persistent_cached_inputs) {
     for (auto tv : cached_inputs) {
       if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
