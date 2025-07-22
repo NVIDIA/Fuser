@@ -52,13 +52,10 @@ void UnrollPass::dispatch(Expr* expr) {
   }
 
   // short-circuit: mbarrier_init or mbarrier_inval with elect sync predicate.
-  // predicate is specified for tma load with circular buffering. Also
-  // FenceAsyncProxy is predicated for TMA store
-  if (expr->predicate() != nullptr &&
-      expr->isOneOf<
-          kir::MBarrierInit,
-          kir::MBarrierInvalidate,
-          kir::FenceAsyncProxy>()) {
+  // predicate is specified for tma load with circular buffering.
+  bool is_mbarrier_init = expr->isA<kir::MBarrierInit>();
+  bool is_mbarrier_inval = expr->isA<kir::MBarrierInvalidate>();
+  if ((is_mbarrier_init || is_mbarrier_inval) && expr->predicate() != nullptr) {
     kir::IfThenElse* inline_ite =
         IrBuilder::create<kir::IfThenElse>(expr->predicate());
     kir::ExprMutator::registerReplace(expr, inline_ite);
@@ -246,6 +243,11 @@ void UnrollPass::dispatch(Expr* expr) {
       elect_sync_scope_ = scope_.back();
     }
     kir::ExprMutator::handle(ite);
+  } else if (kir::Predicate* pred = expr->predicate()) {
+    // For non-TV ops that have a predicate
+    kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+    kir::ExprMutator::registerReplace(expr, inline_ite);
+    inline_ite->thenBody().push_back(expr);
   }
 }
 
