@@ -190,3 +190,65 @@ def test_broadcast(nvfuser_direct_test):
         prims.broadcast_in_dim(inputs[0], inputs[1].size(), [1]), inputs[1]
     )
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_matmul(nvfuser_direct_test):
+    m = 24
+    n = 16
+    k = 8
+    inputs = [
+        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+        torch.randn(k, n, device="cuda", dtype=torch.bfloat16),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.matmul(t0, t1)
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.matmul(inputs[0], inputs[1])
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_linear_with_bias(nvfuser_direct_test):
+    m = 24
+    n = 16
+    k = 8
+    inputs = [
+        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.linear(t0, t1)
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.nn.functional.linear(inputs[0], inputs[1])
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_linear_without_bias(nvfuser_direct_test):
+    m = 24
+    n = 16
+    k = 8
+    inputs = [
+        torch.randn(m, k, device="cuda", dtype=torch.bfloat16),
+        torch.randn(n, k, device="cuda", dtype=torch.bfloat16),
+        torch.randn(n, device="cuda", dtype=torch.bfloat16),
+    ]
+
+    def fusion_func(fd: FusionDefinition) -> None:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.from_pytorch(inputs[2])
+        t3 = fd.ops.linear(t0, t1, t2)
+        fd.add_output(t3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = torch.nn.functional.linear(inputs[0], inputs[1], inputs[2])
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
