@@ -3396,7 +3396,12 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
-      has_reduction_(src->has_reduction_) {}
+      has_reduction_(src->has_reduction_) {
+  for (IterDomain* id : src->loop_domain_) {
+    Val* extent = id->extent();
+    extent->fusion()->assertInContainer(extent, "TensorDomain");
+  }
+}
 
 NVFUSER_DEFINE_CLONE(TensorDomain)
 
