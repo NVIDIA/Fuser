@@ -1640,4 +1640,46 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
   auto outputs = ke.run({t0});
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
+
+TEST_F(AllocationDomainTest, SmemAllocationDomainChanged) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({512, 32});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter();
+  tv1->setMemoryType(MemoryType::Shared);
+  for (auto tv : fusion->allTvs()) {
+    tv->split(0, 128);
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+  // smem tensor has allocation domain (32, 512)
+  // and loop domain (4(S), 128(TIDx), 32(S))
+  // where 4 and 128 come from a split:
+  // Split: iS4{512} by factor 128 -> iS8{4}, ithreadIdx.x9{128}
+  // there is no bank conflict since the index goes to allocation
+  // domain.
+  ASSERT_TRUE(fusion->bankConflictInfo().empty());
+
+  // If we reset its allocation domain to (4, 128, 32) and still keep loop
+  // domain as (4(S), 128(TIDx), 32(S)), then there are bank conflicts, e.g.
+  // all threads in a warp access bank-0, then bank-1, then bank-2, etc.
+  tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
+  ASSERT_FALSE(fusion->bankConflictInfo().empty());
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y), alloc: (y, x), stride: (1, x)
+  auto t0 = at::randn({512, 32}, options).as_strided({512, 32}, {1, 512});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
