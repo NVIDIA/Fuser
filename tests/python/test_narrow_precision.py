@@ -27,32 +27,16 @@ from nvfuser import (
     compute_tensor_descriptor,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from nvfuser.testing.reduced_precision import (
+from python.utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
-)
-
-from python.utils import (
     is_pre_blackwell,
     NVFuserTest,
+    llinear_to_swizzled_128_4,inear_to_swizzled_128_4,
 )
-import pytest
 
-def blockscaling_factor_tiling(b_sf):
-    sf_m, sf_k = b_sf.shape
-    # padding is not yet supported
-    assert sf_m % 128 == 0
-    assert sf_k % 4 == 0
-    m_tile = sf_m // 128
-    k_tile = sf_k // 4
-    # m/32/4, 4(m), 32(m), k/4, 4(k)
-    b_sf = b_sf.reshape(m_tile, 4, 32, k_tile, 4)
-    # permute to the block below 
-    # m/4/32, k/4, 32(m), 4(m), 4(k)
-    # return as flattened (sf_m, sf_k)
-    return b_sf.permute(0, 3, 2, 1, 4).reshape(sf_m, sf_k)
-    return b_sf.flatten().reshape(sf_m, sf_k)
+import pytest
 
 def nvfp4_quantize(x):
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(torch.float32)
@@ -79,7 +63,7 @@ def test_scaled_mm(
     mat2, scale2, global_sf2 = quantization(mat2_ref)
     alpha = 1.0 / (global_sf1 * global_sf2)
 
-    inputs = [mat1, mat2.t(), blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), alpha]
+    inputs = [mat1, mat2.t(), linear_to_swizzled_128_4(scale1), linear_to_swizzled_128_4(scale2), alpha]
 
     def nvfuser_fusion_id0(fd : FusionDefinition) -> None :
         mat1 = fd.define_tensor(shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False)
@@ -95,8 +79,9 @@ def test_scaled_mm(
 
     o = fd.execute(inputs)[0]
 
+    # error on reference implementation is too large. maybe use the ref implementation instead.
     # mat1_ref = mat1_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale1.unsqueeze(-1).to(torch.bfloat16)
     # mat2_ref = mat2_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale2.unsqueeze(-1).to(torch.bfloat16)
     # ref_o = mat1_ref @ mat2_ref.t() * alpha
-    ref_o = torch._scaled_mm(mat1, mat2.t(), blockscaling_factor_tiling(scale1), blockscaling_factor_tiling(scale2), None, None, torch.bfloat16) * alpha
+    ref_o = torch._scaled_mm(mat1, mat2.t(), linear_to_swizzled_128_4(scale1), linear_to_swizzled_128_4(scale2), None, None, torch.bfloat16) * alpha
     assert o.allclose(ref_o, 1e-2, 1e-2)

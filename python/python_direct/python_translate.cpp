@@ -15,15 +15,32 @@
 #include <ops/all_ops.h>
 #include <type.h>
 #include <utils.h>
+
 #include <ranges>
+#include <type_traits>
 
 namespace nvfuser::python {
 
 namespace {
 
+// Check if a type is an optional via type_traits
+template <typename T>
+struct is_optional : std::false_type {};
+
+template <typename T>
+struct is_optional<std::optional<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
+
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
 
   // Generate a python string for a boolean value.
   std::string toString(bool b) {
@@ -32,6 +49,11 @@ class PythonPrinter {
 
   // Generate a python string for an int64_t value.
   std::string toString(int64_t i) {
+    return std::to_string(i);
+  }
+
+  // Generate a python string for an size_t value.
+  std::string toString(size_t i) {
     return std::to_string(i);
   }
 
@@ -75,6 +97,8 @@ class PythonPrinter {
       return toString(pv.as<std::complex<double>>());
     } else if (pv.is<double>()) {
       return toString(pv.as<double>());
+    } else if (pv.is<std::monostate>()) {
+      return "None";
     } else {
       NVF_THROW("Unsupported PolymorphicValue type");
     }
@@ -124,7 +148,11 @@ class PythonPrinter {
       ss << "[";
     }
     for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val);
+      if constexpr (is_optional_v<T>) {
+        ss << toString(val, /*skip_none=*/false);
+      } else {
+        ss << toString(val);
+      }
       if (i < vec.size() - 1) {
         ss << ", ";
       }
@@ -329,7 +357,7 @@ class PythonTranslator : public OptInConstDispatch {
         continue;
       }
 
-      // Create RecordFunctor given inputs, outputs, and attributes.
+      // Create string representation given inputs, outputs, and attributes.
       visited.insert(e);
       dispatch(e);
       skip_count = 0;
@@ -438,6 +466,41 @@ class PythonTranslator : public OptInConstDispatch {
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
 
+  // Map UnaryOp to python_frontend OpRecord
+  void handle(const UnaryOp* uop) final {
+    NVF_ERROR(uop != nullptr);
+    // short-circuit: Handle cast operation separately
+    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+      return handleCastOp(uop);
+    }
+
+    // Map remaining UnaryOp to python_frontend OpRecord
+    visited_vals_.insert(uop->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(uop), {uop->in()}, {uop->out()});
+  }
+
+  // Map cast UnaryOp to CastOpRecord
+  void handleCastOp(const UnaryOp* uop) {
+    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+    visited_vals_.insert(uop->out());
+
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype = uop->out()->dtype();
+    if (scalar_dtype == DataType::Index) {
+      scalar_dtype = DataType::Int;
+    }
+
+    static const std::vector<std::string> argument_names = {"dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cast",
+        std::make_tuple(uop->in()),
+        argument_names,
+        std::make_tuple(scalar_dtype),
+        {uop->out()});
+  }
+
   // Map BinaryOp to python_frontend OpRecord
   void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop != nullptr);
@@ -467,6 +530,7 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
     NVF_ERROR(rop->out()->isA<TensorView>());
+    visited_vals_.insert(rop->out());
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
@@ -484,6 +548,45 @@ class PythonTranslator : public OptInConstDispatch {
         std::make_tuple(
             getReductionAxes(rop->out()->as<TensorView>()), false, dtype),
         {rop->out()});
+  }
+
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    NVF_ERROR(bcast_op != nullptr);
+    visited_vals_.insert(bcast_op->out());
+    static const std::vector<std::string> broadcast_argument_names = {
+        "is_broadcast_dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.broadcast",
+        std::make_tuple(bcast_op->in()),
+        broadcast_argument_names,
+        std::make_tuple(bcast_op->getBroadcastDimFlags()),
+        {bcast_op->out()});
+  }
+
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    NVF_ERROR(matmul_op != nullptr);
+    visited_vals_.insert(matmul_op->out());
+
+    printer_.generateOperation(
+        "fd.ops.matmul",
+        {matmul_op->inA(), matmul_op->inB()},
+        {matmul_op->out()});
+  }
+
+  // Map LinearOp to python frontend
+  void handle(const LinearOp* lop) final {
+    NVF_ERROR(lop != nullptr);
+    visited_vals_.insert(lop->out());
+
+    if (lop->bias() != nullptr) {
+      printer_.generateOperation(
+          "fd.ops.linear", {lop->inA(), lop->inB(), lop->bias()}, {lop->out()});
+    } else {
+      printer_.generateOperation(
+          "fd.ops.linear", {lop->inA(), lop->inB()}, {lop->out()});
+    }
   }
 
  private:

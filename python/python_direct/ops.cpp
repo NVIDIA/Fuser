@@ -1396,6 +1396,117 @@ TensorView
 )")
 }
 
+void bindMetadataOps(py::module_& ops) {
+  ops.def(
+      "broadcast",
+      [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
+        return broadcast(arg, is_broadcast_dim);
+      },
+      py::arg("arg"),
+      py::arg("is_broadcast_dim"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindCastOps(py::module_& ops) {
+  ops.def(
+      "cast",
+      [](TensorView* arg, PrimDataType dtype) -> TensorView* {
+        return static_cast<TensorView* (*)(DataType, TensorView*)>(castOp)(
+            dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "cast",
+      [](Val* arg, PrimDataType dtype) -> Val* {
+        return static_cast<Val* (*)(DataType, Val*)>(castOp)(dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      R"(
+Cast a scalar value to a different data type.
+
+Parameters
+----------
+arg : Val
+    Input scalar value to cast.
+dtype : PrimDataType
+    Target data type for the cast operation.
+
+Returns
+-------
+Val
+    A new scalar value with the specified data type.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindMatmulOps(py::module_& ops) {
+  ops.def(
+      "matmul",
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul),
+      py::arg("arg1"),
+      py::arg("arg2"),
+      R"(
+The matrix product of two tensors.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+
+Returns
+-------
+TensorView
+    The result of the matrix multiplication.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "linear",
+      [](TensorView* arg1,
+         TensorView* arg2,
+         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+        return static_cast<
+            TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
+            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      R"(
+Applies an affine linear transformation to the incoming data:
+output = arg1 @ transpose(arg2) + bias.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+bias : TensorView, optional
+    The bias vector to add to the output. If not provided, the bias is not added.
+
+Returns
+-------
+TensorView
+    The result of the affine linear transformation.
+)",
+      py::return_value_policy::reference);
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1404,6 +1515,9 @@ void bindOperations(py::module& nvfuser) {
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindMetadataOps(nvf_ops);
+  bindCastOps(nvf_ops);
+  bindMatmulOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

@@ -13,12 +13,14 @@ if torch.cuda.get_device_capability() < (10, 0):
         allow_module_level=True,
     )
 
-from nvfuser.testing.reduced_precision import (
-  FLOAT4_E2M1_MAX,
-  FLOAT8_E4M3_MAX,
-  dequantize_to_dtype,
-  pytorch_nvfp4_quantize,
+from python.utils import (
+    FLOAT4_E2M1_MAX,
+    FLOAT8_E4M3_MAX,
+    dequantize_to_dtype,
+    linear_to_swizzled_128_4,
+    pytorch_nvfp4_quantize,
 )
+
 
 def get_ref_results(
     a_fp4,
@@ -68,8 +70,10 @@ def test_nvfp4_gemm(
     ).to(torch.float32)
     alpha = 1.0 / (a_global_scale * b_global_scale)
 
-    a_fp4, a_scale_interleaved = pytorch_nvfp4_quantize(a_dtype, a_global_scale)
-    b_fp4, b_scale_interleaved = pytorch_nvfp4_quantize(b_dtype, b_global_scale)
+    a_fp4, a_scale_linear = pytorch_nvfp4_quantize(a_dtype, a_global_scale)
+    b_fp4, b_scale_linear = pytorch_nvfp4_quantize(b_dtype, b_global_scale)
+    a_scale_interleaved = linear_to_swizzled_128_4(a_scale_linear)
+    b_scale_interleaved = linear_to_swizzled_128_4(b_scale_linear)
 
     expected_out = get_ref_results(
         a_fp4,
