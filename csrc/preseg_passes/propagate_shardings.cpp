@@ -493,7 +493,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           getParallelTypesToPropagate({target});
       propagateDIDTransform(
           /*ref=*/ref_output,
-          /*tvs=*/{target},
+          /*tv=*/target,
           selected_parallel_types,
           PropagateDirection::kBackward);
     }
