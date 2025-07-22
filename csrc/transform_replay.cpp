@@ -125,6 +125,21 @@ class ReplaySelf : public ReplayTransformations {
     loop_ids_[merged_id] = newCounter();
 
     id_map_[m->out()] = merged_id;
+
+    // Update ordered domain if exists
+    if (!ordered_domain_.empty()) {
+      auto it_outer = std::find(
+          ordered_domain_.begin(), ordered_domain_.end(), id_outer_mapped);
+      if (it_outer != ordered_domain_.end()) {
+        ordered_domain_.erase(it_outer);
+      }
+      auto it_inner = std::find(
+          ordered_domain_.begin(), ordered_domain_.end(), id_inner_mapped);
+      if (it_inner != ordered_domain_.end()) {
+        it_inner = ordered_domain_.erase(it_inner);
+        ordered_domain_.insert(it_inner, merged_id);
+      }
+    }
   }
 
   void handle(Swizzle* swizzle) override {
@@ -167,6 +182,9 @@ class ReplaySelf : public ReplayTransformations {
     loop_ids_[replayed_out] = newCounter();
 
     id_map_[resize->out()] = replayed_out;
+    NVF_ERROR(
+        ordered_domain_.empty(),
+        "Resize is not implemented yet in ordered domain replay.");
   }
 
   std::vector<IterDomain*> ordered_domain_;

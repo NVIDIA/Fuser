@@ -1604,7 +1604,7 @@ TEST_F(AllocationDomainTest, ManualReplayLoopToAllocation) {
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
+TEST_F(AllocationDomainTest, selfReplayLoopToAllocationSplit) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1637,6 +1637,49 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocation) {
   ASSERT_EQ(alloc[1]->extent()->value(), tv1->axis(2)->extent()->value());
   ASSERT_EQ(alloc[2]->extent()->value(), tv1->axis(0)->extent()->value());
   ASSERT_EQ(alloc[3]->extent()->value(), tv1->axis(3)->extent()->value());
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
+  auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto outputs = ke.run({t0});
+  testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(AllocationDomainTest, selfReplayLoopToAllocationMerge) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int64_t x = 2L, y = 12L, z = 16L;
+  auto tv0 = makeContigConcreteTensor({x, y, z});
+  fusion->addInput(tv0);
+  std::vector<IterDomain*> tv0_dom = {tv0->axis(1), tv0->axis(0), tv0->axis(2)};
+  tv0->setAllocationDomain(tv0_dom, true);
+  auto tv2 = add(tv0, tv0);
+  fusion->addOutput(tv2);
+
+  auto tv1 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  for (auto tv : fusion->allTvs()) {
+    // (24, 16)
+    tv->merge(0);
+  }
+
+  inlineSelectedAt({tv1}, tv1, /*reference_pos=*/1);
+  // allocation domain : (iS7{12}, iS6{2}, iB8{16})
+  selfReplayLoopToAllocation(tv1);
+  // allocation domain : (iS12{24}, iB8{16})
+
+  // check allocation domain of tv1, expect:
+  // allocation domain : (iS12{24}, iB8{16})
+  // loop domain : (iS10{24}, iB8{16})
+  const auto& alloc = tv1->getMaybeAllocationDomain();
+  ASSERT_EQ(alloc.size(), 2);
+  ASSERT_EQ(alloc[0]->extent()->value(), tv1->axis(0)->extent()->value());
+  ASSERT_EQ(alloc[1]->extent()->value(), tv1->axis(1)->extent()->value());
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
