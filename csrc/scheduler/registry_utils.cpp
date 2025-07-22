@@ -1069,7 +1069,7 @@ bool hasProducerConsumerRelationship(const std::vector<Val*>& vals) {
 
 bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
   // Do some quick filtering before creating an Exact graph
-  auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+  auto reshape_ops = ir_utils::getOpsOfType<ViewOp, SliceOp, PadOp>(fusion);
 
   // At least there must be multiple reshape ops
   if (reshape_ops.size() < 2) {
@@ -1080,8 +1080,8 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
   std::vector<Val*> reshape_outputs;
   reshape_outputs.reserve(reshape_ops.size());
   std::ranges::transform(
-      reshape_ops, std::back_inserter(reshape_outputs), [](ViewOp* reshape) {
-        return reshape->out();
+      reshape_ops, std::back_inserter(reshape_outputs), [](Expr* reshape) {
+        return ir_utils::getTvOutput(reshape);
       });
   if (!hasProducerConsumerRelationship(reshape_outputs)) {
     return false;
@@ -1096,14 +1096,14 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
       std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
       reshape_ids;
 
-  auto getReshapeIds = [&reshape_ids](ViewOp* reshape) {
-    auto reshape_out_tv = reshape->out();
+  auto getReshapeIds = [&reshape_ids](Expr* reshape) {
+    auto reshape_out_tv = ir_utils::getTvOutput(reshape);
     auto it = reshape_ids.find(reshape_out_tv);
     if (it == reshape_ids.end()) {
       it = reshape_ids
                .emplace(
-                   reshape->out(),
-                   ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
+                   ir_utils::getTvOutput(reshape),
+                   ir_utils::getRootToLogicalInputAndOutputIds(reshape_out_tv))
                .first;
     }
     return it->second;

@@ -839,6 +839,9 @@ class TVDomainGuard {
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
 
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getRootToLogicalInputAndOutputIds(TensorView* tv);
+
 // Get reachable IDs from domain. Note that to reach to an ID through
 // its defining expression, all of the inputs need to be included in
 // the given domain or reachable from the domain.
