@@ -282,6 +282,9 @@ void inferTensorShapesAndStrides(
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
+    if(id->isDeviceDim()) {
+      extent = builder.getInt64(1);
+    }
     id_to_allocation_size.pushBack(id, extent);
   }
 
@@ -297,16 +300,8 @@ void inferTensorShapesAndStrides(
       // NOTE: how do we handle device dimension? Currently we just divide it out in split
       // However, if both dimension are device dimension, do we need to collapse them?
       // So that in a merge op, we can merge between two local iter domain between one device dimension?
-      llvm::Value* lhs = outer_extent;
-      llvm::Value* rhs = inner_extent;
-      if(split->outer()->isDeviceDim()) {
-        lhs = builder.getInt64(1);
-      }
-      if(split->inner()->isDeviceDim()) {
-        rhs = builder.getInt64(1);
-      }
 
-      llvm::Value* in_extent = builder.CreateMul(lhs, rhs);
+      llvm::Value* in_extent = builder.CreateMul(outer_extent, inner_extent);
       id_to_allocation_size.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
@@ -329,7 +324,8 @@ void inferTensorShapesAndStrides(
 
   // This should contains same iter domains as logical domain, but in different order
   auto new_allocation_domains = std::views::keys(id_to_allocation_size);
-  std::vector<IterDomain*> propagated_allocation_domains(new_allocation_domains.begin(), new_allocation_domains.end());
+  auto filtered_allocation_domains = new_allocation_domains | std::views::filter([](IterDomain* id) { return !id->isDeviceDim(); });
+  std::vector<IterDomain*> propagated_allocation_domains(filtered_allocation_domains.begin(), filtered_allocation_domains.end());
 
   auto permutation = ir_utils::computePermutation(
     logical_domain, propagated_allocation_domains);
@@ -341,12 +337,7 @@ void inferTensorShapesAndStrides(
   std::vector<llvm::Value*> allocation_sizes_values;
   std::vector<llvm::Value*> allocation_strides_values;
   for(auto it : propagated_allocation_domains | std::views::reverse) {
-    if(it->isDeviceDim()) {
-      // Dummy value, we will filter out this dimension in the end
-      allocation_sizes_values.push_back(builder.getInt64(-1));
-      allocation_strides_values.push_back(builder.getInt64(-1));
-    }
-    else if(it->isBroadcast()) {
+    if(it->isBroadcast()) {
       allocation_sizes_values.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
       allocation_strides_values.push_back(builder.getInt64(0));
     }
@@ -369,14 +360,6 @@ void inferTensorShapesAndStrides(
     size_t logical_idx = permutation.value()[i];
     sizes[logical_idx] = allocation_sizes_values[i];
     strides[logical_idx] = allocation_strides_values[i];
-  }
-
-  // Filter out device dimensions
-  for (auto i : arange(std::ssize(sizes)) | std::views::reverse) {
-    if(sizes[i] == builder.getInt64(-1)) {
-      sizes.erase(sizes.begin() + i);
-      strides.erase(strides.begin() + i);
-    }
   }
 
   // We need to check last level merge ops, since there might be invalid order of merges
