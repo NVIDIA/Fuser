@@ -334,13 +334,16 @@ void inferTensorShapesAndStrides(
           split->toString(),
           " invalid split: inner is expected to appear immediately after "
           "outer");
-      const auto [inner_extent, inner_i] =
+      auto [inner_extent, inner_i] =
           id_to_allocation_size.erase(split->inner());
 
-      // NOTE: how do we handle device dimension? Currently we just divide it
-      // out in split However, if both dimension are device dimension, do we
-      // need to collapse them? So that in a merge op, we can merge between two
-      // local iter domain between one device dimension?
+      if (split->inner()->isBroadcast()) {
+        inner_extent = builder.getInt64(1);
+      }
+
+      if (split->outer()->isBroadcast()) {
+        outer_extent = builder.getInt64(1);
+      }
 
       llvm::Value* in_extent = builder.CreateMul(outer_extent, inner_extent);
       id_to_allocation_size.insert(inner_i, split->in(), in_extent);
@@ -407,7 +410,6 @@ void inferTensorShapesAndStrides(
       propagated_allocation_strides.begin(),
       propagated_allocation_strides.end());
 
-  sizes.resize(propagated_allocation_sizes.size());
   strides.resize(propagated_allocation_strides.size());
 
   // Apply permutation correctly by mapping from allocation domain order to
@@ -416,35 +418,17 @@ void inferTensorShapesAndStrides(
   for (size_t i = 0; i < propagated_allocation_sizes.size(); ++i) {
     size_t logical_idx = permutation.value()[i];
     if (logical_domain[logical_idx]->isReduction()) {
-      sizes.erase(sizes.begin() + logical_idx);
       strides.erase(strides.begin() + logical_idx);
       continue;
     }
-    sizes[logical_idx] = propagated_allocation_sizes[i];
     strides[logical_idx] = propagated_allocation_strides[i];
   }
 
-  // We need to check last level merge ops, since there might be invalid order
-  // of merges
-  for (const auto& it : id_to_allocation_size) {
-    auto* iter_domain = it.first;
-    for (auto use : iter_domain->uses()) {
-      if (auto* merge = dynamic_cast<Merge*>(use)) {
-        if (id_to_allocation_size.contains(merge->inner()) &&
-            id_to_allocation_size.contains(merge->outer())) {
-          const auto [outer_extent, outer_i] =
-              id_to_allocation_size.erase(merge->outer());
-          NVF_ERROR(
-              outer_i != id_to_allocation_size.end() &&
-                  outer_i->first == merge->inner(),
-              merge->toString(),
-              " invalid merge: inner is expected to appear immediately after "
-              "outer");
-          id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent);
-        }
-      }
-    }
-  }
+  sizes = logical_domain |
+          std::views::transform([&](IterDomain* id) {
+            return getOrCreateValueForExtent(id, val_to_value, builder);
+          }) |
+          std::views::common;
 
   // Check if sizes and strides are the same size as logical domain
   NVF_ERROR_EQ(sizes.size(), logical_domain.size());
