@@ -54,7 +54,10 @@ constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr size_t kMaxTensorDim = 8;
 
 // Function Declarations
-llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder);
+llvm::Value* getOrCreateValueForExtent(
+    Val* extent,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder);
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -152,7 +155,8 @@ llvm::Value* createTensorStride(
     int64_t dim,
     llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* tensor_stride_func = module->getFunction(kTensorStrideFuncName);
+  llvm::Function* tensor_stride_func =
+      module->getFunction(kTensorStrideFuncName);
   llvm::Value* dim_val = builder.getInt64(dim);
 
   return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
@@ -176,42 +180,56 @@ void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "\n\n";
 }
 
-llvm::Value* createValueForBinaryOp(BinaryOp* binary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+llvm::Value* createValueForBinaryOp(
+    BinaryOp* binary_op,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs()->as<Val>();
   auto* rhs = binary_op->rhs()->as<Val>();
-  llvm::Value* lhs_value = getOrCreateValueForExtent(lhs, val_to_value, builder);
-  llvm::Value* rhs_value = getOrCreateValueForExtent(rhs, val_to_value, builder);
-  if(binary_op->getBinaryOpType() == BinaryOpType::Add) {
+  llvm::Value* lhs_value =
+      getOrCreateValueForExtent(lhs, val_to_value, builder);
+  llvm::Value* rhs_value =
+      getOrCreateValueForExtent(rhs, val_to_value, builder);
+  if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
     return builder.CreateAdd(lhs_value, rhs_value);
-  } else if(binary_op->getBinaryOpType() == BinaryOpType::Sub) {
+  } else if (binary_op->getBinaryOpType() == BinaryOpType::Sub) {
     return builder.CreateSub(lhs_value, rhs_value);
-  } else if(binary_op->getBinaryOpType() == BinaryOpType::Mul) {
+  } else if (binary_op->getBinaryOpType() == BinaryOpType::Mul) {
     return builder.CreateMul(lhs_value, rhs_value);
-  } else if(binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
+  } else if (binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
     // Implement ceilDiv as (a + b - 1) / b
-    llvm::Value* numerator =
-    builder.CreateAdd(lhs_value, rhs_value);
+    llvm::Value* numerator = builder.CreateAdd(lhs_value, rhs_value);
     llvm::Value* one = builder.getInt64(1);
     numerator = builder.CreateSub(numerator, one);
     return builder.CreateUDiv(numerator, rhs_value);
   }
-  NVF_THROW("LLVM Lowering Error: Unsupported binary operation type in extent calculation: ", binary_op->getBinaryOpType());
+  NVF_THROW(
+      "LLVM Lowering Error: Unsupported binary operation type in extent "
+      "calculation: ",
+      binary_op->getBinaryOpType());
   return nullptr;
 }
 
-llvm::Value* createValueForUnaryOp(UnaryOp* unary_op, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
+llvm::Value* createValueForUnaryOp(
+    UnaryOp* unary_op,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
   auto* in = unary_op->in()->as<Val>();
   llvm::Value* in_value = getOrCreateValueForExtent(in, val_to_value, builder);
-  if(unary_op->getUnaryOpType() == UnaryOpType::Cast) {
+  if (unary_op->getUnaryOpType() == UnaryOpType::Cast) {
     return in_value;
-  } else if(unary_op->getUnaryOpType() == UnaryOpType::Abs) {
-    llvm::Value* is_negative = builder.CreateICmpSLT(in_value, builder.getInt64(0));
+  } else if (unary_op->getUnaryOpType() == UnaryOpType::Abs) {
+    llvm::Value* is_negative =
+        builder.CreateICmpSLT(in_value, builder.getInt64(0));
     llvm::Value* negated = builder.CreateNeg(in_value);
     return builder.CreateSelect(is_negative, negated, in_value);
-  } else if(unary_op->getUnaryOpType() == UnaryOpType::Neg) {
+  } else if (unary_op->getUnaryOpType() == UnaryOpType::Neg) {
     return builder.CreateNeg(in_value);
   }
-  NVF_THROW("LLVM Lowering Error: Unsupported unary operation type in extent calculation: ", unary_op->getUnaryOpType());
+  NVF_THROW(
+      "LLVM Lowering Error: Unsupported unary operation type in extent "
+      "calculation: ",
+      unary_op->getUnaryOpType());
   return nullptr;
 }
 
@@ -220,13 +238,15 @@ llvm::Value* createValueForExtent(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
   if (val->isA<IterDomain>()) {
-    if(val->as<IterDomain>()->isBroadcast()) {
+    if (val->as<IterDomain>()->isBroadcast()) {
       if (val->as<IterDomain>()->hasExpandedExtent()) {
-        return getOrCreateValueForExtent(val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
+        return getOrCreateValueForExtent(
+            val->as<IterDomain>()->expandedExtent(), val_to_value, builder);
       }
       return builder.getInt64(1);
     }
-    return getOrCreateValueForExtent(val->as<IterDomain>()->extent(), val_to_value, builder);
+    return getOrCreateValueForExtent(
+        val->as<IterDomain>()->extent(), val_to_value, builder);
   } else if (val->isConst()) {
     return builder.getInt64(val->value().as<int64_t>());
   } else if (Expr* def = val->definition()) {
@@ -236,9 +256,9 @@ llvm::Value* createValueForExtent(
       return createValueForUnaryOp(unary_op, val_to_value, builder);
     }
     NVF_THROW(
-      "LLVM Lowering Error: createValueForExtent called with unsupported "
-      "expression type: ",
-      def->getOpString());
+        "LLVM Lowering Error: createValueForExtent called with unsupported "
+        "expression type: ",
+        def->getOpString());
     return nullptr;
   }
   NVF_THROW(
@@ -248,8 +268,11 @@ llvm::Value* createValueForExtent(
   return nullptr;
 }
 
-llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llvm::Value*>& val_to_value, llvm::IRBuilder<>& builder) {
-  if(auto it = val_to_value.find(extent); it != val_to_value.end()) {
+llvm::Value* getOrCreateValueForExtent(
+    Val* extent,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  if (auto it = val_to_value.find(extent); it != val_to_value.end()) {
     return it->second;
   }
   val_to_value[extent] = createValueForExtent(extent, val_to_value, builder);
@@ -258,14 +281,21 @@ llvm::Value* getOrCreateValueForExtent(Val* extent, std::unordered_map<Val*, llv
 
 /*
 
-Transformations Example:
-logical domain: [a, b, c, d]
-allocation domain: [b, a, c, d]
+Simple permute transformation example:
 
-we want to propagate the allocation domain to the logical domain,
-so we can get:
+logical domain: [a, b, c, d]
+original logical sizes: [a, b, c, d]
+original logical stride: [b*c*d, c*d, d, 1]
+
+permute(0,1)
+
+allocation domain: [b, a, c, d]
+refined logical sizes: [a, b, c, d]
+refined logical stride: [c*d, a*c*d, d, 1]
+
+we want to propagate the allocation domain to the logical domain to get:
 1. correct order of sizes and strides
-2. refined logical sizes (without device dimensions)
+2. refined logical sizes (divide out device/expanded broadcast dimensions)
 
 */
 
@@ -276,90 +306,116 @@ void inferTensorShapesAndStrides(
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
   const std::vector<IterDomain*> logical_domain = tv->getLogicalDomain();
-  const std::vector<IterDomain*> allocation_domain = tv->getMaybeAllocationDomain();
+  const std::vector<IterDomain*> allocation_domain =
+      tv->getMaybeAllocationDomain();
   LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
 
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
-    if(id->isDeviceDim() || id->isBroadcast()) {
+    if (id->isDeviceDim() || id->isBroadcast()) {
       extent = builder.getInt64(1);
     }
     id_to_allocation_size.pushBack(id, extent);
   }
 
   // traverse backward from allocation domains to logical domains
-  for (Expr* transform : DependencyCheck::getAllExprsBetween(
-    {logical_domain.begin(), logical_domain.end()},
-    {allocation_domain.begin(), allocation_domain.end()}) | std::views::reverse) {
+  for (Expr* transform :
+       DependencyCheck::getAllExprsBetween(
+           {logical_domain.begin(), logical_domain.end()},
+           {allocation_domain.begin(), allocation_domain.end()}) |
+           std::views::reverse) {
     if (auto* split = dynamic_cast<Split*>(transform)) {
-      const auto [outer_extent, outer_i] = id_to_allocation_size.erase(split->outer());
-      NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == split->inner(), split->toString(), " invalid split: inner is expected to appear immediately after outer");
-      const auto [inner_extent, inner_i] = id_to_allocation_size.erase(split->inner());
+      const auto [outer_extent, outer_i] =
+          id_to_allocation_size.erase(split->outer());
+      NVF_ERROR(
+          outer_i != id_to_allocation_size.end() &&
+              outer_i->first == split->inner(),
+          split->toString(),
+          " invalid split: inner is expected to appear immediately after "
+          "outer");
+      const auto [inner_extent, inner_i] =
+          id_to_allocation_size.erase(split->inner());
 
-      // NOTE: how do we handle device dimension? Currently we just divide it out in split
-      // However, if both dimension are device dimension, do we need to collapse them?
-      // So that in a merge op, we can merge between two local iter domain between one device dimension?
+      // NOTE: how do we handle device dimension? Currently we just divide it
+      // out in split However, if both dimension are device dimension, do we
+      // need to collapse them? So that in a merge op, we can merge between two
+      // local iter domain between one device dimension?
 
       llvm::Value* in_extent = builder.CreateMul(outer_extent, inner_extent);
       id_to_allocation_size.insert(inner_i, split->in(), in_extent);
       // NOTE: we probably need to throw error for merge as it's not handle yet
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_extent, out_i] = id_to_allocation_size.erase(merge->out());
+      const auto [out_extent, out_i] =
+          id_to_allocation_size.erase(merge->out());
 
       // NOTE: we don't have a protocol to decide which iter domain to pad,
       // currently we just pad inner value, so dividend is outer value
-      // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which is a ceilDiv
-      llvm::Value* outer_extent = getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
-      llvm::Value* minus_one = builder.CreateSub(outer_extent, builder.getInt64(1));
+      // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which
+      // is a ceilDiv
+      llvm::Value* outer_extent =
+          getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
+      llvm::Value* minus_one =
+          builder.CreateSub(outer_extent, builder.getInt64(1));
       llvm::Value* plus_value = builder.CreateAdd(out_extent, minus_one);
       llvm::Value* inner_extent = builder.CreateUDiv(plus_value, outer_extent);
 
       id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
       id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
     } else {
-      NVF_THROW("LLVM Lowering Error: Unsupported expression type: ", transform->getOpString());
+      NVF_THROW(
+          "LLVM Lowering Error: Unsupported expression type: ",
+          transform->getOpString());
     }
   }
 
-  // NOTE: we assume device dimension only appears in allocation domain, so we can filter it out here
-  // This should contains same iter domains as logical domain, but in different order
+  // NOTE: we assume device dimension only appears in allocation domain, so we
+  // can filter it out here This should contains same iter domains as logical
+  // domain, but in different order
   auto new_allocation_domains = std::views::keys(id_to_allocation_size);
-  std::vector<IterDomain*> propagated_allocation_domains(new_allocation_domains.begin(), new_allocation_domains.end());
+  std::vector<IterDomain*> propagated_allocation_domains(
+      new_allocation_domains.begin(), new_allocation_domains.end());
 
   auto permutation = ir_utils::computePermutation(
-    logical_domain, propagated_allocation_domains);
-  NVF_ERROR(permutation.has_value(), "LLVM Lowering Error: Failed to compute permutation");
+      logical_domain, propagated_allocation_domains);
+  NVF_ERROR(
+      permutation.has_value(),
+      "LLVM Lowering Error: Failed to compute permutation");
 
   // Map last level propagated allocation domains to logical domain
   // we should be able to get the permutation between them
   llvm::Value* allocation_order_stride = builder.getInt64(1);
   std::vector<llvm::Value*> propagated_allocation_sizes;
   std::vector<llvm::Value*> propagated_allocation_strides;
-  for(auto it : propagated_allocation_domains | std::views::reverse) {
-    if(it->isBroadcast()) {
-      propagated_allocation_sizes.push_back(getOrCreateValueForExtent(it, val_to_value, builder));
+  for (auto it : propagated_allocation_domains | std::views::reverse) {
+    if (it->isBroadcast()) {
+      propagated_allocation_sizes.push_back(
+          getOrCreateValueForExtent(it, val_to_value, builder));
       propagated_allocation_strides.push_back(builder.getInt64(0));
-    }
-    else{
+    } else {
       auto [extent, out_i] = id_to_allocation_size.erase(it);
       id_to_allocation_size.insert(out_i, it, extent);
       propagated_allocation_sizes.push_back(extent);
       propagated_allocation_strides.push_back(allocation_order_stride);
-      allocation_order_stride = builder.CreateMul(allocation_order_stride, extent);
+      allocation_order_stride =
+          builder.CreateMul(allocation_order_stride, extent);
     }
   }
-  std::reverse(propagated_allocation_sizes.begin(), propagated_allocation_sizes.end());
-  std::reverse(propagated_allocation_strides.begin(), propagated_allocation_strides.end());
+  std::reverse(
+      propagated_allocation_sizes.begin(), propagated_allocation_sizes.end());
+  std::reverse(
+      propagated_allocation_strides.begin(),
+      propagated_allocation_strides.end());
 
   sizes.resize(propagated_allocation_sizes.size());
   strides.resize(propagated_allocation_strides.size());
 
-  // Apply permutation correctly by mapping from allocation domain order to logical domain order
-  // Skip reduction dimensions, since they don't contribute to the actual tensor memory allocation
-  for(size_t i = 0; i < propagated_allocation_sizes.size(); ++i) {
+  // Apply permutation correctly by mapping from allocation domain order to
+  // logical domain order Skip reduction dimensions, since they don't contribute
+  // to the actual tensor memory allocation
+  for (size_t i = 0; i < propagated_allocation_sizes.size(); ++i) {
     size_t logical_idx = permutation.value()[i];
-    if(logical_domain[logical_idx]->isReduction()) {
+    if (logical_domain[logical_idx]->isReduction()) {
       sizes.erase(sizes.begin() + logical_idx);
       strides.erase(strides.begin() + logical_idx);
       continue;
@@ -368,14 +424,22 @@ void inferTensorShapesAndStrides(
     strides[logical_idx] = propagated_allocation_strides[i];
   }
 
-  // We need to check last level merge ops, since there might be invalid order of merges
-  for (const auto& it: id_to_allocation_size) {
+  // We need to check last level merge ops, since there might be invalid order
+  // of merges
+  for (const auto& it : id_to_allocation_size) {
     auto* iter_domain = it.first;
-    for(auto use : iter_domain->uses()) {
-      if(auto* merge = dynamic_cast<Merge*>(use)) {
-        if(id_to_allocation_size.contains(merge->inner()) && id_to_allocation_size.contains(merge->outer())) {
-          const auto [outer_extent, outer_i] = id_to_allocation_size.erase(merge->outer());
-          NVF_ERROR(outer_i != id_to_allocation_size.end() && outer_i->first == merge->inner(), merge->toString(), " invalid merge: inner is expected to appear immediately after outer");
+    for (auto use : iter_domain->uses()) {
+      if (auto* merge = dynamic_cast<Merge*>(use)) {
+        if (id_to_allocation_size.contains(merge->inner()) &&
+            id_to_allocation_size.contains(merge->outer())) {
+          const auto [outer_extent, outer_i] =
+              id_to_allocation_size.erase(merge->outer());
+          NVF_ERROR(
+              outer_i != id_to_allocation_size.end() &&
+                  outer_i->first == merge->inner(),
+              merge->toString(),
+              " invalid merge: inner is expected to appear immediately after "
+              "outer");
           id_to_allocation_size.insert(outer_i, merge->outer(), outer_extent);
         }
       }
@@ -387,7 +451,6 @@ void inferTensorShapesAndStrides(
   NVF_ERROR_EQ(strides.size(), logical_domain.size());
 }
 
-
 void unpackInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
@@ -396,24 +459,25 @@ void unpackInputs(
 
   // Get the current function (main) and its first argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array_ptr = func->getArg(0);
+  llvm::Value* aten_tensor_array = func->getArg(0);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
-  llvm::Type* tensor_ptr_type = getTensorPtrType(context);
+  llvm::Type* tensor_type = getTensorPtrType(context);
 
   // bind input aten tensor sizes to val_to_value
   for (const auto [i, input] : enumerate(container->inputs())) {
     auto* tv = dynamic_cast<TensorView*>(input);
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", input);
     llvm::Value* tensor_addr = builder.CreateGEP(
-        aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+        aten_tensor_array_type, aten_tensor_array, {builder.getInt64(i)});
     tensor_addr->setName("input_aten_tensor_addr");
     // Load the actual tensor pointer from the array
-    llvm::Value* tensor = builder.CreateLoad(tensor_ptr_type, tensor_addr);
+    llvm::Value* tensor = builder.CreateLoad(tensor_type, tensor_addr);
     tensor->setName("input_aten_tensor");
     // bind input aten tensor sizes to val_to_value
     // TODO: We should validate const size and strides here, ie. dim check
-    for (const auto [dim_idx, id] : enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
+    for (const auto [dim_idx, id] :
+         enumerate(TensorDomain::noReductions(tv->getLogicalDomain()))) {
       if (id->isBroadcast()) {
         val_to_value[id->extent()] = builder.getInt64(1);
         if (id->hasExpandedExtent()) {
@@ -421,8 +485,7 @@ void unpackInputs(
               createTensorSize(tensor, dim_idx, builder);
         }
       } else {
-        val_to_value[id->extent()] =
-            createTensorSize(tensor, dim_idx, builder);
+        val_to_value[id->extent()] = createTensorSize(tensor, dim_idx, builder);
       }
     }
     // bind input aten tensor to val_to_value
@@ -442,7 +505,7 @@ void packOutputs(
 
   // Get the current function (main) and its second argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array_ptr = func->getArg(1);
+  llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
@@ -450,7 +513,7 @@ void packOutputs(
     auto* tv = dynamic_cast<TensorView*>(output);
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
     llvm::Value* tensor_addr = builder.CreateGEP(
-        aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
+        aten_tensor_array_type, aten_tensor_array, {builder.getInt64(i)});
     tensor_addr->setName("output_aten_tensor_addr");
 
     // Get the tensor pointer from val_to_value and store it in the output
@@ -473,11 +536,11 @@ void compileFunctionDeclarations(
   auto* int64_type = llvm::Type::getInt64Ty(context);
   auto* int64_ptr_type = getInt64PtrType(context);
   auto* int32_type = llvm::Type::getInt32Ty(context);
-  auto* tensor_ptr_type = getTensorPtrType(context);
+  auto* tensor_type = getTensorPtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   auto* tensor_size_type =
-      llvm::FunctionType::get(int64_type, {tensor_ptr_type, int64_type}, false);
+      llvm::FunctionType::get(int64_type, {tensor_type, int64_type}, false);
   llvm::Function::Create(
       tensor_size_type,
       llvm::Function::ExternalLinkage,
@@ -485,7 +548,7 @@ void compileFunctionDeclarations(
       module);
 
   // new_tensor function: at::Tensor* new_tensor()
-  auto* new_tensor_type = llvm::FunctionType::get(tensor_ptr_type, {}, false);
+  auto* new_tensor_type = llvm::FunctionType::get(tensor_type, {}, false);
   llvm::Function::Create(
       new_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -494,8 +557,8 @@ void compileFunctionDeclarations(
 
   // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor*
   // other_tensor)
-  auto* set_tensor_type = llvm::FunctionType::get(
-      void_type, {tensor_ptr_type, tensor_ptr_type}, false);
+  auto* set_tensor_type =
+      llvm::FunctionType::get(void_type, {tensor_type, tensor_type}, false);
   llvm::Function::Create(
       set_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -513,7 +576,7 @@ void compileFunctionDeclarations(
        int64_type,
        int32_type,
        int64_type,
-       tensor_ptr_type},
+       tensor_type},
       false);
   llvm::Function::Create(
       empty_strided_cuda_type,
@@ -523,7 +586,7 @@ void compileFunctionDeclarations(
 
   // delete_tensor function: void delete_tensor(at::Tensor* tensor)
   auto* delete_tensor_type =
-      llvm::FunctionType::get(void_type, {tensor_ptr_type}, false);
+      llvm::FunctionType::get(void_type, {tensor_type}, false);
   llvm::Function::Create(
       delete_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -668,8 +731,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Function* delete_tensor_func =
         module->getFunction(kDeleteTensorFuncName);
     builder_.CreateCall(
-        delete_tensor_func,
-        {val_to_value_.at(deallocate->buffer())});
+        delete_tensor_func, {val_to_value_.at(deallocate->buffer())});
   }
 
  private:
@@ -858,7 +920,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Collect the outputs
   KernelArgumentHolder outputs;
-  for (const auto [output, tensor_ptr] :
+  for (const auto [output, tensor] :
        zip(container_->outputs(), output_aten_tensors)) {
     NVF_ERROR(
         output->isA<TensorView>(),
@@ -867,10 +929,10 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
         " for output ",
         output);
     // Cast void* to at::Tensor* first, then dereference
-    at::Tensor* aten_tensor_ptr = static_cast<at::Tensor*>(tensor_ptr);
-    outputs.push(*aten_tensor_ptr);
+    at::Tensor* aten_tensor = static_cast<at::Tensor*>(tensor);
+    outputs.push(*aten_tensor);
     // Clean up the individual tensor object (not the array)
-    delete aten_tensor_ptr;
+    delete aten_tensor;
   }
   // Note: output_aten_tensors points to a global array managed by JIT, don't
   // delete the array itself
