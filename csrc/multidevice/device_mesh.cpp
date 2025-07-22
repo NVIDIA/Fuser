@@ -119,29 +119,26 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
   return *std::max_element(vector_.begin(), vector_.end());
 }
 
-namespace {
-// Maps a parallel type to axis. Returns -1 if the parallel type is
-// not in the device mesh.
-int64_t ptypeToAxis(ParallelType ptype, int64_t ndims) {
+int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
   NVF_ERROR(
-      isParallelTypeDeviceDim(ptype),
+      isParallelTypeDeviceDim(parallel_type),
       "Attempting to index into DeviceMesh with a non-device parallel type",
-      ptype);
-  int64_t offset =
-      static_cast<int64_t>(ptype) - static_cast<int64_t>(ParallelType::DIDx);
+      parallel_type);
+  int64_t offset = static_cast<int64_t>(parallel_type) -
+      static_cast<int64_t>(ParallelType::DIDx);
+  int64_t ndims = rank();
   if (offset > ndims - 1) {
     return -1;
   }
   return ndims - 1 - offset;
 }
-} // namespace
 
 bool DeviceMesh::hasParallelType(ParallelType parallel_type) const {
-  return ptypeToAxis(parallel_type, rank()) != -1;
+  return parallelTypeToAxis(parallel_type) != -1;
 }
 
 int64_t DeviceMesh::size(const ParallelType parallel_type) const {
-  int64_t axis = ptypeToAxis(parallel_type, rank());
+  int64_t axis = parallelTypeToAxis(parallel_type);
   NVF_ERROR(
       axis != -1,
       "DeviceMesh of rank ",
@@ -154,7 +151,7 @@ int64_t DeviceMesh::size(const ParallelType parallel_type) const {
 std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType deviceId,
     ParallelType ptype) const {
-  int64_t axis = ptypeToAxis(ptype, rank());
+  int64_t axis = parallelTypeToAxis(ptype);
   NVF_ERROR(
       axis != -1,
       "DeviceMesh of rank ",

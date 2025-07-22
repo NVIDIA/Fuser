@@ -112,6 +112,10 @@ class DeviceMesh final {
   // Returns the max device id in the DeviceMesh.
   DeviceIdxType maxDeviceId() const;
 
+  // Maps a parallel type to axis. Returns -1 if the parallel type is
+  // not in the device mesh.
+  int64_t parallelTypeToAxis(ParallelType parallel_type) const;
+
   // Returns true if the DeviceMesh has the specified parallel type
   bool hasParallelType(ParallelType parallel_type) const;
 

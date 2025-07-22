@@ -138,7 +138,7 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   TensorView* c = add(a, b);
   TensorView* d = sum(c, {1});
 
-  DeviceMesh mesh = DeviceMesh::createForNumDevices(3);
+  auto mesh = DeviceMesh::createForNumDevices(3);
   for (auto tv : {a, b, c, d}) {
     tv->setDeviceMesh(mesh);
   }
@@ -225,7 +225,7 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   EXPECT_EQ(mesh.getSlice(1, ParallelType::DIDy), slice_didy_12);
   EXPECT_EQ(mesh.getSlice(2, ParallelType::DIDy), slice_didy_12);
 
-  DeviceMesh mesh3d = DeviceMesh::createForShape({2, 3, 4});
+  auto mesh3d = DeviceMesh::createForShape({2, 3, 4});
   std::vector<DeviceIdxType> slice_didz = {6, 18};
   std::vector<DeviceIdxType> slice_didy = {14, 18, 22};
   std::vector<DeviceIdxType> slice_didx = {16, 17, 18, 19};
@@ -407,7 +407,7 @@ TEST_F(ShardingTest, ShardedInnerReshape) {
 TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = DeviceMesh::createForShape({2, 3});
+  auto mesh = DeviceMesh::createForShape({2, 3});
   int64_t dx = mesh.size(ParallelType::DIDx);
   int64_t dy = mesh.size(ParallelType::DIDy);
 
@@ -433,7 +433,7 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
 TEST_F(ShardingTest, PropagationDoesNotOverwrite) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = DeviceMesh::createForShape({2, 3});
+  auto mesh = DeviceMesh::createForShape({2, 3});
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -466,7 +466,7 @@ TEST_F(ShardingTest, PropagationDoesNotOverwrite) {
 TEST_F(ShardingTest, BackpropagateToShardedTvs) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  DeviceMesh mesh = DeviceMesh::createForShape({2, 3});
+  auto mesh = DeviceMesh::createForShape({2, 3});
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
