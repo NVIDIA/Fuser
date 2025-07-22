@@ -280,9 +280,42 @@ bool isLoopGraphUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() > 1) {
-        return false;
+      if (all_exact_groups.size() == 1) {
+        continue;
       }
+
+      // Some more trivial cases
+      //
+      // If there's only one exact group that is not broadcast and all
+      // the other groups are broadcast, the non-broadcast group is
+      // the concrete group
+      bool unique_concrete_group_found = false;
+      for (const auto& eg : all_exact_groups) {
+        if (eg->front()->as<IterDomain>()->isBroadcast()) {
+          continue;
+        } else if (unique_concrete_group_found) {
+          unique_concrete_group_found = false;
+          break;
+        } else {
+          unique_concrete_group_found = true;
+        }
+      }
+
+      if (unique_concrete_group_found) {
+        continue;
+      }
+
+#if 0
+      std::cerr << "Non uniform: " << loop_id->toString()
+                << ", loop group: " << nvfuser::toString(loop_group)
+                << ", exact groups: " << nvfuser::toString(all_exact_groups)
+                << "\n";
+#endif
+
+      for (const auto& eg : all_exact_groups) {
+        std::cerr << eg->front()->toString() << "\n";
+      }
+      return false;
     }
   }
 
@@ -1260,6 +1293,17 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
        loop_graph.disjointValSets().disjointSets()) {
     NVF_ERROR(!loop_group->empty());
 
+    // Loop groups may contain a single non-broadcast exact group as
+    // well as broadcast exact groups. In that case, the broadcast IDs
+    // should be all ignored.
+    const bool has_both_broadcast_and_concrete =
+        std::ranges::any_of(
+            *loop_group,
+            [](Val* val) { return val->as<IterDomain>()->isBroadcast(); }) &&
+        std::ranges::any_of(*loop_group, [](Val* val) {
+          return !val->as<IterDomain>()->isBroadcast();
+        });
+
     // Any domain of this loop group can be the promotion ID. Try to
     // find the simplest one, which means:
     //
@@ -1273,6 +1317,14 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
     for (Val* val : *loop_group) {
       IterDomain* loop_id = val->as<IterDomain>();
+
+      // Ignore broadcast if this group also has non-broadcast
+      // IDs. See the above comment on has_both_broadcast_and_concrete
+      // as well as isLoopGraphUniform.
+      if (has_both_broadcast_and_concrete && loop_id->isBroadcast()) {
+        continue;
+      }
+
       auto this_num_exprs =
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
