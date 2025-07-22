@@ -33,7 +33,7 @@ from python.utils import (
     pytorch_nvfp4_quantize,
     is_pre_blackwell,
     NVFuserTest,
-    llinear_to_swizzled_128_4,inear_to_swizzled_128_4,
+    linear_to_swizzled_128_4,
 )
 
 import pytest
