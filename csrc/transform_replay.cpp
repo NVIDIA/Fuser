@@ -69,7 +69,6 @@ class ReplaySelf : public ReplayTransformations {
         s->outer()->isRFactorProduct(),
         s->outer()->getIterType(),
         s->inner()->getIterType());
-
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
 
@@ -80,6 +79,16 @@ class ReplaySelf : public ReplayTransformations {
     // Update our ID map to include these outputs
     id_map_[s->outer()] = ido;
     id_map_[s->inner()] = idi;
+
+    // Update ordered domain if exists
+    if (!ordered_domain_.empty()) {
+      auto it_ordered =
+          std::find(ordered_domain_.begin(), ordered_domain_.end(), mapped);
+      if (it_ordered != ordered_domain_.end()) {
+        it_ordered = ordered_domain_.erase(it_ordered);
+        ordered_domain_.insert(it_ordered, {ido, idi});
+      }
+    }
   }
 
   void handle(Merge* m) override {
@@ -160,12 +169,22 @@ class ReplaySelf : public ReplayTransformations {
     id_map_[resize->out()] = replayed_out;
   }
 
+  std::vector<IterDomain*> ordered_domain_;
+
  public:
   ReplaySelf(
       const std::vector<IterDomain*>& target_domain,
-      IterDomainMap id_map)
-      : ReplayTransformations(target_domain, std::move(id_map)) {
+      IterDomainMap id_map,
+      std::vector<IterDomain*> ordered_domain = {})
+      : ReplayTransformations(target_domain, std::move(id_map)),
+        ordered_domain_(std::move(ordered_domain)) {
     setErrorOnFailure(false);
+  }
+  const std::vector<IterDomain*>& getReplayedOrderedDomain() const {
+    if (!ran_replay_) {
+      runReplay();
+    }
+    return ordered_domain_;
   }
 };
 
@@ -1482,21 +1501,9 @@ void selfReplayLoopToAllocation(TensorView* tv) {
   // 1. Given a loop domain, find the logical domain that poduces it.
   // 2. Map the logical domain to the allocation domain.
   // 3. Do the same transformation on the allocation domain.
-
-  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map);
-
-  // For each ID in the loop domain, find its replayed allocation domain
-  std::vector<IterDomain*> new_alloc_domain;
-  new_alloc_domain.reserve(tv->getLoopDomain().size());
-  const auto& replay_map = replay.getReplay();
-  for (auto loop_id : tv->getLoopDomain()) {
-    auto it = replay_map.find(loop_id);
-    NVF_ERROR(it != replay_map.end(), "failed to replay IterDomain: ", loop_id);
-    new_alloc_domain.push_back(it->second);
-  }
-
-  // Update the allocation domain with the new replayed domains
-  tv->setAllocationDomain(new_alloc_domain, true);
+  std::vector<IterDomain*> alloc_copy = alloc;
+  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map, alloc_copy);
+  tv->setAllocationDomain(replay.getReplayedOrderedDomain(), true);
 }
 
 } // namespace nvfuser
