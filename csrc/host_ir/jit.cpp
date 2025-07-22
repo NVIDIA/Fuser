@@ -275,14 +275,14 @@ void inferTensorShapesAndStrides(
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& sizes,
     llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  const std::vector<IterDomain*> logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  const std::vector<IterDomain*> allocation_domain = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  const std::vector<IterDomain*> logical_domain = tv->getLogicalDomain();
+  const std::vector<IterDomain*> allocation_domain = tv->getMaybeAllocationDomain();
   LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
 
   // push all allocation domains extents in regular order
   for (auto [i, id] : enumerate(allocation_domain)) {
     llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
-    if(id->isDeviceDim()) {
+    if(id->isDeviceDim() || id->isBroadcast()) {
       extent = builder.getInt64(1);
     }
     id_to_allocation_size.pushBack(id, extent);
@@ -322,10 +322,10 @@ void inferTensorShapesAndStrides(
     }
   }
 
+  // NOTE: we assume device dimension only appears in allocation domain, so we can filter it out here
   // This should contains same iter domains as logical domain, but in different order
   auto new_allocation_domains = std::views::keys(id_to_allocation_size);
-  auto filtered_allocation_domains = new_allocation_domains | std::views::filter([](IterDomain* id) { return !id->isDeviceDim(); });
-  std::vector<IterDomain*> propagated_allocation_domains(filtered_allocation_domains.begin(), filtered_allocation_domains.end());
+  std::vector<IterDomain*> propagated_allocation_domains(new_allocation_domains.begin(), new_allocation_domains.end());
 
   auto permutation = ir_utils::computePermutation(
     logical_domain, propagated_allocation_domains);
@@ -356,8 +356,14 @@ void inferTensorShapesAndStrides(
   strides.resize(allocation_strides_values.size());
 
   // Apply permutation correctly by mapping from allocation domain order to logical domain order
+  // Skip reduction dimensions, since they don't contribute to the actual tensor memory allocation
   for(size_t i = 0; i < allocation_sizes_values.size(); ++i) {
     size_t logical_idx = permutation.value()[i];
+    if(logical_domain[logical_idx]->isReduction()) {
+      sizes.erase(sizes.begin() + logical_idx);
+      strides.erase(strides.begin() + logical_idx);
+      continue;
+    }
     sizes[logical_idx] = allocation_sizes_values[i];
     strides[logical_idx] = allocation_strides_values[i];
   }
