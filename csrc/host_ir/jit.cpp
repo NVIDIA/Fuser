@@ -378,8 +378,8 @@ void packOutputs(
     llvm::Value* tensor_from_val_to_value = val_to_value[tv];
     builder.CreateStore(tensor_from_val_to_value, tensor_addr);
   }
-  builder.CreateRetVoid();
   insertNvtxRangePop(builder);
+  builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     printLlvmIr(func, "Main Function Outputs");
   }
