@@ -769,7 +769,7 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> reshape_argument_names = {
         "new_shape"};
     std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
-      OptOutConstDispatch::dispatch(v);
+      dispatch(v);
     });
     visited_vals_.insert(vop->out());
     printer_.generateKwargsOperation(
@@ -789,6 +789,9 @@ class PythonTranslator : public OptInConstDispatch {
       return handlePermute(lsop);
     }
 
+    NVF_ERROR(
+        lsop->in()->dtype() == lsop->out()->dtype(),
+        "Expected the dtype for input and output to be the same");
     visited_vals_.insert(lsop->out());
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
