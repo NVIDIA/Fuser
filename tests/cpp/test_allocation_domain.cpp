@@ -1654,20 +1654,16 @@ TEST_F(AllocationDomainTest, SmemAllocationDomainChanged) {
   auto tv1 = tv0->cacheAfter();
   tv1->setMemoryType(MemoryType::Shared);
   for (auto tv : fusion->allTvs()) {
-    tv->split(0, 128);
-    tv->axis(0)->parallelize(ParallelType::Serial);
-    tv->axis(1)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
   }
   // smem tensor has allocation domain (32, 512)
-  // and loop domain (4(S), 128(TIDx), 32(S))
-  // where 4 and 128 come from a split:
-  // Split: iS4{512} by factor 128 -> iS8{4}, ithreadIdx.x9{128}
+  // and loop domain (512(TIDx), 32(S))
   // there is no bank conflict since the index goes to allocation
-  // domain.
+  // domain where 512 is the inner-most dim.
   ASSERT_TRUE(fusion->bankConflictInfo().empty());
 
-  // If we reset its allocation domain to (4, 128, 32) and still keep loop
-  // domain as (4(S), 128(TIDx), 32(S)), then there are bank conflicts, e.g.
+  // If we reset its allocation domain to (512, 32) and still keep loop
+  // domain as (512(TIDx), 32(S)), then there are bank conflicts, e.g.
   // all threads in a warp access bank-0, then bank-1, then bank-2, etc.
   tv1->setAllocationDomain(tv1->getLoopDomain(), /*new_contiguity=*/true);
   ASSERT_FALSE(fusion->bankConflictInfo().empty());
