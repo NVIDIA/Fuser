@@ -55,7 +55,11 @@ constexpr size_t kMaxTensorDim = 8;
 
 // Function Declarations
 llvm::Value* getOrCreateValueForExtent(
-    Val* extent,
+    IterDomain* id,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder);
+llvm::Value* getOrCreateValue(
+    Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder);
 
