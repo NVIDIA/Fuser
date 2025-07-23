@@ -847,6 +847,16 @@ void HostIrEvaluator::handle(Deallocate* deallocate) {
   expr_evaluator_.invalidate(tv);
 }
 
+void HostIrEvaluator::handle(NewTensor* new_tensor) {
+  auto* tv = new_tensor->buffer();
+  NVF_ERROR(
+      !expr_evaluator_.isKnown(tv),
+      "Tried to create a new tensor wrapper that is already created",
+      tv);
+  at::Tensor tensor = at::Tensor();
+  expr_evaluator_.bind(tv, tensor);
+}
+
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();

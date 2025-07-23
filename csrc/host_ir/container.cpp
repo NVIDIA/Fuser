@@ -46,6 +46,10 @@ void HostIrContainer::insertExprAfter(int64_t index, Expr* expr) {
   top_level_exprs_.insert(top_level_exprs_.begin() + index + 1, expr);
 }
 
+void HostIrContainer::insertExprBefore(int64_t index, Expr* expr) {
+  top_level_exprs_.insert(top_level_exprs_.begin() + index, expr);
+}
+
 void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
   assertInContainer(expr, "Cannot add expr, ");
   top_level_exprs_.push_back(expr);

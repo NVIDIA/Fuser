@@ -13,6 +13,7 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <host_ir/pass/insert_new.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -559,6 +560,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
+    hir_pass::InsertNewTensor().runPass(hic.get());
     hir_pass::InsertDeallocations().runPass(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
