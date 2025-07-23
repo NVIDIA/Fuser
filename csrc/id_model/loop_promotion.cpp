@@ -305,16 +305,6 @@ bool isLoopGraphUniform(const IdModel& id_model) {
         continue;
       }
 
-#if 0
-      std::cerr << "Non uniform: " << loop_id->toString()
-                << ", loop group: " << nvfuser::toString(loop_group)
-                << ", exact groups: " << nvfuser::toString(all_exact_groups)
-                << "\n";
-#endif
-
-      for (const auto& eg : all_exact_groups) {
-        std::cerr << eg->front()->toString() << "\n";
-      }
       return false;
     }
   }
