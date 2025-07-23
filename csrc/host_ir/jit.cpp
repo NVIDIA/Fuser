@@ -420,6 +420,8 @@ void inferTensorShapesAndStrides(
     }
   }
 
+  strides.erase(std::remove_if(strides.begin(), strides.end(), [](llvm::Value* stride) { return stride == nullptr; }), strides.end());
+
   for (IterDomain* id : logical_domain) {
     if (id->isReduction()) {
       continue;
