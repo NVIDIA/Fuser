@@ -49,7 +49,6 @@ constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
-constexpr std::string_view kMainFuncOutputTensorName = "main_output_aten_tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr size_t kMaxTensorDim = 8;
@@ -139,11 +138,13 @@ llvm::Type* getVoidType(llvm::LLVMContext& context) {
 // Helper function to insert nvtxRangePush call
 void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* nvtx_range_push_func = module->getFunction(kNvtxRangePushFuncName);
-  
-  // Create string constant and global variable (required for LLVM, otherwise there is a bitcast error)
-  llvm::Constant* op_name_constant = llvm::ConstantDataArray::getString(
-      module->getContext(), op_name, true);
+  llvm::Function* nvtx_range_push_func =
+      module->getFunction(kNvtxRangePushFuncName);
+
+  // Create string constant and global variable (required for LLVM, otherwise
+  // there is a bitcast error)
+  llvm::Constant* op_name_constant =
+      llvm::ConstantDataArray::getString(module->getContext(), op_name, true);
   llvm::GlobalVariable* op_name_global = new llvm::GlobalVariable(
       *module,
       op_name_constant->getType(),
@@ -151,7 +152,7 @@ void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
       llvm::GlobalValue::PrivateLinkage,
       op_name_constant,
       "nvfuser_op_name");
-  
+
   // Get pointer to the string
   llvm::Value* op_name_ptr = builder.CreateBitCast(
       op_name_global, getInt8PtrType(module->getContext()));
@@ -162,8 +163,9 @@ void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
 
 void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
   llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* nvtx_range_pop_func = module->getFunction(kNvtxRangePopFuncName);
-  
+  llvm::Function* nvtx_range_pop_func =
+      module->getFunction(kNvtxRangePopFuncName);
+
   // Call nvtxRangePop function
   builder.CreateCall(nvtx_range_pop_func, {});
 }
@@ -291,7 +293,7 @@ void packOutputs(
     NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
     llvm::Value* tensor_addr = builder.CreateGEP(
         aten_tensor_array_type, aten_tensor_array_ptr, {builder.getInt64(i)});
-    tensor_addr->setName(kMainFuncOutputTensorName);
+    tensor_addr->setName("output_aten_tensor_addr");
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
@@ -371,9 +373,10 @@ void compileFunctionDeclarations(
       llvm::Function::ExternalLinkage,
       kDeleteTensorFuncName,
       module);
-  
+
   // nvtx_range_push function: void nvtx_range_push(const char* name)
-  auto* nvtx_range_push_type = llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
+  auto* nvtx_range_push_type =
+      llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
   llvm::Function::Create(
       nvtx_range_push_type,
       llvm::Function::ExternalLinkage,
@@ -518,7 +521,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
          device_index_constant,
          raw_tensor_ptr});
     val_to_value_[allocate->buffer()->as<Val>()] = raw_tensor_ptr;
-    
   }
 
   // Deallocation Function LLVM IR Generation
@@ -529,7 +531,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     builder_.CreateCall(
         delete_tensor_func,
         {val_to_value_.at(deallocate->buffer()->as<Val>())});
-    
   }
 
  private:
@@ -659,13 +660,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       +[](at::Tensor* tensor) -> void { delete tensor; });
 
   // insert fuser perf scope
-  void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(+[](const char* name) -> void {
-    nvtxRangePush(name);
-  });
+  void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
+      +[](const char* name) -> void { nvtxRangePush(name); });
 
-  void* nvtx_range_pop_func_ptr = reinterpret_cast<void*>(+[]() -> void {
-    nvtxRangePop();
-  });
+  void* nvtx_range_pop_func_ptr =
+      reinterpret_cast<void*>(+[]() -> void { nvtxRangePop(); });
 
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
@@ -691,10 +690,7 @@ void HostIrJitImpl::registerExternalFunctions() {
       mangler,
       kNvtxRangePushFuncName);
   registerExternalFunction(
-      nvtx_range_pop_func_ptr,
-      name_to_symbol,
-      mangler,
-      kNvtxRangePopFuncName);
+      nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
