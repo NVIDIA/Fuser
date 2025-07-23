@@ -247,7 +247,8 @@ void canonicalizeLoopDomain(TensorView* tv) {
 void decomposeRowParallelLinearWithBias(Fusion* fusion) {
   // Iterate backwards over fusion expressions to avoid processing
   // expressions that have been deleted.
-  // Recall that replaceValInAllExprInputsAndFusionOutputs invalidates consumers.
+  // Recall that replaceValInAllExprInputsAndFusionOutputs invalidates
+  // consumers.
   for (Expr* e : fusion->exprs() | std::views::reverse) {
     auto* linear_op = dynamic_cast<LinearOp*>(e);
     if (linear_op == nullptr) {
