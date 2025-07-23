@@ -434,9 +434,11 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
       }
     }
     NVF_THROW(
-        "Trying to update the current loop domain but could not find a valid "
-        "path from the reference: ",
+        "Trying to update the current loop domain of ",
         tv->toString(),
+        " but could not find a valid "
+        "path from the reference domain, ",
+        toDelimitedString(ref_loop_dom_),
         ". ",
         ss.str());
   }
@@ -594,7 +596,30 @@ void scheduleLoopDomainsBy(
   return;
 }
 
+namespace {
+
+bool isDominatorOfAllTensors(TensorView* tv) {
+  auto all_dep_vals =
+      DependencyCheck::getAllValsBetween({tv}, tv->fusion()->outputs());
+  std::unordered_set<TensorView*> all_dep_tvs;
+  std::ranges::copy(
+      all_dep_vals | std::views::filter([&](Val* v) {
+        return v->isA<TensorView>();
+      }) | std::views::transform([](Val* v) { return v->as<TensorView>(); }),
+      std::inserter(all_dep_tvs, all_dep_tvs.end()));
+
+  auto all_tvs = tv->fusion()->allTvs();
+  std::unordered_set<TensorView*> all_tv_set{all_tvs.begin(), all_tvs.end()};
+  return all_dep_tvs == all_tv_set;
+}
+
+} // namespace
+
 void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
+  if (!isDominatorOfAllTensors(from_tv)) {
+    return;
+  }
+
   Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
