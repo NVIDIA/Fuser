@@ -3399,7 +3399,7 @@ TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
       has_reduction_(src->has_reduction_) {
   for (IterDomain* id : src->loop_domain_) {
     Val* extent = id->extent();
-    extent->fusion()->assertInContainer(extent, "TensorDomain");
+    extent->fusion()->assertInContainer(extent, extent->toString());
   }
 }
 
