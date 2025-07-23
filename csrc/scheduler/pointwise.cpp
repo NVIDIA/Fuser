@@ -477,7 +477,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->vectorization_factor = std::min(
       max_vect_factor,
       vectorize_helper::getVectorizationFactor(
-          runtime_info, largest_out, data_cache, break_point, reorder_map));
+          runtime_info,
+          largest_out,
+          data_cache,
+          break_point,
+          /*max_vectorization_size_in_bit=*/128,
+          reorder_map));
 
   // get unroll factor:
 
@@ -1218,7 +1223,9 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (pparams->vectorize_casts) {
       for (auto tv : fusion->allTvs()) {
         if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-          if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+          if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+              (dataTypeSizeBit(tv->dtype()) < 8 ||
+               dataTypeSizeBit(uop->in()->dtype()) < 8)) {
             vectorized_tvs.emplace_back(tv);
           }
         }

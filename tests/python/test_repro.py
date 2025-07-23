@@ -1116,3 +1116,251 @@ class TestRepro(NVFuserTest):
         ]
         outputs = fd.execute(inputs)
         fd.validate_with_auto_inferred_outputs(outputs, inputs)
+
+    def test_loop_promotion_cyclic_war(self):
+        def nvfuser_fusion_id1(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[4096, 128],
+                contiguity=[True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[4096, 128],
+                contiguity=[True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[1, 4096, 5120],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[1, 4096, 640],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T4 = fd.define_tensor(
+                shape=[1, 4096, 640],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T5 = fd.define_tensor(
+                shape=[1, 4096, 16640],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T6 = fd.define_tensor(
+                shape=[1, 4096, 16640],
+                contiguity=[None, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T7 = fd.define_tensor(
+                shape=[1, 4096, 5120],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T8 = fd.define_tensor(
+                shape=[1, 4096, 640],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T9 = fd.define_tensor(
+                shape=[1, 4096, 640],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T10 = fd.define_tensor(
+                shape=[1, 4096, 16640],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T11 = fd.define_tensor(
+                shape=[1, 4096, 16640],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T16 = fd.ops.reshape(T0, new_shape=[1, 4096, 128])
+            T22 = fd.ops.broadcast_in_dim(
+                T16, shape=[1, 1, 4096, 128], broadcast_dims=[0, 2, 3]
+            )
+            T27 = fd.ops.reshape(T1, new_shape=[1, 4096, 128])
+            T33 = fd.ops.broadcast_in_dim(
+                T27, shape=[1, 1, 4096, 128], broadcast_dims=[0, 2, 3]
+            )
+            T39 = fd.ops.broadcast_in_dim(
+                T22, shape=[1, 40, 4096, 128], broadcast_dims=[0, 1, 2, 3]
+            )
+            T40 = fd.ops.cast(T39, dtype=DataType.Float)
+            T46 = fd.ops.broadcast_in_dim(
+                T33, shape=[1, 40, 4096, 128], broadcast_dims=[0, 1, 2, 3]
+            )
+            T47 = fd.ops.cast(T46, dtype=DataType.Float)
+            T48 = fd.ops.cast(T2, dtype=DataType.Float)
+            T49 = fd.ops.cast(T3, dtype=DataType.Float)
+            T50 = fd.ops.cast(T4, dtype=DataType.Float)
+            T51 = fd.ops.cast(T5, dtype=DataType.Float)
+            T52 = fd.ops.cast(T6, dtype=DataType.Float)
+            S53 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T54 = fd.ops.mul(T7, S53)
+            S55 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T56 = fd.ops.mul(T8, S55)
+            S57 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T58 = fd.ops.mul(T9, S57)
+            S59 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T60 = fd.ops.mul(T10, S59)
+            S61 = fd.define_scalar(2.00000, dtype=DataType.Double)
+            T62 = fd.ops.mul(T11, S61)
+            T63 = fd.ops.add(T48, T54)
+            T64 = fd.ops.add(T49, T56)
+            T65 = fd.ops.add(T50, T58)
+            T66 = fd.ops.add(T51, T60)
+            T67 = fd.ops.add(T52, T62)
+            T68 = fd.ops.cast(T63, dtype=DataType.BFloat16)
+            T74 = fd.ops.reshape(T68, new_shape=[1, 4096, 40, 128])
+            T75 = fd.ops.cast(T64, dtype=DataType.BFloat16)
+            T81 = fd.ops.reshape(T75, new_shape=[1, 4096, 5, 128])
+            T82 = fd.ops.cast(T65, dtype=DataType.BFloat16)
+            T88 = fd.ops.reshape(T82, new_shape=[1, 4096, 5, 128])
+            T89 = fd.ops.cast(T66, dtype=DataType.BFloat16)
+            T90 = fd.ops.neg(T66)
+            T91 = fd.ops.cast(T67, dtype=DataType.BFloat16)
+            T92 = fd.ops.permute(T74, dims=[0, 2, 1, 3])
+            T93 = fd.ops.permute(T81, dims=[0, 2, 1, 3])
+            T94 = fd.ops.permute(T88, dims=[0, 2, 1, 3])
+            T95 = fd.ops.exp(T90)
+            T105 = fd.ops.broadcast_in_dim(
+                T93, shape=[1, 1, 8, 5, 1, 4096, 1, 128], broadcast_dims=[1, 3, 5, 7]
+            )
+            T111 = fd.ops.reshape(T105, new_shape=[1, 40, 4096, 128])
+            T121 = fd.ops.broadcast_in_dim(
+                T94, shape=[1, 1, 8, 5, 1, 4096, 1, 128], broadcast_dims=[1, 3, 5, 7]
+            )
+            T127 = fd.ops.reshape(T121, new_shape=[1, 40, 4096, 128])
+            T128 = fd.ops.cast(T92, dtype=DataType.Float)
+            T144 = fd.ops.slice(
+                T92,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[1, 40, 4096, 64],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T160 = fd.ops.slice(
+                T92,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[1, 40, 4096, 128],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T161 = fd.ops.cast(T160, dtype=DataType.Float)
+            T162 = fd.ops.neg(T161)
+            T163 = fd.ops.cast(T162, dtype=DataType.BFloat16)
+            T164 = fd.ops.cast(T111, dtype=DataType.Float)
+            T180 = fd.ops.slice(
+                T111,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[1, 40, 4096, 64],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T196 = fd.ops.slice(
+                T111,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[1, 40, 4096, 128],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T197 = fd.ops.cast(T196, dtype=DataType.Float)
+            T198 = fd.ops.neg(T197)
+            T199 = fd.ops.cast(T198, dtype=DataType.BFloat16)
+            S200 = fd.define_scalar(1.00000, dtype=DataType.Double)
+            T201 = fd.ops.add(S200, T95)
+            T202 = fd.ops.mul(T128, T40)
+            T203 = fd.ops.cat([T163, T144], dim=-1, manual_padding=0)
+            T204 = fd.ops.mul(T164, T40)
+            T205 = fd.ops.cat([T199, T180], dim=-1, manual_padding=0)
+            T206 = fd.ops.reciprocal(T201)
+            T207 = fd.ops.cast(T203, dtype=DataType.Float)
+            T208 = fd.ops.cast(T205, dtype=DataType.Float)
+            T209 = fd.ops.mul(T207, T47)
+            T210 = fd.ops.mul(T208, T47)
+            T211 = fd.ops.mul(T66, T206)
+            T212 = fd.ops.add(T202, T209)
+            T213 = fd.ops.add(T204, T210)
+            T214 = fd.ops.mul(T211, T67)
+            T215 = fd.ops.cast(T212, dtype=DataType.BFloat16)
+            T216 = fd.ops.cast(T213, dtype=DataType.BFloat16)
+            T217 = fd.ops.cast(T214, dtype=DataType.BFloat16)
+            fd.add_output(T89)
+            fd.add_output(T91)
+            fd.add_output(T127)
+            fd.add_output(T215)
+            fd.add_output(T216)
+            fd.add_output(T217)
+            fd.add_output(T214)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id1(fd)
+
+        inputs = [
+            torch.testing.make_tensor(
+                (4096, 128), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (4096, 128), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 5120), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 640), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 640), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 16640), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 16640), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 5120), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 640), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 640), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 16640), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 4096, 16640), dtype=torch.float32, device="cuda:0"
+            ),
+        ]
+        fd.execute(inputs)
