@@ -9102,7 +9102,8 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
 }
 
-TEST_F(NVFuserTest, InliningPosWithCastOps) {
+// Repro of issue #4829
+TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
