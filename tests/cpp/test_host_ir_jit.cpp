@@ -103,8 +103,9 @@ TEST_F(HostIrJitTest, Deallocate) {
   hic->pushBackTopLevelExprs(deallocate_t1);
 
   hic->addOutput(t2);
-  // We want to check if the memory is completely freed after output tensor is out
-  // of scope
+
+  // We want to check if the memory is completely freed after output tensor is
+  // out of scope
   {
     HostIrJit jit(std::move(hic));
     KernelArgumentHolder in_args;
@@ -223,13 +224,12 @@ TEST_F(HostIrJitTest, AllocationDomainReorder) {
 TEST_F(HostIrJitTest, BroadcastTest) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
-
   auto broadcast_tv = TensorViewBuilder()
-                         .ndims(3)
-                         .shape({64, 1, 32})
-                         .expanded({false, true, false})
-                         .dtype(DataType::Float)
-                         .build();
+                          .ndims(3)
+                          .shape({64, 1, 32})
+                          .expanded({false, true, false})
+                          .dtype(DataType::Float)
+                          .build();
   auto expand_tv = TensorViewBuilder()
                        .ndims(3)
                        .shape({64, 32, 16})
