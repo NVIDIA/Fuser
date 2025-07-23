@@ -362,10 +362,6 @@ void inferTensorShapesAndStrides(
 
       id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
       id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
-    } else {
-      NVF_THROW(
-          "LLVM Lowering Error: Unsupported expression type: ",
-          transform->toString());
     }
   }
 
@@ -412,11 +408,6 @@ void inferTensorShapesAndStrides(
     }
     sizes.push_back(getOrCreateValueForExtent(id, val_to_value, builder));
   }
-
-  // Check if sizes and strides are the same size as logical domain
-  NVF_ERROR_EQ(sizes.size(), TensorDomain::noReductions(logical_domain).size());
-  NVF_ERROR_EQ(
-      strides.size(), TensorDomain::noReductions(logical_domain).size());
 
   // Check if sizes and strides are the same size as logical domain
   NVF_ERROR_EQ(sizes.size(), TensorDomain::noReductions(logical_domain).size());
