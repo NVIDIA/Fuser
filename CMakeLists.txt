@@ -289,7 +289,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_new.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp

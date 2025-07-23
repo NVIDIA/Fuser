@@ -13,7 +13,6 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
-#include <host_ir/pass/insert_new.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -510,8 +509,26 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         case SchedulerType::ExprEval: {
           // push back segment's exprs into the container as top level
           // expressions
+          std::unordered_set<TensorView*> allocated_tensors;
+          std::for_each(hic->topLevelExprs().begin(), hic->topLevelExprs().end(), [&allocated_tensors](Expr* expr) {
+            if (auto* allocate = dynamic_cast<kir::Allocate*>(expr)) {
+              allocated_tensors.insert(allocate->buffer()->as<TensorView>());
+            }
+          });
+        // NOTE: if there is an output alias, we just continue
           for (auto* expr : group_to_run->stablyOrderedExprs()) {
             auto cloned_expr = ir_cloner.clone(expr);
+            for(auto* output : cloned_expr->outputs()) {
+              if(TensorView* tv = output->as<TensorView>()) {
+                const AliasInfo& alias_info =
+                    segmented_fusion_->completeFusion()->getOutputAlias(output);
+                if(!allocated_tensors.contains(tv)&& alias_info.type == AllocationType::New) {
+                  auto* new_tensor = IrBuilder::create<hir::NewTensor>(tv);
+                  hic->pushBackTopLevelExprs(new_tensor);
+                  allocated_tensors.insert(tv);
+                }
+              }
+            }
             hic->pushBackTopLevelExprs(cloned_expr);
           }
         } break;
@@ -560,7 +577,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
-    hir_pass::InsertNewTensor().runPass(hic.get());
     hir_pass::InsertDeallocations().runPass(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
