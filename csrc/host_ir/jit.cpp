@@ -401,43 +401,29 @@ void inferTensorShapesAndStrides(
   // Map last level propagated allocation domains to logical domain
   // we should be able to get the permutation between them
   llvm::Value* allocation_order_stride = builder.getInt64(1);
-  std::vector<llvm::Value*> propagated_allocation_sizes;
-  std::vector<llvm::Value*> propagated_allocation_strides;
-  for (auto it : logical_domain_reordered | std::views::reverse) {
-    if (it->isBroadcast()) {
-      propagated_allocation_sizes.push_back(
-          getOrCreateValueForExtent(it, val_to_value, builder));
-      propagated_allocation_strides.push_back(builder.getInt64(0));
+  strides.resize(logical_domain.size());
+  sizes.reserve(logical_domain.size());
+
+  for (int64_t logical_idx : allocation_order.value()) {
+    IterDomain* id = logical_domain[logical_idx];
+    if (id->isReduction()) {
+      continue;
+    }
+    if (id->isBroadcast()) {
+      strides[logical_idx] = builder.getInt64(0);
+      continue;
     } else {
-      auto [extent, out_i] = id_to_allocation_size.erase(it);
-      id_to_allocation_size.insert(out_i, it, extent);
-      propagated_allocation_sizes.push_back(extent);
-      propagated_allocation_strides.push_back(allocation_order_stride);
-      allocation_order_stride =
+      auto [extent, out_i] = id_to_allocation_size.erase(id);
+      strides[logical_idx] = allocation_order_stride;
+      allocation_order_stride = 
           builder.CreateMul(allocation_order_stride, extent);
     }
   }
-  std::reverse(
-      propagated_allocation_sizes.begin(), propagated_allocation_sizes.end());
-  std::reverse(
-      propagated_allocation_strides.begin(),
-      propagated_allocation_strides.end());
-
-  strides.resize(propagated_allocation_strides.size());
-
-  // Apply allocation order correctly by mapping from allocation domain order to
-  // logical domain order Skip reduction dimensions, since they don't contribute
-  // to the actual tensor memory allocation
-  for (size_t i = 0; i < propagated_allocation_sizes.size(); ++i) {
-    size_t logical_idx = allocation_order.value()[i];
-    if (logical_domain[logical_idx]->isReduction()) {
-      strides.erase(strides.begin() + logical_idx);
-      continue;
-    }
-    strides[logical_idx] = propagated_allocation_strides[i];
-  }
 
   for (IterDomain* id : logical_domain) {
+    if (id->isReduction()) {
+      continue;
+    }
     sizes.push_back(getOrCreateValueForExtent(id, val_to_value, builder));
   }
 
