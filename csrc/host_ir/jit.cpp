@@ -168,86 +168,6 @@ void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
   builder.CreateCall(nvtx_range_pop_func, {});
 }
 
-// Helper function to do memory analysis, which is similar to the one in
-// insert_deallocations.cpp
-// However, in current protocol, we have 3 types of instructions:
-// 1. New, which simply new at::Tensor(), without any allocations
-// 2. Set(Allocate), which allocates the actual memory for the tensor
-// 3. Delete(Deallocate), which deletes the tensor wrapper associated with underlying allocation
-// After main function is generated, we can analyze the last use of each new tensor pointer,
-// in llvm ir and insert deallocation instructions for the tensors that are not used anymore.
-// We assume there is no control flow of new tensors
-void memoryAnalysis(llvm::IRBuilder<>& builder) {
-
-  // Map from tensor pointer to its last use instruction
-  std::unordered_map<llvm::Value*, llvm::Instruction*> last_use;
-  // Set of all tensor pointers allocated by new_tensor
-  std::unordered_set<llvm::Value*> tensor_ptrs;
-
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* main_func = module->getFunction(kMainFuncName);
-  llvm::Function* delete_tensor_func = module->getFunction(kDeleteTensorFuncName);
-  
-  // First pass: find all new_tensor allocations
-  for (llvm::BasicBlock& bb : *main_func) {
-    for (llvm::Instruction& inst : bb) {
-      // Track new_tensor allocations
-      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
-        if (auto* callee = call->getCalledFunction()) {
-          if (callee->getName() == llvm::StringRef(kNewTensorFuncName)) {
-            tensor_ptrs.insert(call);
-            last_use[call] = &inst;
-          }
-        }
-      }
-      // Remove from tracking if already deleted
-      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
-        if (auto* callee = call->getCalledFunction()) {
-          if (callee->getName() == llvm::StringRef(kDeleteTensorFuncName)) {
-            llvm::Value* arg = call->getArgOperand(0);
-            tensor_ptrs.erase(arg);
-            last_use.erase(arg);
-          }
-        }
-      }
-    }
-  }
-
-  // Second pass: find last use of each tensor using LLVM's getUses()
-  for (llvm::Value* tensor : tensor_ptrs) {
-    for (const llvm::Use& use : tensor->uses()) {
-      if (auto* inst = llvm::dyn_cast<llvm::Instruction>(use.getUser())) {
-        // Update last use if this instruction comes after current last use
-        auto it = last_use.find(tensor);
-        if (it == last_use.end() || inst->comesBefore(it->second)) {
-          last_use[tensor] = inst;
-        }
-      }
-    }
-  }
-
-  // Third pass: insert delete_tensor after last use (unless output)
-  for (const auto& [tensor, inst] : last_use) {
-    // Check if tensor is stored to output array (skip deletion for outputs)
-    bool is_output = false;
-    for (const llvm::Use& use : tensor->uses()) {
-      if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(use.getUser())) {
-        const llvm::Value* ptr = store->getPointerOperand();
-        if (ptr->hasName() && ptr->getName().contains(kMainFuncOutputTensorName)) {
-          is_output = true;
-          break;
-        }
-      }
-    }
-    
-    if (!is_output) {
-      // Insert delete instruction after the last use
-      builder.SetInsertPoint(inst->getNextNode());
-      builder.CreateCall(delete_tensor_func, {tensor});
-    }
-  }
-}
-
 // Helper function to generate LLVM IR that extracts tensor size for a given
 // dimension
 llvm::Value* generateTensorSizeExtraction(
@@ -649,9 +569,6 @@ void HostIrJitImpl::compile() {
 
   // compile outputs in llvm ir
   packOutputs(container_.get(), builder, val_to_value);
-
-  // memory analysis and insert deallocations
-  memoryAnalysis(builder);
 
   // verify the module
   std::string error;
