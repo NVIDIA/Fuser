@@ -853,8 +853,7 @@ void HostIrEvaluator::handle(NewTensor* new_tensor) {
       !expr_evaluator_.isKnown(tv),
       "Tried to create a new tensor wrapper that is already created",
       tv);
-  at::Tensor tensor = at::Tensor();
-  expr_evaluator_.bind(tv, tensor);
+  expr_evaluator_.bind(tv, at::Tensor());
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
