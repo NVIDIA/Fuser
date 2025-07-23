@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <bfs.h>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -39,6 +38,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
+#include <bfs.h>
 
 namespace nvfuser {
 
@@ -53,7 +53,6 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr size_t kMaxTensorDim = 8;
 
-// Function Declarations
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
@@ -190,10 +189,8 @@ llvm::Value* createValueForBinaryOp(
     llvm::IRBuilder<>& builder) {
   auto* lhs = binary_op->lhs();
   auto* rhs = binary_op->rhs();
-  llvm::Value* lhs_value =
-      getOrCreateValue(lhs, val_to_value, builder);
-  llvm::Value* rhs_value =
-      getOrCreateValue(rhs, val_to_value, builder);
+  llvm::Value* lhs_value = getOrCreateValue(lhs, val_to_value, builder);
+  llvm::Value* rhs_value = getOrCreateValue(rhs, val_to_value, builder);
   if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
     return builder.CreateAdd(lhs_value, rhs_value);
   }
@@ -214,7 +211,6 @@ llvm::Value* createValueForBinaryOp(
       "LLVM Lowering Error: Unsupported binary operation type in extent "
       "calculation: ",
       binary_op->getBinaryOpType());
-  return nullptr;
 }
 
 llvm::Value* createValueForUnaryOp(
@@ -254,7 +250,7 @@ llvm::Value* createValue(
     if (auto* binary_op = def->as<BinaryOp>()) {
       return createValueForBinaryOp(binary_op, val_to_value, builder);
     }
-    
+
     if (auto* unary_op = def->as<UnaryOp>()) {
       return createValueForUnaryOp(unary_op, val_to_value, builder);
     }
@@ -284,15 +280,11 @@ llvm::Value* getOrCreateValue(
   return val_to_value[val];
 }
 
-
 llvm::Value* getOrCreateValueForExtent(
-  IterDomain* id,
-  std::unordered_map<Val*, llvm::Value*>& val_to_value,
-  llvm::IRBuilder<>& builder) {
-  if (id->isBroadcast()) {
-    return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
-  }
-  return getOrCreateValue(id->extent(), val_to_value, builder);
+    IterDomain* id,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
 }
 
 /*
@@ -389,11 +381,10 @@ void inferTensorShapesAndStrides(
   }
 
   auto ids = std::views::keys(id_to_allocation_size);
-  std::vector<IterDomain*> logical_domain_reordered(
-      ids.begin(), ids.end());
+  std::vector<IterDomain*> logical_domain_reordered(ids.begin(), ids.end());
 
-  auto allocation_order = ir_utils::computePermutation(
-      logical_domain, logical_domain_reordered);
+  auto allocation_order =
+      ir_utils::computePermutation(logical_domain, logical_domain_reordered);
   NVF_ERROR(
       allocation_order.has_value(),
       "LLVM Lowering Error: Failed to compute allocation order");
@@ -404,7 +395,7 @@ void inferTensorShapesAndStrides(
   strides.resize(logical_domain.size());
   sizes.reserve(logical_domain.size());
 
-  for (int64_t logical_idx : allocation_order.value()) {
+  for (int64_t logical_idx : allocation_order.value() | std::views::reverse) {
     IterDomain* id = logical_domain[logical_idx];
     if (id->isReduction()) {
       continue;
@@ -415,12 +406,17 @@ void inferTensorShapesAndStrides(
     } else {
       auto [extent, out_i] = id_to_allocation_size.erase(id);
       strides[logical_idx] = allocation_order_stride;
-      allocation_order_stride = 
+      allocation_order_stride =
           builder.CreateMul(allocation_order_stride, extent);
     }
   }
 
-  strides.erase(std::remove_if(strides.begin(), strides.end(), [](llvm::Value* stride) { return stride == nullptr; }), strides.end());
+  strides.erase(
+      std::remove_if(
+          strides.begin(),
+          strides.end(),
+          [](llvm::Value* stride) { return stride == nullptr; }),
+      strides.end());
 
   for (IterDomain* id : logical_domain) {
     if (id->isReduction()) {
