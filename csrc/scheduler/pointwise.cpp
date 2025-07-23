@@ -1223,7 +1223,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (pparams->vectorize_casts) {
       for (auto tv : fusion->allTvs()) {
         if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-          if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+          if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+              dataTypeSizeBit(tv->dtype()) < 8) {
             vectorized_tvs.emplace_back(tv);
           }
         }
