@@ -49,6 +49,7 @@ constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
+constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr size_t kMaxTensorDim = 8;
 
 // Pimpl for HostIrJit
@@ -378,6 +379,80 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[out_tv] = out_tensor;
   }
 
+  // Launch Kernel Function LLVM IR Generation
+  void handle(kir::LaunchKernel* launch_kernel) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
+    auto* void_ptr_type = getVoidPtrType(context);
+
+    // Convert input TensorViews to void pointers and get tensor pointers
+    llvm::SmallVector<llvm::Value*, 1> input_tensors;
+    for (auto* tv : launch_kernel->inputs()) {
+      input_tensors.push_back(val_to_value_[tv]);
+    }
+
+    // Convert output TensorViews to void pointers and get tensor pointers
+    llvm::SmallVector<llvm::Value*, 1> output_tensors;
+    for (auto* tv : launch_kernel->outputs()) {
+      output_tensors.push_back(val_to_value_[tv]);
+    }
+
+    llvm::Value* cache_id_arg =
+        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+
+    // Create arrays to hold tensor pointers
+    llvm::ArrayType* input_array_type =
+        llvm::ArrayType::get(void_ptr_type, input_tensors.size());
+    llvm::ArrayType* output_array_type =
+        llvm::ArrayType::get(void_ptr_type, output_tensors.size());
+
+    llvm::Value* input_array = builder_.CreateAlloca(
+        input_array_type, nullptr, "launch_kernel_inputs");
+    llvm::Value* output_array = builder_.CreateAlloca(
+        output_array_type, nullptr, "launch_kernel_outputs");
+
+    for (size_t i = 0; i < input_tensors.size(); ++i) {
+      llvm::Value* gep = builder_.CreateInBoundsGEP(
+          input_array_type,
+          input_array,
+          {builder_.getInt32(0), builder_.getInt32(i)});
+      builder_.CreateStore(input_tensors[i], gep);
+    }
+
+    for (size_t i = 0; i < output_tensors.size(); ++i) {
+      llvm::Value* gep = builder.CreateInBoundsGEP(
+          output_array_type,
+          output_array,
+          {builder.getInt32(0), builder.getInt32(i)});
+      builder.CreateStore(output_tensors[i], gep);
+    }
+
+    llvm::Value* input_array_ptr = builder.CreateBitCast(
+        input_array, llvm::PointerType::getUnqual(void_ptr_type));
+    llvm::Value* output_array_ptr = builder.CreateBitCast(
+        output_array, llvm::PointerType::getUnqual(void_ptr_type));
+
+    llvm::Value* num_inputs_constant = builder.getInt64(input_tensors.size());
+    llvm::Value* num_outputs_constant = builder.getInt64(output_tensors.size());
+
+    uintptr_t launch_kernel_ptr = reinterpret_cast<uintptr_t>(launch_kernel);
+    llvm::Value* launch_kernel_ptr_constant = builder.CreateIntToPtr(
+        builder.getInt64(launch_kernel_ptr), void_ptr_type);
+    
+    uintptr_t container_ptr = reinterpret_cast<uintptr_t>(container_);
+    llvm::Value* container_ptr_constant = builder.CreateIntToPtr(
+        builder.getInt64(container_ptr), void_ptr_type);
+
+    builder.CreateCall(
+        module->getFunction(kLaunchKernelFuncName),
+        {cache_id_arg,
+         input_array_ptr,
+         num_inputs_constant,
+         output_array_ptr,
+         num_outputs_constant,
+         launch_kernel_ptr_constant});
+  }
+
   // Allocate Function LLVM IR Generation
   void handle(kir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
@@ -572,6 +647,10 @@ void HostIrJitImpl::registerExternalFunctions() {
         *out = in->clone(); // Clone the input tensor
       });
 
+  // delete a newed tensor
+  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor) -> void { delete tensor; });
+
   // at::native::empty_strided_cuda
   void* empty_strided_cuda_func_ptr =
       reinterpret_cast<void*>(+[](const int64_t* sizes,
@@ -595,9 +674,38 @@ void HostIrJitImpl::registerExternalFunctions() {
             c10::nullopt);
       });
 
-  // delete a newed tensor
-  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor) -> void { delete tensor; });
+  // launch kernel function
+  void* launch_kernel_func_ptr =
+      reinterpret_cast<void*>(+[](size_t id,
+                                  at::Tensor** input_tensors,
+                                  int64_t num_inputs,
+                                  at::Tensor** output_tensors,
+                                  int64_t num_outputs,
+                                  void* launchKernel,
+                                  void* hostIrContainer) {
+        auto* launch_kernel =
+            reinterpret_cast<hir::LaunchKernel*>(launchKernel);
+        auto* container =
+            reinterpret_cast<hir::HostIrContainer*>(hostIrContainer);
+        KernelArgumentHolder input_args, output_args;
+        input_args.setCacheId(id);
+
+        for (int64_t i = 0; i < num_inputs; i++) {
+          input_args.push(
+              *input_tensors[i]); // Dereference pointer to get actual tensor
+        }
+        for (int64_t i = 0; i < num_outputs; i++) {
+          output_args.push(
+              *output_tensors[i]); // Dereference pointer to get actual tensor
+        }
+        input_args.setDeviceIndex();
+        container->getKernelExecutor(launch_kernel->groupId())
+            ->run(
+                input_args,
+                output_args,
+                launch_kernel->launchParams(),
+                launch_kernel->compileParams());
+      });
 
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
@@ -617,6 +725,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       name_to_symbol,
       mangler,
       kAtEmptyStridedCudaWrapper);
+  registerExternalFunction(
+      launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
