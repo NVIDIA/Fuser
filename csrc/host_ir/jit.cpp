@@ -141,23 +141,7 @@ void insertNvtxRangePush(const char* op_name, llvm::IRBuilder<>& builder) {
   llvm::Function* nvtx_range_push_func =
       module->getFunction(kNvtxRangePushFuncName);
 
-  // Create string constant and global variable (required for LLVM, otherwise
-  // there is a bitcast error)
-  llvm::Constant* op_name_constant =
-      llvm::ConstantDataArray::getString(module->getContext(), op_name, true);
-  llvm::GlobalVariable* op_name_global = new llvm::GlobalVariable(
-      *module,
-      op_name_constant->getType(),
-      true, // isConstant
-      llvm::GlobalValue::PrivateLinkage,
-      op_name_constant,
-      "nvfuser_op_name");
-
-  // Get pointer to the string
-  llvm::Value* op_name_ptr = builder.CreateBitCast(
-      op_name_global, getInt8PtrType(module->getContext()));
-
-  // Call nvtxRangePush function
+  llvm::Value* op_name_ptr = builder.CreateGlobalString(op_name);
   builder.CreateCall(nvtx_range_push_func, {op_name_ptr});
 }
 
