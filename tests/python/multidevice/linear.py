@@ -6,9 +6,9 @@ import torch
 import torch.distributed as dist
 from dataclasses import dataclass
 from enum import auto, Enum
-from functools import partial, lru_cache
+from functools import lru_cache
 from fusion_definition_wrapper import FusionDefinitionWrapper
-from nvfuser import DataType, FusionDefinition
+from nvfuser_direct import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement
 from typing import Iterable
@@ -62,19 +62,22 @@ class ComputeType(Enum):
     BACKWARD = auto()
 
 
-# Cache so we create only one FusionDefinitionWrapper per math definition. This
-# is more efficient and is necessary to avoid #4507.
+# Cache based on forward and backward linear definition and its configuration.
+# FusionDefinitionWrapper caches based on input dtensors.
 @lru_cache
 def get_fusion_definition_wrapper(
-    compute_type: ComputeType, linear_config: LinearConfig
-) -> FusionDefinitionWrapper:
+    compute_type: ComputeType,
+    linear_config: LinearConfig,
+) -> FusionDefinition:
     match compute_type:
         case ComputeType.FORWARD:
-            fn = define_linear_forward
+            return FusionDefinitionWrapper(
+                lambda fd: define_linear_forward(linear_config, fd)
+            )
         case ComputeType.BACKWARD:
-            fn = define_linear_backward
-
-    return FusionDefinitionWrapper(partial(fn, linear_config))
+            return FusionDefinitionWrapper(
+                lambda fd: define_linear_backward(linear_config, fd)
+            )
 
 
 class LinearFunction(torch.autograd.Function):
@@ -97,7 +100,6 @@ class LinearFunction(torch.autograd.Function):
     def backward(ctx, grad_output: DTensor):
         input, weight = ctx.saved_tensors
         assert input.dim() in (2, 3)
-
         op = get_fusion_definition_wrapper(
             ComputeType.BACKWARD,
             LinearConfig(weight.size(1), weight.size(0), has_batch=(input.dim() == 3)),

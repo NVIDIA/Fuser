@@ -2,18 +2,21 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+# Run command:
+# mpirun -np 1 pytest tests/python/multidevice/test_dtensor.py --only-mpi -s
+
 import pytest
 import torch
 import torch.distributed as dist
 from fusion_definition_wrapper import FusionDefinitionWrapper
 from linear import LinearFunction
-from nvfuser import DataType, FusionDefinition
+from nvfuser_direct import FusionDefinition, DataType
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
 
 
 @pytest.mark.mpi
-def test_plus_one(setup_default_process_group, multidevice_test):
+def test_plus_one(setup_default_process_group, multidevice_direct_test):
     def define_fusion(fd: FusionDefinition):
         inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
         one = fd.define_scalar(1.0, dtype=DataType.Float)
@@ -35,7 +38,7 @@ def test_plus_one(setup_default_process_group, multidevice_test):
 
 
 @pytest.mark.mpi
-def test_column_parallel_linear(setup_default_process_group, multidevice_test):
+def test_column_parallel_linear(setup_default_process_group, multidevice_direct_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
@@ -73,7 +76,7 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear(setup_default_process_group, multidevice_test):
+def test_row_parallel_linear(setup_default_process_group, multidevice_direct_test):
     d, b, s, e = dist.get_world_size(), 2, 3, 5
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])

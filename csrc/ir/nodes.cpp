@@ -3572,6 +3572,14 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
     return {};
   }
 
+  // The allocation domain is set by the loop domain not by permuting the
+  // logical domain.
+  if (loop_domain_ == allocation_domain_) {
+    return {};
+  }
+
+  NVF_ERROR(logical_domain_.size() == allocation_domain_.size());
+
   std::vector<int64_t> stride_order;
   stride_order.reserve(logical_domain_.size());
 
