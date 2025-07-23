@@ -284,25 +284,17 @@ llvm::Value* getOrCreateValueForExtent(
   return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
 }
 
-/*
-
-Simple permute transformation example:
-
-logical domain: [a, b, c, d]
-original logical sizes: [a, b, c, d]
-original logical stride: [b*c*d, c*d, d, 1]
-
-permute(0,1)
-
-allocation domain: [b, a, c, d]
-refined logical sizes: [a, b, c, d]
-refined logical stride: [c*d, a*c*d, d, 1]
-
-we want to propagate the allocation domain to the logical domain to get:
-1. correct order of sizes and strides
-2. refined logical sizes (divide out device/expanded broadcast dimensions)
-
-*/
+// Simple permute transformation example:
+// logical domain: [a, b, c, d]
+// original logical sizes: [a, b, c, d]
+// original logical stride: [b*c*d, c*d, d, 1]
+// permute(0,1)
+// allocation domain: [b, a, c, d]
+// refined logical sizes: [a, b, c, d]
+// refined logical stride: [c*d, a*c*d, d, 1]
+// we want to propagate the allocation domain to the logical domain to get:
+// 1. correct order of sizes and strides
+// 2. refined logical sizes (divide out device/expanded broadcast dimensions)
 
 void inferTensorShapesAndStrides(
     const TensorView* tv,
