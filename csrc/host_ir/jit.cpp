@@ -28,6 +28,7 @@
 #include <ATen/ATen.h>
 #include <c10/core/MemoryFormat.h>
 
+#include <bfs.h>
 #include <host_ir/executor.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
@@ -38,7 +39,6 @@
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <val_graph_visitor.h>
-#include <bfs.h>
 
 namespace nvfuser {
 
@@ -235,7 +235,6 @@ llvm::Value* createValueForUnaryOp(
       "LLVM Lowering Error: Unsupported unary operation type in extent "
       "calculation: ",
       unary_op->getUnaryOpType());
-  return nullptr;
 }
 
 llvm::Value* createValue(
@@ -259,14 +258,12 @@ llvm::Value* createValue(
         "LLVM Lowering Error: createValueForExtent called with unsupported "
         "expression type: ",
         def->getOpString());
-    return nullptr;
   }
 
   NVF_THROW(
       "LLVM Lowering Error: createValueForExtent called with unfounded "
       "val: ",
       val->toString());
-  return nullptr;
 }
 
 llvm::Value* getOrCreateValue(
