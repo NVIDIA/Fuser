@@ -27,7 +27,7 @@ void InsertNewTensor::passImplementation(Fusion* fusion) {
   std::vector<std::pair<int64_t, TensorView*>> tensors_to_allocate;
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {
     if (auto* allocated_tensor = dynamic_cast<kir::Allocate*>(expr)) {
-       allocated_tensors.insert(allocated_tensor->buffer());
+       allocated_tensors.insert(allocated_tensor->buffer()->as<TensorView>());
     }
     else if (BinaryOp* binary_op = dynamic_cast<BinaryOp*>(expr)) {
       for (auto* output : binary_op->outputs()) {
