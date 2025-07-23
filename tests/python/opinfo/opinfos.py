@@ -577,6 +577,7 @@ add_opinfo = OpInfo(
     ),
     reference=_elementwise_binary_torch(torch.add),
     is_clonable=True,
+    supports_direct_bindings=True,
 )
 binary_ops.append(add_opinfo)
 
@@ -1143,6 +1144,7 @@ permute_opinfo = OpInfo(
     error_input_generator=permute_error_generator,
     reference=torch.permute,
     symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
 )
 shape_ops.append(permute_opinfo)
 

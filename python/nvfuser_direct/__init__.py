@@ -45,8 +45,8 @@ def execute_with_dtensors(fd, in_dtensors):
     from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 
     inputs = [in_dtensor.to_local() for in_dtensor in in_dtensors]
-    out_tensors = self.execute(inputs, auto_schedule=True)
-    out_shardings = self.fec.get_output_shardings()
+    out_tensors = fd.execute(inputs, auto_schedule=True)
+    out_shardings = fd.fec.get_output_shardings()
     assert len(out_tensors) == len(out_shardings)
 
     out_dtensors: list[DTensor] = []
@@ -160,6 +160,22 @@ class FusionDefinition:
         tv = _C_DIRECT.define_tensor(*args, **kwargs)
         self._fusion.add_input(tv)
         return tv
+
+    def define_vector(self, size):
+        """
+        Define a new vector input for the fusion.
+
+        Parameters
+        ----------
+        size : int
+            The size of the vector
+
+        Returns
+        -------
+        list of Scalar
+            The defined vector
+        """
+        return [self.define_scalar(None, DataType.Int) for i in range(size)]
 
     def define_scalar(self, *args, **kwargs):
         """
