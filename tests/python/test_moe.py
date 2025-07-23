@@ -2,10 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""
-This implements a simplified inference of Llama 4's MoE layer.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -52,19 +48,23 @@ class Llama4MoE(nn.Module):
 
     def run_routed_experts(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len, _ = hidden_states.size()
-        hidden_states = hidden_states.view(-1, hidden_states.size(-1)) # [s, h]
+        hidden_states = hidden_states.view(-1, hidden_states.size(-1))  # [s, h]
 
-        router_logits = self.gate(hidden_states) # [s, n]
-        topk_weight, topk_ids = router_logits.topk(1) # [s, 1]
-        router_scores = topk_weight.sigmoid() # [s, 1]
-        hidden_states = hidden_states * router_scores # [s, h]
+        router_logits = self.gate(hidden_states)  # [s, n]
+        topk_weight, topk_ids = router_logits.topk(1)  # [s, 1]
+        router_scores = topk_weight.sigmoid()  # [s, 1]
+        hidden_states = hidden_states * router_scores  # [s, h]
 
-        counts = topk_ids.new_zeros((topk_ids.size(0), self.config.num_routed_experts)) # [s, n]
-        counts.scatter_(1, topk_ids, 1) # [s, n]
-        tokens_per_expert = counts.sum(0) # [n]
+        counts = topk_ids.new_zeros(
+            (topk_ids.size(0), self.config.num_routed_experts)
+        )  # [s, n]
+        counts.scatter_(1, topk_ids, 1)  # [s, n]
+        tokens_per_expert = counts.sum(0)  # [n]
 
-        token_ids_sorted_by_expert_id = topk_ids.view(-1).argsort() # [s]
-        tokens_sorted_by_expert_id = hidden_states[token_ids_sorted_by_expert_id]
+        token_ids_sorted_by_expert_id = topk_ids.view(-1).argsort()  # [s]
+        tokens_sorted_by_expert_id = hidden_states[
+            token_ids_sorted_by_expert_id
+        ]  # [s, h]
 
         # The following code block should be replaced with a grouped gemm.
         # However, torch._grouped_mm is yet to be usable because it requires
@@ -79,10 +79,12 @@ class Llama4MoE(nn.Module):
             expert_out = expert(tokens_sorted_by_expert_id[start_index:end_index])
             outs_per_expert.append(expert_out)
             start_index = end_index
-        outs_sorted_by_expert_id = torch.cat(outs_per_expert, dim=0)
+        outs_sorted_by_expert_id = torch.cat(outs_per_expert, dim=0)  # [s, h]
 
-        outs_sorted_by_token_id = torch.empty_like(outs_sorted_by_expert_id)
-        outs_sorted_by_token_id[token_ids_sorted_by_expert_id] = outs_sorted_by_expert_id
+        outs_sorted_by_token_id = torch.empty_like(outs_sorted_by_expert_id)  # [s, h]
+        outs_sorted_by_token_id[
+            token_ids_sorted_by_expert_id
+        ] = outs_sorted_by_expert_id
         return outs_sorted_by_token_id
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
