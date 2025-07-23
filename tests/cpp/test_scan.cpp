@@ -200,4 +200,83 @@ TEST_F(ScanTest, ScanWithArithmeticOps) {
   testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
 }
 
+TEST_F(ScanTest, OnlineSoftmax) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto x = makeSymbolicTensor(1);
+  fusion.addInput(x);
+
+  int64_t scan_dim = 0;
+
+  // Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+  //
+  // Given x[i] for i=0 .. N-1:
+  //
+  //   m[-1] = -infinity
+  //   d[-1] = 0
+  //   (1) First read of gmem input x
+  //       one scan op to compute max(m[j-1], x[j])
+  //       one scan op to compute d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+  //   for j = 0 .. N-1
+  //     m[j] = max(m[j-1], x[j])
+  //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+
+  //   (2) Second read of gmem input x
+  //   for j = 0 .. N-1
+  //     result[j] = exp(x[j] - m[N-1]) / d[N-1]
+  //
+  // Final maximum is m[N-1]
+  // Final denominator is d[N-1]
+  // Final softmax results are exp(x[i] - m[N-1]) / d[N-1]  
+  auto* neg_infty = IrBuilder::create<Val>(
+      -std::numeric_limits<double>::infinity(), DataType::Double);
+  ScanResult max_scan_result = scan(
+      set(x),
+      scan_dim,
+      BinaryOpType::Max,
+      /*init=*/neg_infty,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true); // max x[j] over j = 0 .. i
+  TensorView* m = max_scan_result.inclusive;
+  TensorView* m_prev = max_scan_result.exclusive;
+  TensorView* full_max = max_scan_result.reduction;
+  // normalize by running max and exponentiate
+  TensorView* exp_x_m = exp(sub(x, m));
+  // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+  TensorView* discount = exp(sub(m_prev, m));
+
+  auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+
+  auto norm_factor = reductionOp(
+      BinaryOpType::RHS,
+      {scan_dim},
+      /*init=*/fusion.zeroVal(DataType::Float),
+      denoms);
+
+  // auto full_max = reductionOp(
+  //     BinaryOpType::RHS,
+  //     {scan_dim},
+  //     /*init=*/neg_infty,
+  //     m);
+
+  auto max_bcast = broadcast(full_max, {true});
+  auto norm_factor_bcast = broadcast(norm_factor, {true});
+  // Recompute numerator
+  auto numer = exp(sub(set(x), max_bcast));
+
+  auto result = div(numer, norm_factor_bcast);
+
+  fusion.addOutput(result);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = at::randn({4}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input});
+
+  testValidate(executor_cache.fusion(), outputs, {input}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
