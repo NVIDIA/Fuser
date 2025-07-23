@@ -161,11 +161,7 @@ def test_repro_script_for():
 
         fd.add_output(t4)
 
-    expected_repro = """# CUDA devices:
-#  0: NVIDIA GH200 96GB HBM3
-#  1: NVIDIA GH200 96GB HBM3
-# torch version: 2.8.0a0+34c6371d24.nvInternal
-# cuda version: 13.0
+    expected_repro = """
 import torch
 from nvfuser_direct import FusionDefinition, DataType
 def nvfuser_fusion(fd : FusionDefinition) -> None :
@@ -184,7 +180,7 @@ inputs = [
     torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:1'),
 ]
 fd.execute(inputs)\n"""
-    assert fd.repro_script_for(inputs) == expected_repro
+    assert expected_repro in fd.repro_script_for(inputs)
 
 
 def test_define_tensor():
@@ -236,6 +232,6 @@ def test_execute_with_different_device():
 
         fd.add_output(t4)
 
-    o = fd.execute(inputs, device="cuda:1")
-    assert len(o) == 1
-    assert o[0].device.index == 1
+    outputs = fd.execute(inputs, device="cuda:1")
+    assert len(outputs) == 1
+    assert outputs[0].device.index == 1

@@ -11,6 +11,7 @@ if "nvfuser" in sys.modules:
         UserWarning,
     )
 
+from typing import Optional
 import os
 import torch
 import traceback
@@ -210,6 +211,29 @@ class FusionDefinition:
         """
         self._fusion.add_output(*args, **kwargs)
 
+    def _get_device_index(self, device_arg: Optional[torch.device | int | str]) -> int:
+        """
+        Get the integer index for device_arg.
+
+        Parameters
+        ----------
+        device_arg : Optional[torch.device | int | str]
+
+        Returns
+        -------
+        int
+            The index for cuda device
+        """
+        if device_arg is None or isinstance(device_arg, int):
+            return device_arg
+
+        # NOTE: torch.device(torch.device) is still a torch.device
+        device = torch.device(device_arg)
+        assert (
+            device.type == "cuda"
+        ), "If device argument is passed it must be a CUDA device"
+        return device.index
+
     def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
@@ -229,21 +253,13 @@ class FusionDefinition:
             Output tensors from the fusion
         """
 
-        if not isinstance(device, int) and device is not None:
-            if not isinstance(device, torch.device):
-                device = torch.device(device)
-            assert (
-                device.type == "cuda"
-            ), "If device argument is passed it must be a CUDA device"
-            device = device.index
-
         if auto_schedule:
             if not hasattr(self, "fec"):
                 self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
                 # A copy of fusion is created after construction FusionExecutorCache
                 # Delete the _fusion and reference the fusion inside FusionExecutorCache
                 del self._fusion
-            return self.fec.execute(inputs, device=device)
+            return self.fec.execute(inputs, device=self._get_device_index(device))
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
 
