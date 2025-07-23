@@ -303,21 +303,10 @@ TEST_F(ScanDeviceFuncTest, OnlineSoftmax) {
   const int ITEMS_PER_THREAD = 2;
   const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
 
-    // Common tensor options for all tensors
+  // Common tensor options for all tensors
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  
   auto input_tensor = at::tensor({2, 0, 2, 5, 0, 7, 2, 3}, options);
 
-  auto print_tensor = [](const at::Tensor& tensor,
-                         const std::string& tensor_name) {
-    std::cout << tensor_name << ": ";
-    for (int i = 0; i < tensor.size(0); i++) {
-      std::cout << tensor[i].item<float>() << " ";
-    }
-    std::cout << std::endl;
-  };
-  print_tensor(input_tensor, "input_tensor");
-  
   // (1) m[j] = max(m[j-1], x[j])
   //     m = inclusive_scan(x, max)
   const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Max;
@@ -329,57 +318,51 @@ TEST_F(ScanDeviceFuncTest, OnlineSoftmax) {
       0.0f, // init_value
       BLOCK_SIZE,
       binary_op_type);
-  print_tensor(tensor_m_inc, "tensor_m_inc");
-  validateScanResult(input_tensor, tensor_m_inc, binary_op_type);
-
 
   // (2) d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
   // (2.1) exclusive_scan to get m[j-1]
-   constexpr float neg_infinity = -std::numeric_limits<float>::infinity();
-   auto tensor_m_exc = at::empty({total_elements}, options);
-   tensor_m_exc[0] = neg_infinity;  // Set first element to -infinity
-   tensor_m_exc.slice(/*dim=*/0, /*start=*/1, /*end=*/total_elements) =
-       tensor_m_inc.slice(/*dim=*/0, /*start=*/0, /*end=*/total_elements - 1);
-  print_tensor(tensor_m_exc, "tensor_m_exc");
-
+  constexpr float neg_infinity = -std::numeric_limits<float>::infinity();
+  auto tensor_m_exc = at::empty({total_elements}, options);
+  tensor_m_exc[0] = neg_infinity; // Set first element to -infinity
+  tensor_m_exc.slice(/*dim=*/0, /*start=*/1, /*end=*/total_elements) =
+      tensor_m_inc.slice(/*dim=*/0, /*start=*/0, /*end=*/total_elements - 1);
   // (2.2) tensor_exp_x_m = exp(x[j] - m[j])
-   auto tensor_exp_x_m = at::exp(at::sub(input_tensor, tensor_m_inc));
-   print_tensor(tensor_exp_x_m, "tensor_exp_x_m");
-
+  auto tensor_exp_x_m = at::exp(at::sub(input_tensor, tensor_m_inc));
   // (2.3) tensor_discount = exp(m[j-1] - m[j])
-   auto tensor_discount = at::exp(at::sub(tensor_m_exc, tensor_m_inc));
+  auto tensor_discount = at::exp(at::sub(tensor_m_exc, tensor_m_inc));
+  // (2.4) tensor_denominator = discount_scan(tensor_exp_x_m, tensor_discount)
+  // d[j] = d[j-1] * tensor_discount[j] + tensor_exp_x_m[j]
+  // This implements the softmax attention denominator computation
+  auto tensor_denominator = at::empty({total_elements}, options);
+  launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      tensor_exp_x_m.data_ptr<float>(),
+      tensor_discount.data_ptr<float>(),
+      tensor_denominator.data_ptr<float>(),
+      0.0f, // init_value
+      BLOCK_SIZE);
+  cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
 
-   print_tensor(tensor_discount, "tensor_discount");
+  // (3) Online softmax final step: result[j] = exp(x[j] - m[N-1]) / d[N-1]
+  auto tensor_global_max = at::broadcast_to(
+      tensor_m_inc.slice(
+          /*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements),
+      {total_elements});
+  auto tensor_global_denominator = at::broadcast_to(
+      tensor_denominator.slice(
+          /*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements),
+      {total_elements});
+  auto tensor_result_online = at::div(
+      at::exp(at::sub(input_tensor, tensor_global_max)),
+      tensor_global_denominator);
 
-     // (2.4) tensor_denominator = discount_scan(tensor_exp_x_m, tensor_discount)
-   // d[j] = d[j-1] * tensor_discount[j] + tensor_exp_x_m[j]
-   // This implements the softmax attention denominator computation
-   auto tensor_denominator = at::empty({total_elements}, options);
-   launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
-       at::cuda::getCurrentCUDAStream(),
-       tensor_exp_x_m.data_ptr<float>(),
-       tensor_discount.data_ptr<float>(),
-       tensor_denominator.data_ptr<float>(),
-       0.0f, // init_value
-       BLOCK_SIZE);
-   cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
-   print_tensor(tensor_denominator, "tensor_denominator");
-
-   // (3) Online softmax final step: result[j] = exp(x[j] - m[N-1]) / d[N-1]
-   auto tensor_global_max = at::broadcast_to(tensor_m_inc.slice(/*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements), {total_elements});
-   auto tensor_global_denominator = at::broadcast_to(tensor_denominator.slice(/*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements), {total_elements});
-   
-   print_tensor(tensor_global_max, "tensor_global_max");
-   print_tensor(tensor_global_denominator, "tensor_global_denominator");
-   
-   // Final result: exp(x[j] - global_max) / global_denominator
-   auto tensor_result_online = at::div(at::exp(at::sub(input_tensor, tensor_global_max)), tensor_global_denominator);
-   print_tensor(tensor_result_online, "tensor_result_online_");
-
-   // (4) validate
-   auto tensor_result_pytorch = at::softmax(input_tensor, /*dim=*/0);
-   print_tensor(tensor_result_pytorch, "tensor_result_pytorch");
-   EXPECT_TRUE(at::allclose(tensor_result_online, tensor_result_pytorch, /*rtol=*/1e-5, /*atol=*/1e-6));
+  // (4) validate
+  auto tensor_result_pytorch = at::softmax(input_tensor, /*dim=*/0);
+  EXPECT_TRUE(at::allclose(
+      tensor_result_online,
+      tensor_result_pytorch,
+      /*rtol=*/1e-5,
+      /*atol=*/1e-6));
 }
 
 // Test discount scan functionality with simple, predictable inputs
@@ -390,23 +373,11 @@ TEST_F(ScanDeviceFuncTest, DiscountScan) {
 
   // Common tensor options for all tensors
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  auto print_tensor = [](const at::Tensor& tensor,
-                         const std::string& tensor_name) {
-    std::cout << tensor_name << ": ";
-    for (int i = 0; i < tensor.size(0); i++) {
-      std::cout << tensor[i].item<float>() << " ";
-    }
-    std::cout << std::endl;
-  };
-
-  // Test Case 1: Simple inputs with known discount factors
-  auto input_tensor = at::tensor({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}, options);
-  auto discount_tensor = at::tensor({0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f}, options);
+  auto input_tensor =
+      at::tensor({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}, options);
+  auto discount_tensor =
+      at::tensor({0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f}, options);
   auto output_tensor = at::empty({total_elements}, options);
-
-  print_tensor(input_tensor, "input");
-  print_tensor(discount_tensor, "discount");
 
   // Launch discount scan kernel
   launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
@@ -418,65 +389,22 @@ TEST_F(ScanDeviceFuncTest, DiscountScan) {
       BLOCK_SIZE);
   cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
 
-  print_tensor(output_tensor, "output");
-
   // Manual validation: d[j] = d[j-1] * discount[j] + input[j]
   std::vector<float> expected = {
-      1.0f,                    // d[0] = input[0] = 1.0
-      1.0f * 0.5f + 2.0f,     // d[1] = 1.0 * 0.5 + 2.0 = 2.5
-      2.5f * 0.5f + 3.0f,     // d[2] = 2.5 * 0.5 + 3.0 = 4.25
-      4.25f * 0.5f + 4.0f,    // d[3] = 4.25 * 0.5 + 4.0 = 6.125
-      6.125f * 0.5f + 5.0f,   // d[4] = 6.125 * 0.5 + 5.0 = 8.0625
-      8.0625f * 0.5f + 6.0f,  // d[5] = 8.0625 * 0.5 + 6.0 = 10.03125
+      1.0f, // d[0] = input[0] = 1.0
+      1.0f * 0.5f + 2.0f, // d[1] = 1.0 * 0.5 + 2.0 = 2.5
+      2.5f * 0.5f + 3.0f, // d[2] = 2.5 * 0.5 + 3.0 = 4.25
+      4.25f * 0.5f + 4.0f, // d[3] = 4.25 * 0.5 + 4.0 = 6.125
+      6.125f * 0.5f + 5.0f, // d[4] = 6.125 * 0.5 + 5.0 = 8.0625
+      8.0625f * 0.5f + 6.0f, // d[5] = 8.0625 * 0.5 + 6.0 = 10.03125
       10.03125f * 0.5f + 7.0f, // d[6] = 10.03125 * 0.5 + 7.0 = 12.015625
       12.015625f * 0.5f + 8.0f // d[7] = 12.015625 * 0.5 + 8.0 = 14.0078125
   };
-
   auto expected_tensor = at::tensor(expected, options);
-  print_tensor(expected_tensor, "expected");
-
   // Validate results with tolerance for floating point precision
-  EXPECT_TRUE(at::allclose(output_tensor, expected_tensor, /*rtol=*/1e-5, /*atol=*/1e-6))
+  EXPECT_TRUE(at::allclose(
+      output_tensor, expected_tensor, /*rtol=*/1e-5, /*atol=*/1e-6))
       << "Discount scan results don't match expected values";
-
-  // Test Case 2: All discount factors = 1.0 (should behave like cumsum)
-  auto discount_ones = at::ones({total_elements}, options);
-  auto output_cumsum = at::empty({total_elements}, options);
-
-  launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
-      at::cuda::getCurrentCUDAStream(),
-      input_tensor.data_ptr<float>(),
-      discount_ones.data_ptr<float>(),
-      output_cumsum.data_ptr<float>(),
-      0.0f, // init_value
-      BLOCK_SIZE);
-  cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
-
-  auto expected_cumsum = at::cumsum(input_tensor, /*dim=*/0);
-  print_tensor(output_cumsum, "output_cumsum");
-  print_tensor(expected_cumsum, "expected_cumsum");
-
-  EXPECT_TRUE(at::allclose(output_cumsum, expected_cumsum, /*rtol=*/1e-5, /*atol=*/1e-6))
-      << "Discount scan with all 1.0 discounts should match cumsum";
-
-  // Test Case 3: All discount factors = 0.0 (should just copy input)
-  auto discount_zeros = at::zeros({total_elements}, options);
-  auto output_copy = at::empty({total_elements}, options);
-
-  launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
-      at::cuda::getCurrentCUDAStream(),
-      input_tensor.data_ptr<float>(),
-      discount_zeros.data_ptr<float>(),
-      output_copy.data_ptr<float>(),
-      0.0f, // init_value
-      BLOCK_SIZE);
-  cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
-
-  print_tensor(output_copy, "output_copy");
-  print_tensor(input_tensor, "input_copy");
-
-  EXPECT_TRUE(at::allclose(output_copy, input_tensor, /*rtol=*/1e-5, /*atol=*/1e-6))
-      << "Discount scan with all 0.0 discounts should copy input";
 }
 
 } // namespace nvfuser

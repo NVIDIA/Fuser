@@ -60,46 +60,42 @@ struct MulOp {
   }
 };
 
-
-
 // Custom data type for discount scan following CUB pattern
 template <typename DataT>
 struct DiscountScanTuple {
-  DataT value;                // The partial result of the discounted sum
+  DataT value; // The partial result of the discounted sum
   DataT discount_accumulator; // The accumulated discount factor
 
   __device__ __forceinline__ DiscountScanTuple() = default;
-  __device__ __forceinline__ DiscountScanTuple(DataT v, DataT d) : value(v), discount_accumulator(d) {}
+  __device__ __forceinline__ DiscountScanTuple(DataT v, DataT d)
+      : value(v), discount_accumulator(d) {}
 };
 
 // Custom associative operator for discount scan following CUB pattern
 template <typename DataT>
 struct DiscountScanOp {
   __device__ __forceinline__ DiscountScanTuple<DataT> operator()(
-      const DiscountScanTuple<DataT>& a, 
+      const DiscountScanTuple<DataT>& a,
       const DiscountScanTuple<DataT>& b) const {
     DiscountScanTuple<DataT> result;
     // Combine segments: new_value = a.value * b.discount + b.value
     result.value = a.value * b.discount_accumulator + b.value;
     // Accumulate discount factors
-    result.discount_accumulator = a.discount_accumulator * b.discount_accumulator;
+    result.discount_accumulator =
+        a.discount_accumulator * b.discount_accumulator;
     return result;
   }
 };
 
 // Specialized discount scan kernel using CUB BlockScan with custom operator
-template <
-    int BLOCK_SIZE,
-    typename DataT,
-    int ITEMS_PER_THREAD>
+template <int BLOCK_SIZE, typename DataT, int ITEMS_PER_THREAD>
 __device__ void discountScanTestKernelTyped(
     DataT* input,
     DataT* discount,
     DataT* output,
     DataT init_value) {
-  
   using TupleT = DiscountScanTuple<DataT>;
-  
+
   // Input data arrays
   DataT input_data[ITEMS_PER_THREAD];
   DataT discount_data[ITEMS_PER_THREAD];
@@ -270,20 +266,16 @@ void launchDiscountScanTestKernel(
   // Dispatch based on block size
   if (block_size == 4) {
     discountScanTestKernel<4, DataT, ITEMS_PER_THREAD>
-        <<<1, block_size, 0, stream>>>(
-            input, discount, output, init_value);
+        <<<1, block_size, 0, stream>>>(input, discount, output, init_value);
   } else if (block_size == 8) {
     discountScanTestKernel<8, DataT, ITEMS_PER_THREAD>
-        <<<1, block_size, 0, stream>>>(
-            input, discount, output, init_value);
+        <<<1, block_size, 0, stream>>>(input, discount, output, init_value);
   } else if (block_size == 16) {
     discountScanTestKernel<16, DataT, ITEMS_PER_THREAD>
-        <<<1, block_size, 0, stream>>>(
-            input, discount, output, init_value);
+        <<<1, block_size, 0, stream>>>(input, discount, output, init_value);
   } else if (block_size == 32) {
     discountScanTestKernel<32, DataT, ITEMS_PER_THREAD>
-        <<<1, block_size, 0, stream>>>(
-            input, discount, output, init_value);
+        <<<1, block_size, 0, stream>>>(input, discount, output, init_value);
   } else {
     // Default to block size 4 for unsupported sizes
     discountScanTestKernel<4, DataT, ITEMS_PER_THREAD>
@@ -391,22 +383,6 @@ template void launchDiscountScanTestKernel<float, 4>(
     float* discount,
     float* output,
     float init_value,
-    int block_size);
-
-// double instantiations
-template void launchDiscountScanTestKernel<double, 1>(
-    cudaStream_t stream,
-    double* input,
-    double* discount,
-    double* output,
-    double init_value,
-    int block_size);
-template void launchDiscountScanTestKernel<double, 2>(
-    cudaStream_t stream,
-    double* input,
-    double* discount,
-    double* output,
-    double init_value,
     int block_size);
 
 } // namespace nvfuser
