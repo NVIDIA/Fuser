@@ -2680,6 +2680,7 @@ TEST_F(NVFuserTest, FusionVarMeanZeroDim_CUDA) {
 
   int correction = 0;
   bool keepdim = false;
+  at::ScalarType dtype = at::kFloat;
 
   auto tv0 = makeSymbolicTensor(0, aten_to_data_type(dtype));
   fusion->addInput(tv0);
