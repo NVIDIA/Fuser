@@ -1468,11 +1468,14 @@ void recomputeNonPersistentUnmappbleTvs(
 } // namespace
 
 // common prepare for all persistent schedulers
-void beforeSchedule(
+void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
+    std::vector<TensorView*>& persistent_buffers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
@@ -1501,6 +1504,17 @@ void beforeSchedule(
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  // recheck persistent buffers after project to inputs and cached inputs
+  persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
+  // move persistent buffer marked in [smem_persistent_buffers] from register to
+  // smem
+  smem_consumers = movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs, persistent_buffers);
+
+  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
 
 TensorView* scheduleReductionGeneral(
@@ -1561,20 +1575,17 @@ void schedulePersistentKernel(
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
+      smem_consumers, persistent_buffers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(fusion, rparams, dummy_outputs, cached_inputs, cached_outputs);
-
-  // move persistent buffer marked in [smem_persistent_buffers] from register to
-  // smem
-  // Needs to re-derive the persistent buffers after project to inputs or
-  // producers.
-  const auto& persistent_buffers =
-      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
-  smem_consumers = movePersistentBufferToSmem(
-      fusion, rparams, cached_inputs, persistent_buffers);
-
-  reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  commonScheduleBeforeIterDomainTransform(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      smem_consumers,
+      persistent_buffers,
+      cached_outputs);
 
   TensorView* reference_tv =
       scheduleReductionGeneral(fusion, rparams, reduction_tvs, scheduler_type);

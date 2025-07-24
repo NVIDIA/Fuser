@@ -272,12 +272,15 @@ bool checkReductionPattern(
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type);
 
 // Common preparations before the actual schedule, used by all persistent
-// schedulers. Write to dummy_outputs, cached_inputs, and cached_outputs.
-void beforeSchedule(
+// schedulers.
+void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
+    std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
+    std::vector<TensorView*>& persistent_buffers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
