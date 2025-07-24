@@ -6047,8 +6047,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
           mat2.sizes());
     }
 
-    for (auto [group_mat1, group_mat2] : zip(group_mat1s, group_mat2s)) {
-      group_outs.push_back(at::matmul(group_mat1, group_mat2));
+    for (auto [group_mat1, group_mat2, group_out] :
+         zip(group_mat1s, group_mat2s, group_outs)) {
+      at::matmul_out(group_out, group_mat1, group_mat2);
     }
   }
 
