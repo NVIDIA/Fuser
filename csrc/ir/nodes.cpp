@@ -6019,18 +6019,26 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
 
     std::vector<at::Tensor> group_mat1s;
     std::vector<at::Tensor> group_mat2s;
+    std::vector<at::Tensor> group_outs;
     if (mat1.dim() == 2 && mat2.dim() == 2) {
       // [m, k] @ [k, n] => [g, m, n]
       group_mat1s = mat1.split(group_sizes, -1);
       group_mat2s = mat2.split(group_sizes, 0);
+      result =
+          at::empty({num_groups, mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.unbind();
     } else if (mat1.dim() == 3 && mat2.dim() == 2) {
       // [g, m, k] @ [k, n] => [m, n]
       group_mat1s = mat1.unbind();
       group_mat2s = mat2.split(group_sizes, -1);
+      result = at::empty({mat1.size(1), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, -1);
     } else if (mat1.dim() == 2 && mat2.dim() == 3) {
       // [m, k] @ [g, k, n] => [m, n]
       group_mat1s = mat1.split(group_sizes, 0);
       group_mat2s = mat2.unbind();
+      result = at::empty({mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, 0);
     } else {
       NVF_THROW(
           "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
@@ -6039,19 +6047,8 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
           mat2.sizes());
     }
 
-    std::vector<at::Tensor> group_outs;
-    group_outs.reserve(num_groups);
     for (auto [group_mat1, group_mat2] : zip(group_mat1s, group_mat2s)) {
       group_outs.push_back(at::matmul(group_mat1, group_mat2));
-    }
-
-    if (mat1.dim() == 2 && mat2.dim() == 2) {
-      result = at::stack(group_outs);
-    } else if (mat1.dim() == 3 && mat2.dim() == 2) {
-      result = at::cat(group_outs, -1);
-    } else {
-      NVF_ERROR(mat1.dim() == 2 && mat2.dim() == 3);
-      result = at::cat(group_outs, 0);
     }
   }
 
