@@ -622,7 +622,12 @@ class TensorDomain : public Val {
   // unique.
   std::vector<IterDomain*> allIDs() const;
 
+  // return expressions generating the given IDs.
+  std::vector<Expr*> allExprsToIds(
+      const std::vector<IterDomain*>& target_ids) const;
+
   // Similar to allIDs but returns all ID expressions.
+  // Call allExprsToIds with allIDs as target_ids.
   std::vector<Expr*> allExprs() const;
 
   // Combine allIDs and allExprs

@@ -4067,12 +4067,13 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
   return sorted_ids.vector();
 }
 
-std::vector<Expr*> TensorDomain::allExprs() const {
-  auto all_ids = allIDs();
+std::vector<Expr*> TensorDomain::allExprsToIds(
+    const std::vector<IterDomain*>& target_ids) const {
+  const auto& all_ids = allIDs();
   std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
 
   VectorOfUniqueEntries<Expr*> exprs;
-  for (auto id : all_ids) {
+  for (auto id : target_ids) {
     auto def = id->definition();
     if (def == nullptr) {
       continue;
@@ -4091,6 +4092,10 @@ std::vector<Expr*> TensorDomain::allExprs() const {
   }
 
   return exprs.vector();
+}
+
+std::vector<Expr*> TensorDomain::allExprs() const {
+  return allExprsToIds(allIDs());
 }
 
 std::vector<Statement*> TensorDomain::allStatements() const {
