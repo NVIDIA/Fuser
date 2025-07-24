@@ -887,7 +887,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   }
   // replay loop domain transformations to allocation domain for shared memory
   // tensors. Ensure we can allocate based on the allocation domain.
-  scheduler_utils::replayLoopToAllocation(fusion);
+  scheduler_utils::replayLoopToAllocationForSharedMemoryTvs(fusion);
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser
