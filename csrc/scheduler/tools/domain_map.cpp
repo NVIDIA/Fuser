@@ -109,9 +109,24 @@ DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
   tvs_with_rfactor_ = scheduler_utils::getTVsWithNonReductionRFactor(fusion);
 }
 
+const scheduler_utils::CoveredDomainPropagator& DomainMap::
+    getCoveredDomainPropagator(TensorView* reference_tv) {
+  auto it = covered_domain_propagators_.find(reference_tv);
+  if (it != covered_domain_propagators_.end()) {
+    return it->second;
+  }
+  MaxLogicalDomainInfoSpanningTree tree(
+      reference_tv,
+      /*selector=*/nullptr,
+      /*propagate_through_resize=*/true);
+  scheduler_utils::CoveredDomainPropagator& prop =
+      covered_domain_propagators_[reference_tv];
+  tree.traverse(&prop);
+  return prop;
+}
+
 // Determine if all IterDomains in input are mapped to the given tensor
-bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
-    const {
+bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv) {
   // Get concrete IDs for input root or logical domain
   std::unordered_set<IterDomain*> in_concrete_ids;
   for (auto in_id : input_tv->getLogicalDomain()) {
@@ -129,12 +144,21 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     }
   }
 
+  const scheduler_utils::CoveredDomainPropagator& prop =
+      getCoveredDomainPropagator(tv);
+  for (IterDomain* id : in_concrete_ids) {
+    if (!prop.checkIterDomainIsScheduled(id)) {
+      return false;
+    }
+  }
+  return true;
+
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
-  eraseifInputMappedThroughRootDomainAndIndexing(
-      in_concrete_ids, tv->getLogicalDomain());
+  // eraseifInputMappedThroughRootDomainAndIndexing(
+  // in_concrete_ids, tv->getLogicalDomain());
 
-  return in_concrete_ids.empty();
+  // return in_concrete_ids.empty();
 }
 
 // Note: ideally we would want to check that reference_tv contains all iter
@@ -376,7 +400,7 @@ IterDomain* DomainMap::anyMapped(
 // Determine if output TensorView is a valid reference tensor for this fusion.
 // The reference tensor must map to all the iterDomains in each input and
 // output
-bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
+bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) {
   if (check_inputs) {
     for (auto input_tv :
          ir_utils::filterByType<TensorView>(fusion_->inputs())) {
@@ -408,7 +432,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
 }
 
 TensorView* PointwiseDomainMap::findReferenceTensor(
-    int64_t minimum_num_axes) const {
+    int64_t minimum_num_axes) {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto output_tv :
@@ -427,7 +451,7 @@ TensorView* PointwiseDomainMap::findReferenceTensor(
 }
 
 TensorView* TransposeDomainMap::findReferenceFor(
-    const std::vector<TensorView*>& group) const {
+    const std::vector<TensorView*>& group) {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto tv : group) {

@@ -192,7 +192,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             return std::make_unique<scheduler_tools::PointwiseDomainMap>(
                 fusion);
           });
-  const auto& domain_map = dynamic_cast<scheduler_tools::PointwiseDomainMap&>(
+  auto& domain_map = dynamic_cast<scheduler_tools::PointwiseDomainMap&>(
       domain_map_entry.get());
 
   auto largest_out_entry =

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <compute_at_map.h>
+#include <scheduler/utils.h>
 
 #include <unordered_set>
 #include <vector>
@@ -34,12 +35,14 @@ class DomainMap {
   // Determine if a TensorView is a valid reference tensor for this fusion.
   // The reference tensor must map to all the iterDomains in each input and
   // output.
-  bool isValidReference(TensorView* tv, bool check_inputs = true) const;
+  bool isValidReference(TensorView* tv, bool check_inputs = true);
 
  protected:
   // Determine if all IterDomains are mapped between input and the given tvs
-  bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv)
-      const;
+  bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv);
+
+  const scheduler_utils::CoveredDomainPropagator& getCoveredDomainPropagator(
+      TensorView* reference_tv);
 
   // Determine if all source IterDomains in target_tv are contained by the
   // reference_tv, this ensures transformations from reference_tv can be
@@ -70,6 +73,8 @@ class DomainMap {
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
   std::vector<TensorView*> tvs_with_rfactor_;
+  std::unordered_map<TensorView*, scheduler_utils::CoveredDomainPropagator>
+      covered_domain_propagators_;
 };
 
 class PointwiseDomainMap : public scheduler_tools::DomainMap {
@@ -78,7 +83,7 @@ class PointwiseDomainMap : public scheduler_tools::DomainMap {
 
   // The pointwise scheduler heuristics requires a minimum number of axes.
   // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0) const;
+  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0);
 
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
@@ -100,7 +105,7 @@ class TransposeDomainMap : public scheduler_tools::DomainMap {
   // be a traversal path to an input. This type of analysis is
   // expected to be possible much more easily with the new indexing
   // graph (#32), so we should revisit once it becomes available.
-  TensorView* findReferenceFor(const std::vector<TensorView*>& group) const;
+  TensorView* findReferenceFor(const std::vector<TensorView*>& group);
 
   IterDomain* getMappedAllocDimIn(TensorView* tv, IterDomain* root_dim) const;
 
