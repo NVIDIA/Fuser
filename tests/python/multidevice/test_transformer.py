@@ -14,10 +14,6 @@ from nvfuser.testing.benchmark_utils import get_benchmark_fns
 
 @pytest.mark.mpi
 def test_grouped_mlp(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
