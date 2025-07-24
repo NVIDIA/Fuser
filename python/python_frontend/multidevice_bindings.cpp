@@ -52,7 +52,7 @@ void bindCommunicator(py::module& nvfuser) {
 
 void bindDeviceMesh(py::module& nvfuser) {
   py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
-  device_mesh.def(py::init<std::vector<int64_t>>());
+  device_mesh.def(py::init<at::Tensor>());
   device_mesh.def("__repr__", [](const DeviceMesh& self) {
     std::stringstream ss;
     ss << self;

@@ -665,8 +665,8 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
         ir_utils::filterByType<TensorView>(expr->outputs())}) {
     for (auto* tv : tvs) {
       if (tv->hasDeviceMesh()) {
-        auto& mesh = tv->getDeviceMesh().vector();
-        std::copy(mesh.begin(), mesh.end(), std::inserter(ret, ret.end()));
+        const auto& mesh = tv->getDeviceMesh().vector();
+        ret.insert(mesh.begin(), mesh.end());
       } else {
         ret.insert(0);
       }
