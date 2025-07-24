@@ -72,7 +72,7 @@ jobs:
           git checkout $this_commit
           # diff-filter for lower case letter:
           # https://github.com/git/git/commit/7f2ea5f0f2fb056314092cce23202096ca70f076
-          git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --config .lintrunner.toml --take CLANGTIDY --force-color
+          git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
 
   lintrunner:
     runs-on: ubuntu-latest
@@ -86,10 +86,6 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
-          tools/apt-install-things.sh &
-          tools/pip-install-things.sh &
-          source tools/setup-env.sh
-
           # Install lintrunner
           pip install lintrunner
 
@@ -100,4 +96,4 @@ jobs:
           sudo apt install -y libtinfo6
 
           # Run lintrunner except clang-tidy
-          lintrunner --config .lintrunner.toml --skip CLANGTIDY --all-files --verbose
+          lintrunner --force-color --skip CLANGTIDY --all-files
