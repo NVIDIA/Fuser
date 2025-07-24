@@ -406,10 +406,21 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // The tensors are going to be reordered to align with the largest
     // input. To make it work, merge operations for reshape should be
     // cancelled.
-#if 0
-    scheduler_tools::cancelReshapeInLoopDomains(
-        largest_input, /*skip_innermost_id=*/true);
-#endif
+
+    // Disabled for now to avoid scheduling errors in some HF
+    // models. Up to 10% perf loss is observed with the RoPE
+    // benchmarks. To re-enable the optimization, it probably makes
+    // more sense to first address the issue due to cyclic exact
+    // graphs. That is, scheduleLoopDomainsLike is potentially fairly
+    // powerful but due to cycles, only the update mode is used when
+    // propagating transformations from the reference tensor. This
+    // restriction makes it difficult to use more aggressive
+    // scheduling like setting the loop domain of a reshape output
+    // tensor as its root domain, which is what
+    // cancelReshapeInLoopDomains does.
+    //
+    // scheduler_tools::cancelReshapeInLoopDomains(
+    // largest_input, /*skip_innermost_id=*/true);
   }
 
   // Propagate Resize ops to producer tensors. This is safe as this
