@@ -146,8 +146,8 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<float, 3, 3> T0, Tensor<flo
 
 def test_repro_script_for():
     inputs = [
-        torch.ones(2, 4, 8, device="cuda:1"),
-        torch.ones(2, 4, 8, device="cuda:1"),
+        torch.ones(2, 4, 8, device="cuda"),
+        torch.ones(2, 4, 8, device="cuda"),
     ]
 
     with FusionDefinition() as fd:
@@ -176,8 +176,8 @@ with FusionDefinition() as fd:
     nvfuser_fusion(fd)
 
 inputs = [
-    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:1'),
-    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:1'),
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
+    torch.testing.make_tensor((2, 4, 8), dtype=torch.float32, device='cuda:0'),
 ]
 fd.execute(inputs)\n"""
     assert expected_repro in fd.repro_script_for(inputs)
