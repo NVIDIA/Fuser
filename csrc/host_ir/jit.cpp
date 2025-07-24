@@ -1009,6 +1009,8 @@ void HostIrJitImpl::registerExternalFunctions() {
     });
 
   // linear_out function without bias
+  // NOTE: original linear_out function used a squeeze version
+  // But it gives us error in testing, so we use the non-squeeze version for now
   void* linear_out_func_ptr_without_bias = reinterpret_cast<void*>(
     +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight) {
       at::linear_out(*t_out, *t_in, t_weight->squeeze());

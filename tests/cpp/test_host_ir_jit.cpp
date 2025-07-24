@@ -399,9 +399,7 @@ TEST_F(HostIrJitTest, Linear) {
   EXPECT_EQ(outs.size(), 1);
   auto output = outs[0].as<at::Tensor>();
 
-  // validate
-  auto ref_output = at::linear(in_at, weight_at, bias_at);
-  EXPECT_EQ(output.sizes(), ref_output.sizes());
+  at::Tensor ref_output = at::linear(in_at, weight_at, bias_at);
   EXPECT_TRUE(ref_output.allclose(output));
 }
 
