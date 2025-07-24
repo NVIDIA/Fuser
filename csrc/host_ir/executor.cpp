@@ -699,12 +699,12 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (expr_evaluator_.isKnown(out_tv)) {
     at::Tensor out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    if(out_tensor.defined() && out_tensor.device().is_cuda()) {
-      out_tensor.copy_(t, /*non_blocking=*/true);
-    }
-    else {
+    if(out_tensor.is_meta()) {
       out_tensor = t;
       expr_evaluator_.bind(out_tv, out_tensor);
+    }
+    else {
+      out_tensor.copy_(t, /*non_blocking=*/true);
     }
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
@@ -773,14 +773,23 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
 }
 
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
-    return unhandled(binary_op);
-  }
-
   auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
   auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output =
+
+  at::Tensor output;
+  bool is_meta = false;
+  if(expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
+    output =
       getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+    if(output.is_meta()) {
+      output = at::empty_strided(lhs.sizes(), lhs.strides(), lhs.options());
+      is_meta = true;
+    }
+  }
+  else {
+    output = at::empty_strided(lhs.sizes(), lhs.strides(), lhs.options());
+    is_meta = true;
+  }
 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -801,6 +810,11 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
           binary_op->getBinaryOpType(),
           " in ",
           binary_op);
+  }
+  std::cout << "output" << output << std::endl;
+  if(is_meta) {
+    std::cout << "output is meta" << std::endl;
+    expr_evaluator_.bind(binary_op->outputs().at(0), output);
   }
 }
 
