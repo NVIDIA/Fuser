@@ -598,29 +598,73 @@ void scheduleLoopDomainsBy(
 
 namespace {
 
-bool isDominatorOfAllTensors(TensorView* tv) {
-  auto all_dep_vals =
-      DependencyCheck::getAllValsBetween({tv}, tv->fusion()->outputs());
+bool enableReshapeCancellation(const std::vector<Expr*>& dep_exprs) {
+  ViewOp* reshape = nullptr;
+  for (const auto& expr : dep_exprs) {
+    if (expr->isA<ViewOp>()) {
+      if (reshape != nullptr) {
+        // Having multiple reshapes is not supported
+        return false;
+      } else {
+        reshape = expr->as<ViewOp>();
+      }
+    }
+  }
+
+  if (reshape == nullptr) {
+    // No reshape to cancel
+    return false;
+  }
+
+  Fusion* fusion = reshape->fusion();
+
+  auto reshape_in = reshape->in();
+  auto reshape_out = reshape->out();
+
+  // After this step, the scheduler assumes all of the
+  // tensors have compatible loop domains as that of the reference
+  // tensor. That should be the case all of the tensors coming after
+  // reshape_out. For any other tensor, one sufficient condition is
+  // if they come before reshape_in.
+
+  auto pre_tensors = DependencyCheck::getAllValsBetween(
+      {fusion->inputs().begin(), fusion->inputs().end()}, {reshape_in});
+
+  auto post_tensors = DependencyCheck::getAllValsBetween(
+      {reshape_out}, {fusion->outputs().begin(), fusion->outputs().end()});
+
   std::unordered_set<TensorView*> all_dep_tvs;
   std::ranges::copy(
-      all_dep_vals | std::views::filter([&](Val* v) {
+      pre_tensors | std::views::filter([&](Val* v) {
+        return v->isA<TensorView>();
+      }) | std::views::transform([](Val* v) { return v->as<TensorView>(); }),
+      std::inserter(all_dep_tvs, all_dep_tvs.end()));
+  std::ranges::copy(
+      post_tensors | std::views::filter([&](Val* v) {
         return v->isA<TensorView>();
       }) | std::views::transform([](Val* v) { return v->as<TensorView>(); }),
       std::inserter(all_dep_tvs, all_dep_tvs.end()));
 
-  auto all_tvs = tv->fusion()->allTvs();
-  std::unordered_set<TensorView*> all_tv_set{all_tvs.begin(), all_tvs.end()};
-  return all_dep_tvs == all_tv_set;
+  if (std::ranges::any_of(fusion->allTvs(), [&](TensorView* tv) {
+        return !all_dep_tvs.contains(tv);
+      })) {
+    return false;
+  }
+
+  return true;
 }
 
 } // namespace
 
 void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
-  if (!isDominatorOfAllTensors(from_tv)) {
+  Fusion* fusion = from_tv->fusion();
+  auto all_dep_exprs_from_tv =
+      DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
+
+  if (!enableReshapeCancellation(all_dep_exprs_from_tv)) {
     return;
   }
 
-  Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
   const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
@@ -642,9 +686,6 @@ void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
       reshape_dependent_ids.pushBack(val_g);
     }
   }
-
-  auto all_dep_exprs_from_tv =
-      DependencyCheck::getAllExprsBetween({from_tv}, fusion->outputs());
 
   // Visit all reshapes in a reverse topological order
   for (auto exprs_it = all_dep_exprs_from_tv.rbegin();
