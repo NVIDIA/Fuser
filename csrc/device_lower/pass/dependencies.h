@@ -18,18 +18,22 @@ namespace nvfuser {
 //!
 class DependencyMapper : public kir::IrVisitor {
  public:
-  DependencyMapper(kir::Kernel* kernel);
+  DependencyMapper(const std::vector<Expr*>& top_level_exprs);
 
   //! This describes the position of a particular expression in the kernel
   struct ExprPosition {
-    //! This gives the tree coordinates of 
+    //! This gives the tree coordinates of
     std::vector<int64_t> coords;
 
-    //! This position is the order in which we would see the expressions if they were converted to a CUDA kernel as-is. Note that a position is given to the end of each scope.
+    //! This position is the order in which we would see the expressions if they
+    //! were converted to a CUDA kernel as-is. Note that a position is given to
+    //! the end of each scope.
     int64_t pos = -1;
 
     Scope* scope = nullptr;
   };
+
+  Expr* exprFromCoord(const std::vector<int64_t>& coords) const;
 
   const ExprPosition& getExprPosition(Expr* expr) const {
     auto pos_int_it = expr_pos_int_.find(expr);
@@ -99,6 +103,7 @@ class DependencyMapper : public kir::IrVisitor {
   void dispatch(Expr* expr) override;
 
  private:
+  const std::vector<Expr*> top_level_exprs_;
   std::vector<Expr*> exprs_;
   std::vector<std::unique_ptr<ExprPosition>> expr_position_up_;
   std::unordered_map<Expr*, size_t> expr_pos_int_;
