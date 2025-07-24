@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <kernel.h>
 #include <kernel_ir_dispatch.h>
 
 #include <unordered_map>
@@ -15,7 +16,7 @@
 namespace nvfuser {
 
 //!
-class DependencyMapper : IrVisitor {
+class DependencyMapper : public kir::IrVisitor {
  public:
   DependencyMapper(kir::Kernel* kernel);
 
@@ -25,7 +26,7 @@ class DependencyMapper : IrVisitor {
     std::vector<int64_t> coords;
 
     //! This position is the order in which we would see the expressions if they were converted to a CUDA kernel as-is. Note that a position is given to the end of each scope.
-    int64_t pos;
+    int64_t pos = -1;
 
     Scope* scope = nullptr;
   };
@@ -33,8 +34,22 @@ class DependencyMapper : IrVisitor {
   const ExprPosition& getExprPosition(Expr* expr) const {
     auto pos_int_it = expr_pos_int_.find(expr);
     NVF_ERROR(pos_int_it != expr_pos_int_.end());
-    int64_t pos_int = pos_int_it->second;
-    const auto& pos_ptr = expr_position_up_.at((size_t)pos_int);
+    size_t pos_int = pos_int_it->second;
+    const auto& pos_ptr = expr_position_up_.at(pos_int);
+    NVF_ERROR(pos_ptr != nullptr);
+    return *pos_ptr;
+  }
+
+  ExprPosition& getExprPosition(Expr* expr) {
+    size_t pos_int;
+    auto pos_int_it = expr_pos_int_.find(expr);
+    if (pos_int_it == expr_pos_int_.end()) {
+      pos_int = exprs_.size();
+      expr_pos_int_[expr] = pos_int;
+      exprs_.push_back(expr);
+      expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
+    }
+    const auto& pos_ptr = expr_position_up_.at(pos_int);
     NVF_ERROR(pos_ptr != nullptr);
     return *pos_ptr;
   }
@@ -65,6 +80,7 @@ class DependencyMapper : IrVisitor {
     const auto pos_int_it = tv_pos_int_.find(tv);
     if (pos_int_it == tv_pos_int_.end()) {
       pos_int = tvs_.size();
+      tv_pos_int_[tv] = pos_int;
       tvs_.push_back(tv);
       tv_access_up_.emplace_back(std::make_unique<TensorAccesses>());
     }
@@ -89,7 +105,7 @@ class DependencyMapper : IrVisitor {
 
   std::vector<TensorView*> tvs_;
   std::vector<std::unique_ptr<TensorAccesses>> tv_access_up_;
-  std::unordered_map<TensorView*, int64_t> tv_pos_int_;
+  std::unordered_map<TensorView*, size_t> tv_pos_int_;
 
   int64_t current_pos_;
   std::vector<int64_t> current_coords_;

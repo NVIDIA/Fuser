@@ -7,36 +7,44 @@
 // clang-format on
 #include <device_lower/pass/dependencies.h>
 
-#include <debug.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
+#include <kernel.h>
 #include <kernel_ir_dispatch.h>
-#include <ops/arith.h>
-#include <options.h>
 
 
 namespace nvfuser {
 
 DependencyMapper::DependencyMapper(kir::Kernel* kernel) {
   current_pos_ = 0;
-  current_coords_ = {0};
+  current_coords_ = {-1};
 
-  traverse(kernel->exprs());
+  handle(kernel->exprs());
 }
 
 void DependencyMapper::dispatch(Expr* expr) {
+  current_pos_++;
+  current_coords_.back()++;
   // Record expr position
-
-
-  // Increment current position and coords
-
+  NVF_ERROR(expr_pos_int_.count(expr) == 0,
+      "We do not expect to see expressions repeated in multiple places in a Kernel");
+  ExprPosition& expr_pos = getExprPosition(expr);
+  expr_pos.pos = current_pos_;
+  expr_pos.coords = current_coords_;
 
   // Record reads
+  for (Val* v : expr->inputs()) {
+    if (auto* tv = dynamic_cast<TensorView*>(v)) {
+      TensorAccesses& accesses = getTensorAccesses(tv);
+      accesses.reads.push_back(&expr_pos);
+    }
+  }
+
+  // Record writes
+  for (Val* v : expr->outputs()) {
+    if (auto* tv = dynamic_cast<TensorView*>(v)) {
+      TensorAccesses& accesses = getTensorAccesses(tv);
+      accesses.writes.push_back(&expr_pos);
+    }
+  }
 }
 
 } // namespace nvfuser
