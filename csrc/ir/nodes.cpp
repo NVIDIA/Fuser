@@ -8,25 +8,28 @@
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <dynamic_transform.h>
+#include <exceptions.h>
+#include <host_ir/container.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
+#include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
-#include <root_domain_map.h>
+#include <runtime/allocations.h>
 #include <transform_iter.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
 #include <type.h>
 
-#include <c10/util/irange.h>
+#include <torch/nn/options/embedding.h>
 
 #include <complex>
 #include <iterator>
 #include <numeric>
-#include <regex>
 #include <sstream>
 #include <string>
 
@@ -35,8 +38,8 @@ namespace nvfuser {
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
-    auto tv_root = out->as<TensorView>()->getRootDomain();
-    for (auto id : tv_root) {
+    auto tv_logical = out->as<TensorView>()->getLogicalDomain();
+    for (auto id : tv_logical) {
       addInput(id->extent());
     }
   }
@@ -49,7 +52,7 @@ std::string FullOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = full({";
-  for (auto i : c10::irange(inputs().size())) {
+  for (auto i : arange(inputs().size())) {
     if (i == inputs().size() - 1) {
       ss << "}";
     }
@@ -63,7 +66,21 @@ std::string FullOp::toString(int indent_size) const {
 }
 
 std::string FullOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> FullOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  std::vector<int64_t> shape;
+  for (auto i : arange(inputs.size() - 1)) {
+    shape.push_back(inputs.at(i).as<int64_t>());
+  }
+  DataType dtype = getFillValue()->getDataType().value();
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype));
+  using namespace PolymorphicValue_functions;
+  return {at::full(shape, toScalar(inputs.back()), options)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FullOp)
@@ -92,13 +109,22 @@ std::string SelectOp::toString(int indent_size) const {
 }
 
 std::string SelectOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 IterDomain* SelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
-             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+             ir_utils::getTvInput(this)->getLogicalDomain())
       .at(dim());
+}
+
+std::vector<PolymorphicValue> SelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  int64_t index = (int64_t)inputs.at(1);
+  return {in.select(dimension, index)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SelectOp)
@@ -120,29 +146,85 @@ std::string IndexSelectOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = index_select( ";
+  indent(ss, indent_size) << " = indexSelect( ";
   ss << input(0)->toString() << ", dim = " << dim() << ", "
      << input(1)->toString() << " )\n";
   return ss.str();
 }
 
 std::string IndexSelectOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 IterDomain* IndexSelectOp::getIndexedID() const {
   return TensorDomain::noReductions(
-             ir_utils::getTvInput(this)->getMaybeRFactorDomain())
+             ir_utils::getTvInput(this)->getLogicalDomain())
       .at(dim());
 }
 
 IterDomain* IndexSelectOp::getConsumerOfIndexedID() const {
-  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> IndexSelectOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  int64_t dimension = dim();
+  const auto& indices = inputs.at(1).as<at::Tensor>().squeeze();
+  return {at::index_select(in, dimension, indices)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
-TorchGatherOp::TorchGatherOp(
+IndexPutAccumulateOp::IndexPutAccumulateOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* acc,
+    Val* index,
+    Val* value)
+    : Expr(passkey) {
+  addInput(acc);
+  addInput(index);
+  addInput(value);
+  addOutput(out);
+}
+
+std::string IndexPutAccumulateOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = indexPutAccumulate( ";
+  ss << input(0)->toString() << ", " << input(1)->toString() << ", "
+     << input(2)->toString() << " )\n";
+  return ss.str();
+}
+
+std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
+  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingID() const {
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
+}
+
+std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {at::index_put(
+      /*self=*/inputs.at(0).as<at::Tensor>(),
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      /*values=*/inputs.at(2).as<at::Tensor>(),
+      /*accumulate=*/true)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
+
+GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
@@ -157,12 +239,12 @@ TorchGatherOp::TorchGatherOp(
   addDataAttribute(exact_sizes);
 }
 
-std::string TorchGatherOp::toString(int indent_size) const {
+std::string GatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = "
-                          << (exactSizes() ? "take_along_axis" : "torch_gather")
+                          << (exactSizes() ? "takeAlongAxis" : "torchGather")
                           << "( " << input(0)->toString();
   if (exactSizes()) {
     ss << ", " << input(1)->toString() << ", dim = " << dim() << " )\n";
@@ -172,20 +254,32 @@ std::string TorchGatherOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string TorchGatherOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+std::string GatherOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* TorchGatherOp::getIndexedID() const {
-  return TensorDomain::noReductions(lookupTv()->getMaybeRFactorDomain())
-      .at(dim());
+IterDomain* GatherOp::getIndexedID() const {
+  return TensorDomain::noReductions(lookupTv()->getLogicalDomain()).at(dim());
 }
 
-IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
-  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+IterDomain* GatherOp::getConsumerOfIndexedID() const {
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
+std::vector<PolymorphicValue> GatherOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  auto dimension = dim();
+  if (exactSizes()) {
+    return {at::take_along_dim(input, index, dimension)};
+  } else {
+    return {at::gather(input, dimension, index)};
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,
@@ -216,11 +310,21 @@ std::string ScatterOp::toString(int indent_size) const {
 }
 
 std::string ScatterOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Scatter op can not be printed inline");
+  NVF_CHECK(false, "Scatter op can not be printed inline");
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
-  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+}
+
+std::vector<PolymorphicValue> ScatterOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto& index = inputs.at(1).as<at::Tensor>();
+  const auto& src = inputs.at(2).as<at::Tensor>();
+  auto dimension = dim();
+  return {at::scatter(input, dimension, index, src)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ScatterOp)
@@ -232,10 +336,10 @@ IotaOp::IotaOp(
     Val* start,
     Val* step)
     : Expr(passkey) {
-  TORCH_CHECK(isIntegralType(*length->getDataType()));
+  NVF_CHECK(isIntegralType(*length->getDataType()));
   addInput(length);
-  TORCH_CHECK(start->getDataType() == step->getDataType());
-  TORCH_CHECK(start->getDataType() == out->getDataType());
+  NVF_CHECK(start->getDataType() == step->getDataType());
+  NVF_CHECK(start->getDataType() == out->getDataType());
   addInput(start);
   addInput(step);
   addOutput(out);
@@ -253,7 +357,32 @@ std::string IotaOp::toString(int indent_size) const {
 }
 
 std::string IotaOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> IotaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t length = (int64_t)inputs.at(0);
+
+  if (isIntegralType(dtype())) {
+    int64_t start = (int64_t)inputs.at(1);
+    int64_t step = (int64_t)inputs.at(2);
+    int64_t end = start + step * length;
+    return {at::arange(start, end, step, options)};
+  } else if (isFloatingPointType(dtype())) {
+    double start = (double)inputs.at(1);
+    double step = (double)inputs.at(2);
+    // Due to rounding error, it can be hard to guarantee the size of
+    // the output of arange to be exactly length, so we generate a
+    // larger tensor and truncate it to length.
+    double end = start + step * ((double)length + 1);
+    return {at::arange(start, end, step, options).narrow(0, 0, length)};
+  } else {
+    NVF_THROW("Unsupported dtype in IotaOp evaluator: ", dtype());
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
@@ -261,10 +390,10 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(IotaOp)
 EyeOp::EyeOp(IrBuilderPasskey passkey, Val* out, DataType dtype)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
-    addInput(out->as<TensorView>()->getRootDomain()[0]->extent());
-    if (out->as<TensorView>()->getRootDomain()[1] !=
-        out->as<TensorView>()->getRootDomain()[0]) {
-      addInput(out->as<TensorView>()->getRootDomain()[1]->extent());
+    addInput(out->as<TensorView>()->getLogicalDomain()[0]->extent());
+    if (out->as<TensorView>()->getLogicalDomain()[1] !=
+        out->as<TensorView>()->getLogicalDomain()[0]) {
+      addInput(out->as<TensorView>()->getLogicalDomain()[1]->extent());
     }
   }
   addOutput(out);
@@ -281,7 +410,20 @@ std::string EyeOp::toString(int indent_size) const {
 }
 
 std::string EyeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+std::vector<PolymorphicValue> EyeOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto options =
+      at::TensorOptions().device(at::kCUDA).dtype(data_type_to_aten(dtype()));
+  int64_t nrows = (int64_t)inputs.at(0);
+  if (inputs.size() > 1) {
+    int64_t ncols = (int64_t)inputs.at(1);
+    return {at::eye(nrows, ncols, options)};
+  } else {
+    return {at::eye(nrows, options)};
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EyeOp)
@@ -297,7 +439,12 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
+
   const auto& in = inputs.at(0);
+  if (!in.hasValue()) {
+    return {std::monostate{}};
+  }
+
   switch (getUnaryOpType()) {
     case UnaryOpType::Neg:
       return {-in};
@@ -314,8 +461,7 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       } else if (isComplexType(*out()->getDataType())) {
         return {PolymorphicValue((std::complex<double>)in)};
       } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
     case UnaryOpType::Reciprocal:
       return {1.0 / in};
@@ -329,21 +475,91 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::BitwiseNot:
       return {~in};
       break;
+    case UnaryOpType::BitCeil:
+      return {static_cast<int64_t>(
+          std::bit_ceil(static_cast<uint64_t>(in.as<int64_t>())))};
+      break;
     case UnaryOpType::Erf:
       return {erf(in)};
       break;
     case UnaryOpType::ToUnsignedSmemAddr:
       return {(int64_t)(unsigned)in};
       break;
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring8:
+    case UnaryOpType::AdjustPartialLdMatrixAddrInTuring16:
+      return {in};
+      break;
     case UnaryOpType::Dereference:
       if (*out()->getDataType() == DataType::Float) {
         return {PolymorphicValue((double)*(float*)in)};
       } else {
-        TORCH_INTERNAL_ASSERT(
-            false, "dtype not supported in evaluator: ", *out()->getDataType());
+        NVF_THROW("dtype not supported in evaluator: ", *out()->getDataType());
       }
+      break;
+    case UnaryOpType::Sigmoid:
+      return {in.as<at::Tensor>().sigmoid()};
+      break;
+    case UnaryOpType::Tanh:
+      return {in.as<at::Tensor>().tanh()};
+      break;
+    case UnaryOpType::Relu:
+      return {at::relu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Gelu:
+      return {at::gelu(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Exp:
+      return {at::exp(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Sin:
+      return {in.as<at::Tensor>().sin()};
+      break;
+    case UnaryOpType::Signbit:
+      return {signbit(in)};
+      break;
+    case UnaryOpType::Cos:
+      return {in.as<at::Tensor>().cos()};
+      break;
+    case UnaryOpType::BitCast:
+      NVF_CHECK(
+          dataTypeSizeByte(input(0)->dtype()) ==
+              dataTypeSizeByte(out()->dtype()),
+          "BitCast only works for types of the same size");
+      if (isComplexType(input(0)->dtype()) &&
+          std::holds_alternative<ArrayType>(out()->dtype().type)) {
+        // view_as_real case.
+        auto vec_type = std::get<ArrayType>(out()->dtype().type);
+        auto inp_scalar_type = getTypeFromComplexType(input(0)->dtype());
+        NVF_CHECK(
+            *vec_type.type == inp_scalar_type,
+            "Output type must be the same as the scalar type of the complex "
+            "input.");
+        NVF_CHECK(
+            vec_type.size == 2,
+            "Expected output to be array of size 2, found array of size ",
+            vec_type.size);
+        return {in.as<at::Tensor>()};
+      } else {
+        return {in.as<at::Tensor>().view(data_type_to_aten(out()->dtype()))};
+      }
+      break;
+    case UnaryOpType::Rsqrt:
+      return {in.as<at::Tensor>().rsqrt()};
+      break;
+    case UnaryOpType::Real:
+      return {at::real(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Imag:
+      return {at::imag(in.as<at::Tensor>())};
+      break;
+    case UnaryOpType::Tan:
+      return {in.as<at::Tensor>().tan()};
+      break;
+    case UnaryOpType::IsFinite:
+      return {at::isfinite(in.as<at::Tensor>())};
+      break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type ",
           getUnaryOpType(),
@@ -361,7 +577,7 @@ void UnaryOp::printHelper(std::stringstream& ss, std::string input) const {
     if (op_type == UnaryOpType::Cast) {
       std::optional<std::string> cast_str = cast_func_str(std::make_pair(
           in()->getDataType().value(), out()->getDataType().value()));
-      TORCH_INTERNAL_ASSERT(cast_str != std::nullopt, "Unsupported Cast");
+      NVF_ERROR(cast_str != std::nullopt, "Unsupported Cast");
       ss << cast_str.value();
     } else {
       ss << op_type;
@@ -393,6 +609,12 @@ std::string UnaryOp::toInlineString(int indent_size) const {
   checkInlineable(this);
   std::stringstream ss;
   printHelper(ss, in()->toInlineString());
+  return ss.str();
+}
+
+std::string UnaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getUnaryOpType() << ")";
   return ss.str();
 }
 
@@ -429,15 +651,20 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(
+          !rhs.is<int64_t>() || rhs != 0, "Integer division by zero detected");
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Modulo zero detected");
       return {lhs % rhs};
       break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0, "Float modulo zero detected");
+      return {fmod(lhs, rhs)};
+      break;
     case BinaryOpType::CeilDiv:
-      TORCH_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "CeilDiv by zero detected");
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::LogicalAnd:
@@ -456,22 +683,22 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs ^ rhs};
       break;
     case BinaryOpType::Eq:
-      return {lhs == rhs};
+      return {eq(lhs, rhs)};
       break;
     case BinaryOpType::NE:
-      return {lhs != rhs};
+      return {ne(lhs, rhs)};
       break;
     case BinaryOpType::GT:
-      return {lhs > rhs};
+      return {gt(lhs, rhs)};
       break;
     case BinaryOpType::GE:
-      return {lhs >= rhs};
+      return {ge(lhs, rhs)};
       break;
     case BinaryOpType::LT:
-      return {lhs < rhs};
+      return {lt(lhs, rhs)};
       break;
     case BinaryOpType::LE:
-      return {lhs <= rhs};
+      return {le(lhs, rhs)};
       break;
     case BinaryOpType::Max:
       return {max(lhs, rhs)};
@@ -482,8 +709,20 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
     case BinaryOpType::Gcd:
       return {gcd(lhs, rhs)};
       break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
+      break;
+    case BinaryOpType::Complex:
+      return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
+      break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type: ",
           getBinaryOpType(),
@@ -548,6 +787,12 @@ std::string BinaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string BinaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getBinaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(BinaryOp)
 
 TernaryOp::TernaryOp(
@@ -569,15 +814,26 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   using namespace PolymorphicValue_functions;
-  const auto& in1 = inputs.at(0);
-  const auto& in2 = inputs.at(1);
-  const auto& in3 = inputs.at(2);
+  const auto& a = inputs.at(0);
+  const auto& b = inputs.at(1);
+  const auto& c = inputs.at(2);
   switch (getTernaryOpType()) {
+    case TernaryOpType::Clamp:
+      return {std::min(std::max(a, b), c)};
+      break;
+    case TernaryOpType::Lerp:
+      // This is the same lerp computed in helpers.cu
+      // https://math.stackexchange.com/a/1798323
+      return {(c < 0.5) ? a + c * (b - a) : b - (b - a) * (1.0 - c)};
+      break;
+    case TernaryOpType::Threshold:
+      return {(a <= b) ? c : a};
+      break;
     case TernaryOpType::Where:
-      return {in1.as<bool>() ? in2 : in3};
+      return {where(a, b, c)};
       break;
     default:
-      TORCH_CHECK(
+      NVF_CHECK(
           false,
           "Unexpected operator type: ",
           getTernaryOpType(),
@@ -638,6 +894,12 @@ std::string TernaryOp::toInlineString(int indent_size) const {
   return ss.str();
 }
 
+std::string TernaryOp::getGraphvizLabel() const {
+  std::stringstream ss;
+  ss << getOpString() << "(" << getTernaryOpType() << ")";
+  return ss.str();
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(TernaryOp)
 
 ArrayConstruct::ArrayConstruct(
@@ -645,27 +907,27 @@ ArrayConstruct::ArrayConstruct(
     Val* output,
     std::vector<Val*> inputs)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      !inputs.empty(), "Cannot create an array with no members.");
+  NVF_ERROR(!inputs.empty(), "Cannot create an array with no members.");
   addOutput(output);
   DataType input_dtype = DataType::Null;
   for (auto in : inputs) {
     addInput(in);
     auto in_dtype_opt = in->getDataType();
-    TORCH_INTERNAL_ASSERT(in_dtype_opt.has_value());
+    NVF_ERROR(in_dtype_opt.has_value());
     if (input_dtype == DataType::Null) {
       input_dtype = *in_dtype_opt;
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           input_dtype == *in_dtype_opt,
           "All inputs to ArrayConstruct must have the same data type");
     }
   }
   auto expected_output_dtype =
       ArrayType{std::make_shared<DataType>(input_dtype), inputs.size()};
-  TORCH_CHECK(
+  NVF_CHECK(
       output->getDataType() == expected_output_dtype,
-      "Output of ArrayConstruct must be an array of the same data type as the inputs");
+      "Output of ArrayConstruct must be an array of the same data type as the "
+      "inputs");
 }
 
 std::string ArrayConstruct::toString(int indent_size) const {
@@ -691,21 +953,21 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ArrayConstruct)
 
 ReverseArray::ReverseArray(IrBuilderPasskey passkey, Val* output, Val* input)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::holds_alternative<ArrayType>(input->dtype().type),
       "Cannot reverse a non-array type.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       std::holds_alternative<ArrayType>(output->dtype().type),
       "Cannot reverse a non-array type.");
   auto input_array_type = std::get<ArrayType>(input->dtype().type);
   auto output_array_type = std::get<ArrayType>(output->dtype().type);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_array_type.type == output_array_type.type,
       "Cannot reverse an array of type ",
       input_array_type.type,
       " into an array of type ",
       output_array_type.type);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_array_type.size == output_array_type.size,
       "Cannot reverse an array of size ",
       input_array_type.size,
@@ -731,7 +993,7 @@ std::string ReverseArray::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ReverseArray::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "ReverseArray expects 1 input");
+  NVF_ERROR(inputs.size() == 1, "ReverseArray expects 1 input");
   PolymorphicValue array = inputs.at(0);
   auto& vec = array.as<std::vector>();
   std::reverse(vec.begin(), vec.end());
@@ -745,7 +1007,7 @@ GetItem::GetItem(IrBuilderPasskey passkey, Val* output, Val* array, Val* index)
   addOutput(output);
   addInput(array);
   addInput(index);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       *(std::get<ArrayType>(array->dtype().type).type) == output->dtype(),
       "GetItem array input must have a data type");
 }
@@ -767,7 +1029,7 @@ std::string GetItem::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GetItem::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 2, "GetItem expects 2 inputs");
+  NVF_ERROR(inputs.size() == 2, "GetItem expects 2 inputs");
   return {PolymorphicValue(inputs.at(0)[inputs.at(1)])};
 }
 
@@ -778,23 +1040,19 @@ StructConstruct::StructConstruct(
     Val* output,
     const std::vector<std::pair<std::string, Val*>>& fields)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      !fields.empty(), "Cannot create a struct with no members.");
+  NVF_ERROR(!fields.empty(), "Cannot create a struct with no members.");
   auto output_dtype = std::get<StructType>(output->dtype().type);
-  TORCH_INTERNAL_ASSERT(
-      output_dtype.types.size() == fields.size(),
-      "StructConstruct output must have the same number of fields as the inputs");
-  TORCH_INTERNAL_ASSERT(
-      output_dtype.field_names.size() == fields.size(),
-      "StructConstruct output must have the same number of fields as the inputs");
-  auto it = output_dtype.field_names.begin();
+  NVF_ERROR(
+      output_dtype.fields.size() == fields.size(),
+      "StructConstruct output must have the same number of fields as the "
+      "inputs");
+  auto it = output_dtype.fields.begin();
   for (const auto& field : fields) {
-    TORCH_INTERNAL_ASSERT(
-        *it == field.first,
+    NVF_ERROR(
+        it->name == field.first,
         "StructConstruct field names must match the output");
-    TORCH_INTERNAL_ASSERT(
-        (NVFUSER_MAYBE_STAR output_dtype.types.at(field.first)) ==
-            field.second->dtype(),
+    NVF_ERROR(
+        *(it->type) == field.second->dtype(),
         "StructConstruct field ",
         field.first,
         " must have the same data type as the output");
@@ -808,7 +1066,7 @@ StructConstruct::StructConstruct(
 std::string StructConstruct::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = { ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -821,7 +1079,7 @@ std::string StructConstruct::toString(int indent_size) const {
 std::string StructConstruct::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << "{ ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -834,16 +1092,17 @@ std::string StructConstruct::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> StructConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       this->inputs().size() == inputs.size(),
       "StructConstruct expects ",
       this->inputs().size(),
       " inputs");
-  Struct<PolymorphicValue> result;
-  for (int64_t i : c10::irange((int64_t)inputs.size())) {
-    result[attribute<std::string>(i)] = inputs.at(i);
+  PolymorphicValue struct_ =
+      std::get<StructType>(output(0)->dtype().type).create();
+  for (int64_t i : arange((int64_t)inputs.size())) {
+    struct_->*attribute<std::string>(i) = inputs.at(i);
   }
-  return {std::move(result)};
+  return {std::move(struct_)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(StructConstruct)
@@ -854,9 +1113,9 @@ GetAttr::GetAttr(
     Val* struct_,
     std::string attr)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
-      NVFUSER_MAYBE_STAR std::get<StructType>(struct_->dtype().type)
-              .types.at(attr) == output->dtype(),
+  NVF_ERROR(
+      std::get<StructType>(struct_->dtype().type).fieldDataType(attr) ==
+          output->dtype(),
       "Data type mismatch for GetAttr");
   addOutput(output);
   addInput(struct_);
@@ -879,8 +1138,8 @@ std::string GetAttr::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GetAttr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "GetAttr expects 1 input");
-  return {inputs.at(0)[attr()]};
+  NVF_ERROR(inputs.size() == 1, "GetAttr expects 1 input");
+  return {inputs.at(0)->*attr()};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetAttr)
@@ -889,7 +1148,7 @@ GetMetaData::GetMetaData(IrBuilderPasskey passkey, Val* output, Val* input)
     : Expr(passkey) {
   addOutput(output);
   addInput(input);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out()->dtype() == metaDataTypeOf(in()),
       "Data type mismatch for GetMetaData")
 }
@@ -926,13 +1185,13 @@ std::string TensorConstruct::toString(int indent_size) const {
 }
 
 std::string TensorConstruct::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> TensorConstruct::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(inputs.size() == 1, "TensorConstruct expects 1 input");
+  NVF_ERROR(inputs.size() == 1, "TensorConstruct expects 1 input");
   using namespace PolymorphicValue_functions;
   return {toTensor(inputs.at(0))};
 }
@@ -950,8 +1209,8 @@ RNGOp::RNGOp(
     Val* philox_index)
     : Expr(passkey) {
   if (auto tv_out = dynamic_cast<TensorView*>(out)) {
-    for (auto id : tv_out->getRootDomain()) {
-      TORCH_CHECK(!id->isReduction(), "Output of RNGOp can not have reduction");
+    for (auto id : tv_out->getLogicalDomain()) {
+      NVF_CHECK(!id->isReduction(), "Output of RNGOp can not have reduction");
       addInput(id->extent());
     }
   }
@@ -959,16 +1218,22 @@ RNGOp::RNGOp(
     addInput(v);
   }
   if (philox_seed || philox_offset) {
-    TORCH_CHECK(
+    NVF_CHECK(
         philox_seed && philox_offset,
-        "If either philox_seed or philox_offset is provided, the other must be also");
+        "If either philox_seed or philox_offset is provided, the other must be "
+        "also");
     addInput(philox_seed);
     addInput(philox_offset);
   }
   addOutput(out);
   RNGOp::Attributes attr{type, dtype, parameters.size()};
   addDataAttribute(attr);
-  addAttribute(philox_index);
+  // adding nullptr to attributes triggers assert. Though I question if this
+  // should be the default behavior and any use of attributes should check for
+  // nullptr instead.
+  if (philox_index) {
+    addAttribute(philox_index);
+  }
 }
 
 std::string RNGOp::toString(int indent_size) const {
@@ -992,13 +1257,13 @@ std::string RNGOp::toString(int indent_size) const {
 }
 
 std::string RNGOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int64_t RNGOp::getOutputDims() const {
   int64_t ndims = 0;
   if (auto tv_out = dynamic_cast<TensorView*>(output(0))) {
-    ndims = (int64_t)tv_out->getRootDomain().size();
+    ndims = (int64_t)tv_out->getLogicalDomain().size();
   }
   return ndims;
 }
@@ -1014,7 +1279,7 @@ BroadcastOp::BroadcastOp(
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (out_type == ValType::TensorView && in_type == ValType::TensorView) ||
           (out_type == ValType::TensorIndex && in_type == ValType::TensorIndex),
       "Cannot braodcast a non-tensor object.");
@@ -1026,40 +1291,42 @@ BroadcastOp::BroadcastOp(
   // TensorView. Broadcast with TensorIndex only appears after
   // lowering, so it should have already been validated.
   if (out->isA<TensorView>()) {
-    TORCH_INTERNAL_ASSERT(in->isA<TensorView>());
+    NVF_ERROR(in->isA<TensorView>());
     auto in_tv = in->as<TensorView>();
     auto out_tv = out->as<TensorView>();
-    auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-    auto& out_dom = out_tv->getRootDomain();
-    TORCH_INTERNAL_ASSERT(
+    auto in_dom = TensorDomain::noReductions(in_tv->getLogicalDomain());
+    auto& out_dom = out_tv->getLogicalDomain();
+    NVF_ERROR(
         is_broadcast_dims.size() == out_dom.size(),
-        "The dimensions of output tensor and does not match with is_broadcast_dims");
+        "The dimensions of output tensor and does not match with "
+        "is_broadcast_dims");
 
     auto out_size = is_broadcast_dims.size();
     auto num_new_broadcasts = 0;
-    for (const auto i : c10::irange(out_size)) {
+    for (const auto i : arange(out_size)) {
       if (is_broadcast_dims[i]) {
         num_new_broadcasts++;
         auto id = out_dom[i];
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->isBroadcast(),
             "New broadcast dimension does not properly set its IterType.");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !id->hasExpandedExtent(),
             "New broadcast dimension can not be expanded.");
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             id->extent()->isOneInt(),
             "New broadcast dimension must have extent 1");
       } else {
         auto in_id = in_dom[i - num_new_broadcasts];
         auto out_id = out_dom[i];
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
       }
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         out_size == in_dom.size() + num_new_broadcasts,
-        "The dimensions of output tensor and does not match with is_broadcast_dims and input tensor");
+        "The dimensions of output tensor and does not match with "
+        "is_broadcast_dims and input tensor");
   }
 
   addDataAttribute(std::move(is_broadcast_dims));
@@ -1068,18 +1335,28 @@ BroadcastOp::BroadcastOp(
 std::string BroadcastOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = broadcast( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = broadcast( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getBroadcastDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
 std::string BroadcastOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> BroadcastOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == 1,
       "BroadcastOp expects exactly 1 input, but received ",
       inputs.size());
@@ -1107,12 +1384,12 @@ SqueezeOp::SqueezeOp(
   auto out_type = out->getValType().value();
   auto in_type = in->getValType().value();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_type == ValType::TensorView,
       "Squeeze input must be a TensorView: ",
       in->toString());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out_type == ValType::TensorView,
       "Squeeze output must be a TensorView: ",
       in->toString());
@@ -1123,41 +1400,41 @@ SqueezeOp::SqueezeOp(
   // Validate the squeeze flags
   auto in_tv = in->as<TensorView>();
   auto out_tv = out->as<TensorView>();
-  auto in_dom = TensorDomain::noReductions(in_tv->getMaybeRFactorDomain());
-  auto& out_dom = out_tv->getRootDomain();
-  TORCH_INTERNAL_ASSERT(
+  auto in_dom = TensorDomain::noReductions(in_tv->getLogicalDomain());
+  auto& out_dom = out_tv->getLogicalDomain();
+  NVF_ERROR(
       is_squeeze_dims.size() == in_dom.size(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
 
-  auto in_size = is_squeeze_dims.size();
+  int64_t in_size = (int64_t)is_squeeze_dims.size();
   auto num_removed_broadcasts = 0;
-  for (const auto i : c10::irange(is_squeeze_dims.size())) {
+  for (const auto i : arange(is_squeeze_dims.size())) {
     if (is_squeeze_dims[i]) {
       num_removed_broadcasts++;
       auto id = in_dom[i];
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           id->isBroadcast() || id->isSymbolic(),
           "Squeeze dimension should be either Symbolic or Broadcast. Found ",
           id->getIterType());
-      TORCH_INTERNAL_ASSERT(
-          !id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
       if (id->isBroadcast()) {
         // Check concrete broadcast extent here. For Symbolic inputs, this check
         // will be deferred to concretization. See dynamic_transform.cpp
-        TORCH_INTERNAL_ASSERT(
-            id->extent()->isOneInt(),
+        NVF_ERROR(
+            id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 1,
             "Can not squeeze dimension(s) with size != 1.");
       }
     } else {
       auto in_id = in_dom[i];
       auto out_id = out_dom[i - num_removed_broadcasts];
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_id->sameAs(out_id), "IterDomain does not match in BroadcastOp");
     }
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_size == out_tv->nDims() + num_removed_broadcasts,
-      "The dimensions of output tensor and does not match with is_squeeze_dims and input tensor");
+      "The dimensions of output tensor and does not match with is_squeeze_dims "
+      "and input tensor");
 
   addDataAttribute(std::move(is_squeeze_dims));
 }
@@ -1165,38 +1442,56 @@ SqueezeOp::SqueezeOp(
 std::string SqueezeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = squeeze( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getSqueezeDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
 std::string SqueezeOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<PolymorphicValue> SqueezeOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       inputs.size() == 1,
       "SqueezeOp expects exactly 1 input, but received ",
       inputs.size());
   std::vector<int64_t> out_shape;
   const auto& in = inputs.at(0).as<at::Tensor>();
   const auto& is_squeeze_dims = getSqueezeDimFlags();
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
-  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
-    if (!is_squeeze_dims[i]) {
+  at::Tensor out = in;
+  for (int64_t i : arange((int64_t)is_squeeze_dims.size())) {
+    if (is_squeeze_dims[i]) {
+      if (in.stride(i) == 0) {
+        // If the input dimension is expanded in this dimension, undo the expand
+        // by slicing. This ensures that any broadcast dimensions will be
+        // unexpanded when we do the final call to view()
+        out = out.slice(i, 0, 1);
+      }
+    } else {
       out_shape.push_back(in.sizes()[i]);
     }
   }
-  return {in.view(out_shape)};
+  return {out.view(out_shape)};
 }
 
 void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
   Expr::checkConcretization(old_val, new_val); // does nullptr, vtype checks
-  TORCH_CHECK(
+  NVF_CHECK(
       old_val == in(),
       "Pre-concretized Val ",
       old_val->toString(),
@@ -1205,34 +1500,32 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
   auto old_tv = old_val->as<TensorView>();
   auto new_tv = new_val->as<
       TensorView>(); // NOLINT(clang-analyzer-core.CallAndMessage,-warnings-as-errors)
-  auto old_rfactor = old_tv->getMaybeRFactorDomain();
-  auto new_rfactor = new_tv->getMaybeRFactorDomain();
-  TORCH_CHECK(
-      new_rfactor.size() == old_tv->getMaybeRFactorDomain().size(),
+  auto old_logical = old_tv->getLogicalDomain();
+  auto new_logical = new_tv->getLogicalDomain();
+  NVF_CHECK(
+      new_logical.size() == old_tv->getLogicalDomain().size(),
       "New TV ",
       new_tv->toString(),
       " has rfactor of length ",
-      new_rfactor.size(),
+      new_logical.size(),
       " but expected ",
-      old_tv->getMaybeRFactorDomain().size());
+      old_tv->getLogicalDomain().size());
   auto flags = getSqueezeDimFlags();
-  for (auto i : c10::irange(flags.size())) {
+  for (auto i : arange(flags.size())) {
     if (!flags.at(i)) {
       continue;
     }
-    auto new_id = new_rfactor.at(i);
+    auto new_id = new_logical.at(i);
     // Check that squeezed dimension concretizes to Broadcast
-    TORCH_CHECK(
+    NVF_CHECK(
         new_id->getIterType() == IterType::Broadcast,
         "Squeezed IterDomain ",
         new_id->toString(),
         " must concretize to IterType::Broadcast but found ",
         new_id->toString());
-    TORCH_CHECK(
-        !new_id->hasExpandedExtent(), "Can not squeeze expanded dimension(s).");
-    TORCH_CHECK(
-        new_id->extent()->isOneInt(),
-        "Can not squeeze dimension(s) with size != 1.");
+    // NOTE: we do not check the extent here. Even if the extent is not a const
+    // scalar we know that it would simplify to 1 for these inputs, since this
+    // IterDomain is concretized to Broadcast.
   }
 }
 
@@ -1246,33 +1539,35 @@ ReductionOp::ReductionOp(
     Val* in,
     bool is_allreduce)
     : Expr(passkey) {
-  TORCH_CHECK(
+  NVF_CHECK(
       out->getValType().value() == ValType::TensorView ||
       out->getValType().value() == ValType::TensorIndex);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       (in->getValType() == ValType::TensorView &&
        out->getValType() == ValType::TensorView) ||
           (in->getValType() == ValType::TensorIndex &&
            out->getValType() == ValType::TensorIndex),
-      "Reduction operation was created that does not have tensor inputs and outputs.");
+      "Reduction operation was created that does not have tensor inputs and "
+      "outputs.");
 
   if (in->isA<TensorView>()) {
-    TORCH_INTERNAL_ASSERT(
-        TensorDomain::noReductions(
-            in->as<TensorView>()->getMaybeRFactorDomain())
-                .size() == out->as<TensorView>()->getRootDomain().size(),
+    NVF_ERROR(
+        TensorDomain::noReductions(in->as<TensorView>()->getLogicalDomain())
+                .size() == out->as<TensorView>()->getMaybeRootDomain().size(),
         "Reduction operation created with mismatched domains.");
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       init->isConstScalar(),
-      "Tried to create a reduction operation whith an initial value that isn't a constant.");
+      "Tried to create a reduction operation whith an initial value that isn't "
+      "a constant.");
 
   addOutput(out);
   addInput(in);
   addAttribute(init);
   addDataAttribute(reduction_op_type);
   addDataAttribute(is_allreduce);
+  addDataAttribute(false); // serial reduction
 }
 
 std::string ReductionOp::toString(int indent_size) const {
@@ -1287,7 +1582,44 @@ std::string ReductionOp::toString(int indent_size) const {
 }
 
 std::string ReductionOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& input = inputs.at(0).as<at::Tensor>();
+  const auto output = out()->as<TensorView>();
+
+  NVF_ERROR(
+      !output->hasRoot(),
+      "Evaluation for rFactored reductions is not supported.");
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : arange(int64_t(output->getLogicalDomain().size()))) {
+    auto ax = output->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (getReductionOpType()) {
+    case BinaryOpType::Add:
+      return {at::sum(input, reduction_axes)};
+      break;
+    case BinaryOpType::Max:
+      return {at::amax(input, reduction_axes)};
+      break;
+    case BinaryOpType::Min:
+      return {at::amin(input, reduction_axes)};
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          getReductionOpType(),
+          " in ",
+          toString());
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ReductionOp)
@@ -1320,7 +1652,7 @@ std::string GroupedReductionOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedReductionOp(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1332,7 +1664,7 @@ std::string GroupedReductionOp::toString(int indent_size) const {
 }
 
 std::string GroupedReductionOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
@@ -1341,8 +1673,46 @@ int GroupedReductionOp::getExprIndexOfOutput(Val* output_val) const {
     return (int)std::distance(outputs().begin(), it);
   }
 
-  TORCH_INTERNAL_ASSERT(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
+}
+
+std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto num_reductions = numHorizontallyGroupedExprs();
+  std::vector<PolymorphicValue> grouped_reduction_out;
+  grouped_reduction_out.reserve(num_reductions);
+  for (const auto i : arange(num_reductions)) {
+    const auto& in_tensor = inputs.at(i).as<at::Tensor>();
+    const auto out_tv = output(i)->as<TensorView>();
+    NVF_ERROR(
+        !out_tv->hasRoot(),
+        "Evaluation for rFactored reductions is not supported.");
+
+    std::vector<int64_t> reduction_axes;
+    for (const auto id : arange(int64_t(out_tv->getLogicalDomain().size()))) {
+      auto ax = out_tv->getLogicalDomain().at(id);
+      if (ax->isReduction()) {
+        reduction_axes.push_back(id);
+      }
+    }
+    switch (getReductionOpType(i)) {
+      case BinaryOpType::Add:
+        grouped_reduction_out.emplace_back(at::sum(in_tensor, reduction_axes));
+        break;
+      case BinaryOpType::Max:
+        grouped_reduction_out.emplace_back(at::amax(in_tensor, reduction_axes));
+        break;
+      default:
+        NVF_CHECK(
+            false,
+            "Unexpected operator type: ",
+            getReductionOpType(i),
+            " in ",
+            toString());
+    }
+  }
+  return grouped_reduction_out;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedReductionOp)
@@ -1371,7 +1741,7 @@ std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
   std::vector<WelfordTriplet> cloned(src.size());
-  for (const auto i : c10::irange(src.size())) {
+  for (const auto i : arange(src.size())) {
     cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
@@ -1387,39 +1757,39 @@ WelfordOp::WelfordOp(
   // Previously, nullptr was accepted and implicitly replaced by
   // default values. Looks like we always pass some non-null values,
   // so removed the implicit default behavior for code simplicity.
-  TORCH_INTERNAL_ASSERT(output.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(output.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(output.N() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(init.N() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.avg() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.var() != nullptr);
-  TORCH_INTERNAL_ASSERT(input.N() != nullptr);
+  NVF_ERROR(output.avg() != nullptr);
+  NVF_ERROR(output.var() != nullptr);
+  NVF_ERROR(output.N() != nullptr);
+  NVF_ERROR(init.avg() != nullptr);
+  NVF_ERROR(init.var() != nullptr);
+  NVF_ERROR(init.N() != nullptr);
+  NVF_ERROR(input.avg() != nullptr);
+  NVF_ERROR(input.var() != nullptr);
+  NVF_ERROR(input.N() != nullptr);
 
   // Check output type
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.avg()->getValType().value() == ValType::TensorView ||
       output.avg()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.var()->getValType().value() == ValType::TensorView ||
       output.var()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       output.N()->getValType().value() == ValType::TensorView ||
       output.N()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(isIntegralType(output.N()->dtype()));
+  NVF_ERROR(isIntegralType(output.N()->dtype()));
 
   // check initial value
-  TORCH_INTERNAL_ASSERT(init.N()->getValType().value() == ValType::Others);
-  TORCH_INTERNAL_ASSERT(isIntegralType(init.N()->dtype()));
+  NVF_ERROR(init.N()->getValType().value() == ValType::Others);
+  NVF_ERROR(isIntegralType(init.N()->dtype()));
   if (!init.N()->isZeroInt()) {
     // when initial count is zero, no initial variance or average is needed
     // initial value with a count of 1 is un-common enough that I'll push
     // the responsibility of creating all-zero var tensors to the user
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init.avg()->getValType().value() == ValType::TensorView ||
         init.avg()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init.var()->getValType().value() == ValType::TensorView ||
             init.var()->getValType().value() == ValType::TensorIndex,
         "Invalid initial var: ",
@@ -1427,25 +1797,26 @@ WelfordOp::WelfordOp(
   }
 
   // check input
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input.avg()->getValType().value() == ValType::TensorView ||
           input.avg()->getValType().value() == ValType::TensorIndex,
       input.avg()->getValType().value());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input.N()->getValType().value() == ValType::Others ||
       input.N()->getValType().value() == ValType::TensorView ||
       input.N()->getValType().value() == ValType::TensorIndex);
-  TORCH_INTERNAL_ASSERT(isIntegralType(input.N()->dtype()));
+  NVF_ERROR(isIntegralType(input.N()->dtype()));
   if (!input.N()->isOneInt()) {
     // when input is only one value, only the value is required through avg
     // input the var part is implicitly 0 and codegen will handle that.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input.var()->getValType().value() == ValType::TensorView ||
         input.var()->getValType().value() == ValType::TensorIndex);
   } else {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         input.var() == nullptr || input.var()->isZeroInt(),
-        "Invalid var input, which must be either nullptr or scalar zero when the N input is one.");
+        "Invalid var input, which must be either nullptr or scalar zero when "
+        "the N input is one.");
   }
 
   addOutput(output.avg());
@@ -1461,7 +1832,7 @@ WelfordOp::WelfordOp(
   addAttribute(init.N());
   addDataAttribute(is_fused);
 
-  TORCH_INTERNAL_ASSERT(attributes().size() == kNumAttrs);
+  NVF_ERROR(attributes().size() == kNumAttrs);
 }
 
 WelfordOp::WelfordOp(
@@ -1486,7 +1857,7 @@ WelfordOp::WelfordOp(
 Val* WelfordOp::getInitValOfOutput(Val* output_val) const {
   auto val_name = outputTriplet().getNameOf(output_val);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       val_name.has_value(),
       "Not an output val ",
       output_val->toString(),
@@ -1523,7 +1894,34 @@ std::string WelfordOp::toString(int indent_size) const {
 }
 
 std::string WelfordOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> WelfordOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      !hasInit(),
+      "Evaluation for WelfordOp is not implemented for non-empty initial "
+      "values.");
+  const auto& in_tensor = inputs.at(0).as<at::Tensor>();
+  const auto out_tv = out()->as<TensorView>();
+  NVF_ERROR(
+      !out_tv->hasRoot(),
+      "Evaluation for WelfordOp is not supported when output is rFactored.");
+
+  int64_t N = 1;
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : arange(int64_t(out_tv->getLogicalDomain().size()))) {
+    auto ax = out_tv->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+      N *= in_tensor.size(i);
+    }
+  }
+  const auto [in_var, in_avg] =
+      at::var_mean(in_tensor, reduction_axes, false, false);
+  return {in_avg, in_var * N, N};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(WelfordOp)
@@ -1537,72 +1935,74 @@ GroupedWelfordOp::GroupedWelfordOp(
     : Expr(passkey) {
   const auto num_grouped_ops = output_vals.size();
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       input_vals.size() == num_grouped_ops,
       "Invalid number of input arguments. Expected: ",
       num_grouped_ops,
       ", Given: ",
       input_vals.size());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       init_vals.size() == num_grouped_ops,
       "Invalid number of N arguments. Expected: ",
       num_grouped_ops,
       ", Given: ",
       init_vals.size());
 
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : arange(num_grouped_ops)) {
     // Check output type
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].avg()->getValType().value() == ValType::TensorView ||
         output_vals[i].avg()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].var()->getValType().value() == ValType::TensorView ||
         output_vals[i].var()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         output_vals[i].N()->getValType().value() == ValType::TensorView ||
         output_vals[i].N()->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(isIntegralType(output_vals[i].N()->dtype()));
+    NVF_ERROR(isIntegralType(output_vals[i].N()->dtype()));
 
     // check initial value
     auto init_avg = init_vals[i].avg();
     auto init_var = init_vals[i].var();
     auto init_N = init_vals[i].N();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init_avg != nullptr && init_var != nullptr && init_N != nullptr,
         "nullptr init vals are not allowed");
-    TORCH_INTERNAL_ASSERT(init_N->getValType().value() == ValType::Others);
-    TORCH_INTERNAL_ASSERT(isIntegralType(init_N->dtype()));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(init_N->getValType().value() == ValType::Others);
+    NVF_ERROR(isIntegralType(init_N->dtype()));
+    NVF_ERROR(
         init_avg->getValType().value() == ValType::TensorView ||
             init_avg->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
              init_avg->getValType().value() == ValType::Others),
-        "Initial avg must be a tensor or, can be a scalar if initial N is zero.",
+        "Initial avg must be a tensor or, can be a scalar if initial N is "
+        "zero.",
         " Initial avg: ",
         init_avg->toString(),
         ". Initial N: ",
         init_N->toString());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         init_var->getValType().value() == ValType::TensorView ||
             init_var->getValType().value() == ValType::TensorIndex ||
             (init_N->isZeroInt() &&
              init_var->getValType().value() == ValType::Others),
-        "Initial var must be a tensor or, can be a scalar if initial N is zero: ",
+        "Initial var must be a tensor or, can be a scalar if initial N is "
+        "zero: ",
         init_var->toString());
 
     // check input
     auto in_avg = input_vals[i].avg();
     auto in_var = input_vals[i].var();
     auto in_N = input_vals[i].N();
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in_avg != nullptr && in_var != nullptr && in_N != nullptr,
         "nullptr input vals are not allowed");
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         in_N->getValType().value() == ValType::Others ||
         in_N->getValType().value() == ValType::TensorView ||
         in_N->getValType().value() == ValType::TensorIndex);
-    TORCH_INTERNAL_ASSERT(isIntegralType(in_N->dtype()));
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(isIntegralType(in_N->dtype()));
+    NVF_ERROR(
         in_avg->getValType().value() == ValType::TensorView ||
             in_avg->getValType().value() == ValType::TensorIndex,
         "Invalid input avg argument type: ",
@@ -1611,12 +2011,13 @@ GroupedWelfordOp::GroupedWelfordOp(
     if (in_N->isOneInt()) {
       // when input is only one value, only the value is required through avg
       // input the var part must be implicitly 0
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_var->isZeroInt(),
-          "Invalid var input, which must be scalar zero when the N input is one: ",
+          "Invalid var input, which must be scalar zero when the N input is "
+          "one: ",
           in_var->toString());
     } else {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           in_var->getValType().value() == ValType::TensorView ||
               in_var->getValType().value() == ValType::TensorIndex,
           in_var->getValType().value(),
@@ -1626,7 +2027,7 @@ GroupedWelfordOp::GroupedWelfordOp(
   }
 
   addDataAttribute(is_allreduce);
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : arange(num_grouped_ops)) {
     addOutput(output_vals[i].avg());
     addOutput(output_vals[i].var());
     addOutput(output_vals[i].N());
@@ -1643,7 +2044,7 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -1665,18 +2066,17 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
 }
 
 std::string GroupedWelfordOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
-  for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto expr_idx : arange(numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
       return (int)expr_idx;
     }
   }
 
-  TORCH_INTERNAL_ASSERT(
-      false, "Not an output, ", output_val->toString(), ", of ", toString());
+  NVF_THROW("Not an output, ", output_val->toString(), ", of ", toString());
 }
 
 Val* GroupedWelfordOp::getInitValOfOutput(Val* output_val) const {
@@ -1691,257 +2091,6 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
-// MmaOp utils
-namespace MmaOpUtils {
-
-// The expected number of concrete domains for gemm
-constexpr size_t expected_gemm_cdomains = 2;
-
-// A helper structure used to gather all data created during analysis
-struct MmaOpDetails {
-  using AxesData = MmaOp::AxesData;
-  // Concrete axes from A that are broadcast in B and are not
-  //  reduction in output
-  AxesData m_axes;
-  // Concrete axes from B that are broadcast in A and are not
-  //  reduction in output
-  AxesData n_axes;
-  // Concrete axes from A that are concrete in B and are
-  //  reduction in output
-  AxesData k_axes;
-  // Concrete or broadcast axes that are present in all inputs
-  //  and output
-  AxesData batch_axes;
-  // A placeholder for mma input layout
-  std::optional<MmaOptions::MmaLayout> input_layout = std::nullopt;
-};
-
-// A helper structure with pieces of information about TensorView
-struct TensorViewDetails {
-  using AxesData = MmaOp::AxesData;
-  // Broadcast domains
-  AxesData bcasts;
-  // Reduction domains
-  AxesData rdomains;
-  // Concrete domains
-  AxesData cdomains;
-};
-
-// A helper for gathering details about TensorView object
-TensorViewDetails getDetailsFor(const std::vector<IterDomain*>& dims) {
-  TensorViewDetails details;
-  for (auto pos : c10::irange((int64_t)dims.size())) {
-    const auto axis = dims.at(pos);
-    if (axis->isReduction()) {
-      details.rdomains.push_back(pos);
-      continue;
-    }
-    if (axis->isBroadcast()) {
-      details.bcasts.push_back(pos);
-      continue;
-    }
-    details.cdomains.push_back(pos);
-  }
-  return details;
-}
-
-MmaOptions::MmaLayout getInputLayout(
-    const TensorViewDetails& in_a,
-    const TensorViewDetails& in_b,
-    const MmaOp::AxesData& m_axes,
-    const MmaOp::AxesData& n_axes,
-    const MmaOp::AxesData& k_axes) {
-  // TT layout (b - broadcast, r - reduction):
-  // A = [M, K, b]
-  // B = [b, K, N]
-  // C = [M, r, N] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_a.bcasts.front()) &&
-      (in_b.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::TT;
-  }
-  // TN layout (b - broadcast, r - reduction):
-  // A = [M, b, K]
-  // B = [b, N, K]
-  // C = [M, N, r] (root domain)
-  if ((m_axes.front() < in_a.bcasts.front()) &&
-      (in_a.bcasts.front() < k_axes.front()) &&
-      (in_b.bcasts.front() < n_axes.front()) &&
-      (in_b.bcasts.front() < k_axes.front())) {
-    return MmaOptions::MmaLayout::TN;
-  }
-  // NT layout (b - broadcast, r - reduction):
-  // A = [K, M, b]
-  // B = [K, b, N]
-  // C = [r, M, N] (root domain)
-  if ((k_axes.front() < in_a.bcasts.front()) &&
-      (m_axes.front() < in_a.bcasts.front()) &&
-      (k_axes.front() < in_b.bcasts.front()) &&
-      (in_b.bcasts.front() < n_axes.front())) {
-    return MmaOptions::MmaLayout::NT;
-  }
-  // NN layout (b - broadcast, r - reduction):
-  // A = [b, K, M]
-  // B = [N, K, b]
-  // C = [N, r, M] (root domain)
-  if ((in_a.bcasts.front() < k_axes.front()) &&
-      (k_axes.front() < m_axes.front()) && (n_axes.front() < k_axes.front()) &&
-      (k_axes.front() < in_b.bcasts.front())) {
-    return MmaOptions::MmaLayout::NN;
-  }
-
-  TORCH_INTERNAL_ASSERT(false, "Unsupported input layout");
-}
-
-MmaOpDetails getMmaOpDetails(
-    TensorView* out,
-    TensorView* in_a,
-    TensorView* in_b) {
-  const auto in_a_details = getDetailsFor(in_a->getMaybeRFactorDomain());
-  const auto in_b_details = getDetailsFor(in_b->getMaybeRFactorDomain());
-  const auto out_details = getDetailsFor(out->getRootDomain());
-
-  using AxesData = MmaOp::AxesData;
-
-  const auto getMOrNaxes = [](const AxesData& cdomains,
-                              const AxesData& bcasts,
-                              const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains
-    for (const auto& cdomain : cdomains) {
-      // That are in broadcast domains but are not in reduction domains
-      if ((std::find(bcasts.begin(), bcasts.end(), cdomain) != bcasts.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain) ==
-           rdomains.end())) {
-        result.push_back(cdomain);
-      }
-    }
-    return result;
-  };
-
-  const auto getKaxes = [](const AxesData& cdomains_a,
-                           const AxesData& cdomains_b,
-                           const AxesData& rdomains) {
-    AxesData result;
-    // For all concrete domains from in_a
-    for (const auto& cdomain_a : cdomains_a) {
-      // That are in concrete domains in in_b and are in reduction domains
-      if ((std::find(cdomains_b.begin(), cdomains_b.end(), cdomain_a) !=
-           cdomains_b.end()) &&
-          (std::find(rdomains.begin(), rdomains.end(), cdomain_a) !=
-           rdomains.end())) {
-        result.push_back(cdomain_a);
-      }
-    }
-    return result;
-  };
-
-  const auto getBatchAxes = [](const TensorViewDetails& in_a_details,
-                               const TensorViewDetails& in_b_details,
-                               const TensorViewDetails& out_details) {
-    AxesData result;
-    // Batch candidates:
-    //  concrete domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.cdomains) {
-      if ((std::find(
-               in_b_details.cdomains.begin(),
-               in_b_details.cdomains.end(),
-               domain) != in_b_details.cdomains.end()) &&
-          (std::find(
-               out_details.cdomains.begin(),
-               out_details.cdomains.end(),
-               domain) != out_details.cdomains.end())) {
-        result.push_back(domain);
-      }
-    }
-    // Batch candidates:
-    //  broadcast domains that are in all of inputs and output
-    for (const auto& domain : in_a_details.bcasts) {
-      if ((std::find(
-               in_b_details.bcasts.begin(),
-               in_b_details.bcasts.end(),
-               domain) != in_b_details.bcasts.end()) &&
-          (std::find(
-               out_details.bcasts.begin(), out_details.bcasts.end(), domain) !=
-           out_details.bcasts.end())) {
-        result.push_back(domain);
-      }
-    }
-    std::sort(result.begin(), result.end());
-    return result;
-  };
-
-  const auto validateInputDetails = [](const TensorViewDetails& details,
-                                       const std::string& desc) {
-    TORCH_INTERNAL_ASSERT(
-        !details.bcasts.empty(), desc, ": has no broadcast domains.");
-    TORCH_INTERNAL_ASSERT(
-        details.rdomains.empty(), desc, ": has reduction domains.");
-    TORCH_INTERNAL_ASSERT(
-        details.cdomains.size() >= expected_gemm_cdomains,
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  const auto validateOutputDetails = [](const TensorViewDetails& details,
-                                        const std::string& desc) {
-    // TODO: revise rules when add support for batch gemms
-    TORCH_INTERNAL_ASSERT(
-        details.bcasts.empty(), desc, ": has broadcast domains.");
-    TORCH_INTERNAL_ASSERT(
-        !details.rdomains.empty(), desc, ": has no reduction domains.");
-    TORCH_INTERNAL_ASSERT(
-        (details.cdomains.size() >= expected_gemm_cdomains),
-        desc,
-        ": has unsupported number of concrete domains, expected at least ",
-        expected_gemm_cdomains,
-        ", got ",
-        details.cdomains.size());
-  };
-
-  validateInputDetails(in_a_details, "MmaOp input A");
-  validateInputDetails(in_b_details, "MmaOp input B");
-  validateOutputDetails(out_details, "MmaOp output");
-
-  MmaOpDetails details;
-
-  // For details, check MmaOpDetails
-  details.m_axes = getMOrNaxes(
-      in_a_details.cdomains, in_b_details.bcasts, out_details.rdomains);
-  details.n_axes = getMOrNaxes(
-      in_b_details.cdomains, in_a_details.bcasts, out_details.rdomains);
-  details.k_axes = getKaxes(
-      in_a_details.cdomains, in_b_details.cdomains, out_details.rdomains);
-  details.batch_axes = getBatchAxes(in_a_details, in_b_details, out_details);
-
-  TORCH_INTERNAL_ASSERT(
-      !details.m_axes.empty(),
-      "MmaOp inputs must define at least a single M dimension");
-  TORCH_INTERNAL_ASSERT(
-      !details.n_axes.empty(),
-      "MmaOp inputs must define at least a single N dimension");
-  TORCH_INTERNAL_ASSERT(
-      !details.k_axes.empty(),
-      "MmaOp inputs must define at least a single K dimension");
-
-  // TODO: for tensor contraction / split-k uses of MmaOp different input layout
-  // rules may be needed
-  details.input_layout = getInputLayout(
-      in_a_details,
-      in_b_details,
-      details.m_axes,
-      details.n_axes,
-      details.k_axes);
-
-  return details;
-}
-
-}; // namespace MmaOpUtils
-
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -1949,17 +2098,17 @@ MmaOp::MmaOp(
     Val* in_b,
     Val* init)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
           out->getValType().value() == ValType::TensorIndex,
       out->getValType().value());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_a->getValType().value() == ValType::TensorView ||
           in_a->getValType().value() == ValType::TensorIndex,
       in_a->getValType().value());
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       in_b->getValType().value() == ValType::TensorView ||
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
@@ -1969,33 +2118,8 @@ MmaOp::MmaOp(
   addInput(in_b);
   // ATTR_POS_INIT
   addAttribute(init);
-  // ATTR_POS_OPTS
-  addDataAttribute(OptionsInMma{});
-  // ATTR_POS_M_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_N_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_K_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_BATCH_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_INPUT_LAYOUT
-  addDataAttribute(MmaLayoutOpt{});
-
-  MmaOpUtils::MmaOpDetails mma_details;
-  // Detailed consistency checks for use case with TensorViews as
-  // inputs/output
-  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
-      out->isA<TensorView>()) {
-    mma_details = MmaOpUtils::getMmaOpDetails(
-        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
-  }
-
-  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
-  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
-  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
-  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
-  attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = mma_details.input_layout;
+  // ATTR_POS_MACRO
+  addDataAttribute(MmaMacro::NoMMA);
 }
 
 MmaOp::MmaOp(
@@ -2004,24 +2128,9 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const OptionsInMma& options,
-    const MmaLayoutOpt& input_layout)
+    const MmaMacro& macro)
     : MmaOp(passkey, out, in_a, in_b, init) {
-  attribute<OptionsInMma>(ATTR_POS_OPTS) = options;
-
-  const auto input_layout_ = attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT);
-  if (input_layout_.has_value()) {
-    TORCH_INTERNAL_ASSERT(input_layout.has_value());
-    TORCH_INTERNAL_ASSERT(
-        input_layout_.value() == input_layout.value(),
-        "Input layout mismatch, infered attribute (",
-        nvfuser::toString(input_layout_.value()),
-        "), provided attribute (",
-        nvfuser::toString(input_layout.value()),
-        ")");
-  } else {
-    attribute<MmaLayoutOpt>(ATTR_POS_INPUT_LAYOUT) = input_layout;
-  }
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 std::string MmaOp::toString(int indent_size) const {
@@ -2033,18 +2142,12 @@ std::string MmaOp::toString(int indent_size) const {
 }
 
 std::string MmaOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-void MmaOp::configureOptions(MmaOptions options) {
-  OptionsInMma& opt = attribute<OptionsInMma>(ATTR_POS_OPTS);
-  TORCH_INTERNAL_ASSERT(
-      options.macro != MmaOptions::MacroType::NoMMA,
-      "Un-configured mma type from options.");
-  TORCH_INTERNAL_ASSERT(
-      options.accumulator_stride > 0, "Un-configured accumulator stride.");
-  opt.accumulator_stride = options.accumulator_stride;
-  opt.macro = options.macro;
+void MmaOp::setMacro(MmaMacro macro) {
+  NVF_ERROR(macro != MmaMacro::NoMMA, "Unspecified mma type");
+  attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MmaOp)
@@ -2058,8 +2161,8 @@ ExpandOp::ExpandOp(
   addOutput(out);
   addInput(in);
   for (auto expanded_extent : _expanded_extents) {
-    TORCH_INTERNAL_ASSERT(expanded_extent != nullptr);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(expanded_extent != nullptr);
+    NVF_ERROR(
         expanded_extent->dtype() == DataType::Index,
         "Expanded extents must be of index type.");
     addInput(expanded_extent);
@@ -2076,135 +2179,101 @@ std::string ExpandOp::toString(int indent_size) const {
 }
 
 std::string ExpandOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ExpandOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> expanded_size;
+  for (auto i : arange(1, inputs.size())) {
+    expanded_size.push_back((int64_t)inputs.at(i));
+  }
+  return {in.expand(expanded_size)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ExpandOp)
 
-ShiftOp::ShiftOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* in,
-    std::vector<int> offsets,
-    std::vector<int> pad_width)
+RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
     : Expr(passkey) {
-  // clang-tidy complains about out that it may be null.
-  TORCH_INTERNAL_ASSERT(out != nullptr);
-  TORCH_INTERNAL_ASSERT(in != nullptr);
+  auto in_domain = TensorDomain::noReductions(in->getLogicalDomain());
+  const auto& out_domain = out->getLogicalDomain();
 
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
+  NVF_ERROR(in_domain.size() == out_domain.size());
 
-  TORCH_INTERNAL_ASSERT(
-      out_type == ValType::TensorView && in_type == ValType::TensorView,
-      "Cannot shift a non-tensor object.");
+  NVF_ERROR(
+      std::none_of(
+          out->getLogicalDomain().begin(),
+          out->getLogicalDomain().end(),
+          [](IterDomain* out_logical_id) {
+            return out_logical_id->isReduction();
+          }),
+      "Output should not have reduction IDs.");
 
-  TORCH_INTERNAL_ASSERT(
-      offsets.size() ==
-          TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
-              .size(),
-      "Invalid offset vector: ",
-      offsets);
-
-  TORCH_INTERNAL_ASSERT(
-      pad_width.size() ==
-          TensorDomain::noReductions(in->as<TensorView>()->getRootDomain())
-              .size(),
-      "Invalid padding width vector: ",
-      pad_width);
-
-  addOutput(out);
-  addInput(in);
-  addDataAttribute(std::move(offsets));
-  addDataAttribute(std::move(pad_width));
-}
-
-std::string ShiftOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = shift( "
-                          << in()->toString() << ", {" << offsets() << "}, {"
-                          << padWidth() << "} )\n";
-  return ss.str();
-}
-
-std::string ShiftOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(ShiftOp)
-
-GatherOp::GatherOp(
-    IrBuilderPasskey passkey,
-    Val* out,
-    Val* in,
-    std::vector<int> window_shape,
-    std::vector<std::vector<int>> pad_width)
-    : Expr(passkey) {
-  // clang-tidy complains about out_ that it may be null.
-  TORCH_INTERNAL_ASSERT(out != nullptr);
-  TORCH_INTERNAL_ASSERT(in != nullptr);
-
-  auto out_type = out->getValType().value();
-  auto in_type = in->getValType().value();
-
-  TORCH_INTERNAL_ASSERT(
-      out_type == ValType::TensorView && in_type == ValType::TensorView,
-      "Cannot shift a non-tensor object.");
-
-  const auto ndims =
-      TensorDomain::noReductions(in->as<TensorView>()->getRootDomain()).size();
-
-  TORCH_INTERNAL_ASSERT(
-      window_shape.size() == ndims,
-      "Invalid window_shape vector: ",
-      window_shape);
-  TORCH_INTERNAL_ASSERT(
-      pad_width.size() == ndims, "Invalid pad_width vector: ", pad_width);
-
-  for (const auto& pad : pad_width) {
-    TORCH_INTERNAL_ASSERT(
-        pad.size() == 2, "Padding size for each axis must have two Int vals.");
-  }
-
-  addOutput(out);
-  addInput(in);
-  addDataAttribute(std::move(window_shape));
-  addDataAttribute(std::move(pad_width));
-}
-
-std::string GatherOp::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = gather( "
-                          << in()->toString() << ", {";
-  ss << toDelimitedString(windowShape()) << "}, {";
-  bool no_comma = true;
-  for (const auto& pad : padWidth()) {
-    if (!no_comma) {
-      ss << ", ";
+  bool repetition_found = false;
+  for (const auto i : arange(in_domain.size())) {
+    if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
+      NVF_ERROR(!in_domain.at(i)->hasExpandedExtent());
+      NVF_ERROR(in_domain.at(i)->extent()->isOneInt());
+      repetition_found = true;
     }
-    ss << "{" << pad[0] << ", " << pad[1] << "}";
-    no_comma = false;
   }
-  ss << "} )\n";
+
+  NVF_ERROR(
+      repetition_found,
+      "No repetition dim found: ",
+      out->toString(),
+      ", ",
+      in->toString());
+
+  addOutput(out);
+  addInput(in);
+}
+
+std::string RepeatOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = repeat( " << in()
+                          << " )\n";
   return ss.str();
 }
 
-std::string GatherOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+std::string RepeatOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-int64_t GatherOp::gatherAxis(int64_t axis) const {
-  if (axis < 0) {
-    axis += (int64_t)out()->as<TensorView>()->nDims();
+std::vector<PolymorphicValue> RepeatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "RepeatOp expects exactly 1 input, but received ",
+      inputs.size());
+  auto tensor = inputs.at(0).as<at::Tensor>();
+  std::vector<int64_t> multipliers;
+  multipliers.reserve(out()->getLogicalDomain().size());
+  const auto c2p =
+      PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
+  for (const auto i : arange(out()->getLogicalDomain().size())) {
+    auto out_id = out()->getLogicalDomain().at(i);
+    auto inp_id = c2p.at(out_id);
+    auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
+    auto inp_extent = ee.evaluate(inp_id->extent()).as<int64_t>();
+    NVF_ERROR(
+        out_extent % inp_extent == 0,
+        "For dimension ",
+        i,
+        ", the output extent (",
+        out_extent,
+        " should be a multiple of the input extent (",
+        inp_extent,
+        ").");
+    multipliers.push_back(out_extent / inp_extent);
   }
-  TORCH_INTERNAL_ASSERT(
-      axis >= 0 && axis < (int64_t)windowShape().size(),
-      "Invalid axis: ",
-      axis);
-  return (int64_t)windowShape().size() + axis;
+  return {tensor.repeat(multipliers)};
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(RepeatOp)
 
 ViewAsScalar::ViewAsScalar(
     IrBuilderPasskey passkey,
@@ -2226,12 +2295,27 @@ std::string ViewAsScalar::toString(int indent_size) const {
 }
 
 std::string ViewAsScalar::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewAsScalar::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const at::Tensor& in = inputs.at(0).as<at::Tensor>();
+  return {at::view_as_real(in)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewAsScalar)
 
 ViewOp::ViewOp(IrBuilderPasskey passkey, Val* out, Val* in) : Expr(passkey) {
+  NVF_ERROR(
+      in->isA<TensorView>(),
+      in->toString(),
+      " is expected to be a TensorView.");
+  NVF_ERROR(
+      out->isA<TensorView>(),
+      out->toString(),
+      " is expected to be a TensorView.");
   addOutput(out);
   addInput(in);
 }
@@ -2244,7 +2328,23 @@ std::string ViewOp::toString(int indent_size) const {
 }
 
 std::string ViewOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ViewOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(inputs.size() == 1);
+  const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
+
+  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  // TODO: check allocation domain and contiguity.
+
+  // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ViewOp`
+  // doesn't always produce an alias. For example, when merging an expanded
+  // `IterType::Broadcast` and an `IterType::Iteration`, `ViewOp` has to realize
+  // the expand.
+  return {in_tensor.reshape(out_shape)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ViewOp)
@@ -2253,16 +2353,52 @@ LoadStoreOp::LoadStoreOp(
     IrBuilderPasskey passkey,
     LoadStoreOpType op_type,
     Val* out,
-    Val* in)
+    Val* in,
+    CacheOp cache_op)
     : Expr(passkey) {
+  // Pick the default cache operator.
+  if (op_type == LoadStoreOpType::CpAsync) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::AllLevels;
+    }
+    NVF_CHECK(
+        cache_op == CacheOp::Global || cache_op == CacheOp::AllLevels,
+        "cp.async only takes .ca or .cg. as cache operator");
+  } else if (op_type == LoadStoreOpType::Set) {
+    if (cache_op == CacheOp::Unspecified) {
+      cache_op = CacheOp::Streaming;
+    }
+  } else {
+    NVF_CHECK(
+        cache_op == CacheOp::Unspecified,
+        "Only Set and CpAsync take a cache operator.");
+  }
+
   addOutput(out);
   addInput(in);
   addDataAttribute(op_type);
+  addDataAttribute(cache_op);
 }
 
 std::vector<PolymorphicValue> LoadStoreOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  if (TensorView* out_tv = dynamic_cast<TensorView*>(out())) {
+    if (out_tv->hasRoot()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getLogicalDomain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The logical domain of a Set.Permute is supposed to be a permutation"
+          " of the root domain: ",
+          out_tv);
+      NVF_ERROR(inputs.size() == 1);
+      at::Tensor in_tensor = inputs[0].as<at::Tensor>();
+      at::Tensor out_tensor = in_tensor.permute(*permutation);
+      return {out_tensor};
+    }
+  }
   return inputs;
 }
 
@@ -2275,7 +2411,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
     if (auto ti = dynamic_cast<kir::TensorIndex*>(out())) {
       tv = ti->view();
     }
-    if (tv != nullptr && tv->hasRFactor()) {
+    if (tv != nullptr && tv->hasRoot()) {
       modifier = ".Permute";
     }
   }
@@ -2288,27 +2424,27 @@ std::string LoadStoreOp::toString(int indent_size) const {
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
   }
+  if (cacheOp() != CacheOp::Unspecified) {
+    ss << ", cache_op=" << cacheOp();
+  }
   ss << " )\n";
   return ss.str();
 }
 
 std::string LoadStoreOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
-}
-
-bool LoadStoreOp::hasInnerTranspose() const {
-  if (auto out_tv = dynamic_cast<TensorView*>(out())) {
-    return out_tv->hasRFactor() &&
-        out_tv->getRootDomain().back() != out_tv->getRFactorDomain().back();
-  }
-  return false;
+  NVF_CHECK(
+      !(out()->isA<TensorView>() || in()->isA<TensorView>()),
+      "Tensor op can not be printed inline");
+  // Set is allowed to have a scalar, e.g. setting the iteration domain
+  // of a tensor in pad.
+  return in()->toInlineString();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LoadStoreOp)
 
 IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
     : start_(_start), extent_(_extent) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
 }
@@ -2323,15 +2459,13 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       iter_type_(id->getIterType()),
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
-      padded_to_size_(id->getMaybeSizeAfterPadding()),
-      is_mma_swizzled_(id->isMmaSwizzled()) {}
+      padded_to_size_(id->getMaybeSizeAfterPadding()) {}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
   is_rfactor_domain_ = false;
   is_padded_dimension_ = false;
   padded_to_size_ = std::nullopt;
-  is_mma_swizzled_ = false;
   return *this;
 }
 
@@ -2388,16 +2522,11 @@ IterDomainBuilder& IterDomainBuilder::padded_to_size(
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::is_mma_swizzled(bool _is_mma_swizzled) {
-  is_mma_swizzled_ = _is_mma_swizzled;
-  return *this;
-}
-
 IterDomain* IterDomainBuilder::build() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
-  return IrBuilder::create<IterDomain>(start_->container(), *this);
+  return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
 }
 
 IterDomain::IterDomain(
@@ -2410,8 +2539,7 @@ IterDomain::IterDomain(
     IterType iter_type,
     bool is_rfactor_domain,
     bool is_padded_dimension,
-    std::optional<int64_t> padded_to_size,
-    bool is_mma_swizzled)
+    std::optional<int64_t> padded_to_size)
     : Val(passkey, ValType::IterDomain),
       start_(start),
       extent_(extent),
@@ -2423,36 +2551,39 @@ IterDomain::IterDomain(
       iter_type_(iter_type),
       is_rfactor_domain_(is_rfactor_domain),
       is_padded_dimension_(is_padded_dimension),
-      padded_to_size_(padded_to_size),
-      is_mma_swizzled_(is_mma_swizzled) {
+      padded_to_size_(padded_to_size) {
   // NOTE: We previously asserted !(isRFactorProduct() && isBroadcast()), i.e.
-  // that an IterDomain could not be both a broadcast and an rfactor domain.
+  // that an IterDomain could not be both a broadcast and an logical domain.
   // However, since the introduction of the resize op, we now have a legitimate
   // case where this may be true; namely, whenever we resize an IterDomain to
   // size 1, we will mark it as Broadcast, but the resize must lie between root
   // and rfactor.
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       extent->dtype() == DataType::Index,
-      "Cannot create an iter domain over an extent that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain over an extent that is not an "
+      "nvfuser_index_t but received ",
       extent->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       expanded_extent == nullptr || expanded_extent->dtype() == DataType::Index,
-      "Cannot create an iter domain over an expanded_extent that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain over an expanded_extent that is not an "
+      "nvfuser_index_t but received ",
       expanded_extent->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       start->dtype() == DataType::Index,
-      "Cannot create an iter domain with a start that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain with a start that is not an "
+      "nvfuser_index_t but received ",
       start->dtype(),
       " .");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       stop_offset_->dtype() == DataType::Index,
-      "Cannot create an iter domain with a stop_offset_ that is not an nvfuser_index_t but received ",
+      "Cannot create an iter domain with a stop_offset_ that is not an "
+      "nvfuser_index_t but received ",
       stop_offset_->dtype(),
       " .");
 }
@@ -2469,8 +2600,7 @@ IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
           args.iter_type_,
           args.is_rfactor_domain_,
           args.is_padded_dimension_,
-          args.padded_to_size_,
-          args.is_mma_swizzled_) {}
+          args.padded_to_size_) {}
 
 IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
@@ -2484,8 +2614,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
       is_padded_dimension_(src->is_padded_dimension_),
-      padded_to_size_(src->padded_to_size_),
-      is_mma_swizzled_(src->is_mma_swizzled_) {}
+      padded_to_size_(src->padded_to_size_) {}
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
@@ -2510,7 +2639,6 @@ bool IterDomain::sameAs(const Statement* other) const {
   // is_rfactor_domain_
   // is_padded_dimension_
   // padded_to_size_
-  // is_mma_swizzled_
 
   // Do not take is_rfactor_domain_ into account. IterDomain's are
   // considered the same if they are rfactor or not.
@@ -2526,8 +2654,7 @@ bool IterDomain::sameAs(const Statement* other) const {
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding() &&
-      isMmaSwizzled() == other_id->isMmaSwizzled();
+      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
 }
 
 std::string IterDomain::toString(int indent_size) const {
@@ -2542,14 +2669,14 @@ std::string IterDomain::toString(int indent_size) const {
   if (stop() != extent()) {
     ss << stop()->toInlineString() << " : ";
   }
-  if (isBroadcast() && hasExpandedExtent()) {
-    ss << expandedExtent()->toInlineString();
-  } else {
-    ss << extent()->toInlineString();
+  ss << extent()->toInlineString();
+  if (hasExpandedExtent()) {
+    ss << " ex " << expandedExtent()->toInlineString();
   }
   ss << "}";
-  if (isRFactorProduct())
+  if (isRFactorProduct()) {
     ss << "rf";
+  }
   if (hasPaddingToMultipleOfWarp()) {
     ss << "_p";
   }
@@ -2562,13 +2689,17 @@ std::string IterDomain::toInlineString(int indent_size) const {
 
 // Returns a new IterDomain matching properties of this except for
 // is_rfactor_domain_
-IterDomain* IterDomain::cloneWithoutRFactor() const {
+IterDomain* IterDomain::cloneWithoutRFactor(bool map_with_original) {
   auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  if (map_with_original) {
+    fusion()->registerExactMapping(this, cloned);
+  }
 
   return cloned;
 }
 
-std::vector<IterDomain*> IterDomain::clone(
+/*static*/ std::vector<IterDomain*> IterDomain::clone(
     const std::vector<IterDomain*>& domains) {
   std::vector<IterDomain*> cloned_domains;
   std::transform(
@@ -2584,41 +2715,51 @@ std::vector<IterDomain*> IterDomain::clone(
 // domains is enforced by predicates. Note that since only root
 // domains have valid start and stop, it's not possible to contiguous
 // predication.
-IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
-  TORCH_CHECK(
+IterDomain* IterDomain::merge(
+    IterDomain* outer,
+    IterDomain* inner,
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> iter_type) {
+  NVF_CHECK(
       outer->isReduction() == inner->isReduction(),
       "Merging IterDomains requires that their iteration types match. ",
       "Outer: ",
       outer->toString(),
       ", Inner: ",
       inner->toString());
-  TORCH_CHECK(
-      (outer->isGather() && inner->isGather()) ||
-          (!outer->isGather() && !inner->isGather()),
-      "Merging gather and non-gather domains is not supported.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !outer->isStride() && !inner->isStride(),
       "No support for merging stride domains");
 
-  Val* merged_id_size = mul(outer->extent(), inner->extent());
-
-  IterType itype = outer->getIterType();
-
-  if (outer->isBroadcast() && inner->isBroadcast()) {
-    itype = IterType::Broadcast;
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
   }
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::Iteration ||
-       inner->getIterType() == IterType::Iteration)) {
-    itype = IterType::Iteration;
-  }
+  Val* merged_id_size =
+      SimplifyingIrBuilder::mulExpr(outer->extent(), inner->extent());
 
-  if ((outer->isBroadcast() || inner->isBroadcast()) &&
-      (outer->getIterType() == IterType::GatherScatter ||
-       inner->getIterType() == IterType::GatherScatter)) {
-    itype = IterType::GatherScatter;
+  if (!iter_type.has_value()) {
+    iter_type = outer->getIterType();
+
+    if (outer->isBroadcast() && inner->isBroadcast()) {
+      iter_type = IterType::Broadcast;
+    }
+
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::Iteration ||
+         inner->getIterType() == IterType::Iteration)) {
+      iter_type = IterType::Iteration;
+    }
+
+    if ((outer->isBroadcast() || inner->isBroadcast()) &&
+        (outer->getIterType() == IterType::GatherScatter ||
+         inner->getIterType() == IterType::GatherScatter)) {
+      iter_type = IterType::GatherScatter;
+    }
   }
 
   Val* expanded_extent = nullptr;
@@ -2631,7 +2772,7 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
       } else {
         expanded_extent = mul(outer->expandedExtent(), inner->extent());
       }
-    } else if (outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
+    } else if (!outer->hasExpandedExtent() && inner->hasExpandedExtent()) {
       if (outer->isBroadcast()) {
         expanded_extent = inner->expandedExtent();
       } else {
@@ -2644,41 +2785,50 @@ IterDomain* IterDomain::merge(IterDomain* outer, IterDomain* inner) {
       IterDomainBuilder(outer->container()->zeroVal(), merged_id_size)
           .parallel_type(outer->getParallelType())
           .expanded_extent(expanded_extent)
-          .iter_type(itype)
+          .iter_type(*iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
-  IrBuilder::create<Merge>(outer->container(), merged_id, outer, inner);
+  IrBuilder::createInContainer<Merge>(
+      outer->container(), merged_id, outer, inner);
 
   return merged_id;
 }
 
-// Both outer and inner domains do not inherit start and stop
-// values as they can't be split. The access range is enforced by
-// predicates.
 std::pair<IterDomain*, IterDomain*> IterDomain::split(
     IterDomain* in,
     Val* factor,
     bool inner_split,
-    Val* start_offset,
-    Val* stop_offset) {
-  TORCH_CHECK(
+    std::optional<bool> rfactor_domain,
+    std::optional<IterType> outer_iter_type,
+    std::optional<IterType> inner_iter_type) {
+  NVF_CHECK(
       factor->isIntegralScalar(), "Cannot split by non-integer value ", factor);
 
   // outer loop size
-  Val* remainder =
-      ceilDiv(Split::extent(in->extent(), start_offset, stop_offset), factor);
+  Val* remainder = SimplifyingIrBuilder::ceilDivExpr(in->extent(), factor);
   Val* expanded_remainder = nullptr;
   if (in->hasExpandedExtent()) {
-    expanded_remainder = ceilDiv(
-        Split::extent(in->expandedExtent(), start_offset, stop_offset), factor);
+    expanded_remainder =
+        SimplifyingIrBuilder::ceilDivExpr(in->expandedExtent(), factor);
   }
 
-  if ((start_offset != nullptr && !start_offset->isZeroInt()) ||
-      (stop_offset != nullptr && !stop_offset->isZeroInt())) {
-    TORCH_INTERNAL_ASSERT(
-        in->definition() == nullptr,
-        "Partial split is only allowed with root domains");
+  // By default, if not specified, don't create rfactor
+  // outputs. Reshape transformations should propagate the flag, which
+  // should explicitly specify the flag
+  if (!rfactor_domain.has_value()) {
+    rfactor_domain = false;
   }
+
+  // If not specified, inherit these properties from the input iter domain
+  if (!outer_iter_type.has_value()) {
+    outer_iter_type = in->getIterType();
+  }
+
+  if (!inner_iter_type.has_value()) {
+    inner_iter_type = in->getIterType();
+  }
+
   // outer loop IterDomain
   IterDomain* ido =
       IterDomainBuilder(
@@ -2687,7 +2837,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && inner_split ? expanded_remainder
                                                      : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
+          .iter_type(*outer_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
   // inner loop IterDomain
@@ -2698,36 +2849,20 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
               in->hasExpandedExtent() && !inner_split ? expanded_remainder
                                                       : nullptr)
           .parallel_type(in->getParallelType())
-          .iter_type(in->getIterType())
+          .iter_type(*inner_iter_type)
+          .is_rfactor_domain(*rfactor_domain)
           .build();
 
-  IrBuilder::create<Split>(
-      in->container(),
-      ido,
-      idi,
-      in,
-      factor,
-      inner_split,
-      start_offset,
-      stop_offset);
+  IrBuilder::createInContainer<Split>(
+      in->container(), ido, idi, in, factor, inner_split);
   return {ido, idi};
-}
-
-std::pair<IterDomain*, IterDomain*> IterDomain::split(
-    IterDomain* in,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
-  auto start_offset = trim_out_of_bounds ? in->start() : nullptr;
-  auto stop_offset = trim_out_of_bounds ? in->stopOffset() : nullptr;
-  return IterDomain::split(in, factor, inner_split, start_offset, stop_offset);
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
   // Use partial split so that only valid values are retained
   auto split_out = IterDomain::split(
       this,
-      IrBuilder::create<Val>(container(), factor, DataType::Index),
+      IrBuilder::createInContainer<Val>(container(), factor, DataType::Index),
       true,
       true);
 
@@ -2738,35 +2873,59 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
 }
 
 std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
-    Swizzle2DType swizzle_type,
+    SwizzleType swizzle_type,
     IterDomain* in_x,
-    IterDomain* in_y,
-    SwizzleMode swizzle_mode) {
-  TORCH_CHECK(
+    IterDomain* in_y) {
+  NVF_CHECK(
       !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
       "Invalid swizzling of a empty dimension.");
 
   // TODO: reduction check on swizzle:
-  TORCH_CHECK(
+  NVF_CHECK(
       !in_x->isReduction() && !in_y->isReduction(),
       "swizzled reduction not yet supported");
 
-  for (auto input : InputsOf::outputs(in_x->fusion(), {in_x, in_y})) {
-    TORCH_CHECK(
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
+    NVF_CHECK(
         !input->as<IterDomain>()->isBroadcast(),
         "swizzling broadcast axes not yet supported");
   }
-
-  // TODO: gather and shift check on swizzle
-  TORCH_INTERNAL_ASSERT(
-      !in_x->isGather() && !in_y->isGather(),
-      "Swizzled gather not yet supported");
 
   IterDomain* out_x = IterDomainBuilder(in_x).build();
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
 
-  IrBuilder::create<Swizzle2D>(
+  IrBuilder::createInContainer<Swizzle>(
+      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
+
+  return std::make_pair(out_x, out_y);
+}
+
+std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
+    Swizzle2DType swizzle_type,
+    IterDomain* in_x,
+    IterDomain* in_y,
+    SwizzleMode swizzle_mode) {
+  NVF_CHECK(
+      !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
+      "Invalid swizzling of a empty dimension.");
+
+  // TODO: reduction check on swizzle:
+  NVF_CHECK(
+      !in_x->isReduction() && !in_y->isReduction(),
+      "swizzled reduction not yet supported");
+
+  for (auto input : InputsOf::outputs({in_x, in_y})) {
+    NVF_CHECK(
+        !input->as<IterDomain>()->isBroadcast(),
+        "swizzling broadcast axes not yet supported");
+  }
+
+  IterDomain* out_x = IterDomainBuilder(in_x).build();
+
+  IterDomain* out_y = IterDomainBuilder(in_y).build();
+
+  IrBuilder::createInContainer<Swizzle2D>(
       in_x->container(), out_x, out_y, in_x, in_y, swizzle_type, swizzle_mode);
 
   return std::make_pair(out_x, out_y);
@@ -2778,26 +2937,41 @@ IterDomain* IterDomain::resize(
     Val* right_expansion,
     bool mark_as_rfactor,
     std::optional<IterType> iter_type_opt) {
-  TORCH_CHECK(
+  NVF_CHECK(
       left_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
       left_expansion->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       right_expansion->isIntegralScalar(),
       "Expansion factor must be an integer scalar: ",
       right_expansion->toString());
 
-  TORCH_CHECK(
+  if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
+    if (left == 0 && right == 0) {
+      // This is a trivial resize. Check that we are not changing the IterType,
+      // then return the input.
+      NVF_CHECK(
+          !iter_type_opt.has_value() ||
+              iter_type_opt.value() == in->getIterType(),
+          "If IterType is specified in pad with zero expansion then it must "
+          "match input");
+      return in;
+    }
+  }
+  NVF_CHECK(
       in->getIterType() == IterType::Iteration ||
           in->getIterType() == IterType::Broadcast ||
-          in->getIterType() == IterType::Symbolic || "Not a valid IterType: ",
+          in->getIterType() == IterType::Symbolic,
+      "Not a valid IterType: ",
       in->getIterType());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       in->start()->isZeroInt(),
       "Non-zero start not supported: ",
       in->toString());
-  TORCH_CHECK(
+  NVF_CHECK(
       in->stopOffset()->isZeroInt(),
       "Non-zero stop offset not considered: ",
       in->toString());
@@ -2805,18 +2979,43 @@ IterDomain* IterDomain::resize(
   // The overall extent is (in->extent() + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
-  // in->extent()), so the overall extent is left_expansion + slice_end_offset.
+  // in->extent()), or (slice_end_offset + (- in->extent())), so the
+  // overall extent is left_expansion + slice_end_offset.
+
+  // Detect common slice patterns and return a simplified Val
+  // representing (in->extent() + right_expansion) if possible
+  auto simplify_input_extent_plus_right_expansion = [](Val* right_expansion,
+                                                       Val* in_extent) -> Val* {
+    auto bop = dynamic_cast<BinaryOp*>(right_expansion->definition());
+    if (bop == nullptr) {
+      return nullptr;
+    }
+    Val* sub_rhs = nullptr;
+    if (bop->getBinaryOpType() == BinaryOpType::Sub) {
+      sub_rhs = bop->rhs();
+    } else if (bop->getBinaryOpType() == BinaryOpType::Add) {
+      // Note that SimplifyingIrBuilder may turn (a - b) to (a + (- b))
+      if (auto uop = dynamic_cast<UnaryOp*>(bop->rhs()->definition());
+          uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg) {
+        sub_rhs = uop->in();
+      }
+    }
+    if (sub_rhs == in_extent) {
+      return bop->lhs();
+    } else {
+      return nullptr;
+    }
+  };
+
   Val* resized_id_size = nullptr;
-  if (right_expansion->definition() != nullptr &&
-      right_expansion->definition()->isA<BinaryOp>() &&
-      right_expansion->definition()->as<BinaryOp>()->getBinaryOpType() ==
-          BinaryOpType::Sub &&
-      right_expansion->definition()->as<BinaryOp>()->rhs() == in->extent()) {
-    resized_id_size = SimplifyingIrBuilder::addExpr(
-        left_expansion, right_expansion->definition()->as<BinaryOp>()->lhs());
+  if (auto simplified_val = simplify_input_extent_plus_right_expansion(
+          right_expansion, in->extent())) {
+    resized_id_size =
+        SimplifyingIrBuilder::addExpr(left_expansion, simplified_val);
   } else {
     resized_id_size = SimplifyingIrBuilder::addExpr(
-        SimplifyingIrBuilder::addExpr(in->extent(), left_expansion),
+        SimplifyingIrBuilder::addExpr(
+            in->getMaybeExpandedExtent(), left_expansion),
         right_expansion);
   }
 
@@ -2827,24 +3026,29 @@ IterDomain* IterDomain::resize(
   if (iter_type_opt.has_value()) {
     iter_type = iter_type_opt.value();
   } else if (left_expansion->isConstInt() && right_expansion->isConstInt()) {
+    auto left = left_expansion->evaluate();
+    auto right = right_expansion->evaluate();
     if (resized_id_size->isConstInt()) {
       // Means input extent is also known
-      auto out_extent = resized_id_size->evaluateInt();
+      auto out_extent = resized_id_size->evaluate();
       iter_type = out_extent == 1 ? IterType::Broadcast : IterType::Iteration;
-    } else if (
-        left_expansion->evaluateInt() + right_expansion->evaluateInt() > 1) {
+    } else if (left + right > 1) {
       // Input extent is non-negative, so we know out_extent > 1
       iter_type = IterType::Iteration;
     }
   }
 
   auto resized_id =
-      IterDomainBuilder(in->container()->zeroVal(), resized_id_size)
+      IterDomainBuilder(
+          in->container()->zeroVal(),
+          // Set immediate constant size of 1 if resize produces broadcast
+          iter_type == IterType::Broadcast ? in->fusion()->oneVal()
+                                           : resized_id_size)
           .is_rfactor_domain(mark_as_rfactor)
           .iter_type(iter_type)
           .build();
 
-  IrBuilder::create<Resize>(
+  IrBuilder::createInContainer<Resize>(
       in->container(), resized_id, in, left_expansion, right_expansion);
 
   return resized_id;
@@ -2860,51 +3064,26 @@ void IterDomain::parallelize(ParallelType t) {
     return;
   }
 
-  // assert check that we only parallelize a leaf domain.
-  // leaf domains are domains that are not used by any other domains.
-  if (t != ParallelType::Serial) {
-    TORCH_CHECK(
-        uses().empty(),
-        "Only allowed to parallelize a leaf domain.",
-        " Domain: ",
-        toString(),
-        ", Parallel type: ",
-        t,
-        definition() != nullptr ? ", Definition: " + definition()->toString()
-                                : "");
-  }
-
   if (t == ParallelType::Unroll || isParallelTypeVectorize(t) ||
       t == ParallelType::Group) {
-    TORCH_CHECK(
+    NVF_CHECK(
         start()->isZeroInt() && extent()->isConstScalar(),
-        "Vectorization, unrolling, unswitching and grouping are only supported with start = 0 and extent as a const int, but got ",
+        "Vectorization, unrolling, unswitching and grouping are only supported "
+        "with start = 0 and extent as a const int, but got ",
         "a start of ",
         start(),
         " and extent ",
-        extent(),
+        extent()->toInlineString(),
         " .");
   }
 
   if (t == ParallelType::Group) {
-    TORCH_CHECK(
-        getIterType() == IterType::Iteration,
-        "Grouping IterDomain of non Iteration type is not allowed. ",
+    NVF_CHECK(
+        getIterType() == IterType::Iteration ||
+            getIterType() == IterType::GatherScatter,
+        "Grouping IterDomain of non Iteration / GatherScatter type is not "
+        "allowed. ",
         getIterType());
-  }
-
-  if (isMmaSwizzled()) {
-    // Mma swizzled axes represent data representation within a warp
-    //  so only allow updates that keep the parallelization within
-    //  a warp.
-    // Note && TODO: this check is actually used to allow indexing path
-    //  to make copies of the iterdomains. We might eventually just want
-    //  to lock these parallel types and not allowing any changes once
-    //  they are swizzled.
-    TORCH_CHECK(
-        t == ParallelType::Vectorize || t == ParallelType::TIDx ||
-            t == ParallelType::Serial || t == ParallelType::Mma,
-        "Parallel type other than serial, tidx, vectorize not allowed for mma swizzled ids");
   }
 
   parallel_type_ = t;
@@ -2931,135 +3110,275 @@ namespace {
 void validateContiguity(
     const std::vector<IterDomain*>& allocation_domain,
     const std::vector<std::optional<bool>>& contiguity) {
-  TORCH_CHECK(
+  NVF_CHECK(
       contiguity.size() == allocation_domain.size(),
-      "Invalid contiguity information provided, incorrect size. Received vector of size ",
+      "Invalid contiguity information provided, incorrect size. Received "
+      "vector of size ",
       contiguity.size(),
       " but needed one of size ",
       allocation_domain.size());
-  for (auto i : c10::irange(contiguity.size())) {
+  for (auto i : arange(contiguity.size())) {
     bool expect_null =
         (allocation_domain.at(i)->isBroadcast() ||
          allocation_domain.at(i)->isReduction());
-    TORCH_CHECK(
+    NVF_CHECK(
         expect_null != contiguity.at(i).has_value(),
         "The contiguity of a broadcast/reduction dimension must be None. "
-        "The contiguity of a non-broadcast/reduction dimension must be true/false");
+        "The contiguity of a non-broadcast/reduction dimension must be "
+        "true/false. alloation_domain=[",
+        toDelimitedString(allocation_domain),
+        "], contiguity=[",
+        toDelimitedString(contiguity),
+        "]");
   }
+}
+
+// Check if loop_domain is a valid domain with no
+// redundancy. The logical domain is used as a reference to find if
+// there's any ID that's not covered by the new loop domain.
+void validateLoopDomain(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<IterDomain*>& loop_domain,
+    const std::vector<IterDomain*>& additional_ids) {
+  // Skip if there's any symbolic ID
+  if (std::any_of(
+          logical_domain.begin(),
+          logical_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          loop_domain.begin(),
+          loop_domain.end(),
+          [](IterDomain* id) { return id->isSymbolic(); }) ||
+      std::any_of(
+          additional_ids.begin(), additional_ids.end(), [](IterDomain* id) {
+            return id->isSymbolic();
+          })) {
+    return;
+  }
+
+  std::vector<IterDomain*> reference;
+  reference.reserve(logical_domain.size() + additional_ids.size());
+  reference.insert(
+      reference.end(), logical_domain.begin(), logical_domain.end());
+  // additional_ids are also considered part of the reference domain
+  reference.insert(
+      reference.end(), additional_ids.begin(), additional_ids.end());
+
+  auto [redundant_ids, _, unreachable_reference_ids] =
+      ir_utils::compareDomainWithReference(loop_domain, reference);
+
+  auto empty_or_broadcast = [](const auto& ids) {
+    return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
+      return id->isBroadcast();
+    });
+  };
+
+  NVF_ERROR(
+      empty_or_broadcast(redundant_ids),
+      "Trying to set a loop domain with non-broadcast redundant IDs: ",
+      toDelimitedString(redundant_ids));
+
+  NVF_ERROR(
+      empty_or_broadcast(unreachable_reference_ids),
+      "Not all logical IDs are covered by loop domain. Loop: ",
+      toDelimitedString(loop_domain),
+      ". Unreachable logical IDs: ",
+      toDelimitedString(unreachable_reference_ids));
 }
 
 } // namespace
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
-    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> logical_domain,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
-      root_domain_(std::move(root_domain)),
-      leaf_domain_(root_domain_),
-      contiguity_(
-          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
-                             : std::move(contiguity)),
-      has_reduction_(false) {
-  validateContiguity(maybeAllocation(), contiguity_);
-
-  // Just due to clang-tidy, correct value set in resetDomains
-  resetDomains();
-}
-
-TensorDomain::TensorDomain(
-    IrBuilderPasskey passkey,
-    std::vector<IterDomain*> root_domain,
-    std::vector<IterDomain*> leaf_domain,
-    std::vector<std::optional<bool>> contiguity)
-    : Val(passkey, ValType::TensorDomain, DataType::Null),
-      root_domain_(std::move(root_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      logical_domain_(std::move(logical_domain)),
+      loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
-  if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
-  }
-
-  // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
-    std::vector<IterDomain*> root_domain,
-    std::vector<IterDomain*> rfactor_domain,
-    std::vector<IterDomain*> leaf_domain,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<int64_t> stride_order,
     std::vector<std::optional<bool>> contiguity)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
-      root_domain_(std::move(root_domain)),
-      rfactor_domain_(std::move(rfactor_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      logical_domain_(std::move(logical_domain)),
+      loop_domain_(logical_domain_),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
-  validateContiguity(maybeAllocation(), contiguity_);
+  // setting the proper allocation domain
+  if (!stride_order.empty()) {
+    auto rank = logical_domain_.size();
+    NVF_ERROR(
+        rank == stride_order.size(), "Invalid size of stride_order vector");
 
-  if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
-    if (!rfactor_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
+    // checking stride_order is indeed a permutation
+    std::vector<int64_t> inc_vec(rank);
+    std::iota(inc_vec.begin(), inc_vec.end(), 0);
+    NVF_ERROR(
+        std::is_permutation(
+            stride_order.begin(), stride_order.end(), inc_vec.begin()),
+        "stride_order is not a valid: " + toDelimitedString(stride_order));
+
+    allocation_domain_.resize(rank, nullptr);
+    for (auto i : arange(rank)) {
+      allocation_domain_[rank - 1 - stride_order[i]] = logical_domain_[i];
     }
   }
+  validateContiguity(maybeAllocation(), contiguity_);
 
-  // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<IterDomain*> loop_domain,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      logical_domain_(std::move(logical_domain)),
+      loop_domain_(std::move(loop_domain)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> root_domain,
-    std::vector<IterDomain*> rfactor_domain,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<IterDomain*> loop_domain,
+    std::vector<std::optional<bool>> contiguity)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      logical_domain_(std::move(logical_domain)),
+      loop_domain_(std::move(loop_domain)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  if (!root_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
+  }
+
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> logical_domain,
     std::vector<IterDomain*> allocation_domain,
-    std::vector<IterDomain*> leaf_domain,
-    std::vector<std::optional<bool>> contiguity)
+    std::vector<IterDomain*> loop_domain,
+    std::vector<std::optional<bool>> contiguity,
+    std::vector<IterDomain*> additional_ids)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
-      rfactor_domain_(std::move(rfactor_domain)),
+      logical_domain_(std::move(logical_domain)),
       allocation_domain_(std::move(allocation_domain)),
-      leaf_domain_(std::move(leaf_domain)),
+      loop_domain_(std::move(loop_domain)),
+      initial_loop_domain_(loop_domain_),
+      additional_ids_(std::move(additional_ids)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {
   validateContiguity(maybeAllocation(), contiguity_);
 
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
   if (!root_domain_.empty()) {
-    TORCH_CHECK(!leaf_domain_.empty(), "Root domain is not empty but leaf is");
-    ir_utils::validateDomainEquivalence(root_domain_, leaf_domain_);
-    if (!rfactor_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, rfactor_domain_);
-      ir_utils::validateDomainEquivalence(rfactor_domain_, leaf_domain_);
-    }
-    if (!allocation_domain_.empty()) {
-      ir_utils::validateDomainEquivalence(root_domain_, allocation_domain_);
-      ir_utils::validateDomainEquivalence(allocation_domain_, leaf_domain_);
-    }
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
+  }
+  if (!allocation_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, allocation_domain_, additional_ids_);
   }
 
-  // Just due to clang-tidy, correct value set in resetDomains
-  has_reduction_ = false;
+  // resetDomains initializes other member variables, required by clang-tidy
+  resetDomains();
+}
+
+TensorDomain::TensorDomain(
+    IrBuilderPasskey passkey,
+    std::vector<IterDomain*> root_domain,
+    std::vector<IterDomain*> logical_domain,
+    std::vector<IterDomain*> allocation_domain,
+    std::vector<IterDomain*> loop_domain,
+    std::optional<std::vector<IterDomain*>> alternate_loop_domain,
+    std::vector<std::optional<bool>> contiguity,
+    std::vector<IterDomain*> additional_ids)
+    : Val(passkey, ValType::TensorDomain, DataType::Null),
+      root_domain_(std::move(root_domain)),
+      logical_domain_(std::move(logical_domain)),
+      allocation_domain_(std::move(allocation_domain)),
+      loop_domain_(std::move(loop_domain)),
+      alternate_loop_domain_(alternate_loop_domain),
+      initial_loop_domain_(loop_domain_),
+      additional_ids_(std::move(additional_ids)),
+      contiguity_(
+          contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
+                             : std::move(contiguity)) {
+  validateContiguity(maybeAllocation(), contiguity_);
+
+  NVF_CHECK(
+      loop_domain_.empty() == logical_domain_.empty(),
+      "logical domain and loop domain can only be both empty or neither empty");
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  if (!root_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, root_domain_, additional_ids_);
+  }
+  if (!allocation_domain_.empty()) {
+    ir_utils::validateDomainEquivalence(
+        logical_domain_, allocation_domain_, additional_ids_);
+  }
+  if (alternate_loop_domain_.has_value()) {
+    validateLoopDomain(
+        logical_domain_, alternate_loop_domain_.value(), additional_ids_);
+  }
+
+  // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
 }
 
 TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(src->root_domain_),
-      rfactor_domain_(src->rfactor_domain_),
+      logical_domain_(src->logical_domain_),
       allocation_domain_(src->allocation_domain_),
-      leaf_domain_(src->leaf_domain_),
+      loop_domain_(src->loop_domain_),
+      alternate_loop_domain_(src->alternate_loop_domain_),
+      initial_loop_domain_(src->initial_loop_domain_),
+      additional_ids_(src->additional_ids_),
       no_bcast_domain_(src->no_bcast_domain_),
       no_reduction_domain_(src->no_reduction_domain_),
       contiguity_(src->contiguity_),
@@ -3068,9 +3387,12 @@ TensorDomain::TensorDomain(IrBuilderPasskey passkey, const TensorDomain* src)
 TensorDomain::TensorDomain(const TensorDomain* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner),
       root_domain_(ir_cloner->clone(src->root_domain_)),
-      rfactor_domain_(ir_cloner->clone(src->rfactor_domain_)),
+      logical_domain_(ir_cloner->clone(src->logical_domain_)),
       allocation_domain_(ir_cloner->clone(src->allocation_domain_)),
-      leaf_domain_(ir_cloner->clone(src->leaf_domain_)),
+      loop_domain_(ir_cloner->clone(src->loop_domain_)),
+      alternate_loop_domain_(ir_cloner->clone(src->alternate_loop_domain_)),
+      initial_loop_domain_(ir_cloner->clone(src->initial_loop_domain_)),
+      additional_ids_(ir_cloner->clone(src->additional_ids_)),
       no_bcast_domain_(ir_cloner->clone(src->no_bcast_domain_)),
       no_reduction_domain_(ir_cloner->clone(src->no_reduction_domain_)),
       contiguity_(src->contiguity()),
@@ -3080,14 +3402,14 @@ NVFUSER_DEFINE_CLONE(TensorDomain)
 
 bool TensorDomain::hasBlockBroadcast() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isThreadDim();
       });
 }
 
 bool TensorDomain::hasGridBroadcast() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isBroadcast() && id->isBlockDim();
       });
 }
@@ -3097,8 +3419,9 @@ bool TensorDomain::operator==(const TensorDomain& other) const {
   // check no_bcast_domain_ and no_reduction_domain_ as they are just
   // derived from domain_.
   return root_domain_ == other.root_domain_ &&
-      leaf_domain_ == other.leaf_domain_ &&
-      rfactor_domain_ == other.rfactor_domain_ &&
+      loop_domain_ == other.loop_domain_ &&
+      alternate_loop_domain_ == other.alternate_loop_domain_ &&
+      logical_domain_ == other.logical_domain_ &&
       allocation_domain_ == other.allocation_domain_ &&
       contiguity_ == other.contiguity_;
 }
@@ -3120,67 +3443,108 @@ bool TensorDomain::sameAs(const Statement* const other) const {
   if (root().size() != other_td->root().size()) {
     return false;
   }
-  if (rfactor().size() != other_td->rfactor().size()) {
+  if (logical().size() != other_td->logical().size()) {
     return false;
   }
   if (allocation().size() != other_td->allocation().size()) {
     return false;
   }
 
-  for (const auto i : c10::irange(nDims())) {
-    if (!(axis((int)i)->sameAs(other_td->axis((int)i)))) {
+  for (const auto i : arange(nDims())) {
+    if (!(axis(i)->sameAs(other_td->axis(i)))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(root().size())) {
+  for (const auto i : arange(root().size())) {
     if (!(root()[i]->sameAs(other_td->root()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(rfactor().size())) {
-    if (!(rfactor()[i]->sameAs(other_td->rfactor()[i]))) {
+  for (const auto i : arange(logical().size())) {
+    if (!(logical()[i]->sameAs(other_td->logical()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(allocation().size())) {
+  for (const auto i : arange(allocation().size())) {
     if (!(allocation()[i]->sameAs(other_td->allocation()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(leaf().size())) {
-    if (!(leaf()[i]->sameAs(other_td->leaf()[i]))) {
+  for (const auto i : arange(loop().size())) {
+    if (!(loop()[i]->sameAs(other_td->loop()[i]))) {
       return false;
     }
   }
 
-  return true;
+  // this_td has_value is not the same as other_td
+  if (alternateLoop().has_value() != other_td->alternateLoop().has_value()) {
+    return false;
+  }
+
+  // has_value is false for both this_td and other_td
+  if (!alternateLoop().has_value() && !other_td->alternateLoop().has_value()) {
+    return true;
+  }
+
+  // has_value is true for both this_td and other_td, so verify that all
+  // iterDomains are the same.
+  return std::ranges::all_of(
+      std::ranges::iota_view{0LL, (int64_t)alternateLoop().value().size()},
+      [&](int64_t i) {
+        return alternateLoop().value()[i]->sameAs(
+            other_td->alternateLoop().value()[i]);
+      });
 }
 
 bool TensorDomain::sameAs(
     const std::vector<IterDomain*>& lhs,
     const std::vector<IterDomain*>& rhs) {
-  if (lhs.size() != rhs.size())
+  if (lhs.size() != rhs.size()) {
     return false;
+  }
   size_t i = 0;
   for (auto td_lhs : lhs) {
-    if (!td_lhs->sameAs(rhs[i++]))
+    if (!td_lhs->sameAs(rhs[i++])) {
       return false;
+    }
   }
   return true;
 }
 
-std::string TensorDomain::toString(int indent_size) const {
+std::string TensorDomain::toString(const int indent_size, const bool loop_only)
+    const {
   std::stringstream ss;
-  if (nDims() == 0) {
-    ss << "[ 0 ]";
-    return ss.str();
+  if (loop_only) {
+    indent(ss, indent_size) << "[" << toDelimitedString(loop()) << "]";
+  } else {
+    indent(ss, indent_size)
+        << "logical=[" << toDelimitedString(logical()) << "]" << std::endl;
+    if (hasRoot()) {
+      indent(ss, indent_size + 1)
+          << "root=[" << toDelimitedString(root()) << "]" << std::endl;
+    }
+    indent(ss, indent_size + 1)
+        << "loop=[" << toDelimitedString(loop()) << "]" << std::endl;
+    if (hasAllocation()) {
+      indent(ss, indent_size + 1)
+          << "allocation=[" << toDelimitedString(allocation()) << "]"
+          << std::endl;
+    }
+    if (alternateLoop().has_value()) {
+      indent(ss, indent_size + 1)
+          << "alternate_loop=[" << toDelimitedString(alternateLoop().value())
+          << "]" << std::endl;
+    }
   }
-  ss << "[ " << toDelimitedString(leaf()) << " ]";
   return ss.str();
+}
+
+std::string TensorDomain::toString(const int indent_size) const {
+  return toString(indent_size, /*loop_only=*/true);
 }
 
 std::string TensorDomain::toInlineString(int indent_size) const {
@@ -3189,11 +3553,11 @@ std::string TensorDomain::toInlineString(int indent_size) const {
 
 void TensorDomain::setContiguity(
     const std::vector<std::optional<bool>>& contig) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
-  for (auto i : c10::irange(contig.size())) {
-    TORCH_CHECK(
+  for (auto i : arange(contig.size())) {
+    NVF_CHECK(
         maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
         "The contiguity of a non-broadcast dimension must be true/false");
@@ -3202,220 +3566,234 @@ void TensorDomain::setContiguity(
   contiguity_ = contig;
 }
 
+std::vector<int64_t> TensorDomain::strideOrder() const {
+  // short-circuit: no allocation domain; default stride-order
+  if (allocation_domain_.empty()) {
+    return {};
+  }
+
+  // The allocation domain is set by the loop domain not by permuting the
+  // logical domain.
+  if (loop_domain_ == allocation_domain_) {
+    return {};
+  }
+
+  NVF_ERROR(logical_domain_.size() == allocation_domain_.size());
+
+  std::vector<int64_t> stride_order;
+  stride_order.reserve(logical_domain_.size());
+
+  for (size_t logical_idx : arange(logical_domain_.size())) {
+    IterDomain* logical_id = logical_domain_.at(logical_idx);
+    auto alloc_iter = std::find(
+        allocation_domain_.begin(), allocation_domain_.end(), logical_id);
+    NVF_ERROR(
+        alloc_iter != allocation_domain_.end(),
+        "Unable to find logical IterDomain in allocation domain.");
+    int64_t alloc_idx = std::distance(allocation_domain_.begin(), alloc_iter);
+    stride_order.push_back((int64_t)logical_domain_.size() - 1 - alloc_idx);
+  }
+
+  return stride_order;
+}
+
 bool TensorDomain::hasBlockReduction() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isThreadDim();
       });
 }
 
 bool TensorDomain::hasGridReduction() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return id->isReduction() && id->isBlockDim();
       });
 }
 
 bool TensorDomain::hasSymbolicAxis() const {
   // If there's any Symbolic axis, there must be one at the root or
-  // rfactor domain.
-  return std::any_of(
-             root().begin(),
-             root().end(),
-             [](auto id) { return id->getIterType() == IterType::Symbolic; }) ||
-      (hasRFactor() &&
-       std::any_of(maybeRFactor().begin(), maybeRFactor().end(), [](auto id) {
-         return id->getIterType() == IterType::Symbolic;
-       }));
+  // logical domain.
+  return (hasRoot() &&
+          std::any_of(
+              root().begin(),
+              root().end(),
+              [](auto id) {
+                return id->getIterType() == IterType::Symbolic;
+              })) ||
+      std::any_of(logical().begin(), logical().end(), [](auto id) {
+           return id->getIterType() == IterType::Symbolic;
+         });
 }
 
 bool TensorDomain::hasViewLikeRFactor() const {
-  if (!hasRFactor()) {
-    // Can't have view like rfactor if there is no rfactor domain
+  if (!hasRoot()) {
+    // Can't have view like rfactor if there is no logical domain
     return false;
   }
 
-  // If there's an rfactor domain and no rfactor product is a reduction, this is
+  // If there's an logical domain and no rfactor product is a reduction, this is
   // a view like rfactor
-  return std::none_of(
-      maybeRFactor().begin(), maybeRFactor().end(), [](IterDomain* id) {
-        return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
-      });
+  return std::none_of(logical().begin(), logical().end(), [](IterDomain* id) {
+    return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
+  });
 }
 
 bool TensorDomain::hasVectorize() const {
   return std::any_of(
-      leaf_domain_.begin(), leaf_domain_.end(), [](IterDomain* id) {
-        return id->getParallelType() == ParallelType::Vectorize ||
-            id->getParallelType() == ParallelType::MisalignedVectorize;
+      loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
+        return isParallelTypeVectorize(id->getParallelType());
       });
 }
 
-std::optional<unsigned int> TensorDomain::getReductionAxis() const {
+std::optional<int64_t> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
-      leaf_domain_.begin(), leaf_domain_.end(), [](const auto& id) {
+      loop_domain_.begin(), loop_domain_.end(), [](const auto& id) {
         return id->isReduction();
       });
-  if (it == leaf_domain_.end()) {
-    return std::optional<unsigned int>();
+  if (it == loop_domain_.end()) {
+    return std::optional<int64_t>();
   } else {
-    return std::optional<unsigned int>(std::distance(leaf_domain_.begin(), it));
+    return std::optional<int64_t>(std::distance(loop_domain_.begin(), it));
   }
 }
 
 // i here is int, as we want to accept negative value and ::size_type can be a
 // uint.
-IterDomain* TensorDomain::axis(int i) const {
-  TORCH_INTERNAL_ASSERT(
-      nDims() > 0, "Tried to access an axis in a 0-dim domain");
-  if (i < 0) {
-    i += (int)nDims();
-  }
-  TORCH_CHECK(
-      i >= 0 && (unsigned int)i < nDims(),
-      "Tried to access axis ",
-      i,
-      " in domain ",
-      this);
-  return leaf_domain_[i];
+IterDomain* TensorDomain::axis(int64_t i) const {
+  NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim domain");
+  return loop_domain_[wrapDim(i)];
 }
 
 int64_t TensorDomain::posOf(IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to find an axis in a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to find an axis in a 0-dim domain");
   int64_t i = 0;
-  while (i < (int64_t)leaf_domain_.size()) {
-    if (leaf_domain_[i] == id)
+  while (i < (int64_t)loop_domain_.size()) {
+    if (loop_domain_[i] == id) {
       return i;
+    }
     i++;
   }
-  TORCH_CHECK(false, "Provided id is not part of this domain.");
+  NVF_CHECK(false, "Provided id is not part of this domain.");
 }
 
 int64_t TensorDomain::rootPosOf(IterDomain* id) const {
-  TORCH_INTERNAL_ASSERT(
-      !root_domain_.empty(), "Tried to find an axis in a 0-dim root domain");
-  auto it = std::find(root_domain_.begin(), root_domain_.end(), id);
-  TORCH_INTERNAL_ASSERT(
-      it != root_domain_.end(), "Provided id is not part of root domain.");
-  return std::distance(root_domain_.begin(), it);
+  NVF_ERROR(
+      !maybeRoot().empty(), "Tried to find an axis in a 0-dim root domain");
+  auto it = std::find(maybeRoot().begin(), maybeRoot().end(), id);
+  NVF_ERROR(it != maybeRoot().end(), "Provided id is not part of root domain.");
+  return std::distance(maybeRoot().begin(), it);
 }
 
-void TensorDomain::split(
-    int axis_,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do split on a 0-dim domain");
-  if (axis_ < 0)
-    axis_ += (int)nDims();
+void TensorDomain::broadcast(int64_t axis, Val* extent) {
+  axis = nvfuser::wrapDim(axis, nDims() + 1);
+  IterDomain* id = IterDomainBuilder(fusion()->zeroVal(), extent)
+                       .iter_type(IterType::Broadcast)
+                       .build();
+  loop_domain_.insert(loop_domain_.begin() + axis, id);
+  additional_ids_.push_back(id);
+}
 
-  TORCH_INTERNAL_ASSERT(
-      axis_ >= 0 && (unsigned int)axis_ < nDims(),
-      "Tried to split on axis outside TensorDomain's range.");
+void TensorDomain::split(int64_t axis, Val* factor, bool inner_split) {
+  NVF_ERROR(nDims() > 0, "Tried to do split on a 0-dim domain");
+  axis = wrapDim(axis);
 
-  IterDomain* id = axis(axis_);
+  IterDomain* id = this->axis(axis);
 
-  // partial split is only allowed with root domains
-  if (trim_out_of_bounds) {
-    TORCH_INTERNAL_ASSERT(
-        std::find(root().begin(), root().end(), id) != root().end(),
-        "Partial split is only allowed with root domains");
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      !id->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
-
-  auto split_ids =
-      IterDomain::split(id, factor, inner_split, trim_out_of_bounds);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.second);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_, split_ids.first);
+  auto split_ids = IterDomain::split(id, factor, inner_split);
+  loop_domain_.erase(loop_domain_.begin() + axis);
+  loop_domain_.insert(loop_domain_.begin() + axis, split_ids.second);
+  loop_domain_.insert(loop_domain_.begin() + axis, split_ids.first);
   resetDomains();
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
-void TensorDomain::merge(int axis_o, int axis_i) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
-  if (axis_o < 0)
-    axis_o += (int)nDims();
+void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
+  axis_o = wrapDim(axis_o);
+  axis_i = wrapDim(axis_i);
 
-  if (axis_i < 0)
-    axis_i += (int)nDims();
-
-  TORCH_CHECK(
-      axis_o >= 0 && (unsigned int)axis_o < nDims() && axis_i >= 0 &&
-          (unsigned int)axis_i < nDims(),
-      "Invalid merge detected, either one or both axes are outside of TensorView's range.");
-
-  TORCH_CHECK(
+  NVF_CHECK(
       axis_o != axis_i,
       "Invalid merge detected, axes provided are the same axis.");
-
-  if (axis_o > axis_i) {
-    auto tmp = axis_i;
-    axis_i = axis_o;
-    axis_o = tmp;
-  }
 
   IterDomain* first = axis(axis_o);
   IterDomain* second = axis(axis_i);
 
-  TORCH_INTERNAL_ASSERT(
-      !first->isMmaSwizzled() && !second->isMmaSwizzled(),
-      "Further transformation on warp mapped id's not allowed.");
-
   IterDomain* merged_id = IterDomain::merge(first, second);
 
-  leaf_domain_.erase(leaf_domain_.begin() + axis_i);
-  leaf_domain_.erase(leaf_domain_.begin() + axis_o);
-  leaf_domain_.insert(leaf_domain_.begin() + axis_o, merged_id);
+  // axis_o is the outer input of this merge but does not
+  // automatically mean it's an outer domain in TensorDomain.
+  auto td_outer_pos = axis_o < axis_i ? axis_o : axis_i;
+  auto td_inner_pos = axis_o < axis_i ? axis_i : axis_o;
+
+  loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
+  loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
+  loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
   resetDomains();
 }
 
 // Reorder axes according to map[old_pos] = new_pos
-void TensorDomain::reorder(const std::unordered_map<int, int>& old2new_) {
-  TORCH_INTERNAL_ASSERT(
+void TensorDomain::reorder(
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
+  NVF_ERROR(
       nDims() != 0 || old2new_.empty(), "Tried to reorder a 0-dim domain");
-  leaf_domain_ = orderedAs(leaf_domain_, old2new_);
+  loop_domain_ = orderedAs(loop_domain_, old2new_);
   resetDomains();
 }
 
 std::vector<IterDomain*> TensorDomain::orderedAs(
     const std::vector<IterDomain*>& dom,
-    const std::unordered_map<int, int>& old2new_) {
-  TORCH_INTERNAL_ASSERT(
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
+  NVF_ERROR(
       !dom.empty() || old2new_.empty(), "Tried to reorder a 0-dim domain");
 
   // Eventhough these checks are already in TensorView, we want to redo them as
   // we can enter this function from other places, not through TensorView
 
-  auto new2old = ir_utils::normalizeOld2New(old2new_, dom.size());
+  auto new2old = ir_utils::normalizeOld2New(old2new_, (int64_t)dom.size());
 
   std::vector<IterDomain*> reordered_domain;
   std::transform(
       new2old.begin(),
       new2old.end(),
       std::back_inserter(reordered_domain),
-      [dom](int i) -> IterDomain* { return dom[i]; });
+      [dom](int64_t i) -> IterDomain* { return dom[i]; });
 
   return reordered_domain;
 }
 
+void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
+  x = wrapDim(x);
+  y = wrapDim(y);
+
+  IterDomain* axis_x = axis(x);
+  IterDomain* axis_y = axis(y);
+
+  IterDomain* axis_out_x = nullptr;
+  IterDomain* axis_out_y = nullptr;
+
+  std::tie(axis_out_x, axis_out_y) =
+      IterDomain::swizzle(swizzle_type, axis_x, axis_y);
+
+  loop_domain_.erase(loop_domain_.begin() + x);
+  loop_domain_.insert(loop_domain_.begin() + x, axis_out_x);
+
+  loop_domain_.erase(loop_domain_.begin() + y);
+  loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
+
+  resetDomains();
+}
+
 void TensorDomain::swizzle(
     Swizzle2DType swizzle_type,
-    int x,
-    int y,
+    int64_t x,
+    int64_t y,
     SwizzleMode swizzle_mode) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim domain");
-
-  TORCH_CHECK(
-      x >= 0 && (unsigned int)x < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
-
-  TORCH_CHECK(
-      y >= 0 && (unsigned int)y < nDims(),
-      "Invalid swizzle detected, either one or both axes are outside of TensorView's range.");
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
+  x = wrapDim(x);
+  y = wrapDim(y);
 
   IterDomain* axis_x = axis(x);
   IterDomain* axis_y = axis(y);
@@ -3426,12 +3804,32 @@ void TensorDomain::swizzle(
   std::tie(axis_out_x, axis_out_y) =
       IterDomain::swizzle(swizzle_type, axis_x, axis_y, swizzle_mode);
 
-  leaf_domain_.erase(leaf_domain_.begin() + x);
-  leaf_domain_.insert(leaf_domain_.begin() + x, axis_out_x);
+  loop_domain_.erase(loop_domain_.begin() + x);
+  loop_domain_.insert(loop_domain_.begin() + x, axis_out_x);
 
-  leaf_domain_.erase(leaf_domain_.begin() + y);
-  leaf_domain_.insert(leaf_domain_.begin() + y, axis_out_y);
+  loop_domain_.erase(loop_domain_.begin() + y);
+  loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
 
+  resetDomains();
+}
+
+void TensorDomain::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
+  NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto resized_id = IterDomain::resize(
+      id,
+      left_expansion,
+      right_expansion,
+      /*mark_as_rfactor=*/false,
+      iter_type);
+  loop_domain_.at(axis) = resized_id;
   resetDomains();
 }
 
@@ -3457,12 +3855,24 @@ std::vector<IterDomain*> TensorDomain::noBroadcasts(
   return noBroadcastDomain;
 }
 
-std::vector<std::optional<bool>> TensorDomain::getContiguityFilledWith(
-    const std::vector<IterDomain*>& rfactor_domain,
-    bool fill_value) {
+std::vector<IterDomain*> TensorDomain::noDevices(
+    const std::vector<IterDomain*>& td) {
+  std::vector<IterDomain*> noDeviceDomain;
+  std::copy_if(
+      td.begin(),
+      td.end(),
+      std::back_inserter(noDeviceDomain),
+      [](IterDomain* id) { return !id->isDeviceDim(); });
+  return noDeviceDomain;
+}
+
+/*static*/ std::vector<std::optional<bool>> TensorDomain::
+    getContiguityFilledWith(
+        const std::vector<IterDomain*>& allocation_domain,
+        bool fill_value) {
   std::vector<std::optional<bool>> contiguity;
-  contiguity.reserve(rfactor_domain.size());
-  for (auto id : rfactor_domain) {
+  contiguity.reserve(allocation_domain.size());
+  for (auto id : allocation_domain) {
     if (id->isBroadcast() || id->isReduction()) {
       contiguity.emplace_back(std::nullopt);
     } else {
@@ -3491,12 +3901,12 @@ bool TensorDomain::hasReduction(const std::vector<IterDomain*>& td) {
 }
 
 TensorDomain* TensorDomain::view(const AnalyzeViewResult& view_analysis) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to view transform a 0-dim domain");
+  NVF_ERROR(nDims() > 0, "Tried to view transform a 0-dim domain");
   return transformView(this, view_analysis);
 }
 
 TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
-  auto inp_domain = noReductions(maybeRFactor());
+  auto inp_domain = noReductions(logical());
 
   if (start_dim < 0) {
     start_dim += (int64_t)inp_domain.size();
@@ -3504,20 +3914,20 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   if (end_dim < 0) {
     end_dim += (int64_t)inp_domain.size();
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       start_dim >= 0 && start_dim < int64_t(inp_domain.size()),
       "Invalid start_dim ",
       start_dim);
-  TORCH_CHECK(
+  NVF_CHECK(
       end_dim >= 0 && end_dim < int64_t(inp_domain.size()),
       "Invalid end_dim ",
       end_dim);
-  TORCH_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
+  NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
 
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
-  for (auto i : c10::irange(inp_domain.size())) {
-    bool is_rfactor_dim = i >= size_t(start_dim) && i <= size_t(end_dim);
+  for (auto i : arange((int64_t)inp_domain.size())) {
+    bool is_rfactor_dim = i >= start_dim && i <= end_dim;
     auto inp_id = inp_domain[i];
     auto out_id = IterDomainBuilder(inp_id)
                       .is_rfactor_domain(is_rfactor_dim)
@@ -3529,46 +3939,54 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
                           (is_rfactor_dim && inp_id->isBroadcast())
                               ? IterType::Iteration
                               : inp_id->getIterType())
+                      .expanded_extent(nullptr)
                       .build();
     new_root_domain.push_back(out_id);
   }
 
-  std::vector<IterDomain*> rfactor_domain;
-  rfactor_domain.reserve(new_root_domain.size() - (end_dim - start_dim));
-  for (auto i : c10::irange(start_dim)) {
-    rfactor_domain.push_back(new_root_domain[i]);
+  std::vector<IterDomain*> logical_domain;
+  logical_domain.reserve(new_root_domain.size() - (end_dim - start_dim));
+  for (auto i : arange(start_dim)) {
+    logical_domain.push_back(new_root_domain[i]);
   }
 
   IterDomain* merged_id = new_root_domain[start_dim];
-  for (auto i : c10::irange(start_dim + 1, end_dim + 1)) {
-    IterDomain* new_merged_id =
-        IterDomainBuilder(
-            merged_id->container()->zeroVal(),
-            mul(merged_id->extent(), new_root_domain[i]->extent()))
-            .is_rfactor_domain(true)
-            .build();
-    IrBuilder::create<Merge>(new_merged_id, merged_id, new_root_domain[i]);
-    merged_id = new_merged_id;
+  for (auto i : arange(start_dim + 1, end_dim + 1)) {
+    merged_id = IterDomain::merge(
+        merged_id, new_root_domain.at(i), /*rfactor_domain=*/true);
   }
-  rfactor_domain.push_back(merged_id);
+  logical_domain.push_back(merged_id);
 
-  for (auto i : c10::irange(end_dim + 1, inp_domain.size())) {
-    rfactor_domain.push_back(new_root_domain[i]);
+  for (auto i : arange(end_dim + 1, inp_domain.size())) {
+    logical_domain.push_back(new_root_domain[i]);
   }
 
   return IrBuilder::create<TensorDomain>(
       new_root_domain,
-      rfactor_domain,
-      rfactor_domain,
-      TensorDomain::getContiguityFilledWith(rfactor_domain, true));
+      logical_domain,
+      logical_domain,
+      TensorDomain::getContiguityFilledWith(logical_domain, true));
 }
 
 // TODO: Rfactor a Welford
 
 // pair is in order where second is the consumer of first
 std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
-    const std::vector<int>& axes_) {
+    const std::vector<int64_t>& axes_) {
   return TransformRFactor::runReplay(this, axes_);
+}
+
+void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  loop_domain_ = std::move(new_loop_domain);
+  initial_loop_domain_ = loop_domain_;
+  resetDomains();
+}
+
+void TensorDomain::setAlternateLoopDomain(
+    std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  alternate_loop_domain_ = std::move(new_loop_domain);
 }
 
 void TensorDomain::setAllocationDomain(
@@ -3576,11 +3994,131 @@ void TensorDomain::setAllocationDomain(
     std::vector<std::optional<bool>> new_contiguity) {
   validateContiguity(new_allocation_domain, new_contiguity);
 
-  ir_utils::validateDomainEquivalence(root_domain_, new_allocation_domain);
-  ir_utils::validateDomainEquivalence(new_allocation_domain, leaf_domain_);
+  ir_utils::validateDomainEquivalence(
+      logical_domain_, new_allocation_domain, additional_ids_);
 
   allocation_domain_ = std::move(new_allocation_domain);
   contiguity_ = std::move(new_contiguity);
+}
+
+std::vector<IterDomain*> TensorDomain::allIDs() const {
+  std::vector<const std::vector<IterDomain*>*> all_domains = {
+      &loop_domain_,
+      &logical_domain_,
+      &root_domain_,
+      &initial_loop_domain_,
+      &allocation_domain_,
+      &additional_ids_};
+  if (alternate_loop_domain_.has_value()) {
+    all_domains.push_back(&alternate_loop_domain_.value());
+  }
+  VectorOfUniqueEntries<IterDomain*> discovered_ids;
+  for (auto domain : all_domains) {
+    discovered_ids.pushBack(*domain);
+  }
+
+  // We only care about IDs on the shortest path between domains
+  std::unordered_multimap<IterDomain*, IterDomain*> out2in;
+  for (auto i : arange(all_domains.size() - 1)) {
+    if (all_domains[i]->empty()) {
+      continue;
+    }
+    for (auto j : arange(i + 1, all_domains.size())) {
+      if (all_domains[j]->empty()) {
+        continue;
+      }
+      auto path = getExprsBetween<IRBFS>(
+                      {all_domains[i]->begin(), all_domains[i]->end()},
+                      {all_domains[j]->begin(), all_domains[j]->end()},
+                      false)
+                      .first;
+      for (auto [expr, _] : path) {
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->outputs()));
+        discovered_ids.pushBack(
+            ir_utils::filterByType<IterDomain>(expr->inputs()));
+        for (auto in : expr->inputs()) {
+          for (auto out : expr->outputs()) {
+            out2in.emplace(out->as<IterDomain>(), in->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // Topological sort all IDs
+  std::list<IterDomain*> ids_to_be_sorted(
+      discovered_ids.begin(), discovered_ids.end());
+  VectorOfUniqueEntries<IterDomain*> sorted_ids;
+  while (!ids_to_be_sorted.empty()) {
+    auto it = ids_to_be_sorted.begin();
+    while (it != ids_to_be_sorted.end()) {
+      auto range = out2in.equal_range(*it);
+      if (std::all_of(range.first, range.second, [&](const auto& kv) {
+            return sorted_ids.has(kv.second);
+          })) {
+        sorted_ids.pushBack(*it);
+        it = ids_to_be_sorted.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+  return sorted_ids.vector();
+}
+
+std::vector<Expr*> TensorDomain::allExprs() const {
+  auto all_ids = allIDs();
+  std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
+
+  VectorOfUniqueEntries<Expr*> exprs;
+  for (auto id : all_ids) {
+    auto def = id->definition();
+    if (def == nullptr) {
+      continue;
+    }
+
+    if (std::all_of(def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+          return all_id_set.find(inp) != all_id_set.end();
+        })) {
+      exprs.pushBack(def);
+    } else {
+      NVF_ERROR(std::none_of(
+          def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+            return all_id_set.find(inp) != all_id_set.end();
+          }));
+    }
+  }
+
+  return exprs.vector();
+}
+
+std::vector<Statement*> TensorDomain::allStatements() const {
+  auto all_ids = allIDs();
+  std::unordered_set<Val*> all_id_set{all_ids.begin(), all_ids.end()};
+
+  VectorOfUniqueEntries<Statement*> stmts;
+  for (auto id : all_ids) {
+    // Visit definition if available and all inputs are already visited
+    auto def = id->definition();
+    if (def != nullptr) {
+      if (std::all_of(
+              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+                return all_id_set.find(inp) != all_id_set.end();
+              })) {
+        stmts.pushBack(def);
+      } else {
+        NVF_ERROR(std::none_of(
+            def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+              return all_id_set.find(inp) != all_id_set.end();
+            }));
+      }
+    }
+
+    stmts.pushBack(id);
+  }
+
+  return stmts.vector();
 }
 
 Split::Split(
@@ -3589,19 +4127,11 @@ Split::Split(
     IterDomain* inner,
     IterDomain* in,
     Val* factor,
-    bool inner_split,
-    Val* start_offset,
-    Val* stop_offset)
+    bool inner_split)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       factor->isIntegralScalar(),
       "Attempted to create a Split node with a non-integer factor.");
-  if (start_offset == nullptr) {
-    start_offset = passkey.ir_container_->zeroVal();
-  }
-  if (stop_offset == nullptr) {
-    stop_offset = passkey.ir_container_->zeroVal();
-  }
   addOutput(outer);
   addOutput(inner);
   addInput(in);
@@ -3609,8 +4139,10 @@ Split::Split(
   // and need to check BestEffortReplay::findFirstMismatchedID addInput(factor);
   addAttribute(factor);
   addDataAttribute(inner_split);
-  addAttribute(start_offset);
-  addAttribute(stop_offset);
+}
+
+Val* Split::isDivisible() const {
+  return IrBuilder::isDivisibleExpr(in()->extent(), factor());
 }
 
 std::string Split::toString(int indent_size) const {
@@ -3621,34 +4153,12 @@ std::string Split::toString(int indent_size) const {
   ss << outer()->toString();
   ss << ", ";
   ss << inner()->toString();
-  if (startOffset()) {
-    ss << ", start offset: ";
-    ss << startOffset()->toString();
-  }
-  if (stopOffset()) {
-    ss << ", stop offset: ";
-    ss << stopOffset()->toString();
-  }
   ss << "\n";
   return ss.str();
 }
 
 std::string Split::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Split can not be printed inline");
-}
-
-Val* Split::extent(Val* in_extent, Val* start_offset, Val* stop_offset) {
-  TORCH_INTERNAL_ASSERT(in_extent != nullptr);
-
-  if (start_offset != nullptr && !start_offset->isZeroInt()) {
-    in_extent = sub(in_extent, start_offset);
-  }
-
-  if (stop_offset != nullptr && !stop_offset->isZeroInt()) {
-    in_extent = sub(in_extent, stop_offset);
-  }
-
-  return in_extent;
+  NVF_CHECK(false, "Split can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Split)
@@ -3677,10 +4187,45 @@ std::string Merge::toString(int indent_size) const {
 }
 
 std::string Merge::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
+
+Swizzle::Swizzle(
+    IrBuilderPasskey passkey,
+    IterDomain* out_x,
+    IterDomain* out_y,
+    IterDomain* in_x,
+    IterDomain* in_y,
+    SwizzleType swizzle_type)
+    : Expr(passkey) {
+  addOutput(out_x);
+  addOutput(out_y);
+  addInput(in_x);
+  addInput(in_y);
+  addDataAttribute(swizzle_type);
+}
+
+std::string Swizzle::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << swizzleType() << "(2D): ";
+  ss << inX()->toString();
+  ss << " , ";
+  ss << inY()->toString();
+  ss << " -> ";
+  ss << outX()->toString();
+  ss << " , ";
+  ss << outY()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Swizzle::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
 Swizzle2D::Swizzle2D(
     IrBuilderPasskey passkey,
@@ -3714,7 +4259,7 @@ std::string Swizzle2D::toString(int indent_size) const {
 }
 
 std::string Swizzle2D::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle2D)
@@ -3745,7 +4290,7 @@ std::string Resize::toString(int indent_size) const {
 }
 
 std::string Resize::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Resize can not be printed inline");
+  NVF_CHECK(false, "Resize can not be printed inline");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Resize)
@@ -3772,51 +4317,51 @@ bool NamedScalar::sameAs(const Statement* other) const {
 }
 
 NamedScalar* NamedScalar::getParallelDim(ParallelType p_type) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       isParallelTypeThread(p_type),
       "Cannot get parallel dim of non thread type, received: ",
       p_type);
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_dim = stringifyThreadSize(p_type);
   return IrBuilder::create<NamedScalar>(parallel_dim, DataType::Index);
 }
 
 NamedScalar* NamedScalar::getParallelIndex(ParallelType p_type) {
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   std::string parallel_ind = stringifyThread(p_type);
   return IrBuilder::create<NamedScalar>(parallel_ind, DataType::Index);
 }
 
 std::optional<ParallelType> NamedScalar::getParallelDim() const {
   if (stringifyThreadSize(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThreadSize(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThreadSize(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThreadSize(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThreadSize(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThreadSize(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
 
 std::optional<ParallelType> NamedScalar::getParallelIndex() const {
   if (stringifyThread(ParallelType::TIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDx);
+    return ParallelType::TIDx;
   } else if (stringifyThread(ParallelType::TIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDy);
+    return ParallelType::TIDy;
   } else if (stringifyThread(ParallelType::TIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::TIDz);
+    return ParallelType::TIDz;
   } else if (stringifyThread(ParallelType::BIDx).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDx);
+    return ParallelType::BIDx;
   } else if (stringifyThread(ParallelType::BIDy).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDy);
+    return ParallelType::BIDy;
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::BIDz);
+    return ParallelType::BIDz;
   }
   return std::nullopt;
 }
@@ -3828,23 +4373,23 @@ PadOp::PadOp(
     const std::vector<Val*>& pad_widths,
     Val* value)
     : Expr(passkey) {
-  const auto ndims =
-      TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
-  TORCH_INTERNAL_ASSERT(
+  const auto ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
+  NVF_ERROR(
       pad_widths.size() % 2 == 0,
       "Invalid size of padding width vector: ",
       pad_widths.size(),
       ". Number of width vals must be even.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       pad_widths.size() == ndims * 2,
       "Invalid size of padding width vector: ",
       pad_widths.size(),
-      ". All dimensions, padded or not, must have width vals. Use zero for non non-padded dimensions.");
+      ". All dimensions, padded or not, must have width vals. Use zero for non "
+      "non-padded dimensions.");
   addOutput(out);
   addInput(inp);
   addInput(value);
   for (auto width : pad_widths) {
-    TORCH_CHECK(width != nullptr, "Padding width must not be nullptr");
+    NVF_CHECK(width != nullptr, "Padding width must not be nullptr");
     addInput(width);
   }
 }
@@ -3861,19 +4406,19 @@ std::string PadOp::toString(int indent_size) const {
 }
 
 std::string PadOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-std::vector<int> PadOp::getPaddedAxes() const {
-  auto num_dims = out()->as<TensorView>()->getRootDomain().size();
-  std::vector<int> padded_axes;
-  for (const auto i : c10::irange(num_dims)) {
-    auto [left_pad, right_pad] = getPadWidths((int)i);
+std::vector<int64_t> PadOp::getPaddedAxes() const {
+  auto num_dims = (int64_t)out()->as<TensorView>()->getLogicalDomain().size();
+  std::vector<int64_t> padded_axes;
+  for (const auto i : arange(num_dims)) {
+    auto [left_pad, right_pad] = getPadWidths(i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
       continue;
     }
-    padded_axes.push_back((int)i);
+    padded_axes.push_back(i);
   }
   return padded_axes;
 }
@@ -3882,14 +4427,9 @@ std::vector<Val*> PadOp::getPadWidths() const {
   return {getPadWidthInputBegin(), getPadWidthInputEnd()};
 }
 
-std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
-  auto num_dims = (int)out()->as<TensorView>()->getRootDomain().size();
-
-  if (axis < 0) {
-    axis += num_dims;
-  }
-
-  TORCH_CHECK(axis >= 0 && axis < num_dims, "Invalid axis: ", axis);
+std::pair<Val*, Val*> PadOp::getPadWidths(int64_t axis) const {
+  auto num_dims = (int64_t)out()->as<TensorView>()->getLogicalDomain().size();
+  axis = wrapDim(axis, num_dims);
 
   int64_t offset_even = (int64_t)axis * 2;
   int64_t offset_odd = offset_even + 1;
@@ -3898,17 +4438,47 @@ std::pair<Val*, Val*> PadOp::getPadWidths(int axis) const {
       (*(getPadWidthInputBegin() + offset_odd))->as<Val>());
 }
 
+std::vector<PolymorphicValue> PadOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+
+  std::vector<int64_t> pad_widths;
+  auto pad_width_offset = getPadWidthInputOffset();
+  auto num_dims = in.dim();
+
+  for (auto i = num_dims - 1; i > -1; i--) {
+    auto left_pad = (int64_t)inputs.at(pad_width_offset + 2 * i);
+    auto right_pad = (int64_t)inputs.at(pad_width_offset + 2 * i + 1);
+    pad_widths.push_back(left_pad);
+    pad_widths.push_back(right_pad);
+  }
+
+  if (isComplexType(*out()->getDataType())) {
+    std::complex<double> value =
+        static_cast<std::complex<double>>(inputs.at(1));
+    auto real = at::real(in);
+    auto imag = at::imag(in);
+    auto padded_real = at::pad(real, pad_widths, "constant", value.real());
+    auto padded_imag = at::pad(imag, pad_widths, "constant", value.imag());
+    return {at::complex(padded_real, padded_imag)};
+  } else {
+    double value = static_cast<double>(inputs.at(1));
+    return {at::pad(in, pad_widths, "constant", value)};
+  }
+}
+
 SliceOp::SliceOp(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* inp,
     const std::vector<Slice>& ranges)
     : Expr(passkey) {
-  const auto ndims =
-      TensorDomain::noReductions(inp->getMaybeRFactorDomain()).size();
-  TORCH_INTERNAL_ASSERT(
+  size_t ndims = TensorDomain::noReductions(inp->getLogicalDomain()).size();
+  NVF_ERROR(
       ndims == ranges.size(),
-      "The range vector must have the same number of Slice descriptors. Given: ",
+      "The range vector must have the same number of Slice descriptors. "
+      "Given: ",
       ranges.size(),
       ", Expected: ",
       ndims);
@@ -3916,9 +4486,9 @@ SliceOp::SliceOp(
   addOutput(out);
   addInput(inp);
   for (const auto& range : ranges) {
-    TORCH_INTERNAL_ASSERT(range.start != nullptr, "nullptr not allowed");
-    TORCH_INTERNAL_ASSERT(range.stop != nullptr, "nullptr not allowed");
-    TORCH_INTERNAL_ASSERT(range.step != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.start != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.stop != nullptr, "nullptr not allowed");
+    NVF_ERROR(range.step != nullptr, "nullptr not allowed");
     addInput(range.start);
     addInput(range.stop);
     addInput(range.step);
@@ -3944,20 +4514,20 @@ std::string SliceOp::toString(int indent_size) const {
 }
 
 std::string SliceOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 std::vector<Slice> SliceOp::getRanges() const {
   const auto num_range_vals =
       std::distance(getRangeInputBegin(), getRangeInputEnd());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       num_range_vals % 3 == 0,
       "Unexpected number of range vals: ",
       num_range_vals);
   auto ndims = num_range_vals / 3;
   std::vector<Slice> ranges(ndims);
   auto range_val_it = getRangeInputBegin();
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     ranges.at(i) = Slice{
         .start = *range_val_it,
         .stop = *(range_val_it + 1),
@@ -3965,6 +4535,22 @@ std::vector<Slice> SliceOp::getRanges() const {
     range_val_it += 3;
   }
   return ranges;
+}
+
+std::vector<PolymorphicValue> SliceOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs.at(0).as<at::Tensor>();
+  std::vector<at::indexing::TensorIndex> ranges;
+  auto ranges_offset = getRangeInputOffset();
+  auto num_dims = in.dim();
+  for (const auto i : arange(num_dims)) {
+    auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
+    auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
+    auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
+    ranges.emplace_back(at::indexing::Slice(start, stop, step));
+  }
+  return {in.index(ranges)};
 }
 
 CatOp::CatOp(
@@ -3977,10 +4563,11 @@ CatOp::CatOp(
   for (auto inp : inputs) {
     addInput(inp);
   }
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       concatenated_dim >= 0 &&
           concatenated_dim <
-              static_cast<int>(ir_utils::getTv(out)->getRootDomain().size()),
+              static_cast<int64_t>(
+                  ir_utils::getTv(out)->getLogicalDomain().size()),
       "Invalid dimension to concatenate: ",
       concatenated_dim);
 
@@ -3995,10 +4582,10 @@ CatOp::CatOp(
     Val* concatenated_domain_index,
     const std::vector<Val*>& preds)
     : Expr(passkey) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_ != nullptr,
       "IrContainer must be provided to create a CatOp.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
@@ -4026,42 +4613,1696 @@ std::string CatOp::toString(int indent_size) const {
 }
 
 std::string CatOp::toInlineString(int indent_size) const {
-  TORCH_CHECK(false, "Tensor op can not be printed inline");
+  NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
 Val* CatOp::getConcatenatedDomainIndex() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  TORCH_INTERNAL_ASSERT(!attributes().empty(), "No attribute found");
-  TORCH_INTERNAL_ASSERT(
-      attribute(1) != nullptr, "nulllptr attribute is invalid");
+  NVF_ERROR(!attributes().empty(), "No attribute found");
+  NVF_ERROR(attribute(1) != nullptr, "nulllptr attribute is invalid");
   auto idx = attribute(1)->as<Val>();
   return idx;
 }
 
 Val* CatOp::getPred(int input_idx) const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
-  const auto num_input_tensors = static_cast<int>(inputs().size());
-  TORCH_INTERNAL_ASSERT(
-      input_idx < num_input_tensors, "Invalid input index: ", input_idx);
+  const auto num_input_tensors = static_cast<int64_t>(inputs().size());
+  NVF_ERROR(input_idx < num_input_tensors, "Invalid input index: ", input_idx);
   const auto attr_idx = input_idx + 2;
-  TORCH_INTERNAL_ASSERT(
-      attr_idx < static_cast<int>(attributes().size()),
+  NVF_ERROR(
+      attr_idx < static_cast<int64_t>(attributes().size()),
       "Invalid attribute index: ",
       attr_idx,
       ", number of attributes: ",
       attributes().size());
   auto attr = attributeVal(attr_idx);
-  TORCH_INTERNAL_ASSERT(attr != nullptr, "nullptr attribute is invalid");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(attr != nullptr, "nullptr attribute is invalid");
+  NVF_ERROR(
       attr->dtype() == DataType::Bool,
       "Attribute must be a Bool val: ",
       attr->toInlineString());
   auto pred = attr;
   return pred;
 }
+
+std::vector<PolymorphicValue> CatOp::evaluate(
+    const ExpressionEvaluator& ee,
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  // CatOp is preceded by a PadOp internally.
+  // For ATen evaluation, directly compute the unpadded inputs.
+  std::vector<at::Tensor> unpadded_inputs;
+  unpadded_inputs.reserve(inputs().size());
+  int64_t concat_dim = concatenatedDim();
+  for (Val* inp : inputs()) {
+    NVF_CHECK(
+        inp->definition() != nullptr && inp->definition()->isA<PadOp>(),
+        "Expected CatOp to be preceded by a PadOp.");
+    auto eval_i = ee.evaluate(inp->definition()->input(0), known_values);
+    unpadded_inputs.push_back(eval_i.as<at::Tensor>());
+  }
+  return {at::cat(unpadded_inputs, concat_dim)};
+}
+
+MatmulOp::MatmulOp(IrBuilderPasskey passkey, Val* out, Val* in_a, Val* in_b)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MatmulOp)
+
+std::string MatmulOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = matmul(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MatmulOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+namespace {
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
+// the rfactored DID axis to correctly bind with the logical domain. See
+// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+} // namespace
+
+std::vector<PolymorphicValue> MatmulOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+
+  auto matmul_out = at::matmul(a, b);
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
+  }
+
+  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
+  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
+
+  if (meta_out.is_contiguous()) {
+    return {matmul_out};
+  }
+
+  auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
+}
+
+LinearOp::LinearOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in_a,
+    Val* in_b,
+    Val* bias)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in_a);
+  addInput(in_b);
+
+  if (bias != nullptr) {
+    addInput(bias);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LinearOp)
+
+std::string LinearOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = linear(" << inA()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << inB()->toString();
+  if (hasBias()) {
+    indent(ss, indent_size + 1) << ",\n          " << bias()->toString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string LinearOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LinearOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto in = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+
+  auto squeeze_device_dims = [](at::Tensor& t,
+                                int64_t num_device_dims) -> void {
+    // Record the initial shape for the error message.
+    std::vector<int64_t> shape = t.sizes().vec();
+    for ([[maybe_unused]] auto _ : arange(num_device_dims)) {
+      NVF_CHECK(
+          t.size(0) == 1,
+          "When the weight is >2D, expect its preceding dimensions and "
+          "the bias's preceding dimensions to "
+          "be DID-parallel and therefore size-1: ",
+          shape);
+      t = t.squeeze(0);
+    }
+  };
+
+  // The squeezes and unsqueezes are currently required to support a sharded
+  // linear layer. Remove them after #2563.
+  auto num_device_dims = weight.dim() - 2;
+  squeeze_device_dims(weight, num_device_dims);
+
+  at::Tensor out_tensor;
+  if (hasBias()) {
+    auto bias = inputs.at(2).as<at::Tensor>();
+    squeeze_device_dims(bias, num_device_dims);
+    out_tensor = at::linear(in, weight, bias);
+  } else {
+    out_tensor = at::linear(in, weight);
+  }
+
+  for ([[maybe_unused]] auto _ : arange(num_device_dims)) {
+    out_tensor = out_tensor.unsqueeze(0);
+  }
+
+  // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+  }
+
+  return {out_tensor};
+}
+
+SdpaFwdOp::SdpaFwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* log_sumexp,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* query,
+    Val* key,
+    Val* value,
+    Val* dropout_p,
+    Val* is_causal,
+    Val* scale)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(log_sumexp);
+  addOutput(philox_seed);
+  addOutput(philox_offset);
+
+  addInput(query);
+  addInput(key);
+  addInput(value);
+  addInput(dropout_p);
+  addInput(is_causal);
+  if (scale != nullptr) {
+    addInput(scale);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
+
+std::string SdpaFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << attn_out()->toString() << ",\n";
+  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size) << philox_offset()->toString() << "\n";
+  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          is_causal = " << is_causal()->toInlineString();
+  if (scale() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string SdpaFwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto query = inputs.at(0).as<at::Tensor>();
+  auto key = inputs.at(1).as<at::Tensor>();
+  auto value = inputs.at(2).as<at::Tensor>();
+
+  const auto dropout_p = inputs.at(3).as<double>();
+  const auto is_causal = inputs.at(4).as<bool>();
+
+  // Temporary handling of DID parallelization see
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  bool handle_device_dim = false;
+  if (query.dim() == 5) {
+    handle_device_dim = true;
+
+    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
+
+    auto query_domain =
+        TensorDomain::noReductions(this->query()->getLogicalDomain());
+    auto key_domain =
+        TensorDomain::noReductions(this->key()->getLogicalDomain());
+    auto value_domain =
+        TensorDomain::noReductions(this->value()->getLogicalDomain());
+    NVF_CHECK(
+        query_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        key_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+    NVF_CHECK(
+        value_domain.front()->isDeviceDim(),
+        "Only support DID parallelization on outermost axis");
+
+    query = query.squeeze(0);
+    key = key.squeeze(0);
+    value = value.squeeze(0);
+  }
+
+  // Flash attention requires the last dimension to be padded to 8.
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
+  const auto last_dim_size = query.size(-1);
+  auto pad_last_dim = [last_dim_size](
+                          at::Tensor inp, int alignment_size) -> at::Tensor {
+    if (last_dim_size % alignment_size == 0) {
+      return inp;
+    }
+    auto pad_count = alignment_size - (last_dim_size % alignment_size);
+    auto padded_inp = at::pad(inp, {0, pad_count});
+    return padded_inp;
+  };
+
+  query = pad_last_dim(query, 8);
+  key = pad_last_dim(key, 8);
+  value = pad_last_dim(value, 8);
+
+  // Conmpute scale using original size of last dimension
+  double scale = inputs.size() > 5 ? inputs.back().as<double>()
+                                   : 1.0 / std::sqrt(last_dim_size);
+
+  // ATen reference:
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  auto
+      [output,
+       log_sumexp,
+       cum_seq_q,
+       cum_seq_k,
+       query_seq_len,
+       key_seq_len,
+       philox_seed,
+       philox_offset,
+       debug_attn_mask] =
+          at::_scaled_dot_product_flash_attention(
+              query,
+              key,
+              value,
+              dropout_p,
+              is_causal,
+              /*return_debug_mask=*/false,
+              scale);
+
+  // If the inputs were padded, slice the output to restore the original
+  // size
+  if (output.size(-1) != last_dim_size) {
+    output = output.slice(-1, 0, last_dim_size);
+  }
+
+  // Add back the device dim axis for output.
+  if (handle_device_dim) {
+    output = output.unsqueeze(0);
+    log_sumexp = log_sumexp.unsqueeze(0);
+  }
+
+  // We ignore cum_seq_q/k outputs since they are undefined tensors for
+  // non-nested tensors. We do not store query/key_seq_len since they can be
+  // computed in non-nested tensor directly. debug_attn_mask is ignored
+  // since `return_debug_mask=false`.
+  return {output, log_sumexp, philox_seed, philox_offset};
+}
+
+std::string Scope::toString(int indent_size) const {
+  std::stringstream ss;
+  for (auto expr : exprs()) {
+    ss << expr->toString(indent_size);
+  }
+  return ss.str();
+}
+
+std::vector<Expr*>::iterator Scope::insert(
+    std::vector<Expr*>::const_iterator pos,
+    Expr* expr) {
+  return exprs_.insert(pos, expr);
+}
+
+std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  NVF_ERROR(
+      it != exprs_.end(),
+      "Tried to insert ",
+      expr,
+      " before the reference: ",
+      ref,
+      " @ ",
+      (size_t)ref,
+      " however the reference was not found in this scope.");
+  return insert(it, expr);
+}
+
+std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  NVF_ERROR(
+      it != exprs_.end(),
+      "Tried to insert ",
+      expr,
+      " after the reference: ",
+      ref,
+      " however the reference was not found in this scope.");
+  return insert(it + 1, expr);
+}
+
+std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
+  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
+  return insert(it, expr);
+}
+
+void Scope::erase(std::vector<Expr*>::const_iterator pos) {
+  // Remove the scope of the expr if this is the scope
+  [[maybe_unused]] auto expr = *pos;
+  exprs_.erase(pos);
+}
+
+void Scope::erase(Expr* ref) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  if (it != exprs_.end()) {
+    erase(it);
+  }
+}
+
+void Scope::erase(size_t pos) {
+  erase(exprs_.begin() + (std::ptrdiff_t)pos);
+}
+
+bool Scope::contains(Expr* expr) const {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
+  return it != exprs_.end();
+}
+
+void Scope::clear() {
+  exprs_.clear();
+}
+
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    Val* start,
+    Val* stop,
+    Val* step,
+    bool vectorize,
+    Val* vectorize_shift,
+    bool unroll_required,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>() ||
+          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      "IR type only valid for Kernel or Host container.");
+  NVF_ERROR(isIntegralType(index->dtype()));
+  addInput(index);
+  addInput(iter_domain);
+  if (start == nullptr && iter_domain->isThread()) {
+    start = NamedScalar::getParallelIndex(iter_domain->getParallelType());
+  }
+  if (step == nullptr) {
+    if (iter_domain->isThread()) {
+      step = NamedScalar::getParallelDim(iter_domain->getParallelType());
+    } else {
+      step = FusionGuard::getCurFusion()->oneVal();
+    }
+  }
+  NVF_ERROR(
+      index->dtype() == DataType::Index, "Loop index must be an index type.");
+  NVF_ERROR(
+      start == nullptr || start->dtype() == DataType::Index,
+      "Loop start must be an index type.");
+  NVF_ERROR(
+      step->dtype() == DataType::Index, "Loop step must be an index type.");
+  NVF_ERROR(
+      stop == nullptr || stop->dtype() == DataType::Index,
+      "Loop stop must be an index type.");
+  addAttribute(start);
+  addAttribute(stop);
+  addAttribute(step);
+  addDataAttribute(vectorize);
+  addAttribute(vectorize_shift);
+  addDataAttribute(unroll_required);
+  addDataAttribute(circular_buffer_loop_stage);
+  addDataAttribute(circular_buffer_loop_stage_depth);
+  // Storing IR nodes as Attribute is not safe with IrCloner, but
+  // fortunately kernel IR does not need this feature.
+  addDataAttribute(Scope(this));
+}
+
+ForLoop::ForLoop(
+    IrBuilderPasskey passkey,
+    IterDomain* iter_domain,
+    Val* index,
+    CircularBufferLoopStage circular_buffer_loop_stage,
+    int64_t circular_buffer_loop_stage_depth)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          index,
+          nullptr,
+          nullptr,
+          nullptr,
+          !iter_domain->isBroadcast() &&
+              isParallelTypeVectorize(iter_domain->getParallelType()),
+          nullptr,
+          false,
+          circular_buffer_loop_stage,
+          circular_buffer_loop_stage_depth) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain)
+    : ForLoop(
+          passkey,
+          iter_domain,
+          GpuLower::current()->getLoopIndexVariable(iter_domain),
+          CircularBufferLoopStage::NotApplicable,
+          0) {}
+
+ForLoop::ForLoop(IrBuilderPasskey passkey, const ForLoop* other)
+    : ForLoop(
+          passkey,
+          other->iter_domain(),
+          other->index(),
+          other->start(),
+          other->stop(),
+          other->step(),
+          other->vectorize(),
+          other->vectorize_shift(),
+          other->isUnrollRequired(),
+          other->circularBufferLoopStage(),
+          other->circularBufferLoopStageDepth()) {}
+
+std::string ForLoop::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toString() << " in "
+                          << iter_domain()->toString() << ":\n"
+                          << body().toString(indent_size + 1);
+  return ss.str();
+}
+
+std::string ForLoop::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+bool ForLoop::isUnrollable() const {
+  // Start and stop must be constant, must not be a broadcast
+  // dimension, cannot be bound to a parallel dimension, must not be
+  // vectorized.
+  return start()->isConstScalar() && stop()->isConstScalar() &&
+      !iter_domain()->isThread() && !iter_domain()->isDeviceDim() &&
+      !iter_domain()->isBroadcast() && !vectorize();
+}
+
+bool ForLoop::isUnrolled() const {
+  if (isUnrollRequired() && !isUnrollable()) {
+    // Broadcast and vectorized loops are not generated and do not
+    // matter if unrolled or not.
+    if (!iter_domain()->isBroadcast() && !vectorize()) {
+      TORCH_WARN(
+          "Unroll required but not possible. Register allocation disabled. "
+          "Loop index: ",
+          index()->toString(),
+          ", ",
+          toString());
+    }
+    return false;
+  }
+
+  // Size-one loop will not be materialized as a loop, so return false
+  if (start()->isZeroInt() && stop()->isOneInt()) {
+    return false;
+  }
+
+  // Unroll if required.
+  if (isUnrollRequired()) {
+    return true;
+  }
+
+  // Don't unroll if not possible
+  if (!isUnrollable()) {
+    return false;
+  }
+
+  // Unrolling is technically possible but avoided
+  if (iter_domain()->getParallelType() == ParallelType::Unswitch) {
+    // Use ParallelType::Unroll if unrolling is desired. Note that
+    // unswitched size-one loops are not unrolled as they are not
+    // materialized as actual for-loops.
+    return false;
+  }
+
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
+  return true;
+}
+
+Val* ForLoop::start() const {
+  if (attributeVal(0) != nullptr) {
+    return attributeVal(0);
+  } else {
+    // clang-tidy complains without this
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->start();
+  }
+}
+
+Val* ForLoop::stop() const {
+  if (attributeVal(1) != nullptr) {
+    return attributeVal(1);
+  } else {
+    // clang-tidy complains without this
+    NVF_ERROR(iter_domain() != nullptr);
+    return iter_domain()->extent();
+  }
+}
+
+Val* ForLoop::step() const {
+  NVF_ERROR(attributeVal(2) != nullptr);
+  return attributeVal(2);
+}
+
+Val* ForLoop::simplifiedStop() const {
+  if (simplified_stop_ == nullptr) {
+    simplified_stop_ = GpuLower::hasCurrent()
+        ? GpuLower::current()->commonScalarMap().hoistScalar(stop(), {})
+        : stop();
+  }
+  return simplified_stop_;
+}
+
+bool ForLoop::isTrivial() const {
+  // These loops are not materialized
+  if (vectorize() || iter_domain()->isBroadcast() ||
+      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
+    return true;
+  }
+
+  if (index()->isConstScalar() || index()->definition() != nullptr) {
+    return true;
+  }
+
+  // By default, a parallelized loop would look like:
+  //
+  //   for (int x = threadIdx.x; x < stop; x += blockDim.x) {
+  //     do_some_comp(x);
+  //   }
+  //
+  // When stop is guaranteed to be smaller or equal to the number of
+  // threads, the for-loop is not necessary. In the above case, we
+  // would just generate the loop body without the for clause but
+  // references to the loop index replaced by the loop start value.
+  //
+  // When the loop end is the same as the IterDomain extent, the
+  // assumption can be safely made. This is more conservative than
+  // necessary since the loop stop value just needs to be <= the
+  // IterDomain extent. However, at this point, this conservative
+  // analysis seems sufficient.
+  if (stop() == iter_domain()->extent() && iter_domain()->isThread()) {
+    return true;
+  }
+
+  // Extent-1 loop: for (int i = 0; i < 1; ++i) {
+  if (start()->isZeroInt() && simplifiedStop()->isOneInt() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  // Another extent-1 loop: for (int i = N - 1; i < N; ++i) {
+  if (start()->definition() != nullptr &&
+      start()->definition()->isA<BinaryOp>() &&
+      start()->definition()->as<BinaryOp>()->getBinaryOpType() ==
+          BinaryOpType::Sub &&
+      start()->definition()->as<BinaryOp>()->lhs() == stop() &&
+      start()->definition()->as<BinaryOp>()->rhs()->isOneInt()) {
+    return true;
+  }
+
+  if (start()->isConstScalar() && simplifiedStop()->isConstScalar() &&
+      start()->evaluate().as<int64_t>() + 1 ==
+          simplifiedStop()->evaluate().as<int64_t>() &&
+      step()->isOneInt()) {
+    return true;
+  }
+
+  return false;
+}
+
+namespace {
+
+//! A utility class to check if an expression of a particular type exists
+class ExprFinder : kir::ConstIrVisitor {
+ public:
+  //! True if expr or any of its nested expressions is a type included in
+  //! expr_types
+  static bool exists(
+      const Expr* expr,
+      const std::unordered_set<std::type_index>& expr_types) {
+    ExprFinder finder(expr_types);
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  ExprFinder(const std::unordered_set<std::type_index>& expr_types)
+      : expr_types_(expr_types) {}
+
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr_types_.find(typeid(*expr)) != expr_types_.end()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  const std::unordered_set<std::type_index>& expr_types_;
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::isGroup() const {
+  //! True if loop is grouped. The IterDomain of the loop must have
+  //! ParallelType::Group, but it isn't sufficient as the loop may be
+  //! for an initialization expression, for which the loop shold not
+  //! be grouped. Make sure a GroupedGridReduction is found.
+  if (iter_domain()->getParallelType() != ParallelType::Group) {
+    return false;
+  }
+
+  return ExprFinder::exists(
+      this,
+      {typeid(GroupedReductionOp),
+       typeid(kir::GroupedGridReduction),
+       typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+//! A utility class to check if runtime reduction exists
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+IterDomain* returnFirstIfRankThree(const TensorView* tv) {
+  const auto& logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  if (logical_domain.size() == 3) {
+    return logical_domain.at(0);
+  } else {
+    return nullptr;
+  }
+}
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
+
+SdpaBwdOp::SdpaBwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* grad_query,
+    TensorView* grad_key,
+    TensorView* grad_value,
+    TensorView* grad_output,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* output,
+    TensorView* log_sumexp,
+    Val* dropout_p,
+    Val* is_causal,
+    TensorView* philox_seed,
+    TensorView* philox_offset,
+    Val* scale)
+    : Expr(passkey) {
+  addOutput(grad_query);
+  addOutput(grad_key);
+  addOutput(grad_value);
+  addInput(grad_output);
+  addInput(query);
+  addInput(key);
+  addInput(value);
+  addInput(output);
+  addInput(log_sumexp);
+  addInput(dropout_p);
+  addInput(is_causal);
+  addInput(philox_seed);
+  addInput(philox_offset);
+  if (scale != nullptr) {
+    addInput(scale);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaBwdOp)
+
+std::string SdpaBwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << grad_query()->toString() << ",\n";
+  indent(ss, indent_size) << grad_key()->toString() << ",\n";
+  indent(ss, indent_size) << grad_value()->toString() << "\n";
+  indent(ss, indent_size + 1)
+      << " = sdpa_bwd(" << grad_attn()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << query()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          " << attn_out()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          logsum_exp = " << logsumexp()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          is_causal = " << is_causal()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          philox_seed = " << philox_seed()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          philox_offset = " << philox_offset()->toString() << ",\n";
+  if (scale() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n          scale = " << scale()->toInlineString();
+  }
+  indent(ss, indent_size + 1) << ")\n";
+  return ss.str();
+}
+
+std::string SdpaBwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // Backward tensor inputs: grad_input, query, key, value, output,
+  // logsumexp, max_q/k Temporary handling of DID parallelization. See
+  // https://github.com/NVIDIA/Fuser/issues/2563
+  auto query_domain =
+      TensorDomain::noReductions(this->query()->getLogicalDomain());
+  bool first_dim_is_did = query_domain.front()->isDeviceDim();
+  auto out_grad = inputs[0].as<at::Tensor>();
+  if (first_dim_is_did) {
+    NVF_CHECK(out_grad.dim() == 5, "Expected 5D but found ", out_grad.sizes());
+  } else {
+    NVF_CHECK(out_grad.dim() == 4, "Expected 4D but found ", out_grad.sizes());
+  }
+
+  std::vector<at::Tensor> bwd_inputs;
+  for (auto idx : arange(6)) {
+    auto in_tensor = inputs.at(idx).as<at::Tensor>();
+    // Removing the size 1 from sharded axis from tensors.
+    if (first_dim_is_did) {
+      in_tensor = in_tensor.squeeze(0);
+    }
+    bwd_inputs.push_back(in_tensor);
+  }
+  const auto dropout_p = inputs.at(6).as<double>();
+  const auto is_causal = inputs.at(7).as<bool>();
+  const auto philox_seed = inputs.at(8).as<at::Tensor>();
+  const auto philox_offset = inputs.at(9).as<at::Tensor>();
+
+  // Flash attention requires the last dimension to be padded to 8.
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
+  const auto last_dim_size = bwd_inputs[0].size(-1);
+  auto pad_last_dim = [last_dim_size](
+                          at::Tensor inp, int alignment_size) -> at::Tensor {
+    if (last_dim_size % alignment_size == 0) {
+      return inp;
+    }
+    auto pad_count = alignment_size - (last_dim_size % alignment_size);
+    auto padded_inp = at::pad(inp, {0, pad_count});
+    return padded_inp;
+  };
+
+  // Conmpute scale using original size of last dimension
+  double scale = inputs.size() > 10 ? inputs.back().as<double>()
+                                    : 1.0 / std::sqrt(last_dim_size);
+
+  // ATen reference:
+  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
+  // cum_seq_q/k are undefined tensors for non-nested input tensors.
+  auto [grad_query, grad_key, grad_value] =
+      at::_scaled_dot_product_flash_attention_backward(
+          /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
+          /*query=*/pad_last_dim(bwd_inputs[1], 8),
+          /*key=*/pad_last_dim(bwd_inputs[2], 8),
+          /*value=*/pad_last_dim(bwd_inputs[3], 8),
+          /*output=*/pad_last_dim(bwd_inputs[4], 8),
+          /*logsumexp=*/bwd_inputs[5],
+          /*cum_seq_q=*/at::Tensor(),
+          /*cum_seq_k=*/at::Tensor(),
+          // Note: ATen implementation expects max_q/max_k as scalars.
+          /*max_q=*/bwd_inputs[1].size(2),
+          /*max_k=*/bwd_inputs[2].size(2),
+          /*dropout_p=*/dropout_p,
+          /*is_causal=*/is_causal,
+          /*philox_seed=*/philox_seed,
+          /*philox_offset=*/philox_offset,
+          /*scale=*/scale);
+
+  // If the inputs were padded, slice the gradsto restore the original size
+  auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
+    if (output.size(-1) != last_dim_size) {
+      return output;
+    }
+    return output.slice(-1, 0, last_dim_size);
+  };
+
+  // Add device dimension back to outputs.
+  if (first_dim_is_did) {
+    grad_query = grad_query.unsqueeze(0);
+    grad_key = grad_key.unsqueeze(0);
+    grad_value = grad_value.unsqueeze(0);
+  }
+
+  return {
+      slice_last_dim(grad_query),
+      slice_last_dim(grad_key),
+      slice_last_dim(grad_value)};
+}
+
+EmbeddingFwdOp::EmbeddingFwdOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse)
+    : Expr(passkey) {
+  addOutput(output);
+
+  addInput(input);
+  addInput(weight);
+  addInput(norm_type);
+  addInput(scale_grad_by_freq);
+  addInput(sparse);
+  if (padding_idx != nullptr) {
+    addInput(padding_idx);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+  if (max_norm != nullptr) {
+    addInput(max_norm);
+    addDataAttribute(true);
+  } else {
+    addDataAttribute(false);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EmbeddingFwdOp)
+
+std::string EmbeddingFwdOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = embedding(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "          " << weight()->toString() << ",\n";
+  if (padding_idx() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          padding_idx = " << padding_idx()->toString() << ",\n";
+  }
+  if (max_norm() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          max_norm = " << max_norm()->toString() << ",\n";
+  }
+  indent(ss, indent_size + 1)
+      << "          norm_type = " << norm_type()->toString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          scale_grad_by_freq = "
+      << scale_grad_by_freq()->toInlineString() << ",\n";
+  indent(ss, indent_size + 1)
+      << "          sparse = " << sparse()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string EmbeddingFwdOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+  auto norm_type = inputs.at(2).as<double>();
+  auto scale_grad_by_freq = inputs.at(3).as<bool>();
+  auto sparse = inputs.at(4).as<bool>();
+  std::optional<int64_t> padding_idx = std::nullopt;
+  if (has_padding_idx()) {
+    padding_idx = inputs.at(5).as<int64_t>();
+  }
+  std::optional<double> max_norm = std::nullopt;
+  if (has_max_norm()) {
+    auto idx = 5 + has_padding_idx();
+    max_norm = inputs.at(idx).as<double>();
+  }
+
+  namespace F = torch::nn::functional;
+  return {F::embedding(
+      input,
+      weight,
+      F::EmbeddingFuncOptions()
+          .padding_idx(padding_idx)
+          .max_norm(max_norm)
+          .norm_type(norm_type)
+          .scale_grad_by_freq(scale_grad_by_freq)
+          .sparse(sparse))};
+}
+
+ArgsortOp::ArgsortOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* in,
+    int64_t dim,
+    bool descending,
+    bool stable)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(dim);
+  addDataAttribute(descending);
+  addDataAttribute(stable);
+}
+
+std::string ArgsortOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = argsort( "
+                          << in()->toString() << ", dim = " << dim()
+                          << ", descending = "
+                          << (isDescending() ? "True" : "False")
+                          << ", stable = " << (isStable() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string ArgsortOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ArgsortOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  NVF_ERROR(
+      inputs.size() == 1,
+      "ArgsortOp expects 1 input but received ",
+      inputs.size());
+
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "ArgsortOp expects tensor input but got ",
+      in.type().name());
+
+  // at::argsort signature is:
+  // Tensor argsort(const Tensor &self, bool stable, int64_t dim, bool
+  // descending)
+  auto result =
+      at::argsort(in.as<at::Tensor>(), isStable(), dim(), isDescending());
+
+  return {result};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ArgsortOp)
+
+TopKOp::TopKOp(
+    IrBuilderPasskey passkey,
+    Val* out_values,
+    Val* out_indices,
+    Val* in,
+    Val* k,
+    int64_t dim,
+    bool largest,
+    bool sorted)
+    : Expr(passkey) {
+  addOutput(out_values);
+  addOutput(out_indices);
+  addInput(in);
+  addInput(k);
+  addDataAttribute(dim);
+  addDataAttribute(largest);
+  addDataAttribute(sorted);
+}
+
+std::string TopKOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "( " << outValues()->toString() << ", "
+                          << outIndices()->toString() << " ) = topk( "
+                          << in()->toString() << ", " << k()->toString()
+                          << ", dim = " << dim()
+                          << ", largest = " << (isLargest() ? "True" : "False")
+                          << ", sorted = " << (isSorted() ? "True" : "False")
+                          << " )\n";
+  return ss.str();
+}
+
+std::string TopKOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> TopKOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto& in = inputs[0];
+  NVF_ERROR(
+      in.is<at::Tensor>(),
+      "TopKOp expects tensor input at position 0 but got ",
+      in.type().name());
+
+  const auto& k = inputs[1];
+  NVF_ERROR(
+      k.is<int64_t>(),
+      "TopKOp expects int64_t input at position 1 as k but got ",
+      k.type().name());
+
+  // at::topk signature is:
+  // std::tuple<Tensor, Tensor> topk(const Tensor &self, int64_t k, int64_t dim,
+  // bool largest, bool sorted)
+  auto result = at::topk(
+      in.as<at::Tensor>(), k.as<int64_t>(), dim(), isLargest(), isSorted());
+
+  // at::topk returns a tuple of (values, indices)
+  return {std::get<0>(result), std::get<1>(result)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(TopKOp)
+
+GroupedMmaOp::GroupedMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
+    Val* mat1,
+    Val* mat2,
+    Val* offsets,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  NVF_ERROR(offsets->isA<TensorView>(), "Offsets must be a TensorView");
+  addOutput(out_mat);
+  if (out_scale != nullptr) {
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
+  addInput(mat1);
+  addInput(mat2);
+  addInput(offsets);
+
+  int64_t offset = 3;
+  int64_t scale_offset = -1;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
+
+  bool has_scale1 = scale1 != nullptr;
+  if (has_scale1) {
+    NVF_CHECK(
+        scale1->isA<TensorView>(),
+        "`scale1` must be a TensorView, but got: ",
+        scale1);
+    NVF_CHECK(scale2->isA<TensorView>(), "Scale2 must be a TensorView");
+    addInput(scale1);
+    addInput(scale2);
+    scale_offset = offset;
+    offset += 2;
+  }
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset++;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset++;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset++;
+  }
+
+  addDataAttribute(scale_offset);
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
+}
+
+std::string GroupedMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out();
+  if (outScale() != nullptr) {
+    ss << ", " << outScale();
+  }
+  if (outGamma() != nullptr) {
+    ss << ", " << outGamma();
+  }
+  ss << " = GroupedMmaOp("
+     << "mat1=" << matrix1() << ", "
+     << "mat2=" << matrix2() << ", "
+     << "offsets=" << offsets();
+  if (hasScale()) {
+    ss << ", "
+       << "scale1=" << scale1() << ", "
+       << "scale2=" << scale2();
+  }
+  if (hasAlpha()) {
+    ss << ", "
+       << "alpha=" << alpha();
+  }
+  if (hasBias()) {
+    ss << ", "
+       << "bias=" << bias();
+  }
+  if (hasBeta()) {
+    ss << ", "
+       << "beta=" << beta();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string GroupedMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  NVF_ERROR(
+      inputs[0].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 0 but got ",
+      inputs[0].type().name());
+
+  NVF_ERROR(
+      inputs[1].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 1 but got ",
+      inputs[1].type().name());
+
+  NVF_ERROR(
+      inputs[2].is<at::Tensor>(),
+      "GroupedMmaOp expects tensor input at position 2 but got ",
+      inputs[2].type().name());
+
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& offsets = inputs[2].as<at::Tensor>();
+
+  at::Tensor alpha;
+  at::Tensor bias;
+  at::Tensor beta;
+  if (hasAlpha()) {
+    int alpha_offset = alphaOffset();
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = biasOffset();
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = betaOffset();
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
+
+  at::Tensor result;
+  if (hasScale()) {
+    NVF_ERROR(
+        inputs[3].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 3 but got ",
+        inputs[3].type().name());
+    NVF_ERROR(
+        inputs[4].is<at::Tensor>(),
+        "GroupedMmaOp expects tensor input at position 4 but got ",
+        inputs[4].type().name());
+
+    auto scale1 = inputs[scale1Offset()].as<at::Tensor>();
+    auto scale2 = inputs[scale2Offset()].as<at::Tensor>();
+    // Note: at::_scaled_grouped_mm requires k dimension to be the fastest on
+    // both input matrices.
+    auto mat1_k_last = mat1.contiguous();
+    auto mat2_k_last = mat2.transpose(-1, -2).contiguous().transpose(-1, -2);
+
+    // at::_scaled_grouped_mm limitation
+    NVF_CHECK(
+        scale1.size(-1) == 1 && scale2.size(-2) == 1,
+        "Scale1 and scale2 must have size 1 at the k dimension. Got ",
+        scale1.sizes(),
+        " and ",
+        scale2.sizes());
+    // scale factor handling
+    // see NOTE -- [ Grouped Matrix Multiplication semantics ]
+    if (TensorDomain::noReductions(out()->getLogicalDomain()).size() == 3) {
+      // case 1, aten API expects collapsed 1D scale with group dimension on the
+      // slower side.
+      scale1 = scale1.reshape(-1);
+      scale2 = scale2.reshape(-1);
+    } else {
+      // case 2 and 3, aten doesn't allow broadcast on k dimension. squeeze k
+      // out.
+      scale1 = scale1.squeeze(-1);
+      scale2 = scale2.squeeze(-2);
+    }
+    // undefined alpha, bias is not supported by aten API
+    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+    NVF_ERROR(!beta.defined(), "beta is not supported yet");
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
+    // NOTE: at::_scaled_grouped_mm only supports bfloat16 as output at this
+    // moment, otherwise we should have requested the output dtype directly
+    // instead of casting the output afterwards.
+    result = at::_scaled_grouped_mm(
+        mat1_k_last,
+        mat2_k_last,
+        scale1,
+        scale2,
+        offsets,
+        /*bias=*/std::nullopt,
+        /*alpha=*/std::nullopt,
+        at::ScalarType::BFloat16);
+  } else {
+    // undefined bias is not supported by aten API
+    NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
+    NVF_ERROR(!beta.defined(), "beta is not supported yet");
+    NVF_ERROR(!bias.defined(), "bias is not supported yet");
+    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
+  }
+
+  result = result.to(data_type_to_aten(out()->dtype()));
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+
+  return {result};
+#else
+  NVF_THROW("GroupedMmaOp is not supported prior to PyTorch 2.8.");
+#endif
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix1() const {
+  // mat1 is [g, m, k] or [m, k]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix1()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getKDimOfMatrix2() const {
+  // mat2 is [g, k, n] or [k, n]
+  const auto& logical_domain =
+      TensorDomain::noReductions(matrix2()->getLogicalDomain());
+  return logical_domain.at(logical_domain.size() - 1);
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix1() const {
+  // matrix1 is [g, m, k] or [m, k]
+  return returnFirstIfRankThree(matrix1());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfMatrix2() const {
+  // matrix2 is [g, k, n] or [k, n]
+  return returnFirstIfRankThree(matrix2());
+}
+
+IterDomain* GroupedMmaOp::getGroupDimOfOutput() const {
+  // output is [g, m, n] or [m, n]
+  return returnFirstIfRankThree(out());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedMmaOp)
+
+ScaledMmaOp::ScaledMmaOp(
+    IrBuilderPasskey passkey,
+    Val* out_mat,
+    Val* out_scale,
+    Val* out_gamma,
+    Val* mat1,
+    Val* mat2,
+    Val* scale1,
+    Val* scale2,
+    Val* alpha,
+    Val* bias,
+    Val* beta)
+    : Expr(passkey) {
+  NVF_ERROR(out_mat->isA<TensorView>(), "Output matrix must be a TensorView");
+  NVF_ERROR(mat1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(mat2->isA<TensorView>(), "Second input must be a TensorView");
+  addOutput(out_mat);
+  if (out_scale != nullptr) {
+    NVF_ERROR(
+        out_scale->isA<TensorView>(), "Output scale must be a TensorView");
+    addOutput(out_scale);
+  }
+  if (out_gamma != nullptr) {
+    NVF_ERROR(out_scale != nullptr, "Output gamma requires output scale");
+    NVF_ERROR(
+        out_gamma->isA<TensorView>(), "Output gamma must be a TensorView");
+    addOutput(out_gamma);
+  }
+  addInput(mat1);
+  addInput(mat2);
+  NVF_ERROR(scale1->isA<TensorView>(), "First input must be a TensorView");
+  NVF_ERROR(scale2->isA<TensorView>(), "Second input must be a TensorView");
+  addInput(scale1);
+  addInput(scale2);
+
+  int64_t offset = 4;
+  int64_t alpha_offset = -1;
+  int64_t bias_offset = -1;
+  int64_t beta_offset = -1;
+
+  bool has_alpha = alpha != nullptr;
+  if (has_alpha) {
+    NVF_CHECK(
+        alpha->isA<TensorView>(),
+        "`alpha` must be a TensorView, but got: ",
+        alpha);
+    addInput(alpha);
+    alpha_offset = offset++;
+  }
+
+  bool has_bias = bias != nullptr;
+  if (has_bias) {
+    NVF_CHECK(
+        bias->isA<TensorView>(),
+        "`bias` must be a TensorView, but got: ",
+        bias);
+    addInput(bias);
+    bias_offset = offset++;
+  }
+
+  bool has_beta = beta != nullptr;
+  if (has_beta) {
+    NVF_CHECK(
+        beta->isA<TensorView>(),
+        "`beta` must be a TensorView, but got: ",
+        beta);
+    addInput(beta);
+    beta_offset = offset++;
+  }
+
+  // Store the offsets as attributes
+  addDataAttribute(alpha_offset);
+  addDataAttribute(bias_offset);
+  addDataAttribute(beta_offset);
+}
+
+std::string ScaledMmaOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out();
+  if (outScale() != nullptr) {
+    ss << ", " << outScale();
+  }
+  if (outGamma() != nullptr) {
+    ss << ", " << outGamma();
+  }
+  ss << " = ScaledMmaOp(";
+  ss << "mat1=" << matrix1() << ", ";
+  ss << "mat2=" << matrix2() << ", ";
+  ss << "scale1=" << scale1() << ", ";
+  ss << "scale2=" << scale2() << "";
+  if (hasAlpha()) {
+    ss << ", alpha=" << alpha();
+  }
+  if (hasBias()) {
+    ss << ", bias=" << bias();
+  }
+  if (hasBeta()) {
+    ss << ", beta=" << beta();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string ScaledMmaOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline.");
+}
+
+std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  // TODO: interface with scaled matrix multiplication cutlass kernel. For now,
+  // we'll fallback with aten kernels
+  const auto& mat1 = inputs[0].as<at::Tensor>();
+  const auto& mat2 = inputs[1].as<at::Tensor>();
+  const auto& scale1 = inputs[2].as<at::Tensor>();
+  const auto& scale2 = inputs[3].as<at::Tensor>();
+
+  at::Tensor alpha;
+  at::Tensor bias;
+  at::Tensor beta;
+  if (hasAlpha()) {
+    int alpha_offset = alphaOffset();
+    NVF_ERROR(
+        inputs[alpha_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor alpha at position ",
+        alpha_offset,
+        " but got ",
+        inputs[alpha_offset].type().name());
+    alpha = inputs[alpha_offset].as<at::Tensor>();
+  }
+  if (hasBias()) {
+    int bias_offset = biasOffset();
+    NVF_ERROR(
+        inputs[bias_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor bias at position ",
+        bias_offset,
+        " but got ",
+        inputs[bias_offset].type().name());
+    bias = inputs[bias_offset].as<at::Tensor>();
+  }
+  if (hasBeta()) {
+    int beta_offset = betaOffset();
+    NVF_ERROR(
+        inputs[beta_offset].is<at::Tensor>(),
+        "ScaledMmaOp expects tensor beta at position ",
+        beta_offset,
+        " but got ",
+        inputs[beta_offset].type().name());
+    beta = inputs[beta_offset].as<at::Tensor>();
+  }
+
+  // at::_scaled_mm has implementation limitations:
+  NVF_CHECK(!beta.defined(), "beta in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outScale() == nullptr,
+      "output block scaling factor in ScaledMmaOp is not supported yet");
+  NVF_CHECK(
+      outGamma() == nullptr,
+      "output global scaling factor in ScaledMmaOp is not supported yet");
+  auto result = at::_scaled_mm(
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      bias.defined() ? std::optional<at::Tensor>(bias) : std::nullopt,
+      alpha.defined() ? std::optional<at::Tensor>(alpha) : std::nullopt,
+      data_type_to_aten(out()->dtype()));
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    result = result.unsqueeze(rfactor_did_idx);
+  }
+
+  return {result};
+
+#else
+  NVF_THROW("ScaledMmaOp is not supported prior to PyTorch 2.8.");
+#endif
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScaledMmaOp)
+
+ScanOp::ScanOp(
+    IrBuilderPasskey passkey,
+    BinaryOpType op_type,
+    Val* init,
+    Val* out,
+    Val* in,
+    int64_t dim)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addAttribute(init);
+  addDataAttribute(op_type);
+  addDataAttribute(dim);
+}
+
+std::string ScanOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString();
+  ss << "\n";
+  indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
+  indent(ss, indent_size + 1)
+      << "        init=" << init()->toInlineString() << ")\n";
+  return ss.str();
+}
+
+std::string ScanOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ScanOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+
+  NVF_ERROR(inputs.size() == 1);
+
+  at::Tensor out;
+  switch (opType()) {
+    case BinaryOpType::Add:
+      out = at::cumsum(input, scanDim());
+      break;
+    case BinaryOpType::Max:
+      out = std::get<0>(at::cummax(input, scanDim()));
+      break;
+    case BinaryOpType::Min:
+      out = std::get<0>(at::cummin(input, scanDim()));
+      break;
+    case BinaryOpType::Mul:
+      out = at::cumprod(input, scanDim());
+      break;
+    default:
+      NVF_THROW("Unhandled opType() ", opType());
+  }
+
+  return {out};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
 
 } // namespace nvfuser

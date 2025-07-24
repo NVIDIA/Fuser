@@ -1,4 +1,10 @@
-#include <executor.h>
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+#include <runtime/executor.h>
 #include <ops/arith.h>
 #include <scheduler/all_schedulers.h>
 #include <memory>
@@ -22,21 +28,23 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
   std::cout << "Create fusion:" << std::endl;
   fusion.print();
 
-  auto lparams = schedulePointwise(&fusion, {input});
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      &fusion, SchedulerType::PointWise, {input});
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input}, lparams);
-  auto outputs = fe.runFusion({input}, lparams);
+  KernelExecutor ke;
+  ke.compile(&fusion, {input}, heuristic_params->lparams);
+  auto outputs = ke.run({input}, {}, heuristic_params->lparams);
 
-  return outputs[0];
+  return outputs[0].as<at::Tensor>();
 }
 
 int main() {
+  at::manual_seed(0);
   auto t = at::randn({5, 5}, at::kCUDA);
   auto expected = at::sinh(t);
   auto output = sinh_nvfuser(t);
   std::cout << "Expected:" << std::endl << expected << std::endl;
   std::cout << "Output:" << std::endl << output << std::endl;
-  TORCH_CHECK(at::allclose(expected, output));
+  NVF_CHECK(at::allclose(expected, output));
   std::cout << "They match!" << std::endl;
 }

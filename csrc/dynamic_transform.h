@@ -7,12 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
+#include <visibility.h>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
 #include <transform_view.h>
 #include <utils.h>
 
@@ -27,14 +30,8 @@ class DynamicTransformInitialInfoBuilder;
 
 //! Initial information derived only from the symbolic Fusion without input
 //! sizes
-class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
+class DynamicTransformInitialInfo {
  public:
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
-
-  bool operator!=(const DynamicTransformConcretizationInfo& other) const {
-    return !(*this == other);
-  }
-
   Fusion* fusion() const {
     return fusion_;
   }
@@ -45,7 +42,7 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
   //! the structure of the Fusion.
   bool isDynamic() const {
     return hasPossibleEmptyTensor() || !dynamic_reshaped_tvs_.empty() ||
-        !dynamic_resized_ids_.empty();
+        !dynamic_resized_ids_.empty() || !dynamic_topk_tvs_.empty();
   }
 
   //! Return whether there are any tensors with unknown extent in some
@@ -80,6 +77,24 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
     return dynamic_resized_ids_;
   }
 
+  //! Return a vector of outputs of ExpandOp expressions that have Symbolic
+  //! output IterTypes
+  const std::vector<TensorView*>& getDynamicExpandedTensorViews() const {
+    return dynamic_expanded_tvs_;
+  }
+
+  //! Return a vector of outputs of factory expressions like full, iota,
+  //! normal, and uniform that have Symbolic output IterTypes
+  const std::vector<TensorView*>& getDynamicFactoryOutputs() const {
+    return dynamic_factory_tvs_;
+  }
+
+  //! Return a vector of outputs of TopKOp expressions that have Symbolic
+  //! output IterTypes
+  const std::vector<TensorView*>& getDynamicTopKTensorViews() const {
+    return dynamic_topk_tvs_;
+  }
+
   std::string toString() const;
 
   DynamicTransformInitialInfo clone(IrCloner& ir_cloner) const;
@@ -103,13 +118,19 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
   // We hold vectors of the _outputs_ of dynamic ops. The reason we don't hold
   // the ops themselves is that during concretization, the ops will actually be
-  // removed by ir_utils::replaceValInExpr. The outputs will not: their
+  // removed by ir_utils::replaceValInExprInputs. The outputs will not: their
   // definitions will merely be altered. When the ops are replaced, if we had
   // referred to them directly here, we would run into segfaults. Referring only
   // to the outputs avoids this issue.
   std::vector<TensorView*> dynamic_reshaped_tvs_;
 
   std::vector<IterDomain*> dynamic_resized_ids_;
+
+  std::vector<TensorView*> dynamic_expanded_tvs_;
+
+  std::vector<TensorView*> dynamic_factory_tvs_;
+
+  std::vector<TensorView*> dynamic_topk_tvs_;
 
   // This is a minimal set of scalars to check for empty tensors. If any are
   // zero, we should traverse to find empty tensors.
@@ -125,13 +146,17 @@ class TORCH_CUDA_CU_API DynamicTransformInitialInfo {
 
 //! A set of transformations for a symbolic fusion with concrete sizes
 //! of the fusion inputs
-class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
+class DynamicTransformConcretizationInfo {
  public:
-  DynamicTransformConcretizationInfo(
+  NVF_API DynamicTransformConcretizationInfo(
       const DynamicTransformInitialInfo* initial_info,
-      ExpressionEvaluator* expr_eval);
+      ExpressionEvaluator* expr_eval,
+      ExactLogicalDomainMap* exact_map = nullptr);
 
-  const std::vector<size_t>& getEmptyExtents() const {
+  //! Return a vector of integers each corresponding to the position in
+  //! initialInfo()->getMaybeZeroExtents() of an extent Val which is guaranteed
+  //! to be zero.
+  const std::vector<int64_t>& getEmptyExtents() const {
     return empty_extents_;
   }
 
@@ -139,16 +164,51 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! the vector returned by initialInfo()->getDynamicReshapedTensorViews(),
   //! along with an AnalyzeViewResult describing how that reshape operation
   //! should be decomposed into split, merge, squeeze, and broadcast transforms.
-  const std::vector<std::pair<size_t, AnalyzeViewResult>>& getReshapeTransforms()
-      const {
+  //!
+  //! In case there are any zeros in the size of the input and output we will
+  //! not perform a reshape but rather replace the output with full(). Then
+  //! instead of an AnalyzeViewResult we will hold a vector of symbolic sizes
+  //! indicating how to concretize the output IterDomains.
+  //!
+  //! The symbolic sizes are the actual sizes 0 or 1, or -1 if the size of a
+  //! given reshaped dimension is greater than 1.
+  using ViewConcretizationInfo =
+      std::variant<AnalyzeViewResult, std::vector<int64_t>>;
+  const std::vector<std::pair<int64_t, ViewConcretizationInfo>>&
+  getReshapeTransforms() const {
     return reshape_transforms_;
   }
 
   //! Return a vector of pairs holding the index of each resized IterDomain in
   //! the vector returned by initialInfo()->getDynamicResizedIterDomains(),
   //! along with the IterType it should be concretized to.
-  const std::vector<std::pair<size_t, IterType>>& getResizeIterTypes() const {
+  const std::vector<std::pair<int64_t, IterType>>& getResizeIterTypes() const {
     return resize_itertypes_;
+  }
+
+  //! Return a vector of pairs holding the index of each expanded TensorView in
+  //! the vector returned by initialInfo()->getDynamicExpandedTensorViews(),
+  //! along with a vector of bools describing whether each axis in the output
+  //! root domain is expanded.
+  const std::vector<std::pair<int64_t, std::vector<bool>>>& getExpandAxes()
+      const {
+    return expand_axes_;
+  }
+
+  //! Return a vector of vectors of pairs. Each vector of pairs corresponds to a
+  //! TensorView returned by by initialInfo()->getDynamicFactoryOutputs(). The
+  //! pairs contain an integer position of a Symbolic axis and the IterType that
+  //! axis will be converted to.
+  const std::vector<std::vector<std::pair<int64_t, IterType>>>&
+  getFactoryOutputIterTypes() const {
+    return factory_output_itertypes_;
+  }
+
+  //! Return a vector of pairs holding the index of each TopK TensorView in
+  //! the vector returned by initialInfo()->getDynamicTopKTensorViews(),
+  //! along with the IterType the TopK dimension should be concretized to.
+  const std::vector<std::pair<int64_t, IterType>>& getTopKIterTypes() const {
+    return topk_itertypes_;
   }
 
   //! Comparison operator for the purposes of determining cache hits. This does
@@ -156,7 +216,8 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! resulting concretizations would be structurally equivalent. Note that
   //! pointers to Statements may differ between equivalent concretizations due
   //! to cloning before concretization.
-  bool operator==(const DynamicTransformConcretizationInfo& other) const;
+  NVF_API bool operator==(
+      const DynamicTransformConcretizationInfo& other) const;
 
   bool operator!=(const DynamicTransformConcretizationInfo& other) const {
     return !(*this == other);
@@ -171,6 +232,18 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
   //! determine the concrete IterType of each resized IterDomain.
   void analyzeResizes(ExpressionEvaluator* expr_eval);
 
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine which axes of dynamic expand operations are expanded.
+  void analyzeExpands(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the IterTypes of factory function outputs.
+  void analyzeFactoryOutputs(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the concrete IterType of each TopK operation.
+  void analyzeTopK(ExpressionEvaluator* expr_eval);
+
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
   }
@@ -183,9 +256,9 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
     return initial_info_->fusion();
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 
-  size_t hash() const;
+  NVF_API size_t hash() const;
 
  private:
   DynamicTransformConcretizationInfo(
@@ -197,33 +270,56 @@ class TORCH_CUDA_CU_API DynamicTransformConcretizationInfo {
 
   //! Holds the index of the output TensorView in the vector returned by
   //! initial_info_->getDynamicReshapedTensorViews(), and the corresponding
-  //! result of analyzeView
-  std::vector<std::pair<size_t, AnalyzeViewResult>> reshape_transforms_;
+  //! result of analyzeView (or list of IterTypes for output of full() in the
+  //! case of empty reshapes).
+  std::vector<std::pair<int64_t, ViewConcretizationInfo>> reshape_transforms_;
 
   //! Holds a vector of indices into initial_info_.getMaybeZeroExtents() which
   //! evaluate to 0
-  std::vector<size_t> empty_extents_;
+  std::vector<int64_t> empty_extents_;
 
   //! Holds the index of the resized IterDomain (output of the Resize op) in the
   //! vector returned by initial_info_->getDynamicResizedIterDomains() along
   //! with its concretized IterType
-  std::vector<std::pair<size_t, IterType>> resize_itertypes_;
+  std::vector<std::pair<int64_t, IterType>> resize_itertypes_;
+
+  //! Holds the index of the expanded TensorView in the vector returned by
+  //! initial_info_->getDynamicExpandedTensorViews(), and a corresponding vector
+  //! of bools indicating whether each axis is in fact expanded.
+  std::vector<std::pair<int64_t, std::vector<bool>>> expand_axes_;
+
+  //! Holds the axis and IterType corresponding to each TensorView returned by
+  //! initial_info_->getDynamicFactoryOutputs().
+  std::vector<std::vector<std::pair<int64_t, IterType>>>
+      factory_output_itertypes_;
+
+  //! Holds the index of the TopK TensorView (values output) in the vector
+  //! returned by initial_info_->getDynamicTopKTensorViews() along with its
+  //! concretized IterType for the TopK dimension
+  std::vector<std::pair<int64_t, IterType>> topk_itertypes_;
 
   friend class DynamicTransformInfoBuilder;
 };
 
-class TORCH_CUDA_CU_API DynamicTransform {
+class DynamicTransform {
  public:
   //! Get initial information before we have inputs. This analyzes the Fusion to
   //! determine whether it has dynamic operations, and caches their position for
   //! faster concretization once inputs are available.
-  static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
+  NVF_API static DynamicTransformInitialInfo getInitialInfo(Fusion* fusion);
 
   //! Concretizes a given fusion. Note that the concretization is
-  //! in-place and the given fusion is modified.
-  static void concretizeFusion(
+  //! in-place and the given fusion is modified. Return a map from old, symbolic
+  //! values to new, concrete values.
+  NVF_API static std::unordered_map<Val*, Val*> concretizeFusion(
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
+
+  //! Calls the above after computing concretization info from
+  //! KernelArgumentHolder
+  static std::unordered_map<Val*, Val*> concretizeFusion(
+      Fusion* fusion,
+      const KernelArgumentHolder& args);
 };
 
 } // namespace nvfuser

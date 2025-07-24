@@ -8,4 +8,3 @@ option(FLATBUFFERS_BUILD_FLATHASH "Enable the build of flathash" OFF)
 
 # Add FlatBuffers directly to our build. This defines the `flatbuffers` target.
 add_subdirectory(${FlatBuffers_Src_Dir})
-include_directories(BEFORE SYSTEM ${CMAKE_CURRENT_LIST_DIR}/../third_party/flatbuffers/include)

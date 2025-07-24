@@ -7,10 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <compute_at_map.h>
-#include <device_lower/analysis/shift.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
 #include <ir/all_nodes.h>
@@ -30,19 +29,21 @@ namespace nvfuser {
 // complex transformations.
 class OrderedIdInformation : public OptInDispatch {
  public:
-  OrderedIdInformation() = delete;
-
-  OrderedIdInformation(
+  static OrderedIdInformation get(
       const std::vector<IterDomain*>& ids,
       const std::vector<IterDomain*>& alloc_domain,
-      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info);
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info) {
+    OrderedIdInformation info(alloc_domain, concrete_info);
+    info.traverseTo(ids);
+    return info;
+  }
 
   const std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>&
   idToAllocIds() const {
     return id_to_alloc_ids_;
   }
 
-  bool isConsistentlyOrdered(IterDomain* id) const {
+  virtual bool isConsistentlyOrdered(IterDomain* id) const {
     return consistently_ordered_ids_.find(id) !=
         consistently_ordered_ids_.end();
   }
@@ -52,7 +53,24 @@ class OrderedIdInformation : public OptInDispatch {
         exclusively_consumes_allocs_.end();
   }
 
- private:
+  virtual std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>::
+      const_iterator
+      findAllocIDs(IterDomain* id) const {
+    return id_to_alloc_ids_.find(id);
+  }
+
+  void setCurrentDirection(Direction dir) {
+    current_direction_ = dir;
+  }
+
+ protected:
+  OrderedIdInformation(
+      const std::vector<IterDomain*>& alloc_domain,
+      std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info =
+          nullptr);
+
+  void traverseTo(const std::vector<IterDomain*>& ids);
+
   // Returns if the id in active_ids should be in exclusively_consumes_allocs_
   bool checkExclusivelyConsumesAllocs(IterDomain* id);
 
@@ -60,10 +78,33 @@ class OrderedIdInformation : public OptInDispatch {
 
   void handle(Merge* merge) override;
 
+  void handle(Swizzle* swizzle) override;
+
   void handle(Swizzle2D* swizzle) override;
 
   void handle(Resize* resize) override;
 
+  virtual std::vector<IterDomain*>::const_iterator findActiveId(
+      IterDomain* id) const {
+    return std::find(active_ids_.begin(), active_ids_.end(), id);
+  }
+
+  bool isActiveId(IterDomain* id) const {
+    return findActiveId(id) != active_ids_.end();
+  }
+
+  int64_t getActiveIdPos(IterDomain* id) const {
+    auto it = findActiveId(id);
+    NVF_ERROR(it != active_ids_.end());
+    return std::distance(active_ids_.begin(), it);
+  }
+
+  bool isConcretized(IterDomain* id) const {
+    NVF_ERROR(concrete_info_ != nullptr);
+    return concrete_info_->isConcretized(id);
+  }
+
+ protected:
   // Track which allocation ids were used to generate each iter domain
   std::unordered_map<IterDomain*, VectorOfUniqueEntries<IterDomain*>>
       id_to_alloc_ids_;
@@ -88,6 +129,9 @@ class OrderedIdInformation : public OptInDispatch {
   // for intermediate storage, not to return.
   std::vector<IterDomain*> active_ids_;
 
+  // Current traversal direction
+  Direction current_direction_ = Direction::Forward;
+
   // IterDomains in this set exclusively consume all the uses of their
   // allocations. For example: [i0, i1] split(0, f)->merge(1) [ceilDiv(i0, f),
   // f*i1] neither iter domains exclusively consume the allocations. With
@@ -106,6 +150,9 @@ class OrderedIdInformation : public OptInDispatch {
   // the domain is concretized within the local indexing, not in the entire
   // fusion.
   std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
+
+  // TODO: Temporary WAR to do ContigIDGroup-specific processing
+  bool using_id_graph_ = false;
 };
 
 // Based on provided divisible split set, goes through expressions and marks all
@@ -156,8 +203,7 @@ class ContigIDs : public OptInDispatch {
   //! analyzed, in which case producer-to-consumer maps should be
   //! passed.
   //!
-  //! If ignore_indexability and ignore_halo_constraint are true,
-  //! ignore the constraint on indexing and halo, respectively. It is
+  //! If ignore_indexability is true, ignore the constraint on indexing. It is
   //! the caller that is responsible for its correctness.
   //! Not really sure why but clang-tidy only complains about
   //! std::unordered_map if passed as a const reference.
@@ -172,17 +218,13 @@ class ContigIDs : public OptInDispatch {
       bool ignore_indexability = false,
       bool ignore_consistent_ordering = false);
 
-  //! \param ids IterDomains on the leaves of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_domain the allocation domain of the domain we're looking for
-  //! contiguous indexing into.
-  //! \param alloc_contiguity the contiguity of the alloc_domain.
-  //! \param concrete_to_ref concrete ids of the exact map that the reference
-  //! index is using for indexing.
-  //! \param divisible_splits a set of all splits in the fusion that are
-  //! divisible.
+  //! \param ids IterDomains on the loop domain we're looking for contiguous
+  //! indexing into. \param alloc_domain the allocation domain of the domain
+  //! we're looking for contiguous indexing into. \param alloc_contiguity the
+  //! contiguity of the alloc_domain. \param concrete_to_ref concrete ids of the
+  //! exact map that the reference index is using for indexing. \param
+  //! divisible_splits a set of all splits in the fusion that are divisible.
   //! \param ca_map compute at map of the fusion.
-  //! \param halo_info halo information of the fusion.
   //! \param concrete_info concretized broadcast information of the fusion.
   //! \param p2c_id_map map from producer to consumer ids used for indexing
   //! producer tensors.
@@ -200,7 +242,6 @@ class ContigIDs : public OptInDispatch {
       const std::unordered_map<IterDomain*, Val*>& index_map,
       const std::unordered_set<Split*>& divisible_splits,
       std::shared_ptr<const ComputeAtMap> ca_map,
-      std::shared_ptr<const HaloInfo> halo_info,
       std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info,
       std::unordered_map<IterDomain*, IterDomain*> p2c_id_map = {},
       bool ignore_indexability = false,
@@ -253,6 +294,7 @@ class ContigIDs : public OptInDispatch {
   // as contiguity is generally not preserved after swizzles.
   // But in follow ups we could gradually add back a few special
   // cases, depending on specific swizzle type and axes.
+  void handle(Swizzle* swizzle) override {}
   void handle(Swizzle2D* swizzle) override {}
 
   void handle(Resize* resize) override {}
@@ -285,7 +327,6 @@ class ContigIDs : public OptInDispatch {
   const std::unordered_set<Split*>& divisible_splits_;
 
   std::shared_ptr<const ComputeAtMap> ca_map_;
-  std::shared_ptr<const HaloInfo> halo_info_;
   std::shared_ptr<const ConcretizedBroadcastDomains> concrete_info_;
 
   //! Producer-to-consumer index map in the case of analyzing replayed

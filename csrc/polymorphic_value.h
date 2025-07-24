@@ -7,10 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <macros.h>
-
-#include <dynamic_type.h>
-#include <opaque_type.h>
+#include <exceptions.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -21,88 +18,15 @@
 
 #include <ATen/ATen.h>
 
+#ifndef DYNAMIC_TYPE_CHECK
+#define DYNAMIC_TYPE_CHECK NVF_ERROR
+#endif
+
+#include <dynamic_type/dynamic_type.h>
+#include <macros.h>
+#include <opaque_type.h>
+
 namespace nvfuser {
-
-template <typename T>
-struct Struct {
-  // Using std::unordered_map<std::string, T> is more convenient and
-  // straightforward, but this is not guaranteed to work by C++ standard.
-  // See [Incomplete type support in STL]
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-
-  std::unordered_map<std::string, T> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init)
-      : fields(init) {}
-#define MAYBE_STAR
-
-#else
-
-  std::unordered_map<std::string, std::shared_ptr<T>> fields;
-  Struct(std::initializer_list<std::pair<const std::string, T>> init) {
-    for (const auto& [key, value] : init) {
-      fields[key] = std::make_shared<T>(value);
-    }
-  }
-#define MAYBE_STAR *
-
-#endif
-
-  Struct() = default;
-  Struct(const Struct& other) = default;
-  Struct(Struct&& other) = default;
-  Struct& operator=(const Struct& other) = default;
-  Struct& operator=(Struct&& other) = default;
-
-  const T& operator[](const std::string& key) const {
-    return MAYBE_STAR fields.at(key);
-  }
-
-  T& operator[](const std::string& key) {
-#if defined(STD_UNORDERED_SET_SUPPORTS_INCOMPLETE_TYPE)
-    return fields[key];
-#else
-    if (fields.find(key) == fields.end()) {
-      fields[key] = std::make_shared<T>();
-    }
-    return *fields.at(key);
-#endif
-  }
-
-  bool operator==(const Struct& other) const {
-    if (this == &other) {
-      return true;
-    }
-    if (fields.size() != other.fields.size()) {
-      return false;
-    }
-    for (const auto& [key, _] : fields) {
-      if (other.fields.find(key) == other.fields.end()) {
-        return false;
-      }
-      if ((*this)[key] != other[key]) {
-        return false;
-      }
-    }
-    return true;
-  }
-};
-
-template <typename T>
-inline std::ostream& operator<<(std::ostream& os, const Struct<T>& s) {
-  os << "struct { ";
-  bool first = true;
-  for (const auto& [key, value] : s.fields) {
-    if (!first) {
-      os << ", ";
-    }
-    os << key << " = " << MAYBE_STAR value;
-    first = false;
-  }
-  os << "}";
-  return os;
-}
-
-#undef MAYBE_STAR
 
 struct DataType;
 
@@ -110,16 +34,19 @@ struct DataType;
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  int64_t size_;
+  int64_t size_bit_;
 
  public:
   template <typename T>
-  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
+  Pointer(T* ptr)
+      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
 
   inline Pointer(void* ptr, DataType dtype);
 
-  int64_t size() const {
-    return size_;
+  Pointer() : ptr_(nullptr), size_bit_(-1) {}
+
+  int64_t sizeBit() const {
+    return size_bit_;
   }
 
   template <typename T>
@@ -128,23 +55,27 @@ class Pointer {
   }
 
   Pointer& operator+=(int64_t offset) {
-    ptr_ += offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ += offset_bit / 8;
     return *this;
   }
 
   Pointer& operator-=(int64_t offset) {
-    ptr_ -= offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ -= offset_bit / 8;
     return *this;
   }
 
   Pointer& operator++() {
-    ptr_ += size_;
-    return *this;
+    return *this += 1;
   }
 
   Pointer& operator--() {
-    ptr_ -= size_;
-    return *this;
+    return *this -= 1;
   }
 
   Pointer operator++(int) {
@@ -172,8 +103,8 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    TORCH_INTERNAL_ASSERT(size_ == other.size_);
-    return (ptr_ - other.ptr_) / (int64_t)size_;
+    NVF_ERROR(size_bit_ == other.size_bit_, "Size must be the same");
+    return (int64_t)((ptr_ - other.ptr_) * 8) / size_bit_;
   }
 
   bool operator==(const Pointer& other) const {
@@ -238,8 +169,53 @@ inline std::ostream& operator<<(std::ostream& os, const Pointer& ptr) {
   return os;
 }
 
-using PolymorphicValue = DynamicType<
-    Containers<std::vector, Struct>,
+struct Struct;
+class Accessor;
+struct StructType;
+
+// See Note [Struct Support in PolymorphicValue] for documentation.
+class StructHandle {
+  std::shared_ptr<Struct> struct_ptr_;
+
+ public:
+  StructHandle(std::shared_ptr<Struct> struct_ptr)
+      : struct_ptr_(std::move(struct_ptr)) {}
+  StructHandle& operator=(std::shared_ptr<Struct> struct_ptr) {
+    struct_ptr_ = std::move(struct_ptr);
+    return *this;
+  }
+
+  StructHandle(const StructHandle& other) = default;
+  StructHandle(StructHandle&& other) = default;
+  StructHandle& operator=(const StructHandle& other) = default;
+  StructHandle& operator=(StructHandle&& other) = default;
+
+  bool operator==(const StructHandle& other) const;
+
+  template <typename T>
+  bool is() const {
+    return std::dynamic_pointer_cast<T>(struct_ptr_) != nullptr;
+  }
+
+  template <typename T>
+  inline T& as() const {
+    return *std::dynamic_pointer_cast<T>(struct_ptr_);
+  }
+
+  inline StructType type() const;
+
+  template <typename Ret, typename Class>
+  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
+      Ret Class::* member) const {
+    return as<Class>().*member;
+  }
+
+  inline Accessor operator->*(const std::string& key) const;
+};
+
+using PolymorphicValue = dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    StructHandle,
     Pointer,
     Opaque,
     at::Tensor,
@@ -250,28 +226,99 @@ using PolymorphicValue = DynamicType<
 
 namespace PolymorphicValue_functions {
 
-inline std::string toString(const PolymorphicValue& v) {
-  std::stringstream ss;
-  if (v.is<at::Tensor>()) {
-    const auto& t = v.as<at::Tensor>();
-    ss << "Tensor(sizes=" << t.sizes() << ", "
-       << "stride=" << t.strides() << ", " << t.dtype() << ", " << t.device()
-       << ")";
-  } else {
-    ss << v;
+NVF_API std::string toString(const PolymorphicValue& v);
+
+template <typename T>
+inline bool isNan(const T& a) {
+  return std::isnan(a);
+}
+
+// For example, `nan+i` and `nan-i` are treated equal because both are NaNs.
+// This is consistent with pytorch's implementation:
+// https://github.com/pytorch/pytorch/blob/6d8e0c4b5a3be8201cab731dfd1e6513162cf25c/c10/util/complex_utils.h#L43.
+template <typename T>
+inline bool isNan(const std::complex<T>& a) {
+  return std::isnan(a.real()) || std::isnan(a.imag());
+}
+
+// NaNs are treated equal.
+template <typename T>
+inline bool isSameNanSensitive(const T& a, const T& b) {
+  if (isNan(a) && isNan(b)) {
+    return true;
   }
-  return ss.str();
+  return a == b;
 }
 
 inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
   if (a.type() != b.type()) {
     return false;
   }
-  if (a.is<at::Tensor>() && b.is<at::Tensor>()) {
+  if (a.is<at::Tensor>()) {
     return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
-  } else {
-    return (a == b);
   }
+  if (a.is<double>()) {
+    return isSameNanSensitive(a.as<double>(), b.as<double>());
+  }
+  if (a.is<std::complex<double>>()) {
+    return isSameNanSensitive(
+        a.as<std::complex<double>>(), b.as<std::complex<double>>());
+  }
+  return a == b;
+}
+
+inline PolymorphicValue signbit(const PolymorphicValue& a) {
+  if (a.is<int64_t>()) {
+    return PolymorphicValue(std::signbit(a.as<int64_t>()));
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::signbit(a.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return PolymorphicValue(a.as<at::Tensor>().signbit());
+  }
+  NVF_THROW("PolymorphicValue signbit not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue fmod(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  // TODO: relax the type check
+  NVF_ERROR(
+      a.is<at::Tensor>() || a.type() == b.type(),
+      "fmod is not implemented for mismatch dtypes");
+  if (a.is<int64_t>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<double>()));
+    }
+  }
+  if (a.is<double>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
+    }
+  }
+  if (a.is<at::Tensor>()) {
+    if (b.is<int64_t>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<int64_t>()));
+    }
+    if (b.is<double>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<double>()));
+    }
+    if (b.is<at::Tensor>()) {
+      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
+    }
+  }
+  NVF_THROW(
+      "PolymorphicValue fmod not implemented for ",
+      a.type().name(),
+      " , ",
+      b.type().name());
 }
 
 inline PolymorphicValue ceildiv(
@@ -320,16 +367,17 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
   if (a.is<std::complex<double>>()) {
     return std::abs(a.as<std::complex<double>>());
   }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue abs not implemented for ", a.type().name());
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().abs();
+  }
+  NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue erf(const PolymorphicValue& a) {
   if (a.is<at::Tensor>()) {
     return PolymorphicValue(a.as<at::Tensor>().erf());
   }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue erf not implemented for ", a.type().name());
+  NVF_THROW("PolymorphicValue erf not implemented for ", a.type().name());
 }
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
@@ -370,10 +418,92 @@ inline PolymorphicValue toTensor(
     }
     return PolymorphicValue(at::stack(tensors));
   }
-  TORCH_INTERNAL_ASSERT(
-      false, "PolymorphicValue toTensor not implemented for ", x.type().name());
+  NVF_THROW("PolymorphicValue toTensor not implemented for ", x.type().name());
 }
+
+// Convert PolymorphicValue to c10::Scalar.
+inline c10::Scalar toScalar(const PolymorphicValue& x) {
+  if (x.is<std::complex<double>>()) {
+    return (c10::complex<double>)x.as<std::complex<double>>();
+  } else {
+    return (c10::Scalar)x;
+  }
+}
+
+inline PolymorphicValue where(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  if (!a.is<at::Tensor>()) {
+    return a.as<bool>() ? b : c;
+  }
+  // dispatch to at::where with appropriate overload
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), c.as<at::Tensor>()));
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), toScalar(c)));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), c.as<at::Tensor>()));
+  } else {
+    // Both are scalars
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), toScalar(c)));
+  }
+}
+
+inline PolymorphicValue pow(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor && b_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), b.as<at::Tensor>()));
+  } else if (a_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), toScalar(b)));
+  } else if (b_is_tensor) {
+    return PolymorphicValue(at::pow(toScalar(a), b.as<at::Tensor>()));
+  } else {
+    // no tensor involved, use std::pow, at::pow doesn't support scalar^scalar
+    if (a.is<int64_t>()) {
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<int64_t>()));
+      }
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<double>()));
+      }
+    }
+    if (a.is<double>()) {
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<double>()));
+      }
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<int64_t>()));
+      }
+    }
+    NVF_THROW(
+        "PolymorphicValue pow not implemented for ",
+        a.type().name(),
+        " , ",
+        b.type().name());
+  }
+}
+
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
+
+inline bool isScalar(const PolymorphicValue& x);
+
+c10::IValue toIValue(const PolymorphicValue& x);
 
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+#include <struct.inl>

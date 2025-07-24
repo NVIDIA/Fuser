@@ -9,9 +9,11 @@
 
 #include <compute_at_map.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
+#include <visibility.h>
 // TODO: Move to cpp file.
 #include <ir/builder.h>
 
@@ -23,13 +25,13 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 namespace vectorize_helper {
 
 // Projects IterDomains through the fusion starting at provided reference. IDs
 // in the reference are expected to be "contiguous", simply means dimensions
-// that the iter domains are consecutive and next to eachother in the
+// that the iter domains are consecutive and next to each other in the
 // reference. This property is not enforced, but mapping can have some
 // unpredictbale results if they are not. The reason we want contiguity here
 // is this class is primarily used for vectorization analysis. Domains may be
@@ -76,7 +78,7 @@ namespace vectorize_helper {
 //   tv1[2*3, 5, 7*11] = view(tv0)
 // with tv1 and [2*3, 7*11] as the reference and ids. tv0's 2 and 11 dim are
 // easily identified as being mapped. The 3*5*7 dimension however, is
-// partially mapped on the left and right side. Since this class is  intended to
+// partially mapped on the left and right side. Since this class is intended to
 // line up "inner dimensions" of tensors through out the graph for the purpose
 // of unrolling and vectorization, it only tracks partial dimensions as they are
 // on the right hand side of iteration domains. For example in the last case we
@@ -127,13 +129,13 @@ namespace vectorize_helper {
 //
 // MaxInfoSpanningTree::computeInfoC2P runs first with recording_=false and
 // will effectively compute the values of projected_root_ids_ and
-// projected_rfactor_ids_. However it will compute these by running all edges
+// projected_logical_ids_. However it will compute these by running all edges
 // between expressions. Therefore,
 // MaxInfoSpanningTree::Propagator::propagateC2P later simply calls
 // MaxInfoSpanningTree::computeInfoC2P with recording_=true where it will
 // actually record the computed information since it will be then projected
 // through the DAG maximizing saving information.
-class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
+class NVF_API ContiguousInnerDimensionsMapper
     : public MaxInfoSpanningTree,
       MaxInfoSpanningTree::Propagator {
  public:
@@ -160,7 +162,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   }
 
   const std::vector<IterDomain*>& mappedRootIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
@@ -168,18 +170,18 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
         ->mapped_root_ids_;
   }
 
-  const std::vector<IterDomain*>& mappedRFactorIds(TensorView* tv) const {
-    TORCH_INTERNAL_ASSERT(
+  const std::vector<IterDomain*>& mappedLogicalIds(TensorView* tv) const {
+    NVF_ERROR(
         tv_infos_.find(tv) != tv_infos_.end(),
         "TensorView not found: ",
         tv->toString());
     return std::dynamic_pointer_cast<const MappedDomain>(tv_infos_.at(tv))
-        ->mapped_rfactor_ids_;
+        ->mapped_logical_ids_;
   }
 
   Val* getProjectedExtent(IterDomain* id) const {
     if (projected_extent_.find(id) == projected_extent_.end()) {
-      TORCH_INTERNAL_ASSERT(false, "Not projected: ", id->toString());
+      NVF_THROW("Not projected: ", id->toString());
     }
     return projected_extent_.at(id);
   }
@@ -199,32 +201,32 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
 
     static std::shared_ptr<MappedDomain> build(
         std::vector<IterDomain*> root_ids,
-        std::vector<IterDomain*> rfactor_ids,
+        std::vector<IterDomain*> logical_ids,
         bool is_c2p) {
       auto ptr = std::make_shared<MappedDomain>();
       ptr->mapped_root_ids_ = root_ids;
-      ptr->mapped_rfactor_ids_ = rfactor_ids;
+      ptr->mapped_logical_ids_ = logical_ids;
       ptr->is_c2p_ = is_c2p;
       return ptr;
     }
 
     operator bool() const final {
-      return !mapped_root_ids_.empty() || !mapped_rfactor_ids_.empty();
+      return !mapped_root_ids_.empty() || !mapped_logical_ids_.empty();
     }
 
     bool operator<(const Information& other_info) const final {
       auto other_mapped_domain = dynamic_cast<const MappedDomain&>(other_info);
 
       if (is_c2p_) {
-        return mapped_rfactor_ids_.size() <
-            other_mapped_domain.mapped_rfactor_ids_.size();
+        return mapped_logical_ids_.size() <
+            other_mapped_domain.mapped_logical_ids_.size();
       }
       return mapped_root_ids_.size() <
           other_mapped_domain.mapped_root_ids_.size();
     }
 
     std::vector<IterDomain*> mapped_root_ids_;
-    std::vector<IterDomain*> mapped_rfactor_ids_;
+    std::vector<IterDomain*> mapped_logical_ids_;
     // Information is not symmetric between c2p and p2c, track which direction
     // the computation is in for the < operator
     bool is_c2p_ = true;
@@ -236,7 +238,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       return;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         projected_extent_.count(id) == 0,
         "Already registered: ",
         id->toString(),
@@ -277,7 +279,7 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
       TensorView* to,
       std::shared_ptr<Information> from_info) final;
 
-  // Projection from root<->rfactor domains
+  // Projection from root<->logical domains
   std::vector<IterDomain*> projectId(
       const std::vector<IterDomain*>& from,
       const std::vector<IterDomain*>& to);
@@ -308,11 +310,23 @@ class TORCH_CUDA_CU_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
+// logical_reorder_map is provided to assume reference_tv will be reordered per
+// the map, hence changing the order of IterDomain in the reference
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
-    HeuristicSummary* data_cache,
-    int64_t break_point);
+    HeuristicDataCache* data_cache,
+    int64_t break_point,
+    int64_t max_vectorization_size_in_bit = 128,
+    const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
+
+int64_t getVectorizationFactorTransposeGroup(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference,
+    int64_t inner_most_dim,
+    const std::vector<int64_t>& dims_to_merge,
+    const std::vector<TensorView*>& vec_tv,
+    int64_t max_vectorization);
 
 //! Find the break point for vectorization. Here, we vectorize either
 //! the innermost reduction or iteration domains. We use the producer

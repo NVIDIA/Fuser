@@ -1,0 +1,33 @@
+{#-
+SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+-#}
+{% if run1.preamble != run2.preamble %}
+    NVFuser preamble differs between runs
+    <button onclick="toggleOldPreamble()">
+        <i>{{ run1.name }}</i>
+    </button>
+    <button style="width: 60pt" onclick="togglePreambleDiff()">Diff</button>
+    <button onclick="toggleNewPreamble()">
+        <i>{{ run2.name }}</i>
+    </button>
+    <br>
+    <div id="old_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run1.preamble|e }}</code></pre>
+    </div>
+    <div id="new_preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run2.preamble|e }}</code></pre>
+    </div>
+    <div id="preamble_diff" style="display:none">
+        <pre><code class="language-diff">{{ preamble_diff|e }}</code></pre>
+    </div>
+{% else %}
+    <br>
+    <button onclick="toggleDiv('preamble')">NVFuser preamble</button>
+    matches between runs
+    <br>
+    <div id="preamble" style="display:none">
+        <pre><code class="language-cpp">{{ 'PREAMBLE OMITTED TO SAVE SPACE' if omit_preamble else run1.preamble|e }}</code></pre>
+    </div>
+{% endif %}

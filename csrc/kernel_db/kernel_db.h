@@ -20,7 +20,7 @@ namespace fs = std::experimental::filesystem;
 #include <unordered_map>
 #include <vector>
 
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -41,11 +41,8 @@ struct KernelDbEntry {
 //! KernelDb class is a singleton structure that is used to open, query, and
 //! write to the the database that is held in a hash map.  The kernel code is
 //! used as string key to the hash map.
-class TORCH_CUDA_CU_API KernelDb {
+class KernelDb {
   KernelDb(bool _disabled);
-
-  KernelDb(const KernelDb&) = delete;
-  KernelDb& operator=(const KernelDb&) = delete;
 
   //! Open is private because this method should only be called once by the
   //! singleton upon creation to create a new db or restore an existing one.
@@ -55,10 +52,14 @@ class TORCH_CUDA_CU_API KernelDb {
       bool use_temp_dir);
 
  public:
+  // clang-tidy - deleted member function should be public
+  KernelDb(const KernelDb&) = delete;
+  KernelDb& operator=(const KernelDb&) = delete;
+
   //! Thread-Safe method to get the Meyer's singleton -- Interface
   static KernelDb& get();
   //! Thread-Safe method to get the Meyer's singleton -- For testing
-  static KernelDb& get(
+  NVF_API static KernelDb& get(
       const std::string& kernel_db_dir,
       const std::string& kernel_db_file,
       bool use_temp_dir = true,
@@ -77,14 +78,14 @@ class TORCH_CUDA_CU_API KernelDb {
   //! Query uses the string of the kernel code to lookup whether a cubin already
   //! exists for the given kernel.  Additionally, the compile args are also
   //! matched.
-  bool query(
+  NVF_API bool query(
       const std::string& kernel_code,
       const std::string& compile_args,
       std::string& kernel_signature,
       std::vector<char>& cubin) const;
   //! Write is used to write a new entry to the db upon compilation of a
   //! new fusion
-  bool write(
+  NVF_API bool write(
       const std::string& kernel_code,
       const std::string& compile_args,
       const std::string& kernel_signature,

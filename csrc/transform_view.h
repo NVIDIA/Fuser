@@ -7,7 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/all_nodes.h>
 
@@ -30,7 +31,7 @@ class ViewTransform;
 //!
 //! The view transformations are processed in the following order:
 //! 1. Squeeze - Removes size-1 broadcast dimensions
-//! 2. Keep, Merge, Split - Used to create new rfactor domain
+//! 2. Keep, Merge, Split - Used to create new logical domain
 //! 3. Broadcast - Inserts size-1 dimensions
 //!
 //! Broadcast is handled last because size-1 dimension can be inserted anywhere
@@ -53,7 +54,7 @@ struct AnalyzeViewResult {
   size_t hash() const;
 };
 
-struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
+struct AnalyzeViewConstraint {
   // 1 if size 1 dimension, otherwise 0;
   std::vector<int64_t> original_constraint;
   std::vector<int64_t> new_constraint;
@@ -104,8 +105,7 @@ struct TORCH_CUDA_CU_API AnalyzeViewConstraint {
 //! Infer -1 value in new view std::vector<int64_t> based on original view
 //! std::vector<int64_t>. This shouldn't generally be used directly but is
 //! useful for testing.
-TORCH_CUDA_CU_API std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferViewShapes(
+NVF_API std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
@@ -117,18 +117,20 @@ AnalyzeViewResult analyzeView(
     const std::vector<int64_t>& new_sizes);
 
 // Find the constraints derived from the view transformations
-TORCH_CUDA_CU_API AnalyzeViewConstraint analyzeViewConstraint(
+NVF_API AnalyzeViewConstraint analyzeViewConstraint(
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes);
 
 // Generate a new TensorDomain from the given view transformations.
 // The original root domain is kept in the new TensorDomain,
-// but a new rfactor domain is created from the view transformations.
+// but a new logical domain is created from the view transformations.
 TensorDomain* transformView(
     TensorDomain* original_domain,
     const AnalyzeViewResult& view_analysis);
 
 //! Apply the reshape transformations of view_analysis to inp_tv
-TensorView* reshape(TensorView* inp_tv, const AnalyzeViewResult& view_analysis);
+NVF_API TensorView* reshape(
+    TensorView* inp_tv,
+    const AnalyzeViewResult& view_analysis);
 
 } // namespace nvfuser

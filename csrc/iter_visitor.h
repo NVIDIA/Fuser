@@ -7,8 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
+#include <visibility.h>
 
+#include <bfs.h>
 #include <dispatch.h>
 #include <ir/base_nodes.h>
 #include <type.h>
@@ -34,7 +36,7 @@ class Fusion;
  * would want this, but seems like it would be a reasonable request.
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
+class NVF_API IterVisitor : public OptOutDispatch {
  public:
   ~IterVisitor() override = default;
 
@@ -98,7 +100,6 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! active multi-output expressions, even if those Expr outputs are not used
   //! in paths to Fusion outputs.
   void traverseTo(
-      Fusion* fusion,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
       bool traverse_into_members = false,
@@ -125,7 +126,6 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
   //! active multi-output expressions, even if those Expr outputs are not used
   //! in paths to Fusion outputs.
   void traverseBetween(
-      Fusion* fusion,
       const std::unordered_set<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_all_paths = false,
@@ -179,7 +179,7 @@ class TORCH_CUDA_CU_API IterVisitor : public OptOutDispatch {
  *
  */
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
+class BackwardVisitor : public OptOutDispatch {
  public:
   // clang-tidy: cppcoreguidelines-virtual-class-destructor
   ~BackwardVisitor() override = default;
@@ -237,22 +237,21 @@ class TORCH_CUDA_CU_API BackwardVisitor : public OptOutDispatch {
   // traverseAllPaths = false only call handle on each Statement* once
   // traverseAllPaths = true traverses all paths from nodes in from to inputs.
   //   Handle on a Statement* for every path from "from" nodes, to inputs.
-  void traverseTo(
-      Fusion* fusion,
-      const std::vector<Val*>& from,
-      bool traverseAllPaths = false);
+  void traverseTo(const std::vector<Val*>& from, bool traverseAllPaths = false);
 
   bool must_cover_all_expr_outputs_ = true;
 };
 
-class TORCH_CUDA_CU_API DependencyCheck {
+class DependencyCheck {
  public:
   // Returns if "dependency" is a dependency of "of".
-  static bool isDependencyOf(Val* dependency, Val* of);
+  NVF_API static bool isDependencyOf(Val* dependency, Val* of);
 
   // Finds a Val* path from "of" to "dependency". Returns that path.
   // deque.back() is "of", deque[0] is dependency if a chain exists.
-  static std::deque<Val*> getSingleDependencyChain(Val* dependency, Val* of);
+  NVF_API static std::deque<Val*> getSingleDependencyChain(
+      Val* dependency,
+      Val* of);
 
   // Finds all Val* paths from "of" to "dependency". Returns those paths.
   // deque[i].back() is "of", and deque[i][0] is "dependency". Returns an
@@ -268,7 +267,7 @@ class TORCH_CUDA_CU_API DependencyCheck {
 
   // Grab all values that exist between and including provided
   // vals. Returned values are topologicaly ordered, and unique.
-  static std::vector<Val*> getAllValsBetween(
+  NVF_API static std::vector<Val*> getAllValsBetween(
       const std::unordered_set<Val*>& dependencies,
       const std::vector<Val*>& of);
 
@@ -304,15 +303,36 @@ class StmtSort : public IterVisitor {
   // statement list in the fusion. i.e. all IterDomains, extents, and associated
   // expressions of them. Similarly, if traverse_attributes it will
   // grab all nodes associated as Expr attributes.
-  static std::vector<Statement*> getStmts(
+  NVF_API static std::vector<Statement*> getStmts(
       Fusion* fusion,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
   // Returns ordered Statements required to produce 'to', including 'to'.
-  static std::vector<Statement*> getStmtsTo(
+  NVF_API static std::vector<Statement*> getStmtsTo(
+      const std::vector<Val*>& to,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
+  // Returns all ordered Statements of a given fusion. Unlike
+  // getStmts, for TensorDomain, all of its iter domains and exprs are
+  // grabbed and returned in a topological order.
+  NVF_API static std::vector<Statement*> getAllStmts(
       Fusion* fusion,
+      bool traverse_members = false,
+      bool traverse_attributes = false,
+      bool traverse_siblings = false);
+
+  // Returns ordered Statements required to produce 'to', including
+  // 'to'. Unlike getStmtsTo, for TensorDomain, all of its iter domains and
+  // exprs are grabbed and returned in a topological order, regardless of
+  // `traverse_members`.
+  //
+  // The to vals are assumed to be either TensorView or scalar
+  // Val. This assumption could be removed if desired.
+  NVF_API static std::vector<Statement*> getAllStmtsTo(
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
@@ -335,8 +355,7 @@ class StmtSort : public IterVisitor {
   //
   // If traverse_members it will also extract all member nodes in the sorted
   // expr list in the fusion. i.e. all expressions on IterDomains, extents, etc
-  static std::vector<Statement*> getStmtsBetween(
-      Fusion* fusion,
+  NVF_API static std::vector<Statement*> getStmtsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -345,22 +364,20 @@ class StmtSort : public IterVisitor {
 
   // Same as getStmts version but filters to only return the Expr*s
   static std::vector<Expr*> getExprs(
-      Fusion* fusion,
+      const Fusion* fusion,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprsTo(
-      Fusion* fusion,
+  NVF_API static std::vector<Expr*> getExprsTo(
       const std::vector<Val*>& to,
       bool traverse_members = false,
       bool traverse_attributes = false,
       bool traverse_siblings = false);
 
   // Same as getStmts version but filters to only return the Expr*s
-  static std::vector<Expr*> getExprsBetween(
-      Fusion* fusion,
+  NVF_API static std::vector<Expr*> getExprsBetween(
       const std::vector<Val*>& from,
       const std::vector<Val*>& to,
       bool traverse_members = false,
@@ -368,7 +385,7 @@ class StmtSort : public IterVisitor {
       bool traverse_siblings = false);
 };
 
-class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
+class InputsOf : public IterVisitor {
  private:
   std::unordered_set<Val*> grabbed_inputs;
   std::vector<Val*> ordered_inputs;
@@ -378,10 +395,8 @@ class TORCH_CUDA_CU_API InputsOf : public IterVisitor {
   void dispatch(Val* v) final;
 
  public:
-  static std::vector<Val*> output(Fusion* fusion, Val* output_);
-  static std::vector<Val*> outputs(
-      Fusion* fusion,
-      const std::vector<Val*>& outputs_);
+  NVF_API static std::vector<Val*> output(Val* output_);
+  static std::vector<Val*> outputs(const std::vector<Val*>& outputs_);
 };
 
 //! This is a generic traversal class that is used to modify a Fusion graph by
@@ -461,6 +476,14 @@ class DeadCodeRemover : BackwardVisitor {
 
   //! Check whether all uses have been marked dead
   inline bool allUsesDead(Val* val) const {
+    auto fu_it = future_uses_.find(val);
+    if (fu_it != future_uses_.end() && !fu_it->second.empty()) {
+      // Regardless of whether current uses are marked dead, this appears in a
+      // replacement expression, so it has a future live use and we should keep
+      // it.
+      return false;
+    }
+
     return std::all_of(val->uses().begin(), val->uses().end(), [&](Expr* use) {
       return isDead(use);
     });
@@ -479,6 +502,21 @@ class DeadCodeRemover : BackwardVisitor {
   //! Mark a single Statement as being alive.
   inline void markLive(Statement* stmt) {
     live_statements_.insert(stmt);
+    if (auto e = dynamic_cast<Expr*>(stmt)) {
+      // Check if this expression is already in uses() for each of its inputs
+      // and if not, record it in future_uses_
+      for (Val* inp : e->inputs()) {
+        if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+            inp->uses().end()) {
+          auto fu_it = future_uses_.find(inp);
+          if (fu_it == future_uses_.end()) {
+            future_uses_.emplace(inp, std::unordered_set<Expr*>({e}));
+          } else {
+            fu_it->second.insert(e);
+          }
+        }
+      }
+    }
   }
 
   //! Ensure that a Statement and its upstream Statements are alive. If it is an
@@ -520,13 +558,104 @@ class DeadCodeRemover : BackwardVisitor {
   //! Statements are marked dead by removing them from this set
   std::unordered_set<Statement*> live_statements_;
 
-  //! Vals to be replaced in outputs and with replaceValInExpr in all uses.
+  //! Vals to be replaced in outputs and with replaceValInExprInputs in all
+  //! uses.
   std::vector<std::pair<Val*, Val*>> vals_to_replace_;
 
   //! Statements that will be removed. We remove Vals before Exprs, so we track
   //! them separately here.
   std::vector<Val*> vals_to_remove_;
   std::vector<Expr*> exprs_to_remove_;
+
+  //! This holds additional _future_ uses of each val. val->uses() only returns
+  //! currently live uses, so until we have finalized all replacements, new uses
+  //! will not appear there. The mapping below gets populated whenever we mark
+  //! an expression as live, if that expression is not already in inp->uses()
+  //! for any of its inputs.
+  std::unordered_map<Val*, std::unordered_set<Expr*>> future_uses_;
+};
+
+struct IRDefinitions {
+  decltype(auto) operator()(Val* val) const {
+    auto def = val->definition();
+    if (def == nullptr) {
+      return std::vector<Expr*>{};
+    }
+    return std::vector<Expr*>{val->definition()};
+  }
+};
+
+struct IRUses {
+  decltype(auto) operator()(Val* val) const {
+    return val->uses();
+  }
+};
+
+struct IRInputs {
+  decltype(auto) operator()(Expr* expr) const {
+    return expr->inputs();
+  }
+};
+
+struct IROutputs {
+  decltype(auto) operator()(Expr* expr) const {
+    return expr->outputs();
+  }
+};
+
+template <>
+struct GetValType<Expr*> {
+  using type = Val*;
+};
+
+class IRBFS
+    : public BFS<Expr*, Val*, IRDefinitions, IRUses, IRInputs, IROutputs> {
+ public:
+  IRBFS(
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited,
+      Direction allowed_direction = Direction::Undefined)
+      : BFS(IRDefinitions{},
+            IRUses{},
+            IRInputs{},
+            IROutputs{},
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
+};
+
+inline std::vector<Val*> getInputsOfExpr(Expr* expr, Direction dir) {
+  return getInputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+inline std::vector<Val*> getOutputsOfExpr(Expr* expr, Direction dir) {
+  return getOutputsOfExpr<Expr*>(expr, dir, IRInputs(), IROutputs());
+}
+
+class IRPermissiveBFS : public BFSWithPermissiveDependence<
+                            Expr*,
+                            Val*,
+                            IRDefinitions,
+                            IRUses,
+                            IRInputs,
+                            IROutputs> {
+ public:
+  IRPermissiveBFS(
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited,
+      Direction allowed_direction = Direction::Undefined)
+      : BFSWithPermissiveDependence(
+            IRDefinitions{},
+            IRUses{},
+            IRInputs{},
+            IROutputs{},
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
 };
 
 } // namespace nvfuser

@@ -16,18 +16,18 @@ namespace nvfuser {
 
 namespace {
 
-// Replaces Transpose, Shift, Gather, and View Ops with Unary Ops.
-class UnaryOpInserter : private kir::ExprMutator {
+// Replaces Transpose and View Ops with LoadStoreOps.
+class LoadStoreOpInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
-    UnaryOpInserter inserter(exprs);
+    LoadStoreOpInserter inserter(exprs);
     return inserter.exprs_;
   }
 
  private:
   using kir::ExprMutator::handle;
 
-  UnaryOpInserter(const std::vector<Expr*>& exprs) {
+  LoadStoreOpInserter(const std::vector<Expr*>& exprs) {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
@@ -42,7 +42,7 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         sop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 
@@ -52,27 +52,17 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         eop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 
-  void handle(ShiftOp* sop) final {
-    auto out = sop->out();
-    auto in = sop->in();
+  void handle(RepeatOp* op) final {
+    auto out = op->out();
+    auto in = op->in();
     auto container = out->container();
     registerReplaceAndPropagate(
-        sop,
-        IrBuilder::create<LoadStoreOp>(
-            container, LoadStoreOpType::Set, out, in));
-  }
-
-  void handle(GatherOp* gop) final {
-    auto out = gop->out();
-    auto in = gop->in();
-    auto container = out->container();
-    registerReplaceAndPropagate(
-        gop,
-        IrBuilder::create<LoadStoreOp>(
+        op,
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 
@@ -82,16 +72,16 @@ class UnaryOpInserter : private kir::ExprMutator {
     auto container = out->container();
     registerReplaceAndPropagate(
         vop,
-        IrBuilder::create<LoadStoreOp>(
+        IrBuilder::createInContainer<LoadStoreOp>(
             container, LoadStoreOpType::Set, out, in));
   }
 };
 
 } // namespace
 
-// Transpose, Shift, Gather, and View Ops with Unary Set Ops
-std::vector<Expr*> unarySetOpInserter(const std::vector<Expr*>& exprs) {
-  return UnaryOpInserter::insert(exprs);
+// Transpose, Shift, Gather, and View Ops with LoadStoreOps.
+std::vector<Expr*> loadStoreOpInserter(const std::vector<Expr*>& exprs) {
+  return LoadStoreOpInserter::insert(exprs);
 }
 
 } // namespace nvfuser

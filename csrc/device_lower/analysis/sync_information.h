@@ -7,14 +7,16 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <parallel_type_bitmap.h>
+#include <visibility.h>
 
 #include <unordered_map>
 
 namespace nvfuser {
 
-class TORCH_CUDA_CU_API SyncMap {
+class SyncMap {
  public:
   //! Validates all tensors are consistently parallelized. Basically,
   //! when a producer axis is threaded, either with threadIdx or
@@ -26,7 +28,7 @@ class TORCH_CUDA_CU_API SyncMap {
   //! Fills needs_raw_sync with output TVs if they need a raw sync if on smem or
   //! gmem. The second entry in this map is the parallel dimensions being
   //! communicated across.
-  SyncMap(Fusion* fusion);
+  NVF_API SyncMap(Fusion* fusion);
 
   std::string toString() const;
 

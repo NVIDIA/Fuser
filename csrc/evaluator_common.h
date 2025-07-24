@@ -6,12 +6,13 @@
  */
 // clang-format on
 #pragma once
-#include <device_lower/lower2device.h>
-#include <executor_params.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_params.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <c10/core/DeviceType.h>
 
@@ -29,9 +30,8 @@ struct TensorArgAbstract;
 //!   PrecomputedValues that will provide the workspace
 //!   containing the concrete values for the values.
 class NaiveValueMachine {
-  //! The generic types of instructions supported for this
-  //!  machine, currently only binary and unary.
-  enum class InstructionType { UNARY_OP, BINARY_OP, SET_OP };
+  //! The generic types of instructions supported for this machine.
+  enum class InstructionType { UNARY_OP, BINARY_OP, TERNARY_OP, SET_OP };
 
  public:
   //! Constructor lowers all the expr IR nodes stored in precomputed_values
@@ -55,6 +55,9 @@ class NaiveValueMachine {
   //! Convert an binary IR expr to an instruction
   void makeBinaryOp(BinaryOp* bop);
 
+  //! Convert an ternary IR expr to an instruction
+  void makeTernaryOp(TernaryOp* bop);
+
   //! Create an empty instruction with all default values
   //!  and place it at the end of the instruction buffer.
   int makeInstructionEntry();
@@ -69,6 +72,9 @@ class NaiveValueMachine {
 
   //! Runs a binary operation at given index of instruction buffer
   void runBinaryOp(int index);
+
+  //! Runs a ternary operation at given index of instruction buffer
+  void runTernaryOp(int index);
 
  private:
   friend PrecomputedValues;
@@ -97,9 +103,13 @@ class NaiveValueMachine {
   //!  value at each index corresponding other ops.
   std::vector<DataType> data_type_;
 
-  //! Unary operator type if applicable, contains a default
-  //!  value at each index corresponding to a unary op.
+  //! Binary operator type if applicable, contains a default
+  //!  value at each index corresponding to a binary op.
   std::vector<BinaryOpType> bop_type_;
+
+  //! Ternary operator type if applicable, contains a default
+  //!  value at each index corresponding to a ternary op.
+  std::vector<TernaryOpType> top_type_;
 
   //! Indexes of operands and destination of each instruction.
   //!  The indexes corresponds to positions in the workspace
@@ -111,6 +121,10 @@ class NaiveValueMachine {
   //! Operand 1 of each instruction, a default value at
   //!  each index corresponding to a unary op.
   std::vector<int> src1_;
+
+  //! Operand 2 of each instruction, a default value at
+  //!  each index corresponding to a unary or binary op.
+  std::vector<int> src2_;
 
   //! Destination of each instruction.
   std::vector<int> dest_;
@@ -127,11 +141,20 @@ class NaiveValueMachine {
 class PrecomputedValues {
  public:
   PrecomputedValues() = delete;
+  NVF_API PrecomputedValues(PrecomputedValues&&) = default;
 
-  explicit PrecomputedValues(Fusion* fusion);
+  NVF_API explicit PrecomputedValues(Fusion* fusion);
 
-  //! Bind concrete values from fusion runtime inputs
+  NVF_API ~PrecomputedValues();
+
+  //! Bind a list of concrete values to the fusion's runtime inputs.
   void bindInputs(const KernelArgumentHolder& args);
+
+  //! Bind a list of concrete values to a list of fusion values. The two lists
+  //! must have the same size.
+  void bindValues(
+      const std::vector<Val*>& values,
+      const KernelArgumentHolder& args);
 
   using ParallelExtentMap =
       std::unordered_map<ParallelType, std::vector<const Val*>>;
@@ -147,7 +170,7 @@ class PrecomputedValues {
   void bindConcreteParallelTypeValue(ParallelType pt, PolymorphicValue value);
 
   //! Returns if the workspace contains evaluated results.
-  bool ready() {
+  bool hasValidValues() {
     return has_valid_values_;
   }
 
@@ -213,10 +236,6 @@ class PrecomputedValues {
     value_machine_ = std::make_unique<NaiveValueMachine>(*this);
   }
 
-  bool hasValidValues() {
-    return has_valid_values_;
-  }
-
   //! Iterate through all the named scalars corresponding
   //!  to thread sizes and pre-group them by their parallel
   //!  types.
@@ -230,7 +249,7 @@ class PrecomputedValues {
   //! Returns true if workspace has a computed or constant
   //!  value for given index.
   bool hasValue(int index) {
-    TORCH_INTERNAL_ASSERT(index > 0);
+    NVF_ERROR(index > 0);
     return defined_[index] || is_constant_[index];
   }
 

@@ -7,10 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <executor_params.h>
+#include <exceptions.h>
 #include <ir/base_nodes.h>
 #include <kernel.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_params.h>
+#include <visibility.h>
 
 #include <unordered_map>
 #include <utility>
@@ -42,7 +44,8 @@ namespace nvfuser {
 // Returns (expression, input conflict ways, output conflict ways)
 // way == 0 --> not applicable (for example, tensor is not a smem tensor)
 // way == 1 --> no conflict
-std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
+NVF_API std::unordered_map<const Expr*, std::pair<int64_t, int64_t>>
+getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params = {},
     const std::unordered_map<Val*, PolymorphicValue>& known_values = {});

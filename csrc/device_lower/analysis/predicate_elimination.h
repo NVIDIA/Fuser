@@ -6,7 +6,7 @@
  */
 // clang-format on
 #pragma once
-#include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-class TORCH_CUDA_CU_API PredicateElimination : public IterVisitor {
+class PredicateElimination : public IterVisitor {
  public:
   PredicateElimination(Fusion* fusion);
 
@@ -23,6 +23,8 @@ class TORCH_CUDA_CU_API PredicateElimination : public IterVisitor {
   //!
   //! \param expr Tensor expression
   bool canOmitPredicate(const Expr* expr) const;
+
+  bool needsSharedMemoryPredicate(const Expr* expr) const;
 
   //! Value to initialize out-of-bound regions
   Val* getInitValue(TensorView* tv) const;

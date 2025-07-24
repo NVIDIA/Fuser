@@ -8,9 +8,11 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-
+#include <exceptions.h>
 #include <fusion.h>
 #include <scheduler/pointwise_heuristic.h>
+#include <scheduler/registry.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -147,35 +149,35 @@ namespace nvfuser {
  * considered together, since it's hard to account for partial dimensions that
  * are being broadcasted. So for view it's primarily an all or nothing situation
  * when it comes to the 2D pointwise scheduler.
+ *
+ * DID axes, which are not allocated, are ignored in the analysis.
+ * Specifically, two fusions that only differ by DID axes result in
+ * the same scheduling decisions.
  */
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
+class PointWiseScheduler : public SchedulerEntry {
+ public:
+  bool canScheduleCompileTime(Fusion* fusion) override;
+  bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache = nullptr) override {
+    return true;
+  }
 
-TORCH_CUDA_CU_API std::shared_ptr<PointwiseParams> getPointwiseHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
+  std::unique_ptr<HeuristicParams> computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache) override;
 
-TORCH_CUDA_CU_API void schedulePointwise(
-    Fusion* fusion,
-    const PointwiseParams& params);
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-TORCH_CUDA_CU_API LaunchParams schedulePointwise(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs);
-
-//! Utility for canSchedule interface to check if this fusion has
-//!  a fully broadcasted reference tensor, which is necessary for
-//!  the pointwise scheduler.
-bool hasReferenceTensorView(Fusion* fusion);
-
-// Return reference tensor view.
-TensorView* getReferenceTensorView(Fusion* fusion);
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::PointWise;
+  }
+};
 
 } // namespace nvfuser

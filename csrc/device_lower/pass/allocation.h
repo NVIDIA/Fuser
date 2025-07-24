@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
@@ -16,12 +16,17 @@
 
 namespace nvfuser {
 
+struct AllocationDomainInfo {
+  std::vector<IterDomain*> ids;
+  std::vector<Val*> strides;
+  std::vector<bool> contiguity;
+};
+
 //! Buffer allocation information to store in GPU lower to avoid
 //!  logic duplication
 struct LocalAllocationInfo {
   kir::Allocate* alloc_expr = nullptr;
   std::vector<IterDomain*> alloc_domains;
-  bool has_halo = false;
 };
 
 using LocalAllocationInfoMap = std::

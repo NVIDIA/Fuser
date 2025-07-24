@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-
+#include <utils.h>
 #include <vector>
 
 /*
@@ -32,12 +32,37 @@ void OptOutMutator::dispatchMutate(Val* v) {
   Val::mutatorDispatch(this, v);
 }
 
+Val* OptOutMutator::maybeMutated(Val* val) const {
+  const auto val_it = mutations_.find(val);
+  if (val_it == mutations_.end()) {
+    return val;
+  }
+  // Check whether val is further mutated and throw error if so. This is
+  // to prevent errors where we depend on recursive mutation, which can be
+  // confusion/ambiguous to support.
+  const auto two_hop_it = mutations_.find(val_it->second);
+  NVF_ERROR(
+      two_hop_it == mutations_.end(),
+      "Two-hop mutations are not supported. Found registrations from ",
+      val->toString(),
+      " to ",
+      val_it->second->toString(),
+      " to ",
+      two_hop_it->second->toString());
+  return val_it->second;
+}
+
 void OptOutMutator::registerMutation(Val* val, Val* mutation) {
+  if (val == mutation) {
+    // Avoid registering trivial mutations since they are wasteful and
+    // complicate the two-hop check in maybeMutated
+    return;
+  }
   bool val_is_ns = val->vtype() == ValType::NamedScalar;
   bool mutation_is_ns = mutation->vtype() == ValType::NamedScalar;
   bool val_is_scalar = val->vtype() == ValType::Others;
   bool mutation_is_scalar = mutation->vtype() == ValType::Others;
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       mutation->dtype() == val->dtype() &&
           (mutation->vtype() == val->vtype() ||
            ((val_is_ns && mutation_is_scalar) ||
@@ -51,6 +76,19 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       ", ",
       mutation->dtype(),
       ")");
+
+  NVF_ERROR(
+      !DependencyCheck::isDependencyOf(val, mutation),
+      "Attempted to replace a val, ",
+      val->toString(),
+      ", with a dependent val, ",
+      mutation->toString(),
+      " (",
+      mutation->toInlineString(),
+      "), which is not allowed as it would result in a recursive definition "
+      "of ",
+      mutation->toString());
+
   mutations_[val] = mutation;
 }
 
@@ -72,14 +110,28 @@ void OptOutMutator::mutate(IterDomain* id) {
       stop_offset->sameAs(id->stopOffset())) {
     return;
   }
-  registerMutation(
-      id,
-      IterDomainBuilder(id)
-          .start(start)
-          .extent(extent)
-          .stop_offset(stop_offset)
-          .expanded_extent(expanded_extent)
-          .build());
+  auto new_id = IterDomainBuilder(id)
+                    .start(start)
+                    .extent(extent)
+                    .stop_offset(stop_offset)
+                    .expanded_extent(expanded_extent)
+                    .build();
+
+  // This guarantees we replace id in all downstream expressions
+  registerMutation(id, new_id);
+
+  // Preserve definition if it exists in id. This is important since otherwise
+  // we might disconnect the root to logical transform path. For example if id
+  // is one output of a Split operation and the other output is unmodified,
+  // then we must avoid replacing only one of the outputs with a new IterDomain
+  // with no definition. See https://github.com/NVIDIA/Fuser/issues/2671 for an
+  // example of this happening. In that case T1.size(0) / 32 in Outer split:
+  // T1.size(0) by factor 32 -> 32, T1.size(0) / 32 is replaced by T4.size(1).
+  // The replacement only affects one output of Split, leading to the error
+  // described above.
+  if (Expr* def = id->definition()) {
+    mutateExprOutputsOnly(def);
+  }
 }
 
 void OptOutMutator::mutate(TensorDomain* td) {
@@ -97,26 +149,33 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return updated_ids;
   };
 
-  std::vector<IterDomain*> root_dom = updateIdVec(td->root());
-  std::vector<IterDomain*> rfactor_dom = td->hasRFactor()
-      ? updateIdVec(td->rfactor())
-      : std::vector<IterDomain*>();
+  std::vector<IterDomain*> root_dom =
+      td->hasRoot() ? updateIdVec(td->root()) : std::vector<IterDomain*>();
+  std::vector<IterDomain*> logical_dom = updateIdVec(td->logical());
   std::vector<IterDomain*> allocation_dom = td->hasAllocation()
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
-  std::vector<IterDomain*> domain = updateIdVec(td->leaf());
+  std::vector<IterDomain*> domain = updateIdVec(td->loop());
+  std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
+
+  std::optional<std::vector<IterDomain*>> alternate_domain = std::nullopt;
+  if (td->alternateLoop().has_value()) {
+    alternate_domain = updateIdVec(td->alternateLoop().value());
+  }
 
   if (!mutated) {
     return;
   }
 
-  Val* mutated_val = IrBuilder::create<TensorDomain>(
+  Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
-      rfactor_dom,
+      logical_dom,
       allocation_dom,
       domain,
-      td->contiguity());
+      alternate_domain,
+      td->contiguity(),
+      additional_ids);
   registerMutation(td, mutated_val);
 }
 
@@ -129,54 +188,56 @@ void OptOutMutator::mutate(TensorView* tv) {
 }
 
 void OptOutMutator::mutate(kir::Predicate*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_THROW("Not implemented yet.");
 }
 
 void OptOutMutator::mutate(kir::TensorIndex*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
+  NVF_THROW("Not implemented yet.");
 }
 
-void OptOutMutator::mutate(PipelineVal*) {
-  TORCH_INTERNAL_ASSERT(false, "Not implemented yet.");
-}
-
-void OptOutMutator::mutate(Expr* op) {
-  std::vector<Val*> mutated_inputs;
-  mutated_inputs.reserve(op->inputs().size());
-  for (auto input : op->inputs()) {
-    mutated_inputs.emplace_back(maybeMutated(input));
-  }
-
+Expr* OptOutMutator::mutateExpr(
+    Expr* op,
+    bool replace_outputs,
+    bool replace_inputs,
+    bool replace_attrs) {
   std::vector<Val*> mutated_outputs;
   mutated_outputs.reserve(op->outputs().size());
   for (auto output : op->outputs()) {
-    mutated_outputs.emplace_back(maybeMutated(output));
+    mutated_outputs.emplace_back(
+        replace_outputs ? maybeMutated(output) : output);
+  }
+
+  std::vector<Val*> mutated_inputs;
+  mutated_inputs.reserve(op->inputs().size());
+  for (auto input : op->inputs()) {
+    mutated_inputs.emplace_back(replace_inputs ? maybeMutated(input) : input);
   }
 
   std::vector<Statement*> mutated_attrs;
   mutated_attrs.reserve(op->attributes().size());
   for (auto attr : op->attributes()) {
     if (auto attr_val = dynamic_cast<Val*>(attr)) {
-      mutated_attrs.emplace_back(maybeMutated(attr_val));
+      mutated_attrs.emplace_back(
+          replace_inputs ? maybeMutated(attr_val) : attr_val);
     } else {
       mutated_attrs.emplace_back(attr);
     }
   }
 
   bool all_same = true;
-  for (auto i : c10::irange(op->outputs().size())) {
+  for (auto i : arange(op->outputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_outputs[i] == op->output(i);
   }
-  for (auto i : c10::irange(op->inputs().size())) {
+  for (auto i : arange(op->inputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_inputs[i] == op->input(i);
   }
-  for (auto i : c10::irange(op->attributes().size())) {
+  for (auto i : arange(op->attributes().size())) {
     if (!all_same) {
       break;
     }
@@ -187,7 +248,7 @@ void OptOutMutator::mutate(Expr* op) {
   }
 
   if (all_same) {
-    return;
+    return op;
   }
 
   auto container = op->container();
@@ -196,6 +257,8 @@ void OptOutMutator::mutate(Expr* op) {
   auto new_expr =
       newObjectFunc(container, mutated_inputs, mutated_outputs, mutated_attrs);
   registerNewExpr(new_expr);
+
+  return new_expr;
 }
 
 void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {

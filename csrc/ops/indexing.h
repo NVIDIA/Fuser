@@ -7,46 +7,50 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
 
 namespace nvfuser {
 
-TORCH_CUDA_CU_API TensorView* select(TensorView* tv, int dim, Val* index);
+NVF_API TensorView* select(TensorView* tv, int64_t dim, Val* index);
 
-// index_select
-TORCH_CUDA_CU_API TensorView* index_select(
+// torch.index_select
+NVF_API TensorView* indexSelect(
     TensorView* input,
-    int dim,
+    int64_t dim,
     TensorView* index);
+
+// This is a restricted version of torch.index_put(..., accumulate=true)
+TensorView* indexPutAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv);
 
 // torch.gather
-TORCH_CUDA_CU_API TensorView* torch_gather(
-    TensorView* input,
-    int dim,
-    TensorView* index);
+NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
 // torch.scatter
-TORCH_CUDA_CU_API TensorView* scatterOp(
+TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
-    int dim,
+    int64_t dim,
     TensorView* index,
     TensorView* src);
 
-TORCH_CUDA_CU_API TensorView* scatter(
+NVF_API TensorView* scatter(
     TensorView* self,
-    int dim,
+    int64_t dim,
     TensorView* index,
     TensorView* src);
 
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
 //! Note the order of the parameters follows the numpy order, which is
-//! different from torch_gather.
-TORCH_CUDA_CU_API TensorView* take_along_axis(
+//! different from torchGather.
+NVF_API TensorView* takeAlongAxis(
     TensorView* input,
     TensorView* index,
     int64_t dim);

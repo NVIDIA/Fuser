@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 T0 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
 T1 = fd.define_tensor(symbolic_sizes=[-1], contiguous=[True], dtype=DataType.Float)
 T2 = fd.define_tensor(symbolic_sizes=[-1, -1], contiguous=[True, True], dtype=DataType.Half)
@@ -15,7 +18,7 @@ T13 = fd.ops.add(T11, S12)
 T14 = fd.ops.mul(T8, T13)
 T15 = fd.ops.cast(T14, dtype=DataType.Half)
 T16 = fd.ops.cast(T15, dtype=DataType.Float)
-T17, T18 = fd.ops.var_mean(T16, axes=[2], correction=0, keepdim=False)
+T17, T18 = fd.ops.var_mean(T16, dims=[2], correction=0, keepdim=False)
 T19 = fd.ops.broadcast_in_dim(T17, output_shape=[1, 1024, 1], broadcast_dims=[0, 1])
 T20 = fd.ops.broadcast_in_dim(T18, output_shape=[1, 1024, 1], broadcast_dims=[0, 1])
 S21 = fd.define_scalar(1.00000e-05)

@@ -7,11 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -25,79 +27,85 @@
 namespace nvfuser {
 
 // Insertion of casting op to dtype, returns new resulting val
-TORCH_CUDA_CU_API Val* castOp(DataType dtype, Val* v1);
-TORCH_CUDA_CU_API TensorView* castOp(DataType dtype, TensorView* v1);
+NVF_API Val* castOp(DataType dtype, Val* v1);
+NVF_API TensorView* castOp(DataType dtype, TensorView* v1);
 // If v1 is not dtype, insert a cast op, otherwise return v1
-TORCH_CUDA_CU_API Val* maybeCastOp(DataType dtype, Val* v1);
-TORCH_CUDA_CU_API TensorView* maybeCastOp(DataType dtype, TensorView* v1);
+NVF_API Val* maybeCastOp(DataType dtype, Val* v1);
+NVF_API TensorView* maybeCastOp(DataType dtype, TensorView* v1);
 
-TORCH_CUDA_CU_API Val* bitCastOp(DataType dtype, Val* v1);
-TORCH_CUDA_CU_API TensorView* bitCastOp(DataType dtype, TensorView* v1);
+NVF_API Val* bitCastOp(DataType dtype, Val* v1);
+NVF_API TensorView* bitCastOp(DataType dtype, TensorView* v1);
 
 // Perform unary op type and return the output
-TORCH_CUDA_CU_API Val* unaryOp(UnaryOpType type, Val* v1);
-TORCH_CUDA_CU_API TensorView* unaryOp(UnaryOpType type, TensorView* v1);
-TORCH_CUDA_CU_API Val* unaryIsOp(UnaryOpType type, Val* v1);
-TORCH_CUDA_CU_API TensorView* unaryIsOp(UnaryOpType type, TensorView* v1);
-TORCH_CUDA_CU_API Val* unaryOp(
+NVF_API Val* unaryOp(UnaryOpType type, Val* v1);
+NVF_API TensorView* unaryOp(UnaryOpType type, TensorView* v1);
+NVF_API Val* unaryIsOp(UnaryOpType type, Val* v1);
+TensorView* unaryIsOp(UnaryOpType type, TensorView* v1);
+NVF_API Val* unaryOp(
     UnaryOpType type,
     Val* v1,
     const TypePromotionConfig& config);
-TORCH_CUDA_CU_API TensorView* unaryOp(
+NVF_API TensorView* unaryOp(
     UnaryOpType type,
     TensorView* v1,
     const TypePromotionConfig& config);
 
 // Perform binary op type on v1 and v2 and return a type promoted output.
 // Mod, CeilDiv, and LT are considered Int only output operations for now.
-TORCH_CUDA_CU_API Val* binaryOp(
+NVF_API Val* binaryOp(
     BinaryOpType type,
     Val* v1,
     Val* v2,
     DataType out_dtype = DataType::Null);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     TensorView* v1,
     Val* v2,
     DataType out_dtype = DataType::Null);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     Val* v1,
     TensorView* v2,
     DataType out_dtype = DataType::Null);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     TensorView* v1,
     TensorView* v2,
     DataType out_dtype = DataType::Null);
 
-TORCH_CUDA_CU_API Val* binaryOp(
+NVF_API Val* binaryOp(
     BinaryOpType type,
     Val* v1,
     Val* v2,
     const TypePromotionConfig& config);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     TensorView* v1,
     Val* v2,
     const TypePromotionConfig& config);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     Val* v1,
     TensorView* v2,
     const TypePromotionConfig& config);
-TORCH_CUDA_CU_API TensorView* binaryOp(
+NVF_API TensorView* binaryOp(
     BinaryOpType type,
     TensorView* v1,
     TensorView* v2,
     const TypePromotionConfig& config);
+
+// Return a new TensorView consistent with reducing `tv` on specified `axes`
+NVF_API TensorView* newForReduction(
+    TensorView* tv,
+    const std::vector<unsigned int>& axes,
+    DataType data_type = DataType::Null);
 
 // Perform a reduction operation on v1, initial value for reduction is init,
 // reduces across axes, and reduction operation defined by BinaryOp. Reduction
 // of size-1 dimension is automatically converted to squeeze.
-TORCH_CUDA_CU_API TensorView* reductionOp(
+NVF_API TensorView* reductionOp(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* v1,
     bool keep_dim = false,
@@ -105,9 +113,9 @@ TORCH_CUDA_CU_API TensorView* reductionOp(
 
 // Just create a ReductionOp, don't try to simplify it. Don't convert size-1
 // reduction into squeeze and don't convert size-0 reduction into full.
-TORCH_CUDA_CU_API TensorView* reductionOpRaw(
+NVF_API TensorView* reductionOpRaw(
     BinaryOpType reduction_op_type,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init,
     TensorView* v1,
     bool keep_dim = false,
@@ -115,8 +123,7 @@ TORCH_CUDA_CU_API TensorView* reductionOpRaw(
 
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
-class TORCH_CUDA_CU_API WelfordResult {
- public:
+struct WelfordResult {
   TensorView* avg;
   TensorView* var_sum;
   TensorView* n;
@@ -128,12 +135,30 @@ class TORCH_CUDA_CU_API WelfordResult {
       const bool check_definition = true);
 };
 
+//! Auxiliary struct holding the result of a topk operation.
+//!
+//! Contains two TensorViews:
+//! - values: tensor containing the k largest/smallest values
+//! - indices: tensor containing the indices of those values in the original
+//! tensor
+//!
+//! Both tensors have the same shape as the input tensor, except the dimension
+//! along which topk was performed has size k.
+struct TopKResult {
+ public:
+  TensorView* values = nullptr; //!< The k largest/smallest values
+  TensorView* indices; //!< Indices of the values in the original tensor
+
+  //! Constructor ensuring both outputs come from the same TopK operation
+  explicit TopKResult(TensorView* in_values, TensorView* in_indices);
+};
+
 //! Welford operator on specified axes. This is currently the only scan op with
 //! multiple outputs that is supported. May consider generalization if more scan
 //! ops are added.
-TORCH_CUDA_CU_API WelfordResult Welford(
+NVF_API WelfordResult Welford(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
@@ -142,9 +167,9 @@ TORCH_CUDA_CU_API WelfordResult Welford(
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
-TORCH_CUDA_CU_API WelfordResult WelfordRaw(
+WelfordResult WelfordRaw(
     TensorView* tv,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
     TensorView* init_var = nullptr,
     // Initializes to 0 in function definition, doing this so we don't have to
@@ -152,12 +177,13 @@ TORCH_CUDA_CU_API WelfordResult WelfordRaw(
     Val* init_N = nullptr);
 
 // RNG OPERATIONS
-TORCH_CUDA_CU_API TensorView* rand(
+NVF_API TensorView* rand(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
-TORCH_CUDA_CU_API TensorView* rand_like(
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
+NVF_API TensorView* rand_like(
     TensorView*,
     Val* philox_seed,
     Val* philox_offset);
@@ -167,60 +193,63 @@ TORCH_CUDA_CU_API TensorView* rand_like(
 // nvfuser::Val* (*)(nvfuser::Val*). In order to avoid errors due to that
 // static_cast, we just implement the unary and ternary versions of the random
 // *_like operators as separate functions.
-TORCH_CUDA_CU_API Val* rand_like(Val*, Val* philox_seed, Val* philox_offset);
-TORCH_CUDA_CU_API TensorView* rand_like(TensorView* tv);
-TORCH_CUDA_CU_API Val* rand_like(Val* val);
+NVF_API Val* rand_like(Val*, Val* philox_seed, Val* philox_offset);
+NVF_API TensorView* rand_like(TensorView* tv);
+NVF_API Val* rand_like(Val* val);
 
-TORCH_CUDA_CU_API TensorView* randn(
+NVF_API TensorView* randn(
     const std::vector<Val*>& shape,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
-TORCH_CUDA_CU_API TensorView* randn_like(
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
+NVF_API TensorView* randn_like(
     TensorView*,
     Val* philox_seed,
     Val* philox_offset);
-TORCH_CUDA_CU_API Val* randn_like(Val*, Val* philox_seed, Val* philox_offset);
-TORCH_CUDA_CU_API TensorView* randn_like(TensorView* tv);
-TORCH_CUDA_CU_API Val* randn_like(Val* val);
+NVF_API Val* randn_like(Val*, Val* philox_seed, Val* philox_offset);
+NVF_API TensorView* randn_like(TensorView* tv);
+NVF_API Val* randn_like(Val* val);
 
-TORCH_CUDA_CU_API TensorView* uniform(
+NVF_API TensorView* uniform(
     const std::vector<Val*>& shape,
     Val* low,
     Val* high,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
-TORCH_CUDA_CU_API TensorView* normal(
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
+NVF_API TensorView* normal(
     const std::vector<Val*>& shape,
     Val* mean,
     Val* std,
     DataType dtype,
     Val* philox_seed = nullptr,
-    Val* philox_offset = nullptr);
+    Val* philox_offset = nullptr,
+    bool maybe_symbolic = true);
 
 // TENSOR FACTORIES
-TORCH_CUDA_CU_API TensorView* full(
+NVF_API TensorView* full(
     const std::vector<Val*>& shape,
     Val* fill_value,
-    DataType dtype);
-TORCH_CUDA_CU_API TensorView* full_like(
-    TensorView* tv,
-    Val* fill_value,
-    DataType dtype);
-TORCH_CUDA_CU_API TensorView* full_like(TensorView* tv, Val* fill_value);
-TORCH_CUDA_CU_API Val* full_like(Val* tv, Val* fill_value);
-TORCH_CUDA_CU_API TensorView* zeros(
+    DataType dtype,
+    bool maybe_symbolic = true);
+NVF_API TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype);
+NVF_API TensorView* full_like(TensorView* tv, Val* fill_value);
+Val* full_like(Val* tv, Val* fill_value);
+NVF_API TensorView* zeros(
     const std::vector<Val*>& shape,
-    DataType dtype);
-TORCH_CUDA_CU_API TensorView* zeros_like(TensorView*);
-TORCH_CUDA_CU_API Val* zeros_like(Val*);
-TORCH_CUDA_CU_API TensorView* ones(
+    DataType dtype,
+    bool maybe_symbolic = true);
+NVF_API TensorView* zeros_like(TensorView*);
+Val* zeros_like(Val*);
+NVF_API TensorView* ones(
     const std::vector<Val*>& shape,
-    DataType dtype);
-TORCH_CUDA_CU_API TensorView* ones_like(TensorView*);
-TORCH_CUDA_CU_API Val* ones_like(Val*);
-TORCH_CUDA_CU_API TensorView* iota(
+    DataType dtype,
+    bool maybe_symbolic = true);
+NVF_API TensorView* ones_like(TensorView*);
+Val* ones_like(Val*);
+NVF_API TensorView* iota(
     Val* length,
     Val* start = nullptr,
     Val* step = nullptr,
@@ -228,442 +257,399 @@ TORCH_CUDA_CU_API TensorView* iota(
 //! WARNING: giving invalid combinations of the start, end and step
 //! arguments can result in undefined behavior. Specifically, the
 //! signs of `end - start` and step must be the same.
-TORCH_CUDA_CU_API TensorView* arange(Val* end, DataType dtype = DataType::Int);
-TORCH_CUDA_CU_API TensorView* arange(
+NVF_API TensorView* arange(Val* end, DataType dtype = DataType::Int);
+NVF_API TensorView* arange(
     Val* start,
     Val* end,
     DataType dtype = DataType::Int);
-TORCH_CUDA_CU_API TensorView* arange(
+NVF_API TensorView* arange(
     Val* start,
     Val* end,
     Val* step,
     DataType dtype = DataType::Int);
-TORCH_CUDA_CU_API TensorView* eye(Val* size, DataType dtype);
-TORCH_CUDA_CU_API TensorView* eye(Val* rows, Val* cols, DataType dtype);
+NVF_API TensorView* eye(Val* size, DataType dtype);
+NVF_API TensorView* eye(Val* rows, Val* cols, DataType dtype);
 
 // UNARY OPERATIONS
 // abs
-TORCH_CUDA_CU_API Val* abs(Val*);
-TORCH_CUDA_CU_API TensorView* abs(TensorView*);
+NVF_API Val* abs(Val*);
+NVF_API TensorView* abs(TensorView*);
 // acos
-TORCH_CUDA_CU_API Val* acos(Val*);
-TORCH_CUDA_CU_API TensorView* acos(TensorView*);
+NVF_API Val* acos(Val*);
+NVF_API TensorView* acos(TensorView*);
 // acosh
-TORCH_CUDA_CU_API Val* acosh(Val*);
-TORCH_CUDA_CU_API TensorView* acosh(TensorView*);
+NVF_API Val* acosh(Val*);
+NVF_API TensorView* acosh(TensorView*);
 // asin
-TORCH_CUDA_CU_API Val* asin(Val*);
-TORCH_CUDA_CU_API TensorView* asin(TensorView*);
+NVF_API Val* asin(Val*);
+NVF_API TensorView* asin(TensorView*);
 // asinh
-TORCH_CUDA_CU_API Val* asinh(Val*);
-TORCH_CUDA_CU_API TensorView* asinh(TensorView*);
+NVF_API Val* asinh(Val*);
+NVF_API TensorView* asinh(TensorView*);
 // atan
-TORCH_CUDA_CU_API Val* atan(Val*);
-TORCH_CUDA_CU_API TensorView* atan(TensorView*);
+NVF_API Val* atan(Val*);
+NVF_API TensorView* atan(TensorView*);
 // atanh
-TORCH_CUDA_CU_API Val* atanh(Val*);
-TORCH_CUDA_CU_API TensorView* atanh(TensorView*);
+NVF_API Val* atanh(Val*);
+NVF_API TensorView* atanh(TensorView*);
 // ceil
-TORCH_CUDA_CU_API Val* ceil(Val*);
-TORCH_CUDA_CU_API TensorView* ceil(TensorView*);
+NVF_API Val* ceil(Val*);
+NVF_API TensorView* ceil(TensorView*);
 // cos
-TORCH_CUDA_CU_API Val* cos(Val*);
-TORCH_CUDA_CU_API TensorView* cos(TensorView*);
+NVF_API Val* cos(Val*);
+NVF_API TensorView* cos(TensorView*);
 // cosh
-TORCH_CUDA_CU_API Val* cosh(Val*);
-TORCH_CUDA_CU_API TensorView* cosh(TensorView*);
+NVF_API Val* cosh(Val*);
+NVF_API TensorView* cosh(TensorView*);
 // exp
-TORCH_CUDA_CU_API Val* exp(Val*);
-TORCH_CUDA_CU_API TensorView* exp(TensorView*);
+NVF_API Val* exp(Val*);
+NVF_API TensorView* exp(TensorView*);
 // exp2
-TORCH_CUDA_CU_API Val* exp2(Val*);
-TORCH_CUDA_CU_API TensorView* exp2(TensorView*);
+NVF_API Val* exp2(Val*);
+NVF_API TensorView* exp2(TensorView*);
 // expm1
-TORCH_CUDA_CU_API Val* expm1(Val*);
-TORCH_CUDA_CU_API TensorView* expm1(TensorView*);
+NVF_API Val* expm1(Val*);
+NVF_API TensorView* expm1(TensorView*);
 // erf
-TORCH_CUDA_CU_API Val* erf(Val*);
-TORCH_CUDA_CU_API TensorView* erf(TensorView*);
+NVF_API Val* erf(Val*);
+NVF_API TensorView* erf(TensorView*);
 // erfc
-TORCH_CUDA_CU_API Val* erfc(Val*);
-TORCH_CUDA_CU_API TensorView* erfc(TensorView*);
+NVF_API Val* erfc(Val*);
+NVF_API TensorView* erfc(TensorView*);
 // erfinv
-TORCH_CUDA_CU_API Val* erfinv(Val*);
-TORCH_CUDA_CU_API TensorView* erfinv(TensorView*);
+NVF_API Val* erfinv(Val*);
+NVF_API TensorView* erfinv(TensorView*);
 // erfcinv
-TORCH_CUDA_CU_API Val* erfcinv(Val*);
-TORCH_CUDA_CU_API TensorView* erfcinv(TensorView*);
+NVF_API Val* erfcinv(Val*);
+NVF_API TensorView* erfcinv(TensorView*);
 // floor
-TORCH_CUDA_CU_API Val* floor(Val*);
-TORCH_CUDA_CU_API TensorView* floor(TensorView*);
+NVF_API Val* floor(Val*);
+NVF_API TensorView* floor(TensorView*);
 // frac
-TORCH_CUDA_CU_API Val* frac(Val*);
-TORCH_CUDA_CU_API TensorView* frac(TensorView*);
+NVF_API Val* frac(Val*);
+NVF_API TensorView* frac(TensorView*);
 // silu
-TORCH_CUDA_CU_API Val* silu(Val*);
-TORCH_CUDA_CU_API TensorView* silu(TensorView*);
+NVF_API Val* silu(Val*);
+NVF_API TensorView* silu(TensorView*);
 // lgamma
-TORCH_CUDA_CU_API Val* lgamma(Val*);
-TORCH_CUDA_CU_API TensorView* lgamma(TensorView*);
+NVF_API Val* lgamma(Val*);
+NVF_API TensorView* lgamma(TensorView*);
 // log
-TORCH_CUDA_CU_API Val* log(Val*);
-TORCH_CUDA_CU_API TensorView* log(TensorView*);
+NVF_API Val* log(Val*);
+NVF_API TensorView* log(TensorView*);
 // log10
-TORCH_CUDA_CU_API Val* log10(Val*);
-TORCH_CUDA_CU_API TensorView* log10(TensorView*);
+NVF_API Val* log10(Val*);
+NVF_API TensorView* log10(TensorView*);
 // log1p
-TORCH_CUDA_CU_API Val* log1p(Val*);
-TORCH_CUDA_CU_API TensorView* log1p(TensorView*);
+NVF_API Val* log1p(Val*);
+NVF_API TensorView* log1p(TensorView*);
 // log2
-TORCH_CUDA_CU_API Val* log2(Val*);
-TORCH_CUDA_CU_API TensorView* log2(TensorView*);
+NVF_API Val* log2(Val*);
+NVF_API TensorView* log2(TensorView*);
 // neg
-TORCH_CUDA_CU_API Val* neg(Val*);
-TORCH_CUDA_CU_API TensorView* neg(TensorView*);
+NVF_API Val* neg(Val*);
+NVF_API TensorView* neg(TensorView*);
 // logical_not
-TORCH_CUDA_CU_API Val* logical_not(Val*);
-TORCH_CUDA_CU_API TensorView* logical_not(TensorView*);
+NVF_API Val* logical_not(Val*);
+NVF_API TensorView* logical_not(TensorView*);
 // bitwise_not
-TORCH_CUDA_CU_API Val* bitwise_not(Val*);
-TORCH_CUDA_CU_API TensorView* bitwise_not(TensorView*);
+NVF_API Val* bitwise_not(Val*);
+NVF_API TensorView* bitwise_not(TensorView*);
 // real
-TORCH_CUDA_CU_API Val* real(Val*);
-TORCH_CUDA_CU_API TensorView* real(TensorView*);
+NVF_API Val* real(Val*);
+NVF_API TensorView* real(TensorView*);
 // reciprocal
-TORCH_CUDA_CU_API Val* reciprocal(Val*);
-TORCH_CUDA_CU_API TensorView* reciprocal(TensorView*);
+NVF_API Val* reciprocal(Val*);
+NVF_API TensorView* reciprocal(TensorView*);
 // relu
-TORCH_CUDA_CU_API Val* relu(Val*);
-TORCH_CUDA_CU_API TensorView* relu(TensorView*);
+NVF_API Val* relu(Val*);
+NVF_API TensorView* relu(TensorView*);
 // rsqrt
-TORCH_CUDA_CU_API Val* rsqrt(Val*);
-TORCH_CUDA_CU_API TensorView* rsqrt(TensorView*);
+NVF_API Val* rsqrt(Val*);
+NVF_API TensorView* rsqrt(TensorView*);
 // round
-TORCH_CUDA_CU_API Val* round(Val*);
-TORCH_CUDA_CU_API TensorView* round(TensorView*);
+NVF_API Val* round(Val*);
+NVF_API TensorView* round(TensorView*);
 // sigmoid
-TORCH_CUDA_CU_API Val* sigmoid(Val*);
-TORCH_CUDA_CU_API TensorView* sigmoid(TensorView*);
+NVF_API Val* sigmoid(Val*);
+NVF_API TensorView* sigmoid(TensorView*);
 // signbit
-TORCH_CUDA_CU_API Val* signbit(Val*);
-TORCH_CUDA_CU_API TensorView* signbit(TensorView*);
+NVF_API Val* signbit(Val*);
+NVF_API TensorView* signbit(TensorView*);
 // sin
-TORCH_CUDA_CU_API Val* sin(Val*);
-TORCH_CUDA_CU_API TensorView* sin(TensorView*);
+NVF_API Val* sin(Val*);
+NVF_API TensorView* sin(TensorView*);
 // sinh
-TORCH_CUDA_CU_API Val* sinh(Val*);
-TORCH_CUDA_CU_API TensorView* sinh(TensorView*);
+NVF_API Val* sinh(Val*);
+NVF_API TensorView* sinh(TensorView*);
 // sqrt
-TORCH_CUDA_CU_API Val* sqrt(Val*);
-TORCH_CUDA_CU_API TensorView* sqrt(TensorView*);
+NVF_API Val* sqrt(Val*);
+NVF_API TensorView* sqrt(TensorView*);
 // tan
-TORCH_CUDA_CU_API Val* tan(Val*);
-TORCH_CUDA_CU_API TensorView* tan(TensorView*);
+NVF_API Val* tan(Val*);
+NVF_API TensorView* tan(TensorView*);
 // tanh
-TORCH_CUDA_CU_API Val* tanh(Val*);
-TORCH_CUDA_CU_API TensorView* tanh(TensorView*);
+NVF_API Val* tanh(Val*);
+NVF_API TensorView* tanh(TensorView*);
 // trunc
-TORCH_CUDA_CU_API Val* trunc(Val*);
-TORCH_CUDA_CU_API TensorView* trunc(TensorView*);
+NVF_API Val* trunc(Val*);
+NVF_API TensorView* trunc(TensorView*);
 // bitwise_not
-TORCH_CUDA_CU_API Val* bitwise_not(Val*);
-TORCH_CUDA_CU_API TensorView* bitwise_not(TensorView*);
+NVF_API Val* bitwise_not(Val*);
+NVF_API TensorView* bitwise_not(TensorView*);
+// bitceil
+NVF_API Val* bitceil(Val*);
+NVF_API TensorView* bitceil(TensorView*);
 // imag
-TORCH_CUDA_CU_API Val* imag(Val*);
-TORCH_CUDA_CU_API TensorView* imag(TensorView*);
+NVF_API Val* imag(Val*);
+NVF_API TensorView* imag(TensorView*);
 // isfinite
-TORCH_CUDA_CU_API Val* isfinite(Val*);
-TORCH_CUDA_CU_API TensorView* isfinite(TensorView*);
+NVF_API Val* isfinite(Val*);
+NVF_API TensorView* isfinite(TensorView*);
 // isinf
-TORCH_CUDA_CU_API Val* isinf(Val*);
-TORCH_CUDA_CU_API TensorView* isinf(TensorView*);
+NVF_API Val* isinf(Val*);
+NVF_API TensorView* isinf(TensorView*);
 // isnan
-TORCH_CUDA_CU_API Val* isnan(Val*);
-TORCH_CUDA_CU_API TensorView* isnan(TensorView*);
+NVF_API Val* isnan(Val*);
+NVF_API TensorView* isnan(TensorView*);
 // isneginf
-TORCH_CUDA_CU_API Val* isneginf(Val*);
-TORCH_CUDA_CU_API TensorView* isneginf(TensorView*);
+NVF_API Val* isneginf(Val*);
+NVF_API TensorView* isneginf(TensorView*);
 // isposinf
-TORCH_CUDA_CU_API Val* isposinf(Val*);
-TORCH_CUDA_CU_API TensorView* isposinf(TensorView*);
+NVF_API Val* isposinf(Val*);
+NVF_API TensorView* isposinf(TensorView*);
 // isreal
-TORCH_CUDA_CU_API Val* isreal(Val*);
-TORCH_CUDA_CU_API TensorView* isreal(TensorView*);
+NVF_API Val* isreal(Val*);
+NVF_API TensorView* isreal(TensorView*);
 // print
-TORCH_CUDA_CU_API Val* print(Val*);
-TORCH_CUDA_CU_API TensorView* print(TensorView*);
+NVF_API Val* print(Val*);
+NVF_API TensorView* print(TensorView*);
 
-// Broadcasts inp based on bool vector. Size of broadcast bool vector should be
-// the number of dims desired in the broadcasted tensor. This vector should be
-// true if output dim should be a broadcasted dim, and false if it is not a
-// broadcasted dim. Number of false entires must match the number of input dims.
-TORCH_CUDA_CU_API TensorView* broadcast(
-    TensorView* inp,
-    const std::vector<bool>& is_broadcast_dim);
-
-// Expands input based on provided sizes. expand_sizes should be larger than
-// the input's root domain (really rfactor) and will broadcast on inner
-// dimensions. expand_sizes should be -1 for any dimension that should remain a
-// symbolic size. For dimensions that remain broadcast after the expand should
-// be set to 1, any dimension being expanded must be marked as a broadcast in
-// the input and will be expanded to the provided constant size. Any dimension
-// that's symbolic in the input but specified as a non -1 value will be set to
-// that constant value.
-TORCH_CUDA_CU_API TensorView* expand(
-    TensorView* inp,
-    const std::vector<Val*>& expanded_sizes);
-
-// Expands input based on other. For dimensions in inp that are broadcast with a
-// matching entry in other that's either a broadcast with expanded extent or a
-// non broadcasted iter domain, inp will be expanded to other's size.
-TORCH_CUDA_CU_API TensorView* expand_as(TensorView* inp, TensorView* other);
-
-// This is a function used to give the symbolic sizes of a tensor for use
-// with functions like broadcast_in_size that take in a vector of sizes
-// to use to expand an input tensor
-TORCH_CUDA_CU_API std::vector<Val*> tensor_sizes(TensorView* inp);
 // This is a function used to give the symbolic shape of a tensor for use
 // with functions like broadcast_in_dim that take a shape vector
 // to use to expand an input tensor
-TORCH_CUDA_CU_API std::vector<Val*> shape(TensorView* inp);
+NVF_API std::vector<Val*> shape(TensorView* inp);
 // Get the symbolic size of a specific dimension of a tensor
-TORCH_CUDA_CU_API Val* size(TensorView* inp, int64_t dim);
-TORCH_CUDA_CU_API Val* at(std::vector<Val*>& inp, int64_t index);
+NVF_API Val* size(TensorView* inp, int64_t dim);
+NVF_API Val* at(const std::vector<Val*>& inp, int64_t index);
 
 // BINARY OPERATIONS
 // add
-TORCH_CUDA_CU_API Val* add(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* add(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* add(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* add(TensorView* v1, TensorView* v2);
+NVF_API Val* add(Val* v1, Val* v2);
+NVF_API TensorView* add(TensorView* v1, Val* v2);
+NVF_API TensorView* add(Val* v1, TensorView* v2);
+NVF_API TensorView* add(TensorView* v1, TensorView* v2);
 // atan2
-TORCH_CUDA_CU_API Val* atan2(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* atan2(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* atan2(TensorView* v1, TensorView* v2);
+NVF_API Val* atan2(Val* v1, Val* v2);
+NVF_API TensorView* atan2(TensorView* v1, Val* v2);
+NVF_API TensorView* atan2(Val* v1, TensorView* v2);
+NVF_API TensorView* atan2(TensorView* v1, TensorView* v2);
 // truediv: promote to float for integer division, has the same semantics as the
 // python's operator /
-TORCH_CUDA_CU_API Val* truediv(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* truediv(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* truediv(TensorView* v1, TensorView* v2);
+NVF_API Val* truediv(Val* v1, Val* v2);
+NVF_API TensorView* truediv(TensorView* v1, Val* v2);
+NVF_API TensorView* truediv(Val* v1, TensorView* v2);
+NVF_API TensorView* truediv(TensorView* v1, TensorView* v2);
 // div: don't promote to float, instead, truncate the result, this has the same
 // semantics as the C++'s operator /
-TORCH_CUDA_CU_API Val* div(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* div(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* div(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* div(TensorView* v1, TensorView* v2);
+NVF_API Val* div(Val* v1, Val* v2);
+NVF_API TensorView* div(TensorView* v1, Val* v2);
+NVF_API TensorView* div(Val* v1, TensorView* v2);
+NVF_API TensorView* div(TensorView* v1, TensorView* v2);
 // fmod
-TORCH_CUDA_CU_API Val* fmod(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* fmod(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* fmod(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* fmod(TensorView* v1, TensorView* v2);
+NVF_API Val* fmod(Val* v1, Val* v2);
+NVF_API TensorView* fmod(TensorView* v1, Val* v2);
+NVF_API TensorView* fmod(Val* v1, TensorView* v2);
+NVF_API TensorView* fmod(TensorView* v1, TensorView* v2);
 // mul
-TORCH_CUDA_CU_API Val* mul(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* mul(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* mul(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* mul(TensorView* v1, TensorView* v2);
+NVF_API Val* mul(Val* v1, Val* v2);
+NVF_API TensorView* mul(TensorView* v1, Val* v2);
+NVF_API TensorView* mul(Val* v1, TensorView* v2);
+NVF_API TensorView* mul(TensorView* v1, TensorView* v2);
 // pow
-TORCH_CUDA_CU_API Val* pow(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* pow(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* pow(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* pow(TensorView* v1, TensorView* v2);
+NVF_API Val* pow(Val* v1, Val* v2);
+NVF_API TensorView* pow(TensorView* v1, Val* v2);
+NVF_API TensorView* pow(Val* v1, TensorView* v2);
+NVF_API TensorView* pow(TensorView* v1, TensorView* v2);
 // remainder
-TORCH_CUDA_CU_API Val* remainder(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* remainder(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* remainder(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* remainder(TensorView* v1, TensorView* v2);
+NVF_API Val* remainder(Val* v1, Val* v2);
+NVF_API TensorView* remainder(TensorView* v1, Val* v2);
+NVF_API TensorView* remainder(Val* v1, TensorView* v2);
+NVF_API TensorView* remainder(TensorView* v1, TensorView* v2);
 // sub
-TORCH_CUDA_CU_API Val* sub(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* sub(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* sub(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* sub(TensorView* v1, TensorView* v2);
+NVF_API Val* sub(Val* v1, Val* v2);
+NVF_API TensorView* sub(TensorView* v1, Val* v2);
+NVF_API TensorView* sub(Val* v1, TensorView* v2);
+NVF_API TensorView* sub(TensorView* v1, TensorView* v2);
+// maximum
+NVF_API Val* maximum(Val* v1, Val* v2);
+NVF_API TensorView* maximum(TensorView* v1, Val* v2);
+NVF_API TensorView* maximum(Val* v1, TensorView* v2);
+NVF_API TensorView* maximum(TensorView* v1, TensorView* v2);
+// minimum
+NVF_API Val* minimum(Val* v1, Val* v2);
+NVF_API TensorView* minimum(TensorView* v1, Val* v2);
+NVF_API TensorView* minimum(Val* v1, TensorView* v2);
+NVF_API TensorView* minimum(TensorView* v1, TensorView* v2);
 // nextafter: Only single- or double-precision
 // floating point types (after promotion) are supported.
-TORCH_CUDA_CU_API Val* nextafter(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* nextafter(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* nextafter(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* nextafter(TensorView* v1, TensorView* v2);
+NVF_API Val* nextafter(Val* v1, Val* v2);
+NVF_API TensorView* nextafter(TensorView* v1, Val* v2);
+NVF_API TensorView* nextafter(Val* v1, TensorView* v2);
+NVF_API TensorView* nextafter(TensorView* v1, TensorView* v2);
 // Integer binary ops
 // mod
-TORCH_CUDA_CU_API Val* mod(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* mod(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* mod(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* mod(TensorView* v1, TensorView* v2);
+NVF_API Val* mod(Val* v1, Val* v2);
+NVF_API TensorView* mod(TensorView* v1, Val* v2);
+NVF_API TensorView* mod(Val* v1, TensorView* v2);
+NVF_API TensorView* mod(TensorView* v1, TensorView* v2);
 // ceilDiv
-TORCH_CUDA_CU_API Val* ceilDiv(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ceilDiv(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* ceilDiv(TensorView* v1, TensorView* v2);
+NVF_API Val* ceilDiv(Val* v1, Val* v2);
+TensorView* ceilDiv(TensorView* v1, Val* v2);
+TensorView* ceilDiv(Val* v1, TensorView* v2);
+TensorView* ceilDiv(TensorView* v1, TensorView* v2);
 // Bitwise and logical binary ops
 // bitwise_and
-TORCH_CUDA_CU_API Val* bitwise_and(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_and(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_and(TensorView* v1, TensorView* v2);
+NVF_API Val* bitwise_and(Val* v1, Val* v2);
+NVF_API TensorView* bitwise_and(TensorView* v1, Val* v2);
+NVF_API TensorView* bitwise_and(Val* v1, TensorView* v2);
+NVF_API TensorView* bitwise_and(TensorView* v1, TensorView* v2);
 // logical_and
-TORCH_CUDA_CU_API Val* logical_and(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* logical_and(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* logical_and(TensorView* v1, TensorView* v2);
+NVF_API Val* logical_and(Val* v1, Val* v2);
+NVF_API TensorView* logical_and(TensorView* v1, Val* v2);
+NVF_API TensorView* logical_and(Val* v1, TensorView* v2);
+NVF_API TensorView* logical_and(TensorView* v1, TensorView* v2);
 // bitwise_left_shift
-TORCH_CUDA_CU_API Val* bitwise_left_shift(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_left_shift(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_left_shift(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_left_shift(
-    TensorView* v1,
-    TensorView* v2);
+NVF_API Val* bitwise_left_shift(Val* v1, Val* v2);
+NVF_API TensorView* bitwise_left_shift(TensorView* v1, Val* v2);
+NVF_API TensorView* bitwise_left_shift(Val* v1, TensorView* v2);
+NVF_API TensorView* bitwise_left_shift(TensorView* v1, TensorView* v2);
 // bitwise_right_shift
-TORCH_CUDA_CU_API Val* bitwise_right_shift(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_right_shift(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_right_shift(
-    TensorView* v1,
-    TensorView* v2);
+NVF_API Val* bitwise_right_shift(Val* v1, Val* v2);
+NVF_API TensorView* bitwise_right_shift(TensorView* v1, Val* v2);
+NVF_API TensorView* bitwise_right_shift(Val* v1, TensorView* v2);
+NVF_API TensorView* bitwise_right_shift(TensorView* v1, TensorView* v2);
 // logical_right_shift
-TORCH_CUDA_CU_API TensorView* logical_right_shift(
-    TensorView* x,
-    TensorView* shift);
-TORCH_CUDA_CU_API TensorView* logical_right_shift(TensorView* x, Val* shift);
-TORCH_CUDA_CU_API TensorView* logical_right_shift(Val* x, TensorView* shift);
-TORCH_CUDA_CU_API Val* logical_right_shift(Val* x, Val* shift);
+NVF_API TensorView* logical_right_shift(TensorView* x, TensorView* shift);
+NVF_API TensorView* logical_right_shift(TensorView* x, Val* shift);
+NVF_API TensorView* logical_right_shift(Val* x, TensorView* shift);
+NVF_API Val* logical_right_shift(Val* x, Val* shift);
 // bitwise_or
-TORCH_CUDA_CU_API Val* bitwise_or(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_or(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_or(TensorView* v1, TensorView* v2);
+NVF_API Val* bitwise_or(Val* v1, Val* v2);
+NVF_API TensorView* bitwise_or(TensorView* v1, Val* v2);
+NVF_API TensorView* bitwise_or(Val* v1, TensorView* v2);
+NVF_API TensorView* bitwise_or(TensorView* v1, TensorView* v2);
 // logical_or
-TORCH_CUDA_CU_API Val* logical_or(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* logical_or(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* logical_or(TensorView* v1, TensorView* v2);
+NVF_API Val* logical_or(Val* v1, Val* v2);
+NVF_API TensorView* logical_or(TensorView* v1, Val* v2);
+NVF_API TensorView* logical_or(Val* v1, TensorView* v2);
+NVF_API TensorView* logical_or(TensorView* v1, TensorView* v2);
 // bitwise_xor
-TORCH_CUDA_CU_API Val* bitwise_xor(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_xor(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* bitwise_xor(TensorView* v1, TensorView* v2);
+NVF_API Val* bitwise_xor(Val* v1, Val* v2);
+NVF_API TensorView* bitwise_xor(TensorView* v1, Val* v2);
+NVF_API TensorView* bitwise_xor(Val* v1, TensorView* v2);
+NVF_API TensorView* bitwise_xor(TensorView* v1, TensorView* v2);
 // gcd
-TORCH_CUDA_CU_API Val* gcd(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* gcd(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* gcd(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* gcd(TensorView* v1, TensorView* v2);
+NVF_API Val* gcd(Val* v1, Val* v2);
+NVF_API TensorView* gcd(TensorView* v1, Val* v2);
+NVF_API TensorView* gcd(Val* v1, TensorView* v2);
+NVF_API TensorView* gcd(TensorView* v1, TensorView* v2);
 // Logical binary ops
 // eq
-TORCH_CUDA_CU_API Val* eq(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* eq(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* eq(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* eq(TensorView* v1, TensorView* v2);
+NVF_API Val* eq(Val* v1, Val* v2);
+NVF_API TensorView* eq(TensorView* v1, Val* v2);
+NVF_API TensorView* eq(Val* v1, TensorView* v2);
+NVF_API TensorView* eq(TensorView* v1, TensorView* v2);
 // ge
-TORCH_CUDA_CU_API Val* ge(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ge(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ge(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* ge(TensorView* v1, TensorView* v2);
+NVF_API Val* ge(Val* v1, Val* v2);
+NVF_API TensorView* ge(TensorView* v1, Val* v2);
+NVF_API TensorView* ge(Val* v1, TensorView* v2);
+NVF_API TensorView* ge(TensorView* v1, TensorView* v2);
 // gt
-TORCH_CUDA_CU_API Val* gt(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* gt(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* gt(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* gt(TensorView* v1, TensorView* v2);
+NVF_API Val* gt(Val* v1, Val* v2);
+NVF_API TensorView* gt(TensorView* v1, Val* v2);
+NVF_API TensorView* gt(Val* v1, TensorView* v2);
+NVF_API TensorView* gt(TensorView* v1, TensorView* v2);
 // le
-TORCH_CUDA_CU_API Val* le(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* le(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* le(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* le(TensorView* v1, TensorView* v2);
+NVF_API Val* le(Val* v1, Val* v2);
+NVF_API TensorView* le(TensorView* v1, Val* v2);
+NVF_API TensorView* le(Val* v1, TensorView* v2);
+NVF_API TensorView* le(TensorView* v1, TensorView* v2);
 // lt
-TORCH_CUDA_CU_API Val* lt(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* lt(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* lt(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* lt(TensorView* v1, TensorView* v2);
+NVF_API Val* lt(Val* v1, Val* v2);
+NVF_API NVF_API TensorView* lt(TensorView* v1, Val* v2);
+NVF_API TensorView* lt(Val* v1, TensorView* v2);
+NVF_API TensorView* lt(TensorView* v1, TensorView* v2);
 // ne
-TORCH_CUDA_CU_API Val* ne(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* ne(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* ne(TensorView* v1, TensorView* v2);
+NVF_API Val* ne(Val* v1, Val* v2);
+NVF_API TensorView* ne(TensorView* v1, Val* v2);
+NVF_API TensorView* ne(Val* v1, TensorView* v2);
+NVF_API TensorView* ne(TensorView* v1, TensorView* v2);
 
 // complex
-TORCH_CUDA_CU_API Val* complex(Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* complex(Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* complex(TensorView* v1, TensorView* v2);
+Val* complex(Val* v1, Val* v2);
+TensorView* complex(TensorView* v1, Val* v2);
+TensorView* complex(Val* v1, TensorView* v2);
+TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS
-TORCH_CUDA_CU_API TensorView* sum(
+NVF_API TensorView* sum(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
-TORCH_CUDA_CU_API TensorView* prod(
+NVF_API TensorView* prod(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
-TORCH_CUDA_CU_API TensorView* max(
+NVF_API TensorView* max(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
-TORCH_CUDA_CU_API TensorView* min(
+NVF_API TensorView* min(
     TensorView* v1,
-    const std::vector<int>& reduction_axes,
+    const std::vector<int64_t>& reduction_axes,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
 
 // COMPOUND OPERATIONS
 // add_alpha
-TORCH_CUDA_CU_API Val* add_alpha(Val* v1, Val* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* add_alpha(TensorView* v1, Val* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* add_alpha(Val* v1, TensorView* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* s);
+NVF_API Val* add_alpha(Val* v1, Val* v2, Val* s);
+NVF_API TensorView* add_alpha(TensorView* v1, Val* v2, Val* s);
+NVF_API TensorView* add_alpha(Val* v1, TensorView* v2, Val* s);
+NVF_API TensorView* add_alpha(TensorView* v1, TensorView* v2, Val* s);
 // sub_alpha
-TORCH_CUDA_CU_API Val* sub_alpha(Val* v1, Val* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* sub_alpha(TensorView* v1, Val* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* sub_alpha(Val* v1, TensorView* v2, Val* s);
-TORCH_CUDA_CU_API TensorView* sub_alpha(TensorView* v1, TensorView* v2, Val* s);
+NVF_API Val* sub_alpha(Val* v1, Val* v2, Val* s);
+NVF_API TensorView* sub_alpha(TensorView* v1, Val* v2, Val* s);
+NVF_API TensorView* sub_alpha(Val* v1, TensorView* v2, Val* s);
+NVF_API TensorView* sub_alpha(TensorView* v1, TensorView* v2, Val* s);
 // lerp
-TORCH_CUDA_CU_API Val* lerp(Val* start, Val* end, Val* weight);
-TORCH_CUDA_CU_API TensorView* lerp(TensorView* start, Val* end, Val* weight);
-TORCH_CUDA_CU_API TensorView* lerp(Val* start, TensorView* end, Val* weight);
-TORCH_CUDA_CU_API TensorView* lerp(Val* start, Val* end, TensorView* weight);
-TORCH_CUDA_CU_API TensorView* lerp(
-    TensorView* start,
-    TensorView* end,
-    Val* weight);
-TORCH_CUDA_CU_API TensorView* lerp(
-    TensorView* start,
-    Val* end,
-    TensorView* weight);
-TORCH_CUDA_CU_API TensorView* lerp(
-    Val* start,
-    TensorView* end,
-    TensorView* weight);
-TORCH_CUDA_CU_API TensorView* lerp(
+NVF_API Val* lerp(Val* start, Val* end, Val* weight);
+NVF_API TensorView* lerp(TensorView* start, Val* end, Val* weight);
+NVF_API TensorView* lerp(Val* start, TensorView* end, Val* weight);
+NVF_API TensorView* lerp(Val* start, Val* end, TensorView* weight);
+NVF_API TensorView* lerp(TensorView* start, TensorView* end, Val* weight);
+NVF_API TensorView* lerp(TensorView* start, Val* end, TensorView* weight);
+NVF_API TensorView* lerp(Val* start, TensorView* end, TensorView* weight);
+NVF_API TensorView* lerp(
     TensorView* start,
     TensorView* end,
     TensorView* weight);
 
 // addcmul
-TORCH_CUDA_CU_API Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(TensorView* v1, Val* v2, Val* v3, Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(Val* v1, TensorView* v2, Val* v3, Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(Val* v1, Val* v2, TensorView* v3, Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(
-    TensorView* v1,
-    TensorView* v2,
-    Val* v3,
-    Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(
-    TensorView* v1,
-    Val* v2,
-    TensorView* v3,
-    Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(
-    Val* v1,
-    TensorView* v2,
-    TensorView* v3,
-    Val* s);
-TORCH_CUDA_CU_API TensorView* addcmul(
+NVF_API Val* addcmul(Val* v1, Val* v2, Val* v3, Val* s);
+NVF_API TensorView* addcmul(TensorView* v1, Val* v2, Val* v3, Val* s);
+NVF_API TensorView* addcmul(Val* v1, TensorView* v2, Val* v3, Val* s);
+NVF_API TensorView* addcmul(Val* v1, Val* v2, TensorView* v3, Val* s);
+NVF_API TensorView* addcmul(TensorView* v1, TensorView* v2, Val* v3, Val* s);
+NVF_API TensorView* addcmul(TensorView* v1, Val* v2, TensorView* v3, Val* s);
+NVF_API TensorView* addcmul(Val* v1, TensorView* v2, TensorView* v3, Val* s);
+NVF_API TensorView* addcmul(
     TensorView* v1,
     TensorView* v2,
     TensorView* v3,
@@ -671,26 +657,20 @@ TORCH_CUDA_CU_API TensorView* addcmul(
 
 // TERNARY OPERATIONS
 // where
-TORCH_CUDA_CU_API Val* where(Val* c, Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* where(TensorView* c, Val* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* where(Val* c, TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* where(Val* c, Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* where(TensorView* c, TensorView* v1, Val* v2);
-TORCH_CUDA_CU_API TensorView* where(TensorView* c, Val* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* where(Val* c, TensorView* v1, TensorView* v2);
-TORCH_CUDA_CU_API TensorView* where(
-    TensorView* c,
-    TensorView* v1,
-    TensorView* v2);
+NVF_API Val* where(Val* c, Val* v1, Val* v2);
+NVF_API TensorView* where(TensorView* c, Val* v1, Val* v2);
+NVF_API TensorView* where(Val* c, TensorView* v1, Val* v2);
+NVF_API TensorView* where(Val* c, Val* v1, TensorView* v2);
+NVF_API TensorView* where(TensorView* c, TensorView* v1, Val* v2);
+NVF_API TensorView* where(TensorView* c, Val* v1, TensorView* v2);
+NVF_API TensorView* where(Val* c, TensorView* v1, TensorView* v2);
+NVF_API TensorView* where(TensorView* c, TensorView* v1, TensorView* v2);
 // threshold
-TORCH_CUDA_CU_API Val* threshold(Val* in, Val* thresh, Val* value);
-TORCH_CUDA_CU_API TensorView* threshold(
-    TensorView* in,
-    Val* thresh,
-    Val* value);
+NVF_API Val* threshold(Val* in, Val* thresh, Val* value);
+NVF_API TensorView* threshold(TensorView* in, Val* thresh, Val* value);
 // clamp
-TORCH_CUDA_CU_API Val* clamp(Val* in, Val* min_val, Val* max_val);
-TORCH_CUDA_CU_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
+NVF_API Val* clamp(Val* in, Val* min_val, Val* max_val);
+NVF_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 
 //! Internal operator for supporting backward graphs
 //!
@@ -704,104 +684,18 @@ TORCH_CUDA_CU_API TensorView* clamp(TensorView* in, Val* min_val, Val* max_val);
 //!  Name of sum_to is different from NV fuser naming,
 //!  this is to align with the operator name of at::sum_to.
 
-TORCH_CUDA_CU_API TensorView* sum_to(
+NVF_API TensorView* sum_to(
     TensorView* v1,
     const std::vector<Val*>& sum_to_size);
 
-TORCH_CUDA_CU_API TensorView* sum_to(
+NVF_API TensorView* sum_to(
     TensorView* v1,
     const std::vector<int64_t>& sum_to_size);
-
-//! Shift a tensor to a direction specified by offsets.
-//!
-//! Example:
-//!   t0: 2D tensor of size N by M
-//!   t1 = shift(t0, {1, -1});
-//!
-//!   then:
-//!     t1[i, j] = t0[i-1, j+1] for 1 <= i < N and 0 <= j < M-1.
-//!     t1[i, j] = 0, otherwise
-//!
-//! The pad option controls how out-of-boundary accesses are
-//! handled. It specifies how many zeros are logically padded. If no
-//! pad option is given, it automatically pads the input tensor so
-//! that the output tensor has the same extent for each axis.
-//!
-//! When a padding value is smaller than the absolute value of a shift
-//! offset, the output axis still has the same extent but its start or
-//! stop offset is moved inward to signify those outside of the offset
-//! are invalid.
-//!
-//! It is not allowed to use padding values that are larger than shift
-//! offsets, which would mean output extentes would be larger than
-//! input extents
-TORCH_CUDA_CU_API TensorView* shift(
-    TensorView* inp,
-    const std::vector<int>& offsets,
-    const std::vector<int>& pad_width = {});
-
-TORCH_CUDA_CU_API TensorView* shift(
-    TensorView* inp,
-    const std::vector<int>& offsets,
-    bool pad);
-
-//! Gather a window of nearby elements for each element.
-//!
-//! Each window of size window_shape is stored as a additional
-//! innermost domain, meaning that the number of dimensions of the
-//! output tensor doubles. The pad_width parameter specifies the
-//! padding width of each side of each axis. The strides parameter
-//! specifies striding of the operation. Non-unit striding is
-//! implemented with strided split, whose outer output domain becomes
-//! the root domain for subsequent consumers. The inner output domain
-//! becomes a Stride domain, which is ignored by subsequent consumers.
-//! Only valid input ranges are fed into strided splits.
-//!
-//! When trim_out_of_bounds is true, the values at the first and last
-//! ends that are outside of the start and stop offsets are
-//! effetively trimmed by partial split by 1.
-//!
-//! Example 1:
-//!   t0: 2D tensor of [N, M]
-//!   t1 = gather(t0, {1, 3}, {{0, 0}, {1, 1}});
-//!
-//!   then:
-//!     t1: [N, M, 1, 3]
-//!     t1[i, j, k, l] = The value at the window position of [k, l]
-//!                      for t0[i, j]
-//!
-//! Example 2.1 (without trimming):
-//!   t0: 2D tensor of [N, M]
-//!   t1 = gather(t0, {2, 2}, {{0, 0}, {0, 0}});
-//!
-//!   then:
-//!     t1: [N (stop offset: 1), M (stop offset: 1, 2, 2)]
-//!
-//! Example 2.1 (with trimming)
-//!   t0: 2D tensor of [N, M]
-//!   t1 = gather(t0, {2, 2}, {{0, 0}, {0, 0}}, true);
-//!
-//!   then:
-//!     t1: [ceilDiv(N - 1, 1), ceilDiv(M - 1, 1), 2, 2]
-//!
-//! Example 3:
-//!   t0: 2D tensor of [N, M]
-//!   t1 = gather(t0, {3, 3}, {{0, 0}, {0, 0}}, {3, 3});
-//!
-//!   then:
-//!     t1: [ceilDiv(N - 2, 3), ceilDiv(M - 2, 3), 2, 2]
-//!
-TORCH_CUDA_CU_API TensorView* gather(
-    TensorView* inp,
-    const std::vector<int>& window_shape,
-    const std::vector<std::vector<int>>& pad_width,
-    const std::vector<int>& strides = {},
-    bool trim_out_of_bounds = false);
 
 // Append a new IterDomain to the end of a TenorView to allow
 // iterating on a vector type. The input tensor must have
 // vector dtype.
-TORCH_CUDA_CU_API TensorView* viewAsScalar(TensorView* inp);
+TensorView* viewAsScalar(TensorView* inp);
 
 //! A fused pointwise multiply and sum
 //!  operator that instantiates the following
@@ -811,7 +705,7 @@ TORCH_CUDA_CU_API TensorView* viewAsScalar(TensorView* inp);
 //!
 //! \param tv_a first multiply operand
 //! \param tv_b second multiply operand
-//! \param axes axes to sum over
+//! \param axes axes to sum over, relative to output loop domain
 //! \param init sum initial value
 //!
 //! Note & TODO:
@@ -819,19 +713,115 @@ TORCH_CUDA_CU_API TensorView* viewAsScalar(TensorView* inp);
 //!   through this interface and only support fp16 inputs.
 //!   will support converting back to multiply and reduce in
 //!   a follow up.
-TORCH_CUDA_CU_API TensorView* fusedMultiplySum(
+NVF_API TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     Val* init = nullptr);
 
 // Create a tensor view from the given value. The given value can be a single
 // scalar, an array of scalars, or a nested array of scalars.
-TensorView* tensor(Val* val);
+NVF_API TensorView* tensor(Val* val);
 
 template <typename T>
-TensorView* tensor(const std::vector<T>& vals) {
+NVF_API TensorView* tensor(const std::vector<T>& vals) {
   return tensor(IrBuilder::arrayExpr(vals));
+}
+
+NVF_API TensorView* argsort(
+    TensorView* v1,
+    int64_t dim,
+    bool descending = false,
+    bool stable = false);
+
+//! Grouped matrix multiplication
+//!
+//! Performs matrix multiplication on grouped sets of matrices using offsets
+//! to define variable-sized groups. This op computes:
+//!
+//! alpha * grouped_mm((mat1 * scale1), (mat2 * scale2), offsets) + bias * beta
+//!
+//! \param mat1 First set of matrices
+//! \param mat2 Second set of matrices
+//! \param offsets Offsets tensor defining group boundaries
+//! \param scale1 Scale tensor for mat1
+//! \param scale2 Scale tensor for mat2
+//! \param alpha Global Scaling factor for mat1@mat2
+//! \param bias Bias tensor
+//! \param beta Scale tensor for bias
+//! \param dtype Output dtype, if empty, the output dtype will be the same as
+//! the input dtype
+//! \param out_block_scale_size Output block scaling factor size, if 0, the
+//! output block scaling factor will not be computed
+//! \param block_scaling_factor_dtype Block scaling factor dtype. This argument
+//! is needed when out_block_scale_size is not 0.
+//! \param out_gamma Output gamma flag, if true, the output gamma will be
+//! computed
+//! \return Result of grouped matrix multiplication
+NVF_API ScaledTensorView grouped_mm(
+    TensorView* mat1,
+    TensorView* mat2,
+    TensorView* offsets,
+    TensorView* scale1 = nullptr,
+    TensorView* scale2 = nullptr,
+    TensorView* alpha = nullptr,
+    TensorView* bias = nullptr,
+    TensorView* beta = nullptr,
+    DataType dtype = DataType::Null,
+    int64_t out_block_scale_size = 0,
+    DataType block_scaling_factor_dtype = DataType::Null,
+    bool out_gamma = false);
+
+//! TopK operation: find the k largest or smallest elements along a dimension
+//!
+//! Returns the k largest (if largest=true) or smallest (if largest=false)
+//! elements of the input tensor along the given dimension.
+//!
+//! \param v1 Input tensor
+//! \param k Number of elements to return (must be non-negative integer)
+//! \param dim Dimension along which to find top-k elements (default: -1, last
+//! dim)
+//! \param largest If true, return largest elements; if false, return smallest
+//! (default: true)
+//! \param sorted If true, return elements in sorted order (default: false)
+//! \param maybe_symbolic If true, this would set the output on the top k
+//! IterDomain as IterType::Symbolic, instead of inheriting the iter type from
+//! inputs. (default: true)
+//! \return TopKResult containing values and indices tensors
+//!
+//! \note The output tensors have the same shape as the input, except the
+//!       specified dimension has size k instead of its original size.
+NVF_API TopKResult topk(
+    TensorView* v1,
+    Val* k,
+    int64_t dim = -1,
+    bool largest = true,
+    bool sorted = false,
+    bool maybe_symbolic = true);
+
+//! Computes an inclusive scan of a tensor in a single dimension.
+//!
+//! Given a 1D input tensor x, this computes the output
+//! recursively via
+//!
+//!   y = scan(x, 0, Add, zeroVal())
+//!
+//!   y[0] = x[0]
+//!   y[i] = y[i-1] + x[i] for 0 < i < n
+//!
+//! If the dimension being scanned is an expanded broadcast, we throw an error.
+NVF_API TensorView* scan(
+    TensorView* in_tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init = nullptr);
+
+//! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal())
+NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
+
+//! Another alias for PyTorch's cumsum
+NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
+  return prefixSum(tv, dim);
 }
 
 } // namespace nvfuser

@@ -7,10 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
-
+#include <exceptions.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <complex>
 #include <unordered_map>
@@ -61,87 +60,147 @@ class Statement;
 class Expr;
 class Val;
 
-// Vals
-class IterDomain;
-class TensorDomain;
-class TensorView;
+#define DISPATCH_FOR_ALL_VALS(f) \
+  f(IterDomain);                 \
+  f(TensorDomain);               \
+  f(TensorView);                 \
+  f(NamedScalar);
+#define DISPATCH_FOR_ALL_KIR_VALS(f) f(Predicate) f(TensorIndex)
+#define DISPATCH_FOR_ALL_HIR_VALS(f) f(Stream)
 
-class NamedScalar;
+#define DISPATCH_FOR_ALL_EXPRS(f) \
+  f(FullOp);                      \
+  f(IotaOp);                      \
+  f(EyeOp);                       \
+  f(UnaryOp);                     \
+  f(BinaryOp);                    \
+  f(TernaryOp);                   \
+  f(ArrayConstruct);              \
+  f(StructConstruct);             \
+  f(GetAttr);                     \
+  f(GetItem);                     \
+  f(ReverseArray);                \
+  f(GetMetaData);                 \
+  f(TensorConstruct);             \
+  f(SelectOp);                    \
+  f(IndexSelectOp);               \
+  f(IndexPutAccumulateOp);        \
+  f(GatherOp);                    \
+  f(ScatterOp);                   \
+  f(RNGOp);                       \
+  f(ReductionOp);                 \
+  f(GroupedReductionOp);          \
+  f(WelfordOp);                   \
+  f(GroupedWelfordOp);            \
+  f(LoadStoreOp);                 \
+  f(MmaOp);                       \
+  f(BroadcastOp);                 \
+  f(SqueezeOp);                   \
+  f(ExpandOp);                    \
+  f(RepeatOp);                    \
+  f(ViewAsScalar);                \
+  f(ViewOp);                      \
+  f(CatOp);                       \
+  f(PadOp);                       \
+  f(SliceOp);                     \
+  f(Split);                       \
+  f(ArgsortOp);                   \
+  f(GroupedMmaOp);                \
+  f(ScaledMmaOp);                 \
+  f(TopKOp);                      \
+  f(ScanOp);                      \
+  f(Merge);                       \
+  f(Swizzle);                     \
+  f(Swizzle2D);                   \
+  f(Resize);                      \
+  f(MatmulOp);                    \
+  f(LinearOp);                    \
+  f(SdpaFwdOp);                   \
+  f(SdpaBwdOp);                   \
+  f(EmbeddingFwdOp);              \
+  f(Communication);               \
+  f(ForLoop);                     \
+  f(P2PCommunication);
+#define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
+  f(Allocate);                        \
+  f(AllocTMem);                       \
+  f(Asm);                             \
+  f(BlockSync);                       \
+  f(GridSync);                        \
+  f(FenceAsyncProxy);                 \
+  f(WgMmaFence);                      \
+  f(SetMaxNReg);                      \
+  f(Continue);                        \
+  f(Return);                          \
+  f(MBarrierInit);                    \
+  f(MBarrierInvalidate);              \
+  f(MBarrierArrive);                  \
+  f(MBarrierArriveExpectTx);          \
+  f(MBarrierWait);                    \
+  f(MBarrierWaitParity);              \
+  f(BlockSerializeWait);              \
+  f(BlockSerializeRelease);           \
+  f(AsyncWait);                       \
+  f(AsyncCommit);                     \
+  f(IfThenElse);                      \
+  f(GridReduction);                   \
+  f(GroupedGridReduction);            \
+  f(GridBroadcast);                   \
+  f(GridWelford);                     \
+  f(GroupedGridWelford);              \
+  f(VectorizedWelfordOp);             \
+  f(AllocateFusedReduction);          \
+  f(InitMagicZero);                   \
+  f(UpdateMagicZero);                 \
+  f(GetRNGSeedAndOffsetFromHost);     \
+  f(EncodeTensorMapTiled);            \
+  f(RNGOp);
+#define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
+  f(HostUnit);                        \
+  f(PostOnStream);                    \
+  f(LaunchKernel);                    \
+  f(SetCurrentStream);                \
+  f(GetCurrentStream);                \
+  f(Wait);                            \
+  f(Synchronize);                     \
+  f(StartCoalescing);                 \
+  f(EndCoalescing);                   \
+  f(ShareMemHandles);                 \
+  f(HirAliasSelect);                  \
+  f(Deallocate);
 
-class PipelineVal;
+// Forward declarations for all Val and Expr types
 
-// Exprs
-class FullOp;
-class IotaOp;
-class EyeOp;
-class UnaryOp;
-class BinaryOp;
-class TernaryOp;
-class ArrayConstruct;
-class StructConstruct;
-class GetAttr;
-class GetItem;
-class ReverseArray;
-class GetMetaData;
-class TensorConstruct;
-class SelectOp;
-class IndexSelectOp;
-class TorchGatherOp;
-class ScatterOp;
-class RNGOp;
-class ReductionOp;
-class GroupedReductionOp;
-class WelfordOp;
-class GroupedWelfordOp;
-class LoadStoreOp;
-class MmaOp;
-class BroadcastOp;
-class SqueezeOp;
-class ExpandOp;
-class ShiftOp;
-class GatherOp;
-class ViewAsScalar;
-class ViewOp;
-class CatOp;
-class PadOp;
-class SliceOp;
-
-class PipelineStage;
-class PipelineCommunication;
-
-// Exprs
-class Split;
-class Merge;
-class Swizzle2D;
-class Resize;
+#define M(e) class e;
+DISPATCH_FOR_ALL_VALS(M);
+DISPATCH_FOR_ALL_EXPRS(M);
+#undef M
 
 namespace kir {
-class Predicate;
-class TensorIndex;
 
-class Allocate;
-class BlockSync;
-class GridSync;
-class CpAsyncWait;
-class CpAsyncCommit;
-class ForLoop;
-class IfThenElse;
-class GridReduction;
-class GroupedGridReduction;
-class GridBroadcast;
-class GridWelford;
-class GroupedGridWelford;
-class VectorizedWelfordOp;
-class AllocateFusedReduction;
-class InitMagicZero;
-class UpdateMagicZero;
-class GetRNGSeedAndOffsetFromHost;
+#define M(e) class e;
+DISPATCH_FOR_ALL_KIR_VALS(M)
+DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
 
 } // namespace kir
 
+namespace hir {
+
+#define M(e) class e;
+DISPATCH_FOR_ALL_HIR_VALS(M)
+DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
+
+} // namespace hir
+
+namespace assoc_comm {
+class FlattenedAssocCommOp;
+} // namespace assoc_comm
+
 // By default, all IR nodes are handled in this dispatch, and will call an empty
 // function on all nodes.
-class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
+class OptOutConstDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(const Statement*) {}
 
@@ -151,82 +210,23 @@ class TORCH_CUDA_CU_API OptOutConstDispatch : public PolymorphicBase {
   virtual void dispatch(const Expr*);
   virtual void dispatch(const Val*);
 
-  // Vals
-  virtual void handle(const IterDomain* stmt);
-  virtual void handle(const TensorDomain* stmt);
-  virtual void handle(const TensorView* stmt);
-  virtual void handle(const Val* stmt);
-  virtual void handle(const NamedScalar* stmt);
-
-  virtual void handle(const kir::Predicate*);
-  virtual void handle(const kir::TensorIndex*);
-
-  virtual void handle(const PipelineVal*);
-
-  // Exprs
-  virtual void handle(const FullOp* stmt);
-  virtual void handle(const IotaOp* stmt);
-  virtual void handle(const EyeOp* stmt);
-  virtual void handle(const UnaryOp* stmt);
-  virtual void handle(const BinaryOp* stmt);
-  virtual void handle(const TernaryOp* stmt);
-  virtual void handle(const ArrayConstruct* stmt);
-  virtual void handle(const StructConstruct* stmt);
-  virtual void handle(const GetAttr* stmt);
-  virtual void handle(const GetItem* stmt);
-  virtual void handle(const ReverseArray* stmt);
-  virtual void handle(const GetMetaData* stmt);
-  virtual void handle(const TensorConstruct* stmt);
-  virtual void handle(const SelectOp* stmt);
-  virtual void handle(const IndexSelectOp* stmt);
-  virtual void handle(const TorchGatherOp* stmt);
-  virtual void handle(const ScatterOp* stmt);
-  virtual void handle(const RNGOp* stmt);
-  virtual void handle(const ReductionOp* stmt);
-  virtual void handle(const GroupedReductionOp* stmt);
-  virtual void handle(const WelfordOp* stmt);
-  virtual void handle(const GroupedWelfordOp* stmt);
-  virtual void handle(const LoadStoreOp* stmt);
-  virtual void handle(const MmaOp* stmt);
-  virtual void handle(const BroadcastOp* stmt);
-  virtual void handle(const SqueezeOp* stmt);
-  virtual void handle(const CatOp* stmt);
-  virtual void handle(const PadOp* stmt);
-  virtual void handle(const SliceOp* stmt);
-
-  virtual void handle(const Split* stmt);
-  virtual void handle(const Merge* stmt);
-  virtual void handle(const Swizzle2D* stmt);
-  virtual void handle(const Resize* stmt);
-  virtual void handle(const ExpandOp* stmt);
-  virtual void handle(const ShiftOp* stmt);
-  virtual void handle(const GatherOp* stmt);
-  virtual void handle(const ViewAsScalar* stmt);
-  virtual void handle(const ViewOp* stmt);
-
-  virtual void handle(const kir::Allocate*);
-  virtual void handle(const kir::BlockSync*);
-  virtual void handle(const kir::GridSync*);
-  virtual void handle(const kir::CpAsyncWait*);
-  virtual void handle(const kir::CpAsyncCommit*);
-  virtual void handle(const kir::InitMagicZero*);
-  virtual void handle(const kir::UpdateMagicZero*);
-  virtual void handle(const kir::ForLoop*);
-  virtual void handle(const kir::IfThenElse*);
-  virtual void handle(const kir::GridReduction*);
-  virtual void handle(const kir::GroupedGridReduction*);
-  virtual void handle(const kir::GridBroadcast*);
-  virtual void handle(const kir::GridWelford*);
-  virtual void handle(const kir::GroupedGridWelford*);
-  virtual void handle(const kir::VectorizedWelfordOp*);
-  virtual void handle(const kir::AllocateFusedReduction*);
-  virtual void handle(const kir::GetRNGSeedAndOffsetFromHost* stmt);
-
-  virtual void handle(const PipelineStage*);
-  virtual void handle(const PipelineCommunication*);
+#define M(e) virtual void handle(const e* stmt);
+  M(Val);
+  DISPATCH_FOR_ALL_VALS(M)
+  DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp);
+#undef M
+#define M(e) virtual void handle(const kir::e* stmt);
+  DISPATCH_FOR_ALL_KIR_VALS(M)
+  DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e) virtual void handle(const hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
 };
 
-class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
+class NVF_API OptOutDispatch : public PolymorphicBase {
  protected:
   virtual void unhandled(Statement*);
 
@@ -236,82 +236,23 @@ class TORCH_CUDA_CU_API OptOutDispatch : public PolymorphicBase {
   virtual void dispatch(Expr*);
   virtual void dispatch(Val*);
 
-  // Vals
-  virtual void handle(Val* stmt);
-  virtual void handle(NamedScalar* stmt);
-  virtual void handle(IterDomain* stmt);
-  virtual void handle(TensorDomain* stmt);
-  virtual void handle(TensorView* stmt);
-
-  virtual void handle(kir::Predicate*);
-  virtual void handle(kir::TensorIndex*);
-
-  virtual void handle(PipelineVal*);
-
-  // Exprs
-  virtual void handle(FullOp* stmt);
-  virtual void handle(IotaOp* stmt);
-  virtual void handle(EyeOp* stmt);
-  virtual void handle(UnaryOp* stmt);
-  virtual void handle(BinaryOp* stmt);
-  virtual void handle(TernaryOp* stmt);
-  virtual void handle(ArrayConstruct* stmt);
-  virtual void handle(StructConstruct* stmt);
-  virtual void handle(GetAttr* stmt);
-  virtual void handle(GetItem* stmt);
-  virtual void handle(ReverseArray* stmt);
-  virtual void handle(GetMetaData* stmt);
-  virtual void handle(TensorConstruct* stmt);
-  virtual void handle(SelectOp* stmt);
-  virtual void handle(IndexSelectOp* stmt);
-  virtual void handle(TorchGatherOp* stmt);
-  virtual void handle(ScatterOp* stmt);
-  virtual void handle(RNGOp* stmt);
-  virtual void handle(ReductionOp* stmt);
-  virtual void handle(GroupedReductionOp* stmt);
-  virtual void handle(WelfordOp* stmt);
-  virtual void handle(GroupedWelfordOp* stmt);
-  virtual void handle(LoadStoreOp* stmt);
-  virtual void handle(MmaOp* stmt);
-  virtual void handle(BroadcastOp* stmt);
-  virtual void handle(SqueezeOp* stmt);
-  virtual void handle(CatOp* stmt);
-  virtual void handle(PadOp* stmt);
-  virtual void handle(SliceOp* stmt);
-
-  virtual void handle(Split* stmt);
-  virtual void handle(Merge* stmt);
-  virtual void handle(Swizzle2D* stmt);
-  virtual void handle(Resize* stmt);
-  virtual void handle(ExpandOp* stmt);
-  virtual void handle(ShiftOp* stmt);
-  virtual void handle(GatherOp* stmt);
-  virtual void handle(ViewAsScalar* stmt);
-  virtual void handle(ViewOp* stmt);
-
-  virtual void handle(kir::Allocate* stmt);
-  virtual void handle(kir::BlockSync* stmt);
-  virtual void handle(kir::GridSync* stmt);
-  virtual void handle(kir::CpAsyncWait* stmt);
-  virtual void handle(kir::CpAsyncCommit* stmt);
-  virtual void handle(kir::InitMagicZero* stmt);
-  virtual void handle(kir::UpdateMagicZero* stmt);
-  virtual void handle(kir::ForLoop* stmt);
-  virtual void handle(kir::IfThenElse* stmt);
-  virtual void handle(kir::GridReduction* stmt);
-  virtual void handle(kir::GroupedGridReduction* stmt);
-  virtual void handle(kir::GridBroadcast* stmt);
-  virtual void handle(kir::GridWelford* stmt);
-  virtual void handle(kir::GroupedGridWelford* stmt);
-  virtual void handle(kir::VectorizedWelfordOp* stmt);
-  virtual void handle(kir::AllocateFusedReduction* stmt);
-  virtual void handle(kir::GetRNGSeedAndOffsetFromHost* stmt);
-
-  virtual void handle(PipelineStage* stmt);
-  virtual void handle(PipelineCommunication* stmt);
+#define M(e) virtual void handle(e* stmt);
+  M(Val);
+  DISPATCH_FOR_ALL_VALS(M)
+  DISPATCH_FOR_ALL_EXPRS(M)
+  M(assoc_comm::FlattenedAssocCommOp);
+#undef M
+#define M(e) virtual void handle(kir::e* stmt);
+  DISPATCH_FOR_ALL_KIR_VALS(M)
+  DISPATCH_FOR_ALL_KIR_EXPRS(M)
+#undef M
+#define M(e) virtual void handle(hir::e* stmt);
+  DISPATCH_FOR_ALL_HIR_VALS(M)
+  DISPATCH_FOR_ALL_HIR_EXPRS(M)
+#undef M
 };
 
-class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
+class OptInConstDispatch : public OptOutConstDispatch {
  public:
   using OptOutConstDispatch::handle;
 
@@ -319,7 +260,7 @@ class TORCH_CUDA_CU_API OptInConstDispatch : public OptOutConstDispatch {
   void unhandled(const Statement* stmt) final;
 };
 
-class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
+class OptInDispatch : public OptOutDispatch {
  public:
   using OptOutDispatch::handle;
 
@@ -342,7 +283,7 @@ class TORCH_CUDA_CU_API OptInDispatch : public OptOutDispatch {
 // other vals, on top of TensorDomain being updated in the mutated TensorView.
 //
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
+class NVF_API OptOutMutator : public PolymorphicBase {
  public:
   // Hierarchal dispatch functions for handle
   virtual void dispatchMutate(Statement* s);
@@ -350,12 +291,7 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   void registerMutation(Val* val, Val* mutation);
 
-  Val* maybeMutated(Val* val) {
-    if (mutations_.find(val) == mutations_.end()) {
-      return val;
-    }
-    return mutations_.at(val);
-  }
+  Val* maybeMutated(Val* val) const;
 
   std::unordered_map<Val*, Val*> mutations_;
 
@@ -363,20 +299,48 @@ class TORCH_CUDA_CU_API OptOutMutator : public PolymorphicBase {
 
   // Vals
   virtual void mutate(Val*);
-  virtual void mutate(NamedScalar*);
-  virtual void mutate(IterDomain*);
-  virtual void mutate(TensorDomain*);
-  virtual void mutate(TensorView*);
-  virtual void mutate(PipelineVal*);
 
-  virtual void mutate(kir::Predicate*);
-  virtual void mutate(kir::TensorIndex*);
+#define M(e) virtual void mutate(e* stmt);
+  DISPATCH_FOR_ALL_VALS(M)
+#undef M
+#define M(e) virtual void mutate(kir::e* stmt);
+  DISPATCH_FOR_ALL_KIR_VALS(M)
+#undef M
 
-  virtual void mutate(Expr* e);
+  //! This method replaces e if any inputs or attributes are registered for
+  //! mutation.
+  virtual void mutate(Expr* e) {
+    mutateExpr(
+        e,
+        /*replace_outputs*/ false,
+        /*replace_inputs*/ true,
+        /*replace_attrs*/ true);
+  }
+
+  //! Unlike mutate(Expr*), this method replaces e only if any outputs are
+  //! registered for mutation. Inputs and attributes are unchanges. This method
+  //! is useful for tranferring the definition of e's current outputs to those
+  //! their respective registered mutations.
+  Expr* mutateExprOutputsOnly(Expr* e) {
+    return mutateExpr(
+        e,
+        /*replace_outputs*/ true,
+        /*replace_inputs*/ false,
+        /*replace_attrs*/ false);
+  }
 
  protected:
   virtual void removeExpr(IrContainer*, Expr*) const;
   virtual void registerNewExpr(Expr*) {}
+
+ private:
+  //! Replaces Expr if any inputs, attrs, or outputs are registered for
+  //! mutation. See comment on mutateExprOutputsOnly for more information.
+  Expr* mutateExpr(
+      Expr*,
+      bool replace_outputs = false,
+      bool replace_inputs = true,
+      bool replace_attrs = true);
 };
 
 } // namespace nvfuser

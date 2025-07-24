@@ -7,10 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <disjoint_set.h>
 #include <dispatch.h>
+#include <exceptions.h>
 #include <ir/builder.h>
+#include <visibility.h>
 
+#include <optional>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,7 +29,7 @@ class IrContainer;
 //!   Fusion copy operations and the and limited scope of RecomputeTv below.
 //!   It is not intended for any other uses.
 //!
-class TORCH_CUDA_CU_API IrCloner {
+class IrCloner {
   friend class Statement;
   friend class IrBuilder;
 
@@ -35,11 +38,26 @@ class TORCH_CUDA_CU_API IrCloner {
   explicit IrCloner(IrContainer* container);
   virtual ~IrCloner() = default;
 
-  Statement* clone(const Statement* statement);
+  NVF_API Statement* clone(const Statement* statement);
 
-  int64_t clone(int64_t x) {
-    return x;
+#define DEFINE_CLONE_FOR_PRIM_TYPES(_t_y_p_e_) \
+  _t_y_p_e_ clone(_t_y_p_e_ x) {               \
+    return x;                                  \
   }
+
+  DEFINE_CLONE_FOR_PRIM_TYPES(bool)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int8_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint8_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int16_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint16_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int32_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint32_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int64_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint64_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(float)
+  DEFINE_CLONE_FOR_PRIM_TYPES(double)
+
+#undef DEFINE_CLONE_FOR_PRIM_TYPES
 
   template <class T>
   T* clone(const T* node) {
@@ -56,6 +74,14 @@ class TORCH_CUDA_CU_API IrCloner {
       copy.push_back(clone(p));
     }
     return copy;
+  }
+
+  template <class T>
+  std::optional<T> clone(const std::optional<T>& optional_container) {
+    if (!optional_container.has_value()) {
+      return std::nullopt;
+    }
+    return clone(optional_container.value());
   }
 
   template <class T>
@@ -92,12 +118,34 @@ class TORCH_CUDA_CU_API IrCloner {
     return copy;
   }
 
+  template <typename T, typename Hash = std::hash<T>>
+  DisjointSets<T, Hash> clone(const DisjointSets<T, Hash>& disjoint_sets) {
+    DisjointSets<T, Hash> cloned_disjoint_sets;
+    for (const auto& original_set : disjoint_sets.disjointSets()) {
+      NVF_ERROR(!original_set->empty());
+      bool first = true;
+      typename DisjointSets<T, Hash>::DisjointSet new_set;
+      for (const auto& val : *original_set) {
+        auto clone_of_val = clone(val);
+        if (first) {
+          auto it = cloned_disjoint_sets.initializeSet(clone_of_val).first;
+          new_set = it->second;
+          first = false;
+        } else {
+          cloned_disjoint_sets.appendToSet(clone_of_val, new_set);
+        }
+      }
+    }
+
+    return cloned_disjoint_sets;
+  }
+
   IrContainer* container() const {
     return ir_container_;
   }
 
  protected:
-  void registerClone(const Statement* src, Statement* clone);
+  NVF_API void registerClone(const Statement* src, Statement* clone);
   virtual Statement* handle(const Statement* s);
 
  protected:
@@ -116,10 +164,10 @@ class TORCH_CUDA_CU_API IrCloner {
 // Replicates all expressions used to generate the provided TensorView. Does not
 // replicate inputs. Does not replicate scalar values. In other words the value
 // provided will be recomputed from the inputs of the fusion.
-class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
+class RecomputeTv : private IrCloner {
  public:
   // Replicates expressions and values in provided expressions.
-  static TensorView* recompute(
+  NVF_API static TensorView* recompute(
       TensorView* tv,
       const std::vector<Val*>& from = {});
 
@@ -127,18 +175,16 @@ class TORCH_CUDA_CU_API RecomputeTv : private IrCloner {
   RecomputeTv(Fusion* fusion);
   Statement* handle(const Statement* s) override;
   Statement* handle(const TensorDomain*);
-
-  Fusion* fusion_;
 };
 
 //! Clone an IR node, forwarding the arguments to the IrCloner constructor.
 template <class T>
 T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_cloner != nullptr,
       "Cannot use create when a cloner object is set. Use clone.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       ir_cloner->container() != nullptr,
       "Cloner doesn't have a valid container to store cloned object.");
 
@@ -158,22 +204,6 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
   ir_cloner->registerClone(src_stmt, dest_stmt);
 
   return dest;
-}
-
-template <typename T>
-size_t Fusion::manage(T data) {
-  std::any a = data;
-  return manage(a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
-}
-
-template <typename T>
-void Fusion::manage(std::string key, T data) {
-  std::any a = data;
-  manage(key, a, [](IrCloner& cloner, std::any data) {
-    return std::any(cloner.clone(std::any_cast<T>(data)));
-  });
 }
 
 } // namespace nvfuser

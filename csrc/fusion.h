@@ -8,14 +8,16 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
+#include <exceptions.h>
 
 #include <debug.h>
-#include <executor_params.h>
+#include <fusion_guard.h>
 #include <ir/base_nodes.h>
+#include <ir/cloner.h>
 #include <ir/container.h>
 #include <iter_visitor.h>
+#include <runtime/executor_params.h>
+#include <visibility.h>
 
 #include <any>
 #include <string>
@@ -25,11 +27,11 @@
 
 namespace nvfuser {
 
-//! Usage: FusionGuard and Fusion are required user interfaces for any operation
-//! underlying the code generator. In order to create values, expressions, and
-//! generate code a Fusion instance must be active. It is the responsibility of
-//! the user to create a Fusion instance and register it with the fusion guard.
-//! The simplest example of this is:
+//! Usage: FusionGuard (defined in fusion_guard.h) and Fusion are required user
+//! interfaces for any operation underlying the code generator. In order to
+//! create values, expressions, and generate code a Fusion instance must be
+//! active. It is the responsibility of the user to create a Fusion instance and
+//! register it with the fusion guard. The simplest example of this is:
 //!
 //!     Fusion fusion;
 //!     FusionGuard fg(&fusion);
@@ -57,7 +59,6 @@ namespace nvfuser {
 
 class Fusion;
 class TensorView;
-class WelfordResult;
 
 class SegmentCandidateFinder;
 class SegmentedFusion;
@@ -65,19 +66,60 @@ class KernelArgumentHolder;
 
 class DynamicTransformConcretizationInfo;
 
-//! Fusion Guard is our "context manager". It holds the actrive fusion and
-//! allows it to be accessed anywhere through FusionGuard::getCurFusion()
-class TORCH_CUDA_CU_API FusionGuard {
- public:
-  Fusion* prev_fusion;
+// Set the enum base to `int` so it can be safely serialized as a part of
+// serde::InputOutputAlias.
+enum class AllocationType : int {
+  New, // Allocate a new buffer
+  // Reuse the buffer allocated to `aliased_io`. For example, the tensor storing
+  // BatchNorm's running mean. The output EMA is updated in place.
+  ReuseBuffer,
+  // This is used to cheaply compute the output tensor using
+  // `ExpressionEvaluator` (instead of a kernel) for:
+  // 1. PointerArithmetics: For example, the output of a ViewOp is merely a
+  // pointer arithmetic of the input.  In this case, aliased_io is a non-null
+  // tensor.
+  // 2. To evaluate output tensors which are not aliases. For example, default
+  // scheduling for MatmulOp/LinearOp in ExprEval scheduler.
+  Evaluate,
+};
 
-  //! Set the active fusion so it can be manipulated.
-  explicit FusionGuard(Fusion* fusion);
+struct AliasInfo {
+  AllocationType type;
+  Val* aliased_io;
+  // Whether integration should hide the output from users. This is currently
+  // only used for ReuseBuffer.
+  bool hide_output;
 
-  ~FusionGuard();
+  bool operator==(const AliasInfo& other) const {
+    return type == other.type && aliased_io == other.aliased_io &&
+        hide_output == other.hide_output;
+  }
 
-  static Fusion* getCurFusion();
-  static void setCurFusion(Fusion* fusion);
+  bool operator!=(const AliasInfo& other) const {
+    return !(*this == other);
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "AliasInfo{\n";
+    ss << "  type = ";
+    switch (type) {
+      case AllocationType::Evaluate:
+        ss << "Evaluate";
+        break;
+      case AllocationType::New:
+        ss << "New";
+        break;
+      case AllocationType::ReuseBuffer:
+        ss << "ReuseBuffer";
+        break;
+    }
+    ss << ",\n  aliased_io = "
+       << (aliased_io == nullptr ? "nullptr" : aliased_io->toString()) << ",\n";
+    ss << "  hide_output = " << (hide_output ? "true" : "false") << "\n";
+    ss << "}\n";
+    return ss.str();
+  }
 };
 
 //! Fusion is mutable but unique. Nodes cannot be copied in any way from one
@@ -89,7 +131,7 @@ class TORCH_CUDA_CU_API FusionGuard {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class TORCH_CUDA_CU_API Fusion : public IrContainer {
+class NVF_API Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -118,6 +160,9 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Register input as an input of the fusion
   void addInput(Val* input);
 
+  //! Add output to outputs_ without modifying hide_output
+  void addOutputInternal(Val* output);
+
   //! Register output as an output of the fusion
   void addOutput(Val* output);
 
@@ -134,10 +179,11 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   void validateInputs();
 
   //! Print this fusion to an output stream
-  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true);
+  std::ostream& print(std::ostream& os, bool include_tensor_transforms = true)
+      const;
 
   //! Print to default debugging output stream
-  std::ostream& print() {
+  std::ostream& print() const {
     return print(debug());
   }
 
@@ -159,12 +205,14 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Returns (tensor, read conflict ways, write conflict ways)
   //! Each tensor can be read/write by multiple expressions, so the ways are
   //! vectors.
-  std::unordered_map<TensorView*, std::pair<std::vector<int>, std::vector<int>>>
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<int64_t>, std::vector<int64_t>>>
   bankConflictInfo(const CompileParams& compile_params = CompileParams());
 
   //! Return a list of topologically sorted expressions. This only includes
-  //! exprs required to genereate registered outputs.
-  std::vector<Expr*> exprs();
+  //! exprs required to generate registered outputs.
+  std::vector<Expr*> exprs() const;
 
   //! Return a vector of fusion inputs that feed this Val
   std::vector<Val*> inputsOf(Val* val);
@@ -191,19 +239,16 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! Return the Expr that produces val
   Expr* definition(const Val* val) const;
 
-  //! Indicate to kernel to set itself up to generate random numbers
-  bool isStochastic();
-
   //! Run fusion segmentation algorithm to create a segmented fusion
   std::unique_ptr<SegmentedFusion> segment(const KernelArgumentHolder& args);
 
-  const auto& inputs() const {
+  const std::vector<Val*>& inputs() const {
     return inputs_;
   }
 
   std::vector<Val*> inputsAndCreated();
 
-  const auto& outputs() const {
+  const std::vector<Val*>& outputs() const {
     return outputs_;
   }
 
@@ -214,40 +259,20 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   // Note: this is not always safe and should be used with extra caution.
   // Currently the only place it's used is in the running stats update for batch
   // normalization.
+  //
+  // TODO(wujingyue): Rename this method because `input` can be another fusion
+  // output.
+  //
   // TODO: alias should be made aware to segmentation, so we'll always include
-  // the input tensor to the section where output is produced.
-  void aliasOutputToInput(Val* output, Val* input);
+  // the input tensor to the section where output is produced. Currently,
+  // aliases of type `PointerArithmetics` are marked after segmentation, but
+  // those of type `ReuseBuffer` are marked in fusion definitions.
+  NVF_API void aliasOutputToInput(Val* output, Val* input, AllocationType type);
 
-  //! Return the aliased input of a given output or nullptr if not aliased
-  Val* getOutputAlias(Val* output);
-
-  //! Get indices of aliased outputs
-  std::unordered_set<int> getIndicesOfAliasedOutputs() const;
-
-  //! Get alias mappings from fusion outputs to inputs
-  std::vector<std::pair<int, int>> getOutputToInputAliasIndices() const;
-
-  // mark input at index to be permuted by permutation
-  void setPermutationOnInput(int index, std::vector<int64_t> permutation) {
-    permuted_input_map_.insert({index, permutation});
-  }
-
-  // mark output at index to be restored by permutation
-  void setPermutationOnOutput(int index, std::vector<int64_t> permutation) {
-    permuted_output_map_.insert({index, permutation});
-  }
-
-  // return a map of indices to permutation, which indicates all input tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationInputMap() const {
-    return permuted_input_map_;
-  }
-
-  // return a map of indices to permutation, which indicates all output tensors
-  // that needs to be permuted
-  const PermutationMap& getPermutationOutputMap() const {
-    return permuted_output_map_;
-  }
+  //! Returns the aliased input of a given output along with an `AliasInfo`
+  //! describing how they alias. Returns <nullptr,nullptr> when `output` is not
+  //! aliased.
+  const AliasInfo& getOutputAlias(const Val* output) const;
 
   bool isTVUseInfoValid() {
     return all_tv_uses_valid_;
@@ -255,10 +280,6 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
 
   bool isUpdatingTVUseInfo() {
     return is_during_update_uses_;
-  }
-
-  const auto& ioAlias() const {
-    return io_alias_;
   }
 
   // NOTE: [Fusion managed data]
@@ -406,13 +427,45 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   //! True if any of tensors has a symblic axis
   bool hasDynamicTransform();
 
+  static IrCloner copy(const Fusion* from, Fusion* to);
+
+  //! During scheduling, this can be set to a non-negative value. If done, then
+  //! during execution by KernelExecutor, we will check that this value matches
+  //! the corresponding value in LaunchParams.
+  int64_t expectedDynamicSmemBytes() const {
+    return expected_dynamic_smem_bytes_;
+  }
+
+  void setExpectedDynamicSmemBytes(int64_t bytes) {
+    expected_dynamic_smem_bytes_ = bytes;
+  }
+
+  //! This is a cached version of ir_utils::allTvs that is invalidated. Return a
+  //! copy of the vector instead of a reference as it can be invalidated by many
+  //! operations. If we returned a reference and are iterating on it while
+  //! making modifications to the fusion, it can easily cause a segfault.
+  std::vector<TensorView*> allTvs();
+
+  //! Specify id0 and id1 are mapped in the Exact graph. This should
+  //! be used only when absolutely necessary.
+  //!
+  //! Currently, id0->sameAs(id1) needs to hold. It will be an error
+  //! otherwise.
+  void registerExactMapping(IterDomain* id0, IterDomain* id1);
+
+  bool hasRegisteredExactMappings() const {
+    return hasManaged(exact_mappings_key);
+  }
+
+  DisjointSets<IterDomain*> registeredExactMappings() const;
+
+  void resetExactMappings();
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
-
-  static IrCloner copy(const Fusion* from, Fusion* to);
 
   using IrContainer::registerExpr;
   using IrContainer::registerVal;
@@ -435,14 +488,10 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
 
   //! Declare that TensorView uses need to be updated (but don't actually do
   //! the update).
-  void invalidateTvUses() {
+  void invalidateTvsAndUses() {
     all_tv_uses_valid_ = false;
+    all_tvs_ptr_.reset();
   }
-
- private:
-  // Determine if the two values are compatible for aliasing
-  // Same DataType, ValType, and number of dimensions
-  bool isAliasCompatible(Val* left, Val* right);
 
  private:
   // Fusion inputs and outputs
@@ -450,22 +499,57 @@ class TORCH_CUDA_CU_API Fusion : public IrContainer {
   std::vector<Val*> outputs_;
 
   // io alias pointing from output to input
-  std::unordered_map<Val*, Val*> io_alias_;
-
-  // See Note [ Permutation support in nvfuser ]
-  // map from indices of input tensor to permutation
-  PermutationMap permuted_input_map_;
-  // map from indices of output tensor to permutation
-  PermutationMap permuted_output_map_;
+  std::unordered_map<const Val*, AliasInfo> io_alias_;
 
   // Records if the current use data in the IR nodes are valid
   //  the states are either all valid or all invalid
   bool all_tv_uses_valid_ = false;
   bool is_during_update_uses_ = false;
 
+  // See note [Fusion managed data]
+  // Stores data of arbitrary type as std::any, and how the data will be cloned
+  // when the fusion is cloned as CloneFn. The primary task that the clone
+  // function does is to update pointers to IR nodes inside the data structure
+  // being managed with new pointers. By default, the clone function will be
+  // the `defaultCloneFunction` below, which just dispatch to IrCloner::clone.
   std::vector<std::pair<std::any, CloneFn>> managed_data_;
   std::unordered_map<std::string, std::pair<std::any, CloneFn>>
       managed_named_data_;
+
+  // If set to a non-negative value during scheduling, this will be checked by
+  // the executor.
+  int64_t expected_dynamic_smem_bytes_ = -1LL;
+
+  std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
+
+  inline static const std::string exact_mappings_key = "exact_mappings";
 };
+
+template <typename T>
+std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
+  auto cloned_data = cloner.clone(std::any_cast<T>(data));
+  // Adding a static_assert to improve error message. Without this
+  // static_assert, the following cast will still fail, but the error message
+  // will be unreadable.
+  static_assert(
+      std::is_convertible_v<decltype(cloned_data), T>,
+      "IrCloner::clone returns a data type that is not compatible with the "
+      "original managed data type. "
+      "Likely you will need to check IrCloner::clone for your data type.");
+  // Convert the result of the clone back to T before assigning to std::any.
+  // This ensures the type of the std::any does not change over the clone of
+  // fusion.
+  return std::any((T)cloned_data);
+}
+
+template <typename T>
+size_t Fusion::manage(T data) {
+  return manage(std::any(data), defaultCloneFunction<T>);
+}
+
+template <typename T>
+void Fusion::manage(std::string key, T data) {
+  return manage(key, std::any(data), defaultCloneFunction<T>);
+}
 
 } // namespace nvfuser

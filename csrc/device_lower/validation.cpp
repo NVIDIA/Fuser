@@ -10,16 +10,20 @@
 #include <contiguity.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <utils.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <limits>
 
 namespace nvfuser {
 
@@ -50,7 +54,7 @@ class ValidateSiblings : public IterVisitor {
 
     auto ref_output = expr->outputs().at(0)->as<TensorView>();
     auto ref_ndims = ref_output->nDims();
-    const auto& ref_root = ref_output->getRootDomain();
+    const auto& ref_root = ref_output->getMaybeRootDomain();
     std::unordered_map<IterDomain*, IterDomain*> id_map;
 
     for (const auto sibling :
@@ -59,7 +63,7 @@ class ValidateSiblings : public IterVisitor {
         continue;
       }
 
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           sibling->nDims() == ref_ndims,
           "Mismatched dimensionality detected. Expr: ",
           expr->toString(),
@@ -68,21 +72,21 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : c10::irange(ref_ndims)) {
-        validateParallelTypes(ref_output->axis((int)i), sibling->axis((int)i));
+      for (const auto i : arange(ref_ndims)) {
+        validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
-      for (const auto i : c10::irange(ref_root.size())) {
-        id_map[ref_root[i]] = sibling->getRootDomain().at(i);
+      for (const auto i : arange(ref_root.size())) {
+        id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
       auto replay =
           BestEffortReplay(
-              sibling->getLeafDomain(), ref_output->getLeafDomain(), id_map)
+              sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : c10::irange(ref_ndims)) {
-        TORCH_INTERNAL_ASSERT(
+      for (const auto i : arange(ref_ndims)) {
+        NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
             expr->toString(),
@@ -102,7 +106,7 @@ class ValidateSiblings : public IterVisitor {
     if (ptype0 == ParallelType::Vectorize ||
         ptype1 == ParallelType::Vectorize) {
       auto other_type = ptype0 == ParallelType::Vectorize ? ptype1 : ptype0;
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           other_type == ParallelType::Vectorize ||
               (!isParallelTypeThreadDim(other_type) &&
                !isParallelTypeBlockDim(other_type)),
@@ -112,7 +116,7 @@ class ValidateSiblings : public IterVisitor {
     }
 
     if (ptype0 != ptype1) {
-      TORCH_CHECK(
+      NVF_CHECK(
           ptype0 == ParallelType::Serial || ptype1 == ParallelType::Serial,
           "Error promoting parallel types: ",
           ptype0,
@@ -140,24 +144,9 @@ void validateIterDomainUsage(Fusion* fusion) {
   std::unordered_map<IterDomain*, TensorView*> domain_use_map;
 
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    std::unordered_set<Val*> root_domains;
-    std::copy(
-        tv->getRootDomain().begin(),
-        tv->getRootDomain().end(),
-        std::inserter(root_domains, root_domains.begin()));
-
-    std::vector<Val*> leaf_domains;
-    std::copy(
-        tv->getLeafDomain().begin(),
-        tv->getLeafDomain().end(),
-        std::back_inserter(leaf_domains));
-
-    auto all_domain_vals =
-        DependencyCheck::getAllValsBetween(root_domains, leaf_domains);
-
-    for (auto id : ir_utils::filterByType<IterDomain>(all_domain_vals)) {
+    for (auto id : tv->domain()->allIDs()) {
       auto it = domain_use_map.find(id);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           it == domain_use_map.end(),
           "Multiple use of ",
           id,
@@ -167,6 +156,52 @@ void validateIterDomainUsage(Fusion* fusion) {
           " and TV",
           it->second->name());
       domain_use_map.insert({id, tv});
+    }
+  }
+}
+
+void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
+  for (auto tv : tvs) {
+    bool is_cp_async_bulk = ir_utils::isCpAsyncBulk(tv->definition());
+    for (auto id : tv->getLoopDomain()) {
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            is_cp_async_bulk,
+            "ParallelType::Bulk is only supported for cp.async.bulk.");
+      }
+    }
+    if (!is_cp_async_bulk) {
+      continue;
+    }
+    std::unordered_set<ParallelType> valid_parallel_types{
+        ParallelType::DIDx,
+        ParallelType::BIDz,
+        ParallelType::BIDy,
+        ParallelType::BIDx,
+        ParallelType::TIDz,
+        ParallelType::TIDy,
+        ParallelType::TIDx,
+        ParallelType::Unroll,
+        ParallelType::Unswitch,
+        ParallelType::Serial};
+    std::unordered_set<IterType> valid_iter_types{
+        IterType::Iteration, IterType::Broadcast};
+    for (auto id : tv->getLoopDomain()) {
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            id->getIterType() == IterType::Iteration,
+            "ParallelType::Bulk is only supported for IterType::Iteration.");
+        continue;
+      }
+      NVF_ERROR(
+          valid_parallel_types.find(id->getParallelType()) !=
+              valid_parallel_types.end(),
+          "Invalid parallel type for cp.async.bulk: ",
+          id->getParallelType());
+      NVF_ERROR(
+          valid_iter_types.find(id->getIterType()) != valid_iter_types.end(),
+          "Invalid iter type for cp.async.bulk: ",
+          id->getIterType());
     }
   }
 }
@@ -186,91 +221,16 @@ void validateIr(Fusion* fusion) {
   validateIterDomainUsage(fusion);
 
   auto dynamic_tvs = ir_utils::getTVsWithDynamicTransform(fusion);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       dynamic_tvs.empty(),
       "Tensor with dynamic transform must be concretized before lowering: ",
       toDelimitedString(dynamic_tvs.begin(), dynamic_tvs.end()));
+
+  auto all_tvs = fusion->allTvs();
+  validateCpAsyncBulk(all_tvs);
 }
 
 namespace {
-
-// Check contiguity for all allocation domains associated with Misaligned
-// Vectorize ParallelType
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& domains,
-    TensorView* tv) {
-  TORCH_INTERNAL_ASSERT(tv->getMemoryType() == MemoryType::Global);
-
-  for (const auto idx : c10::irange(tv->getMaybeAllocationDomain().size())) {
-    auto alloc = tv->getMaybeAllocationDomain()[idx];
-    if (domains.find(alloc) != domains.end()) {
-      TORCH_INTERNAL_ASSERT(
-          !alloc->isBroadcast(),
-          "Misaligned vectorization prohibits merging broadcast domains.",
-          "Issue found in, ",
-          tv);
-      TORCH_INTERNAL_ASSERT(
-          tv->domain()->contiguity().at(idx).value_or(false),
-          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-          "Issue found in, ",
-          tv);
-    }
-  }
-}
-
-// Check all allocation iter domains in consumer that are present in domain,
-// making sure they're contiguous. Map these domains to producer and make sure
-// they are also contiguous in producer. Producer-consumer relationship is
-// assumed to be through a set operation.
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& domains,
-    TensorView* consumer,
-    TensorView* producer) {
-  // This seems not quite right, shouldn't we be able to reverse this?
-  TORCH_INTERNAL_ASSERT(consumer->getMemoryType() == MemoryType::Local);
-  TORCH_INTERNAL_ASSERT(producer->getMemoryType() == MemoryType::Global);
-
-  // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from rFactor domain.
-  TORCH_INTERNAL_ASSERT(
-      !consumer->hasAllocation() && !producer->hasAllocation(),
-      "Misaligned vectorization for allocation domain is not supported.");
-  auto alloc_c2p =
-      PairwiseRootDomainMap(producer, consumer)
-          .mapConsumerToProducer(consumer->domain(), producer->domain());
-
-  std::unordered_map<IterDomain*, std::optional<bool>>
-      producer_domain_contiguity;
-  for (const auto idx :
-       c10::irange(producer->getMaybeAllocationDomain().size())) {
-    auto alloc = producer->getMaybeAllocationDomain().at(idx);
-    auto contiguity = producer->domain()->contiguity().at(idx);
-    producer_domain_contiguity.insert({alloc, contiguity});
-  }
-
-  for (auto consumer_alloc : consumer->getMaybeAllocationDomain()) {
-    if (domains.find(consumer_alloc) != domains.end()) {
-      auto producer_alloc = alloc_c2p.at(consumer_alloc);
-      TORCH_INTERNAL_ASSERT(
-          producer_domain_contiguity.find(producer_alloc) !=
-          producer_domain_contiguity.end());
-
-      TORCH_INTERNAL_ASSERT(
-          !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
-          "Misaligned vectorization prohibits merging broadcast domains.",
-          "Issue found in, ",
-          consumer);
-
-      TORCH_INTERNAL_ASSERT(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
-
-      TORCH_INTERNAL_ASSERT(
-          producer_domain_contiguity.at(producer_alloc).value_or(false),
-          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-          "Issue found in, ",
-          consumer);
-    }
-  }
-}
 
 class VectorizeValidator : public OptInDispatch {
  private:
@@ -288,8 +248,7 @@ class VectorizeValidator : public OptInDispatch {
     } else if (s->inner() == vectorized_id_) {
       vectorized_id_ = s->in();
     }
-    domains_.insert(s->outer());
-    domains_.insert(s->inner());
+    domains_.insert(s->in());
   }
 
   void handle(Merge* m) final {
@@ -311,6 +270,14 @@ class VectorizeValidator : public OptInDispatch {
     domains_.insert(r->in());
   }
 
+  void handle(Swizzle* swizzle) final {
+    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
+        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
+      // Do not (yet) allow vectorization across any swizzled id.
+      is_valid = false;
+    }
+  }
+
   void handle(Swizzle2D* swizzle) final {
     if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
         swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
@@ -319,12 +286,11 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  // Given the vectorized leaf ID in a tensor, find its innermost ancestors in
-  // the allocation domain.
-  static IterDomain* getVectorizedIdInAllocationDomain(
-      IterDomain* v_id,
-      TensorView* tv,
-      std::string name) {
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
+  getDependentAllocIDs(IterDomain* v_id, TensorView* tv) {
     auto replay_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeAllocationDomain().begin(),
          tv->getMaybeAllocationDomain().end()},
@@ -338,32 +304,204 @@ class VectorizeValidator : public OptInDispatch {
       validator.dispatch(expr);
     }
 
-    TORCH_CHECK(
+    NVF_CHECK(
         validator.is_valid,
-        "Invalid vectorized pattern found, vectorization iter domains must be descendants of inner-most dimension.",
+        "Invalid vectorized pattern found, vectorization iter domains must be "
+        "descendants of inner-most dimension.",
         "Issue found in, ",
         tv,
         "\n");
 
-    if (v_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(validator.domains_, tv);
-      } else if (tv->definition()->isA<LoadStoreOp>()) {
-        auto input = tv->definition()->input(0);
-        TORCH_INTERNAL_ASSERT(input->isA<TensorView>());
-        auto input_tv = input->as<TensorView>();
-        checkContiguity(validator.domains_, tv, input_tv);
+    std::unordered_set<IterDomain*> dep_alloc_ids;
+    for (auto alloc : tv->getMaybeAllocationDomain()) {
+      if (validator.domains_.find(alloc) != validator.domains_.end()) {
+        dep_alloc_ids.emplace(alloc);
       }
     }
 
-    TORCH_INTERNAL_ASSERT(validator.vectorized_id_ != nullptr);
+    return {validator.vectorized_id_, dep_alloc_ids};
+  }
 
-    // Contiguity is based on rfactor domain.
+  // Given the vectorized loop ID in a tensor, find its innermost
+  // ancestors in the allocation domain. Broadcast IDs are ignored.
+  // All dependent allocation IDs are also returned.
+  //
+  // This should work return almost the same results as
+  // getDependentAllocIDs, except when loop IDs are not fully
+  // derived from logical IDs. The above version does not work
+  // correctly for such a case, whereas this version addresses the
+  // limitation by using ValGraphBFS.
+  static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
+  getDependentAllocIDsIdModel(
+      IterDomain* v_id,
+      TensorView* tv,
+      Expr* load_store) {
+    NVF_ERROR(GpuLower::hasCurrent());
+    NVF_ERROR(GpuLower::current()->hasIdModel());
+
+    const auto& id_model = GpuLower::current()->idModel();
+    const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+    // Traverse from the complete set of loop IDs to the allocation
+    // domain of this tensor. Note that the allocation domain may
+    // include unused IDs such as broadcast IDs. They may not be
+    // reachable, so the require_all_to_visited needs to be
+    // false. Here, only the innermost allocation ID needs to be
+    // reachable, which is asserted at the end of the function.
+    //
+    // Note that previously this traversal was from the allocation
+    // domain to v_id only. It does not work when the allocation
+    // domain has a broadcast ID that is promoted to a concrete ID
+    // and then is used to generate v_id. See
+    // LoopDomainSchedulingTest.VecValidationRepro for a concrete
+    // case. The traversal needs to use the promoted concrete ID
+    // instead of the broadcast allocation ID. Instead, here, we
+    // traverse from the promoted loop IDs to the allocation
+    // domain. This should be always able to reach at least the
+    // vectorized ID.
+    const auto loop_domain = getLoopIds(load_store, id_model);
+    auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                         graph,
+                         graph.toGroups(loop_domain),
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         /*require_all_to_visited=*/false)
+                         .first;
+
+    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
+    std::unordered_set<ValGroup> visited_ids;
+    visited_ids.insert(cur_group);
+
+    for (const auto& [expr_g, dir] : expr_path) {
+      Expr* expr = expr_g->front();
+      NVF_ERROR(
+          expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
+              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+          "Unexpected expr: ",
+          expr->toString());
+
+      const auto& inputs = dir == Direction::Forward
+          ? graph.inputGroups(expr_g)
+          : graph.outputGroups(expr_g);
+      const auto& outputs = dir == Direction::Forward
+          ? graph.outputGroups(expr_g)
+          : graph.inputGroups(expr_g);
+
+      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+        // Not supported.
+        // TODO: Checking the outputs too since that is what
+        // VectorizeValidator::handle(Swizzle*) and
+        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // why.
+        if (std::find(inputs.begin(), inputs.end(), cur_group) !=
+                inputs.end() ||
+            std::find(outputs.begin(), outputs.end(), cur_group) !=
+                outputs.end()) {
+          cur_group.reset();
+          break;
+        }
+      }
+
+      if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
+        continue;
+      }
+
+      visited_ids.insert(outputs.begin(), outputs.end());
+
+      if (expr->isA<Resize>()) {
+        // No validatiton is done at this moment
+        cur_group = outputs[0];
+      } else if (inputs.size() == 2) {
+        NVF_ERROR(outputs.size() == 1);
+        if (cur_group == inputs[1]) {
+          cur_group = outputs[0];
+        } else if (cur_group == inputs[0]) {
+          cur_group.reset();
+          break;
+        }
+      } else {
+        NVF_ERROR(inputs.size() == 1);
+        NVF_ERROR(outputs.size() == 2);
+        if (outputs[1]->front()->as<IterDomain>()->isBroadcast()) {
+          NVF_ERROR(!outputs[0]->front()->as<IterDomain>()->isBroadcast());
+          cur_group = outputs[0];
+        } else {
+          cur_group = outputs[1];
+        }
+      }
+    }
+
+    NVF_ERROR(
+        cur_group.get() != nullptr,
+        "Valid corresponding allocation ID not found. ",
+        tv->toString(),
+        ", vec ID: ",
+        v_id->toString());
+
+    IterDomain* innermost_alloc_id = nullptr;
+    std::unordered_set<IterDomain*> dep_alloc_ids;
+    for (auto alloc : tv->getMaybeAllocationDomain()) {
+      const auto& alloc_group = graph.toGroup(alloc);
+      if (visited_ids.find(alloc_group) != visited_ids.end()) {
+        dep_alloc_ids.emplace(alloc);
+      }
+      if (cur_group == alloc_group) {
+        innermost_alloc_id = alloc;
+      }
+    }
+
+    if (innermost_alloc_id == nullptr) {
+      // Failed to find the innermost allocation ID
+      std::stringstream ss;
+      ss << "Failed to find a corresponding innermost allocation ID of "
+         << tv->toString() << " with vectorized ID of " << v_id->toString()
+         << "\n"
+         << "Vectorized load-store: " << load_store->toString()
+         << "Allocation domain: "
+         << toDelimitedString(tv->getMaybeAllocationDomain()) << "\n"
+         << "Loop domain: " << toDelimitedString(loop_domain) << "\n"
+         << "Current visited group: " << nvfuser::toString(cur_group) << " ("
+         << cur_group->front()->toString() << ")\n";
+      for (auto expr : tv->domain()->allExprs()) {
+        ss << expr->toString();
+      }
+      NVF_THROW(ss.str());
+    }
+
+    return {innermost_alloc_id, dep_alloc_ids};
+  }
+
+  static void validateAllocationVectorizedId(
+      IterDomain* vec_alloc_id,
+      const std::unordered_set<IterDomain*>& dep_alloc_ids,
+      TensorView* tv,
+      std::string name,
+      int64_t vector_word_size_bit) {
+    // aten_element_size_bit is the minimum unit (one element) of tv's
+    // corresponding at::Tensor. It may or may not be the same as
+    // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
+    // ATen tensor. See the comment of AdjustLastDim in type.h for more details.
+    // For example, for fp4 tensor, we use Byte as the corresponding ATen
+    // ScalarType, so aten_element_size_bit is 8 bits instead of 4 bits.
+    int64_t aten_element_size_bit =
+        c10::elementSize(
+            data_type_to_aten(tv->dtype(), GpuLower::current()->indexType())) *
+        8;
+    // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
       if (r_id->isReduction() || r_id->isBroadcast()) {
+        continue;
+      }
+      if ((tv->getMemoryType() == MemoryType::Shared ||
+           tv->getMemoryType() == MemoryType::Local) &&
+          r_id->isBlockDim()) {
+        // Inner-most parallelized dimensions don't count in allocation of
+        // shared and local tensors.
+        continue;
+      }
+      if (tv->getMemoryType() == MemoryType::Local && r_id->isThreadDim()) {
         continue;
       }
       last_alloc_dim = r_id;
@@ -374,33 +512,66 @@ class VectorizeValidator : public OptInDispatch {
     if (last_alloc_dim == nullptr) {
       // Should never get here, but that would mean there are no concrete
       // dims, so we should be fine.
-      return nullptr;
+      return;
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
-        ldst != nullptr && ldst->opType() == LoadStoreOpType::LdMatrixTranspose;
-    if (!is_ldmatrix_trans) {
+        ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
+    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
-      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
-      TORCH_CHECK(
-          last_alloc_dim == validator.vectorized_id_ &&
-              contiguity.value_or(false),
+      // We don't think allocation domain of consumer is used in allocation. We
+      // skip it in validation here. Note that this assert was hit for
+      // vectorized pad, because we do not propagate allocation domain for
+      // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
+      NVF_CHECK(
+          last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",
           name,
-          " has to be from a contiguous inner most position. tv: ",
+          " has to be from an inner most position. tv: ",
           tv,
           ", allocation domain: ",
-          ir_utils::toString(tv->getMaybeAllocationDomain()),
+          tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
-          validator.vectorized_id_,
+          vec_alloc_id->toString(),
           ", innermost id: ",
-          last_alloc_dim,
+          last_alloc_dim);
+
+      // Because aten_element_size_bit is the minimum unit (one element) in
+      // ATen, if one vector is smaller than one element, regardless of the
+      // contiguity of the ATen tensor, we can always vectorize because an
+      // element in ATen tensor is always contiguous by design.
+      auto contiguity = tv->domain()->contiguity().at(last_alloc_dim_pos);
+      NVF_CHECK(
+          aten_element_size_bit % vector_word_size_bit == 0 ||
+              contiguity.value_or(false),
+          "The innermost position has to be contiguous. tv: ",
+          tv,
+          ", allocation domain: ",
+          tv->getMaybeAllocationDomain(),
+          ", innermost id: ",
+          last_alloc_dim->toString(),
           ", contiguity: ",
           contiguity.has_value() ? (*contiguity ? "t" : "f") : "n");
     }
-    return validator.vectorized_id_;
+  }
+
+  static IterDomain* getAndValidateVectorizedIdInAllocationDomain(
+      IterDomain* v_id,
+      TensorView* tv,
+      std::string name,
+      Expr* load_store,
+      int64_t vector_word_size_bit) {
+    const auto& [vec_alloc_id, dep_alloc_ids] =
+        GpuLower::current()->hasIdModel()
+        ? getDependentAllocIDsIdModel(v_id, tv, load_store)
+        : getDependentAllocIDs(v_id, tv);
+
+    validateAllocationVectorizedId(
+        vec_alloc_id, dep_alloc_ids, tv, name, vector_word_size_bit);
+
+    return vec_alloc_id;
   }
 
  private:
@@ -412,9 +583,9 @@ class VectorizeValidator : public OptInDispatch {
   static void validate(TensorView* tv) {
     // Make sure there's only one vectorized ID
     IterDomain* v_id = nullptr;
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             v_id == nullptr,
             "Found two vectorized domains in ",
             tv,
@@ -424,36 +595,67 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     // If no vectorized ids found simply return. If vectorized access is
-    // broadcast, it won't generate an actual vector instruction, so can safely
-    // be ignore
+    // broadcast, it won't generate an actual vector instruction, so can
+    // be safely ignored
     if (v_id == nullptr || v_id->isBroadcast()) {
       return;
     }
 
-    TORCH_CHECK(
+    NVF_CHECK(
         v_id->extent()->isConstInt(),
         "Vectorizing a domain requires a constant integer size.");
 
-    auto vector_word_size = v_id->extent()->evaluateInt();
-    auto vector_size =
-        ((int64_t)dataTypeSize(
-            tv->getDataType().value(), GpuLower::current()->indexType())) *
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+
+    auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
+    auto vector_size_bit =
+        dataTypeSizeBit(
+            tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
+    if (tv_def->isA<LoadStoreOp>()) {
+      // Except for TMem, allow half2, float2, float4 and same sized vtypes.
+      std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+      if (getMaxVectorizationSizeInBit() == 256) {
+        allowed_vector_sizes_bit.push_back(256);
+      }
+      // TMem can vectorize up to 4096 bits.
+      if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
+          (ldst->opType() == LoadStoreOpType::LdTMem ||
+           ldst->opType() == LoadStoreOpType::StTMem)) {
+        if (allowed_vector_sizes_bit.back() != 256) {
+          allowed_vector_sizes_bit.push_back(256);
+        }
+        allowed_vector_sizes_bit.push_back(512);
+        allowed_vector_sizes_bit.push_back(1024);
+        allowed_vector_sizes_bit.push_back(2048);
+        allowed_vector_sizes_bit.push_back(4096);
+      }
 
-    // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
+      NVF_CHECK(
+          std::find(
+              allowed_vector_sizes_bit.begin(),
+              allowed_vector_sizes_bit.end(),
+              vector_size_bit) != allowed_vector_sizes_bit.end(),
+          "Tried to vectorize a dim resulting in a word size of ",
+          vector_size_bit,
+          " bits, however, vector sizes starting from and including ",
+          allowed_vector_sizes_bit.front(),
+          " bits upto and including ",
+          allowed_vector_sizes_bit.back(),
+          " bits are supported.");
+    }
 
-    TORCH_CHECK(
-        std::find(
-            allowed_vector_sizes.begin(),
-            allowed_vector_sizes.end(),
-            vector_size) != allowed_vector_sizes.end(),
-        "Tried to vectorize a dim resulting in a word size of ",
-        vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+    if (!tv_def->isA<LoadStoreOp>()) {
+      return;
+    }
 
-    auto consumer_vectorized_id =
-        getVectorizedIdInAllocationDomain(v_id, tv, "consumer");
+    auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
+        v_id, tv, "consumer", tv_def, vector_size_bit);
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -464,23 +666,47 @@ class VectorizeValidator : public OptInDispatch {
     if (consumer_word_size_it !=
         GpuLower::current()->vectorizedAccesses().end()) {
       consumer_word_size_it->second =
-          std::max((int)vector_word_size, consumer_word_size_it->second);
+          std::max(vector_word_size, consumer_word_size_it->second);
     } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          tv, (int)vector_word_size);
+      GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
-    auto producer_tv = tv->definition()->inputs().at(0)->as<TensorView>();
-    auto producer_word_size_it =
-        GpuLower::current()->vectorizedAccesses().find(producer_tv);
-    if (producer_word_size_it !=
-        GpuLower::current()->vectorizedAccesses().end()) {
-      producer_word_size_it->second =
-          std::max((int)vector_word_size, producer_word_size_it->second);
-    } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          producer_tv, (int)vector_word_size);
+    TensorView* producer_tv = nullptr;
+    for (auto input : tv_def->inputs()) {
+      // TernaryOp(where) could have multiple inputs. But we only support single
+      // TensorView input for vectorization.
+      if (!input->isA<TensorView>()) {
+        continue;
+      }
+      // IndexSelectOp during validation has already been lowered after
+      // indexing. At this point, we can only vectorize load on lookup_tv
+      // (input0). Prior to lowering, if vectorized load happened for index_tv,
+      // it would be handled by a load op via cached input. So we don't need to
+      // consider them here.
+      if (tv_def->isA<IndexSelectOp>()) {
+        if (producer_tv == tv_def->as<IndexSelectOp>()->lookupTv()) {
+          break;
+        }
+      }
+      NVF_ERROR(
+          producer_tv == nullptr,
+          "Vectorization validation only support op with a single TensorView "
+          "input");
+      producer_tv = input->as<TensorView>();
+      auto producer_word_size_it =
+          GpuLower::current()->vectorizedAccesses().find(producer_tv);
+      if (producer_word_size_it !=
+          GpuLower::current()->vectorizedAccesses().end()) {
+        producer_word_size_it->second =
+            std::max(vector_word_size, producer_word_size_it->second);
+      } else {
+        GpuLower::current()->vectorizedAccesses().emplace(
+            producer_tv, vector_word_size);
+      }
     }
+    NVF_ERROR(
+        producer_tv != nullptr,
+        "Vectorization validation requires a TensorView input");
 
     VectorizedSetInfo vectorized_set_info;
     vectorized_set_info.consumer_tv = tv;
@@ -488,28 +714,39 @@ class VectorizeValidator : public OptInDispatch {
     // Note that VectorizedSetInfo is about each instance of
     // vectorized set operations, so the word size is the size of this
     // specific vectorized set.
-    vectorized_set_info.word_size = (int)vector_word_size;
-    vectorized_set_info.vectorized_leaf_id = v_id;
+    vectorized_set_info.word_size = vector_word_size;
+    vectorized_set_info.vectorized_loop_id = v_id;
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    auto pairwise_map = PairwiseRootDomainMap(producer_tv, tv);
-    auto producer_replayed_as_consumer =
-        TransformReplay::replayPasC(
-            producer_tv,
-            tv,
-            -1,
-            pairwise_map,
-            TransformReplayOptions().replayResize())
-            .first;
-    ir_utils::TVDomainGuard domain_guard(
-        producer_tv, producer_replayed_as_consumer);
-    auto c2p_map =
-        BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
-            .getReplay();
-    vectorized_set_info.vectorized_producer_alloc_id =
-        getVectorizedIdInAllocationDomain(
-            c2p_map.at(v_id), producer_tv, "producer");
+    if (GpuLower::current()->hasIdModel()) {
+      // No need to do replayPasC when using IdModel
+      vectorized_set_info.vectorized_producer_alloc_id =
+          getAndValidateVectorizedIdInAllocationDomain(
+              v_id, producer_tv, "producer", tv_def, vector_size_bit);
+    } else {
+      auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
+      auto producer_replayed_as_consumer =
+          TransformReplay::replayPasC(
+              producer_tv,
+              tv,
+              -1,
+              pairwise_map,
+              TransformReplayOptions().replayResize())
+              .first;
+      ir_utils::TVDomainGuard domain_guard(
+          producer_tv, producer_replayed_as_consumer);
+      auto c2p_map =
+          BestEffortReplay::replayPasC(producer_tv, tv, -1, pairwise_map)
+              .getReplay();
+      vectorized_set_info.vectorized_producer_alloc_id =
+          getAndValidateVectorizedIdInAllocationDomain(
+              c2p_map.at(v_id),
+              producer_tv,
+              "producer",
+              tv_def,
+              vector_size_bit);
+    }
 
     // For aligned vectorize, the extent of a vectorized domain must
     // be divisible by the vector word size. The domain is usually
@@ -531,25 +768,13 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::validateVectorize");
   FusionGuard fg(fusion);
 
-  auto used_vals = fusion->usedMathVals();
-
-  std::unordered_set<TensorView*> used_tvs;
-
-  for (auto val : used_vals) {
-    if (ir_utils::isTV(val)) {
-      used_tvs.emplace(val->as<TensorView>());
-    }
-  }
-
-  for (auto tv : used_tvs) {
+  std::vector<Val*> used_vals = fusion->usedMathVals();
+  for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
-    bool has_misaligned_vectorize_dim = false;
 
-    for (const auto i : c10::irange(tv->nDims())) {
-      IterDomain* id = tv->axis((int)i);
-      IterDomain* concrete_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
-              id, IdMappingMode::LOOP);
+    for (const auto i : arange(tv->nDims())) {
+      IterDomain* id = tv->axis(i);
+      IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
       auto ptype = concrete_id->getParallelType();
 
@@ -560,39 +785,55 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
         // (2) Check any producers of the tensor view with vectorize being set
         // on it to make sure their compute at position isn't to the right of
         // the vectorize dim.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             i >= tv->getMaxComputePosition(),
-            "IterDomains to the left of the compute at point cannot be vectorized: ",
+            "IterDomains to the left of the compute at point cannot be "
+            "vectorized: ",
             tv,
             "\n");
         has_vectorize_dim = true;
       }
 
-      if (concrete_id->getParallelType() == ParallelType::MisalignedVectorize) {
-        TORCH_INTERNAL_ASSERT(
-            tv->getMaxComputePosition() == 0 ||
-                tv->getMaxComputePosition() == tv->nDims() - 1,
-            "Only allow misaligned vectorization in the -2 computeAt position.");
-        TORCH_INTERNAL_ASSERT(
-            tv->getMemoryType() == MemoryType::Local ||
-                tv->getMemoryType() == MemoryType::Global,
-            "Only allow misaligned vectorization between global and local memory.");
-        has_misaligned_vectorize_dim = true;
+      // ParallelType::Group is used for both reduction and normalization.
+      // In grouped outer reduction, the runtime function uses vectorized data
+      // transfers between registers and shared memory. The producer tensor is
+      // stored in registers and loaded into shared memory in a vectorized
+      // manner, so we add it to the vectorizedAccesses map to ensure register
+      // alignment.
+      if (ptype == ParallelType::Group) {
+        auto def = tv->definition();
+        auto grop = dynamic_cast<GroupedReductionOp*>(def);
+        if (grop && (!grop->isAllreduce())) {
+          auto vector_word_size =
+              concrete_id->extent()->evaluate().as<int64_t>();
+          auto producer_tv = def->inputs().at(0)->as<TensorView>();
+          GpuLower::current()->vectorizedAccesses().emplace(
+              producer_tv, vector_word_size);
+        }
+        break;
       }
     }
+
     if (has_vectorize_dim) {
-      TORCH_INTERNAL_ASSERT(
-          tv->definition() == nullptr || tv->definition()->isA<LoadStoreOp>() ||
-              tv->definition()->isA<SliceOp>(),
-          "Vectorized accesses cannot be inline with computation, they are only supported with a Set operation.",
-          "TensorView: ",
-          tv);
+      Expr* def = tv->definition();
+      NVF_ERROR(
+          def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              def->isA<PadOp>() || def->isA<IndexSelectOp>() ||
+              (def->isA<TernaryOp>() &&
+               def->as<TernaryOp>()->getTernaryOpType() ==
+                   TernaryOpType::Where) ||
+              (def->isA<ReductionOp>() &&
+               def->as<ReductionOp>()->serialGridReductionRequested()) ||
+              (def->isA<UnaryOp>() &&
+               def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast),
+          "Vectorized accesses cannot be inline with computation: ",
+          (def == nullptr ? tv->toString() : def->toString()));
     }
     // Validate the vectorized domain maps to the innermost domain of
     // tv. Note that we don't need to validate its producer tv as
-    // both Vectorize and MisalignedVectorize can only be used with
+    // Vectorize can only be used with
     // UnaryOp::Set.
-    if (has_vectorize_dim || has_misaligned_vectorize_dim) {
+    if (has_vectorize_dim) {
       VectorizeValidator::validate(tv);
     }
   }
@@ -612,7 +853,7 @@ void fillVectorizedContigAllocationDomains(
 
   auto consumer_indexed_it =
       contig_finder.allocToIndexedID().find(vectorized_alloc_id);
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       consumer_indexed_it != contig_finder.allocToIndexedID().end(),
       "Contiguity information not found for allocation domain: ",
       vectorized_alloc_id->toString());
@@ -629,7 +870,7 @@ void fillVectorizedContigAllocationDomains(
   } else {
     auto consumer_within_contig_it =
         contig_finder.withinContigIDs().find(consumer_indexed_id);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         consumer_within_contig_it != contig_finder.withinContigIDs().end());
     const auto& within_ids = consumer_within_contig_it->second;
     std::copy_if(
@@ -698,211 +939,42 @@ void fillProducerVectorizedContigAllocationDomains(
 
 namespace {
 
-// Backward propagation of partial ranges from outputs to
-// inputs. Necessary to determine required ranges to compute.
-//
-// Example:
-//  tv0: [0:N]
-//  tv1: shift(tv0, {1}) -> [1:N]
-//  tv2: shift(tv0, {-1}) -> [0:N-1]
-//  tv3: tv1 + tv2 -> [1:N-1]
-//
-// In this case, the valid range of tv3 starts at 1 and ends at
-// N-1. This means that not all of the values of tv1 and tv2 are
-// actually necessary. Specifically, tv1[0] and tv2[N-1] aren't used
-// for tv3. This function calculates the required minimum range of
-// each tensor that needs to be computed.
-std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> getLiveRangeOffsets(
-    Fusion* fusion) {
-  auto exprs = StmtSort::getExprs(fusion);
-
-  std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> map;
-
-  for (auto it = exprs.rbegin(); it != exprs.rend(); ++it) {
-    auto expr = *it;
-    for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      for (auto consumer_root : consumer->getRootDomain()) {
-        TORCH_INTERNAL_ASSERT(
-            consumer_root->start()->isConstInt(),
-            "Can't evaluate start value of ",
-            consumer_root->start());
-        TORCH_INTERNAL_ASSERT(
-            consumer_root->stopOffset()->isConstInt(),
-            "Can't evaluate stop value of ",
-            consumer_root->stopOffset());
-        auto it = map.find(consumer_root);
-        if (it == map.end() || consumer->isFusionOutput()) {
-          // No range set for this root domain, which means this
-          // consumer_tensor is an output tensor or the consumer_root
-          // domain is a reduction domain. In either case, the
-          // required range is simply defined by the start and stop
-          // offsets of the root domain.
-          // Also, when consumer is an output, even if it's not
-          // terminating, the range to compute must not be affected by
-          // how it's used by its consumers because an output tensor
-          // is visible to outside of the fusion.
-          map.insert(
-              {consumer_root,
-               {consumer_root->start()->evaluateInt(),
-                consumer_root->stopOffset()->evaluateInt()}});
-        } else {
-          // When the range of this root domain is already set, it
-          // must be set by its consumers. Make sure the required
-          // range by the consumers is covered by the defined range of
-          // this root domain.
-          auto& consumer_range = it->second;
-          TORCH_INTERNAL_ASSERT(
-              consumer_root->start()->evaluateInt() <= consumer_range.first);
-          TORCH_INTERNAL_ASSERT(
-              consumer_root->stopOffset()->evaluateInt() <=
-              consumer_range.second);
-        }
-      }
-
-      // Propagate the range information from consumers to the
-      // produces. Note that the effect on the range by shift and
-      // gather is not considered here but taken care by halo regions.
-      for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        auto c2p =
-            PairwiseRootDomainMap(producer, consumer)
-                .mapConsumerToProducer(consumer->domain(), producer->domain());
-        for (auto consumer_root : consumer->getRootDomain()) {
-          auto producer_it = c2p.find(consumer_root);
-          if (producer_it == c2p.end()) {
-            continue;
-          }
-          auto producer_root = producer_it->second;
-          auto& consumer_range = map.at(consumer_root);
-          const std::pair<int64_t, int64_t> init_range{
-              std::numeric_limits<int64_t>::max(),
-              std::numeric_limits<int64_t>::max()};
-          auto& producer_range =
-              map.insert({producer_root, init_range}).first->second;
-          producer_range.first =
-              std::min(producer_range.first, consumer_range.first);
-          producer_range.second =
-              std::min(producer_range.second, consumer_range.second);
-        }
-      }
-    }
-  }
-
-  return map;
-}
-
-// Make sure that a partial split with split_offset does not violate
-// the required range defined by domain_offset. Suppose checking the
-// start side of a root domain. Only positions at split_offset or
-// larger are going to be computed, and all positions starting at
-// domain_offset must be computed, thus split_offset must be smaller
-// or equal to domain_offset. The same condition must hold for the end
-// side of the domain.
-//
-// In order to validate this condition, the split offset is assumed to
-// be a statically known constant value. This is not a hard
-// requirement, but otherwise a runtime check would be needed.
-void validateSplit(
-    Val* split_offset,
-    int64_t domain_offset,
-    const std::string& err_msg_prefix) {
-  TORCH_INTERNAL_ASSERT(
-      split_offset->isConstInt(),
-      err_msg_prefix,
-      ": Unknown offset of split: ",
-      split_offset);
-
-  TORCH_INTERNAL_ASSERT(
-      split_offset->evaluateInt() <= domain_offset,
-      err_msg_prefix,
-      ": Split offset is larger than the domain offset.",
-      " Split offset: ",
-      split_offset->evaluateInt(),
-      ". Domain offset: ",
-      domain_offset);
-}
-
-} // namespace
-
-void validatePartialSplit(Fusion* fusion) {
-  FUSER_PERF_SCOPE("GpuLower::Lower::validatePartialSplit");
-  FusionGuard fg(fusion);
-
-  // If a root domain is partially split, only the sub range defined
-  // by the start and stop offsets of the partial split is
-  // computed. That sub range must cover the required range of the
-  // domain. So, the first thing to do is to determine the required
-  // minimum range of each root domain. Then, check if any partial
-  // split could result in a smaller range than the required range.
-
-  // Compute the required range of each root domain
-  auto range_info = getLiveRangeOffsets(fusion);
-
-  for (auto tv : ir_utils::allTvs(fusion)) {
-    auto exprs = StmtSort::getExprsTo(
-        tv->fusion(), {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
-    for (auto split : ir_utils::filterByType<Split>(exprs)) {
-      // When the start and stop offsets are not zero, make sure the
-      // range defined by the split includes the required range to
-      // compute. If both of the split offsets are zero, this
-      // condition is obviously true. Also, this validation only needs
-      // to be done with root domains. Since the start and stop
-      // offsets of non-root domains must be just zero, they are
-      // skipped at this point.
-      if (split->startOffset()->isZeroInt() &&
-          split->stopOffset()->isZeroInt()) {
-        continue;
-      }
-      auto root_domain = split->in();
-      std::stringstream err_msg_prefix;
-      err_msg_prefix << "Error with " << root_domain << " in T" << tv->name();
-      TORCH_INTERNAL_ASSERT(range_info.find(root_domain) != range_info.end());
-      const auto& valid_range = range_info.at(root_domain);
-      // Check the start offset. If it's zero, no validation regarding
-      // the required range can occur.
-      if (!split->startOffset()->isZeroInt()) {
-        validateSplit(
-            split->startOffset(), valid_range.first, err_msg_prefix.str());
-      }
-      // Same for the stop offset.
-      if (!split->stopOffset()->isZeroInt()) {
-        validateSplit(
-            split->stopOffset(), valid_range.second, err_msg_prefix.str());
-      }
-    }
-  }
-}
-
-namespace {
-
 //! Validates that the operand and result tensors
 //!  of mma ops are swizzled and also validates
 //!  specialization of tidx as lane id.
 void validateMmaTensors(MmaOp* mma) {
   bool tidx_validated = false;
-  std::vector<TensorView*> to_validate = {
-      mma->inA()->as<TensorView>(),
-      mma->inB()->as<TensorView>(),
-      mma->out()->as<TensorView>()};
+  std::vector<TensorView*> to_validate = {mma->out()->as<TensorView>()};
+
+  if (ir_utils::isLdMatrixOp(mma->inA()->definition())) {
+    to_validate.push_back(mma->inA()->as<TensorView>());
+  }
+  if (ir_utils::isLdMatrixOp(mma->inB()->definition())) {
+    to_validate.push_back(mma->inB()->as<TensorView>());
+  }
 
   for (auto tv : to_validate) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       auto ptype = id->getParallelType();
       if (ptype == ParallelType::TIDx) {
-        TORCH_INTERNAL_ASSERT(
-            id->isMmaSwizzled(),
-            "TIDx for mma input/output must be set by WarpMmaSwizzler",
-            id,
-            tv);
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
               GpuLower::current()->parallelDimensionMap();
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
-                  paralel_dim_map.get(ptype)->isConstInt() &&
-                  paralel_dim_map.get(ptype)->evaluateInt() ==
-                      at::cuda::warp_size(),
-              "TIDx is reserved for lane id in mma kernels, and it needs to be exactly a warp");
+                  paralel_dim_map.get(ptype)->isConstInt(),
+              "TIDx is reserved for lane id in mma kernels");
+          if (mma->isHopper()) {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() ==
+                    at::cuda::warp_size() * 4,
+                "TIDx must be exactly a warp group for Hopper");
+          } else {
+            NVF_ERROR(
+                paralel_dim_map.get(ptype)->evaluate() == at::cuda::warp_size(),
+                "TIDx must be exactly a warp for Turing/Ampere");
+          }
           tidx_validated = true;
         }
       }
@@ -910,144 +982,67 @@ void validateMmaTensors(MmaOp* mma) {
   }
 
   // Note: this check will be relaxed in a follow up.
-  auto validate_operand = [](const TensorView* tv) {
-    TORCH_INTERNAL_ASSERT(
-        tv->getMemoryType() == MemoryType::Local,
-        "Only supporting register input for mma ops, up to sm80 all mma ops have to take register inputs.");
-
-    TORCH_INTERNAL_ASSERT(
-        std::all_of(
-            tv->getLeafDomain().begin() + tv->getComputeAtPosition(),
-            tv->getLeafDomain().end(),
-            [](IterDomain* id) {
-              return id->isMmaSwizzled() ||
-                  // MMA instructions can only take inputs from registers,
-                  //  so we always assume mma op inputs are located on
-                  //  registers.
-                  // Currently requiring that serial ids on the right of the
-                  //  CA axis are constant sized to ensure early detection of
-                  //  invalid mma schedules.
-                  ((id->isBroadcast() || id->extent()->isConstInt()) &&
-                   id->getParallelType() == ParallelType::Serial) ||
-                  id->isThread();
-            }),
-        "All id's on the right of CA pos needs to be mma-swizzled by WarpMmaSwizzler\n",
-        tv);
+  auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
+    if (mma->isHopper() || mma->isBlackwell()) {
+      if (operand == MmaOperand::B) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting smem input for Hopper/Blackwell mma input B");
+      } else if (mma->isHopper()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Local ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting register or shared memory input for Hopper mma "
+            "input A");
+      } else if (mma->isBlackwell()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Tensor ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting tensor or shared memory input for Blackwell mma "
+            "input A");
+      } else {
+        NVF_THROW("Should not reach here");
+      }
+    } else {
+      NVF_ERROR(
+          tv->getMemoryType() == MemoryType::Local,
+          "Only supporting register input for mma input on Ampere/Turing");
+    }
   };
 
-  validate_operand(mma->inA()->as<TensorView>());
-  validate_operand(mma->inB()->as<TensorView>());
-
-  // Additionally validate that mma is not directly taking a double buffered
-  //  register input as the double buffer indexing is currently not compatible
-  //  with fragment iteration. Would need to require a cache stage in this case.
-  TORCH_INTERNAL_ASSERT(
-      !mma->inA()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
-  TORCH_INTERNAL_ASSERT(
-      !mma->inB()->as<TensorView>()->isDoubleBuffered(),
-      "MMA op cannot directly take double buffered register input, put a set stage before.");
-}
-
-//! Note and TODO:
-//!   Currently relying on ldmatrix to
-//!     obtain the correct data layout for turing/ampere
-//!     mma's.
-//!   This restriction will eventually not
-//!    be necessary once the scatter swizzle is ready.
-void validateTuringMmaInput(TensorView* tv) {
-  // Pattern matching here to make sure LDMatrix is the right format.
-  //  Format is done through swizzling in the scheduling and
-  //  we check that swizzling to make sure it's correctly setup for LDMatrix.
-  //  We could in theory support patterns LDMatrix doesn't support,
-  //  but that would also mean the MMA isn't supported and
-  //  so we would have to lower to something completely different.
-
-  // MemCpy async is a more generic utility that we can use.
-  // Currently only allowed input paths are:
-  //  ldmatrix -> mma or
-  //  ldmatrix -> broadcast -> mma
-  // We actually wouldn't want too much flexibility here since
-  //  this path is very perf critical. But the check itself
-  //  can be made cleaner once we have the correct swizzle
-  //  labeling.
-  // The most generic support would involve build out to
-  //  support any pointwise ops that does not change the
-  //  datalayout.
-  auto tv_def = tv->definition();
-  TORCH_INTERNAL_ASSERT(tv_def);
-  if (tv_def->isA<BroadcastOp>()) {
-    tv_def = tv_def->input(0)->definition();
-  }
-  TORCH_INTERNAL_ASSERT(tv_def);
-  TORCH_INTERNAL_ASSERT(ir_utils::isLdMatrixOp(tv_def));
-}
-
-// Output of ldmatrix is swizzled with the mma format, so it
-//  currently should not be fused with any pointwise ops. This
-//  check is to protect against these cases.
-// This would also not be needed once scatter swizzle ready, should
-//  just become a swizzle format check if we wanted to fuse ldmatrix
-//  with any op other than mma.
-void validateLdMatrixOutput(TensorView* tv) {
-  const auto& out_uses = tv->fusion()->unordered_uses(tv);
-  if (out_uses.empty()) {
-    return;
-  }
-  // TODO: restricting to single use pipelines for now which
-  //  is true to matmul mainloop. This Could be relaxed to
-  //  support more complex mma usage.
-  TORCH_INTERNAL_ASSERT(out_uses.size() == 1);
-  auto out_use = *(out_uses.begin());
-
-  if (out_use->isA<BroadcastOp>()) {
-    validateLdMatrixOutput(out_use->output(0)->as<TensorView>());
-    return;
-  }
-
-  TORCH_INTERNAL_ASSERT(
-      out_use->isA<MmaOp>(),
-      "validateLdMatrixOutput: currently only supports single mma use for ldmatrix",
-      out_use);
+  validate_operand(mma->inA()->as<TensorView>(), MmaOperand::A);
+  validate_operand(mma->inB()->as<TensorView>(), MmaOperand::B);
 }
 
 void validateSizeMemoryOp(LoadStoreOp* ldst) {
-  int byte_size = 1;
   if (!ldst->out()->isA<TensorView>()) {
     return;
   }
+
+  if (ldst->opType() != LoadStoreOpType::CpAsync) {
+    return;
+  }
+
+  int64_t byte_size = 1;
   auto output = ldst->out()->as<TensorView>();
-  for (auto id : output->getLeafDomain()) {
+  for (auto id : output->getLoopDomain()) {
     if (id->getParallelType() == ParallelType::Vectorize) {
-      byte_size = (int)id->extent()->evaluateInt();
+      byte_size = id->extent()->evaluate().as<int64_t>();
       break;
     }
   }
-  byte_size *= (int)dataTypeSize(
+  byte_size *= dataTypeSizeByte(
       *output->getDataType(), GpuLower::current()->indexType());
-  switch (ldst->opType()) {
-    case LoadStoreOpType::CpAsyncCg:
-      TORCH_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");
+
+  switch (ldst->cacheOp()) {
+    case CacheOp::Global:
+      NVF_CHECK(byte_size == 16, "Not supported byte size for cp.async.cg");
       break;
-    case LoadStoreOpType::CpAsyncCa:
-      TORCH_CHECK(
+    case CacheOp::AllLevels:
+      NVF_CHECK(
           byte_size == 4 || byte_size == 8 || byte_size == 16,
           "Not supported byte size for cp.async.ca");
       return;
-    default:
-      return;
-  }
-}
-
-// Checks that the memory ops are supported on the targeted GPU
-void validateArchMemoryOp(LoadStoreOp* ldst) {
-  switch (ldst->opType()) {
-    case LoadStoreOpType::LdMatrix:
-    case LoadStoreOpType::LdMatrixTranspose:
-      validateLdMatrixOutput(ldst->out()->as<TensorView>());
-      return;
-    case LoadStoreOpType::CpAsyncCg:
-    case LoadStoreOpType::CpAsyncCa:
     default:
       return;
   }
@@ -1063,26 +1058,8 @@ void validateMma(Fusion* fusion) {
   for (auto expr : exprs) {
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
       validateMmaTensors(mma);
-
-      switch (mma->options().macro) {
-        case MmaOptions::MacroType::Volta_16_16_4:
-          break;
-        case MmaOptions::MacroType::Turing_16_8_16:
-        case MmaOptions::MacroType::Turing_16_16_16:
-        case MmaOptions::MacroType::Ampere_16_8_16:
-        case MmaOptions::MacroType::Ampere_16_16_16:
-          // Check that operands come from ldmatrix, can be
-          //  relaxed once swizzles can be labeled on iterdomains.
-          validateTuringMmaInput(mma->inA()->as<TensorView>());
-          validateTuringMmaInput(mma->inB()->as<TensorView>());
-          break;
-        default:
-          TORCH_INTERNAL_ASSERT(false, "validate mma: unsupported macro");
-          break;
-      }
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      validateArchMemoryOp(ldst);
       validateSizeMemoryOp(ldst);
     }
   }
@@ -1091,21 +1068,20 @@ void validateMma(Fusion* fusion) {
 namespace {
 
 // Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in leaf_domain set.
+//  1. Throws an error if any output of the swizzle is not in loop_domain set.
 //  2. Warns if any output of the swizzle is not the concrete id of the loop
 //  map.
-// The second case would make the codegen ignore this swizzle, as if it was not
-// there at all.
+// The second case would make the codegen ignore this swizzle, as if it was
+// not there at all.
 void validateLoopSwizzle(
     Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& leaf_domains) {
+    std::unordered_set<IterDomain*>& loop_domains) {
   for (auto out_id :
        ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
-    TORCH_INTERNAL_ASSERT(
-        leaf_domains.count(out_id),
-        "Loop swizzle can only be direct producer of leaf domains.");
-    if (GpuLower::current()->caMap()->getConcreteMappedID(
-            out_id, IdMappingMode::LOOP) != out_id) {
+    NVF_ERROR(
+        loop_domains.count(out_id),
+        "Loop swizzle can only be direct producer of loop domains.");
+    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
       TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
     }
   }
@@ -1117,28 +1093,29 @@ void validateSwizzle(Fusion* fusion) {
   auto used_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
     if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_leaf_domain_set(
-          tv->getLeafDomain().begin(), tv->getLeafDomain().end());
+      std::unordered_set<IterDomain*> tv_loop_domain_set(
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
       // Make sure no swizzle op is inlined:
       auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
-          {tv->getLeafDomain().begin(),
-           tv->getLeafDomain().begin() + tv->getMaxComputePosition()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin(),
+           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
 
       auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getMaybeRFactorDomain(),
-          {tv->getLeafDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLeafDomain().end()});
+          tv->getLogicalDomain(),
+          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
+           tv->getLoopDomain().end()});
 
       // Check inlined swizzles: only loop swizzles can be inlined currently
-      //  as inlining data swizzles would require addtional support of unswizzle
-      //  operator, which currently doesn't have important use cases.
+      //  as inlining data swizzles would require addtional support of
+      //  unswizzle operator, which currently doesn't have important use
+      //  cases.
       for (auto swizzle_expr : inlined_swizzles) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
             "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
       }
 
       std::unordered_set<Expr*> inlined_swizzle_set(
@@ -1150,12 +1127,12 @@ void validateSwizzle(Fusion* fusion) {
       // The latter would mean that one output of the swizzle is inlined while
       //  the other is not. Such case will not be supported.
       for (auto swizzle_expr : not_inlined_swizzles) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             !inlined_swizzle_set.count(swizzle_expr),
             "Cannot partially inline across swizzle domains.",
             swizzle_expr->toString());
         if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_leaf_domain_set);
+          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
         }
       }
     }
@@ -1163,14 +1140,11 @@ void validateSwizzle(Fusion* fusion) {
 }
 
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
-  for (auto tv : ir_utils::allTvs(fusion)) {
+  for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
-    for (const auto id_idx : c10::irange(tv->nDims())) {
-      const auto id = tv->axis((int)id_idx);
-      auto ptype = GpuLower::current()
-                       ->caMap()
-                       ->getConcreteMappedID(id, IdMappingMode::LOOP)
-                       ->getParallelType();
+    for (const auto id_idx : arange(tv->nDims())) {
+      const auto id = tv->axis(id_idx);
+      auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
         // Not a grouped ID
         continue;
@@ -1179,9 +1153,11 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       // Remember if a grouped ID is found
       is_grouped = true;
 
-      // Grouping only makes sense for the normal iteration type
-      TORCH_CHECK(
-          id->getIterType() == IterType::Iteration,
+      // Grouping only makes sense for the normal iteration or gather scatter
+      // type
+      NVF_CHECK(
+          id->getIterType() == IterType::Iteration ||
+              id->getIterType() == IterType::GatherScatter,
           "Invalid use of ParallelType::Group.",
           " Grouping of ",
           id->getIterType(),
@@ -1189,33 +1165,24 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
           tv->toString());
 
       // Extent must be static
-      TORCH_CHECK(
-          id->extent()->getInt().has_value(),
+      NVF_CHECK(
+          id->extent()->value().is<int64_t>(),
           "Invalid use of ParallelType::Group.",
           " IterDomain must have a static extent: ",
           id->toString());
 
       // The CA position must be left of any grouped ID
-      TORCH_CHECK(
+      NVF_CHECK(
           tv->getMaxComputePosition() <= id_idx,
           "Invalid use of ParallelType::Group.",
           " ComputeAt position must be left of grouped IDs: ",
           tv->toString());
 
       // Similarly, the produce-at position must be left of any grouped ID
-      TORCH_CHECK(
+      NVF_CHECK(
           tv->getMaxProducerPosition() <= id_idx,
           "Invalid use of ParallelType::Group.",
           " ProduceAt position must be left of grouped IDs: ",
-          tv->toString());
-
-      // Halo is not allowed
-      TORCH_CHECK(
-          GpuLower::current()->haloInfo()->getExtent(id) == nullptr,
-          "Invalid use of ParallelType::Group.",
-          " Grouping of halo-extended IterDomain, ",
-          id->toString(),
-          ", is not supported. ",
           tv->toString());
     }
 
@@ -1225,18 +1192,19 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
 
     // Must be defined by ReductionOp
     auto def = tv->definition();
-    TORCH_CHECK(
+    NVF_CHECK(
         def != nullptr,
         "Invalid use of ParallelType::Group.",
         " Definition of tv with ParallelType::Group not found. ",
         tv->toString());
 
-    TORCH_CHECK(
+    NVF_CHECK(
         tv->definition()->isA<ReductionOp>() ||
             tv->definition()->isA<GroupedReductionOp>() ||
             tv->definition()->isA<WelfordOp>() ||
             tv->definition()->isA<GroupedWelfordOp>(),
-        "Invalid use of ParallelType::Group. Only ReductionOp, GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
+        "Invalid use of ParallelType::Group. Only ReductionOp, "
+        "GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
         tv->definition()->toString());
 
     // Convert ReductionOp to GroupedReductionOp
@@ -1244,43 +1212,26 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
 
-      TORCH_CHECK(
-          is_allreduce,
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for allreduce reductions: ",
-          rop->toString());
-
-      TORCH_CHECK(
-          tv->domain()->hasGridReduction(),
-          "Invalid use of ParallelType::Group.",
-          " Only enabled for grid reductions: ",
-          rop->toString());
-
       std::vector<BinaryOpType> op_types({rop->getReductionOpType()});
       std::vector<Val*> init_vals({rop->init()});
       std::vector<Val*> outputs({rop->out()});
       std::vector<Val*> inputs({rop->in()});
 
       fusion->removeExpr(rop);
-      IrBuilder::create<GroupedReductionOp>(
-          static_cast<IrContainer*>(fusion),
-          op_types,
-          init_vals,
-          outputs,
-          inputs,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedReductionOp>(
+          fusion, op_types, init_vals, outputs, inputs, is_allreduce);
     } else if (tv->definition()->isA<WelfordOp>()) {
       // Convert WelfordOp to GroupedWelfordOp
       auto wop = def->as<WelfordOp>();
       auto is_allreduce = wop->isAllreduce();
 
-      TORCH_CHECK(
+      NVF_CHECK(
           is_allreduce,
           "Invalid use of ParallelType::Group.",
           " Only enabled for allreduce reductions: ",
           wop->toString());
 
-      TORCH_CHECK(
+      NVF_CHECK(
           tv->domain()->hasGridReduction(),
           "Invalid use of ParallelType::Group.",
           " Only enabled for grid reductions: ",
@@ -1293,12 +1244,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       std::vector<WelfordTriplet> init_vals(
           {{wop->initAvg(), wop->initVar(), wop->initN()}});
       fusion->removeExpr(wop);
-      IrBuilder::create<GroupedWelfordOp>(
-          static_cast<IrContainer*>(fusion),
-          output_vals,
-          input_vals,
-          init_vals,
-          is_allreduce);
+      IrBuilder::createInContainer<GroupedWelfordOp>(
+          fusion, output_vals, input_vals, init_vals, is_allreduce);
     }
   }
 }
@@ -1308,14 +1255,14 @@ void validateGroupedReductions(Fusion* fusion) {
     if (auto grouped_reduction_op = dynamic_cast<GroupedReductionOp*>(expr)) {
       const auto num_exprs =
           grouped_reduction_op->numHorizontallyGroupedExprs();
-      int num_grouped_iterations = 1;
+      int64_t num_grouped_iterations = 1;
       auto out_tv = ir_utils::getTvOutput(grouped_reduction_op);
-      for (auto axis : out_tv->getLeafDomain()) {
+      for (auto axis : out_tv->getLoopDomain()) {
         if (axis->getParallelType() == ParallelType::Group) {
-          num_grouped_iterations *= (int)axis->extent()->getInt().value();
+          num_grouped_iterations *= axis->extent()->value().as<int64_t>();
         }
       }
-      TORCH_CHECK(
+      NVF_CHECK(
           num_exprs * num_grouped_iterations <= kMaxNumGroupedReductions,
           "Too many grouped reductions: ",
           grouped_reduction_op->toString(),
@@ -1329,7 +1276,7 @@ void validateGroupedReductions(Fusion* fusion) {
 void validateLookupTV(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (expr->isA<SelectOp>() || expr->isA<IndexSelectOp>()) {
-      TORCH_CHECK(
+      NVF_CHECK(
           expr->input(0)->isFusionInput(),
           "Lookup input must be a fusion input: ",
           expr->toString());
@@ -1337,24 +1284,53 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
-void validateResize(Fusion* fusion) {
-  auto fusion_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(fusion_vals)) {
-    // Make sure resize is only used as part of rfactor transformations
-    auto rf_to_leaf_exprs = StmtSort::getExprsBetween(
-        fusion,
-        {tv->getMaybeRFactorDomain().begin(),
-         tv->getMaybeRFactorDomain().end()},
-        {tv->getLeafDomain().begin(), tv->getLeafDomain().end()});
+void validateReductions(Fusion* fusion) {
+  for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
+    auto in = rop->in()->as<TensorView>();
+    auto out = rop->out()->as<TensorView>();
+    PairwiseLogicalDomainMap c2p_map(in, out);
+    c2p_map.mapBroadcast(true);
+    auto c2p = c2p_map.mapConsumerToProducer();
+    for (auto out_id : out->getMaybeRootDomain()) {
+      if (out_id->isReduction()) {
+        auto in_it = c2p.find(out_id);
+        NVF_ERROR(
+            in_it != c2p.end(),
+            "Could not find producer IterDomain mapped to ",
+            out_id->toString());
+        IterDomain* in_id = in_it->second;
+        NVF_ERROR(
+            !in_id->isBroadcast() || in_id->hasExpandedExtent(),
+            "Reductions of unexpanded broadcast domains should be ",
+            "converted to squeeze before lowering.");
+      }
+    }
+  }
+}
 
-    TORCH_INTERNAL_ASSERT(
-        std::none_of(
-            rf_to_leaf_exprs.begin(),
-            rf_to_leaf_exprs.end(),
-            [](Expr* expr) { return expr->isA<Resize>(); }),
-        "Invalid use of resize detected with ",
-        tv->toString(),
-        ". Resize may only be used as part of rfactor transformations.");
+//! Validate f split output domain is loaded with 1D TMA, the split must be
+//! divisible
+void validate1dTmaLoad(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
+      continue;
+    }
+    NVF_ERROR(
+        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        "Expect TMA load of inner-most dimension, but got: ",
+        tv->toString());
+    const auto all_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+        {tv->axis(-1)});
+    for (auto expr : all_exprs) {
+      if (auto split = dynamic_cast<Split*>(expr)) {
+        NVFUSER_LOWER_VALIDATE(
+            split->isDivisible(),
+            "If split output domain is loaded with 1D TMA, the split must be "
+            "divisible, got: ",
+            split->toString());
+      }
+    }
   }
 }
 

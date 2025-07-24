@@ -25,7 +25,7 @@ namespace nvfuser {
 std::vector<Expr*> LoopNestGenerator::loweredExprs(
     const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::LoopNestGenerator::loweredExprs");
-  TORCH_INTERNAL_ASSERT(FusionGuard::getCurFusion() != nullptr);
+  NVF_ERROR(FusionGuard::getCurFusion() != nullptr);
   LoopNestGenerator generator(exprs);
   return generator.lowered_exprs_;
 }
@@ -36,29 +36,8 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 
 namespace {
 
-kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
-  auto extent_with_halo = GpuLower::current()->haloInfo()->getExtent(id);
-  kir::ForLoop* new_scope = nullptr;
-  if (extent_with_halo) {
-    // When an axis is extended with halo, unrolling and vectorization
-    // are assumed to not be used for now.
-    TORCH_INTERNAL_ASSERT(
-        id->getParallelType() != ParallelType::Unroll &&
-        !isParallelTypeVectorize(id->getParallelType()));
-    // Use the extent that's extended by halo
-    new_scope = IrBuilder::create<kir::ForLoop>(
-        id,
-        GpuLower::current()->caMap()->getIndexVariable(id),
-        nullptr,
-        extent_with_halo,
-        nullptr,
-        false,
-        nullptr,
-        false,
-        DoubleBufferLoopStage::NotApplicable);
-  } else {
-    new_scope = IrBuilder::create<kir::ForLoop>(id);
-  }
+ForLoop* openForHelper(ForLoop* scope, IterDomain* id) {
+  ForLoop* new_scope = IrBuilder::create<ForLoop>(id);
   if (scope != nullptr) {
     scope->body().insert(0, new_scope);
   }
@@ -79,7 +58,7 @@ void LoopNestGenerator::openFor(IterDomain* id) {
 }
 
 void LoopNestGenerator::closeFor() {
-  TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+  NVF_ERROR(!for_loops_.empty());
   for_loops_.pop_back();
 }
 
@@ -103,7 +82,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     pushFront(expr);
 
     for (auto out : expr->outputs()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           out->getValType().value() == ValType::Others,
           "Unrecognized output type found in expr ",
           expr,
@@ -119,7 +98,7 @@ void LoopNestGenerator::handle(Expr* expr) {
   TensorView* out_tv = expr->output(0)->as<TensorView>();
 
   // Grab the loop structure
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loop_structures_.find(out_tv) != loop_structures_.end(),
       "Could not find loop structure of ",
       out_tv);
@@ -139,8 +118,8 @@ void LoopNestGenerator::handle(Expr* expr) {
   }
 
   for (auto loop : loop_structure) {
-    auto find_it = std::find_if(
-        for_loops_.begin(), for_loops_.end(), [loop](kir::ForLoop* fl) {
+    auto find_it =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
           return fl->iter_domain() == loop;
         });
     if (find_it == for_loops_.end()) {
@@ -153,7 +132,7 @@ void LoopNestGenerator::handle(Expr* expr) {
 
 // Generate the loop nest structure and place it in lowered_exprs_
 void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
-  TORCH_INTERNAL_ASSERT(lowered_exprs_.empty());
+  NVF_ERROR(lowered_exprs_.empty());
 
   // Figure out loop structure of each expression. This can be a bit convoluted,
   // for an example why see Indexing17 test
@@ -162,16 +141,13 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   // lower_expr_sort, EXCEPT dependencies are in opposite order,
   // inner loops are dependant on outer loops.
 
-  const auto& ca_map = GpuLower::current()->caMap();
-
   std::unordered_map<IterDomain*, std::unordered_set<IterDomain*>>
       concrete_id_dependencies;
-  for (auto tv : ir_utils::allTvs(FusionGuard::getCurFusion())) {
+  for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
     std::unordered_set<IterDomain*> dependencies;
 
-    for (auto tv_id : tv->getLeafDomain()) {
-      auto concrete_id =
-          ca_map->getConcreteMappedID(tv_id, IdMappingMode::LOOP);
+    for (auto tv_id : tv->getLoopDomain()) {
+      auto concrete_id = lower_utils::getConcreteLoopID(tv_id);
 
       if (concrete_id_dependencies.find(concrete_id) ==
           concrete_id_dependencies.end()) {
@@ -233,17 +209,17 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
   }
 
   // Generate loop structure for each tensor view
-  for (auto tv : ir_utils::allTvs(FusionGuard::getCurFusion())) {
+  for (auto tv : FusionGuard::getCurFusion()->allTvs()) {
     // Zero dim tensor support
     if (tv->nDims() == 0) {
       loop_structures_[tv] = std::vector<IterDomain*>();
       continue;
     }
 
-    auto last_id_concrete = ca_map->getConcreteMappedID(
-        tv->axis((int)(tv->nDims() - 1)), IdMappingMode::LOOP);
+    auto last_id_concrete =
+        lower_utils::getConcreteLoopID(tv->axis(tv->nDims() - 1));
     auto all_loops_it = concrete_id_dependencies.find(last_id_concrete);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         all_loops_it != concrete_id_dependencies.end(),
         "Should have processed all id's in all tvs.");
     std::vector<IterDomain*> loop_structure(
@@ -256,8 +232,7 @@ void LoopNestGenerator::generate(const std::vector<Expr*>& exprs) {
     std::sort(
         loop_structure.rbegin(),
         loop_structure.rend(),
-        ir_utils::IterDomainDependencySorter(
-            concrete_id_dependencies, GpuLower::current()->caMap()));
+        lower_utils::IterDomainDependencySorter(concrete_id_dependencies));
     loop_structures_[tv] = loop_structure;
   }
 

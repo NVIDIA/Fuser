@@ -8,15 +8,18 @@
 #pragma once
 
 #include <debug.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
-#include <kernel_cache.h>
 #include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <utils.h>
+#include <visibility.h>
 
 #include <deque>
+#include <functional>
 #include <list>
 #include <unordered_set>
 #include <vector>
@@ -38,13 +41,21 @@ struct SegmentedEdge {
   Val* val;
 
   void print() const;
+
+  bool operator==(const SegmentedEdge& other) const {
+    return from == other.from && to == other.to && val == other.val;
+  }
+
+  bool operator!=(const SegmentedEdge& other) const {
+    return !(*this == other);
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
 
 //! Groups together expressions which create a segmented group
 //! Can be used to produce fusions
-class TORCH_CUDA_CU_API SegmentedGroup {
+class SegmentedGroup {
  public:
   //! Utility struct to represent a group connection
   //!  both the group to connect with and the edge
@@ -63,23 +74,21 @@ class TORCH_CUDA_CU_API SegmentedGroup {
     exprs_.push_back(expr);
   }
 
-  //! Create a temporary group to signify a fusion input, which can be
-  //! an original fusion input or a forwarded input with unary-only
-  //! use chains
-  SegmentedGroup(SegmentedFusion* segmented_fusion, bool is_fusion_input)
-      : is_fusion_input_(is_fusion_input),
-        segmented_fusion_(segmented_fusion) {}
+  //! Serialize SegmentedGroup using flatbuffers
+  flatbuffers::Offset<serde::SegmentedGroup> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<Expr*, int64_t>& exprs_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
+      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
 
-  //! Checks if this group takes original fusion's input
-  bool isInputGroup() {
-    return !input_vals.empty();
-  };
-
-  //! Checks if this group is used any where in the segmented fusion
-  bool isConnected() const {
-    return !producer_edges.empty() || !consumer_edges.empty() ||
-        !output_vals.empty();
-  }
+  //! Deserialize SegmentedGroup using flatbuffers
+  void deserialize(
+      const serde::SegmentedGroup* buffer,
+      const std::deque<Val*>& vals,
+      const std::deque<Expr*>& exprs,
+      const std::vector<SegmentedGroup*>& groups,
+      const std::vector<SegmentedEdge*>& edges);
 
   //! returns the id assigned by segment pass
   int groupId() const {
@@ -88,31 +97,45 @@ class TORCH_CUDA_CU_API SegmentedGroup {
 
   //! Returns inputs that this group shares with the original fusion
   const auto& inputs() const {
-    return input_vals;
+    return input_vals_.vector();
   }
 
   //! Returns outputs that this group shares with the original fusion
   const auto& outputs() const {
-    return output_vals;
+    return output_vals_.vector();
   }
 
   //! Returns the schedule heuristic associated with this group
-  ScheduleHeuristic heuristic() const {
-    return heuristic_;
+  SchedulerType schedulerType() const {
+    return scheduler_type_;
   }
 
   //! Returns the exprs that make up this group
-  const auto& exprs() const {
+  const std::vector<Expr*>& exprs() const {
     return exprs_;
+  }
+
+  // Returns a toposorted list of Exprs in this group, with equal cases
+  // respecting the original order.
+  std::vector<Expr*> stablyOrderedExprs() const;
+
+  //! Returns the complete fusion inputs mapped to this segmented group's fusion
+  const auto& getCompleteFusionInputs() const {
+    return original_inputs_in_cloned_fusion_;
+  }
+
+  //! Returns cloned fusion for this segmented group.
+  //! TODO Replace read-only uses of makeFusion with cached getFusion
+  Fusion* getFusion() {
+    // Build cloned fusion for this segmented group
+    if (cloned_fusion_ == nullptr) {
+      makeClonedFusion();
+    }
+    return cloned_fusion_.get();
   }
 
   //! Debug print function
   void print() const;
-
-  //! Returns the segmented fusion that this group is in
-  SegmentedFusion* segmentedFusion() const {
-    return segmented_fusion_;
-  }
 
   //! Utility to re-collect the operators included in this
   //!  segmented group after updating the group boundary.
@@ -125,11 +148,13 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //!  Note that the schedule params can be different.
   //! Returns a nullopt if this group cannot be scheduled
   //!  with the same heuristics.
-  std::optional<std::unique_ptr<SchedulerEntry>> getMaybeSchedulerEntry(
+  std::optional<std::unique_ptr<HeuristicParams>> getMaybeHeuristicParams(
       SchedulerRuntimeInfo& runtime_info);
 
-  //! Query if this is a group for a fusion input
-  bool isFusionInputGroup() const;
+  //! Get the SegmentedFusion this group belongs to
+  const SegmentedFusion* segmentedFusion() const {
+    return segmented_fusion_;
+  }
 
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
@@ -138,15 +163,21 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! "Descendent nodes", towards outputs of segmentedDAG
   std::vector<SegmentedEdge*> consumer_edges;
 
-  //! Composite Fusion inputs in this group
-  std::vector<Val*> input_vals;
+  //! Inputs of this group, they could be composite fusion inputs, or inputs
+  //! from other groups
+  VectorOfUniqueEntries<Val*> input_vals_;
 
-  //! Composite Fusion outputs in this group
-  std::vector<Val*> output_vals;
+  //! Outputs of this group, they could be composite fusion outputs, or outputs
+  //! to other groups
+  VectorOfUniqueEntries<Val*> output_vals_;
 
   bool isMerged() const {
     return merged_;
   }
+
+  //! Look at all neighbors of this and return who this could merge with based
+  //! on level values of this, neighbors, and merged neighbors of neighbors
+  std::vector<NeighborGroup> getMergeCandidates();
 
  private:
   friend class SegmentCandidateFinder;
@@ -158,7 +189,7 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   int group_id_ = -1;
 
   //! The scheduler to use for compiling this group
-  ScheduleHeuristic heuristic_ = ScheduleHeuristic::None;
+  SchedulerType scheduler_type_ = SchedulerType::None;
 
   //! Exprs that make up the group
   std::vector<Expr*> exprs_;
@@ -166,9 +197,6 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! Maximum path distance from an input segmented group required for
   //! Theorem 4.2
   int level_ = -1;
-
-  //! traversal marker, has this node already been processed
-  bool visited_ = false;
 
   //! Did we select another group to merge with
   SegmentedGroup* merge_with_ = nullptr;
@@ -179,20 +207,13 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! Has this node been merged?
   bool merged_ = false;
 
-  //! Is a group for a fusion input?
-  bool is_fusion_input_ = false;
-
  private:
-  //! Utility to convert edge vector to value vector
-  std::vector<Val*> edgesToVals(const std::vector<SegmentedEdge*>& se_v);
-
-  //! Reset method to call at begining of each
-  //!  merge node iteration
-  void clearTraversalInfo();
-
   //! To be called at the very end of segment fusion
   //!  no more segment merging should be done beyond
   void finalize();
+
+  //! Make the cloned fusion for this segmented group
+  void makeClonedFusion();
 
   //! Return all segmented groups connected with *this
   std::vector<SegmentedGroup*> getNeighbors();
@@ -202,77 +223,32 @@ class TORCH_CUDA_CU_API SegmentedGroup {
   //! be saved to gmem anyways)
   std::vector<NeighborGroup> getNeighborGroups();
 
-  //! Look at all neighbors of this and return who this could merge with based
-  //! on level values of this, neighbors, and merged neighbors of neighbors
-  std::vector<NeighborGroup> getMergeCandidates();
-
-  //! Assign schedule heuristic to this group
-  void setHeuristic(ScheduleHeuristic sh) {
-    heuristic_ = sh;
+  //! Assign scheduler type to this group
+  void setSchedulerType(SchedulerType scheduler_type) {
+    scheduler_type_ = scheduler_type;
   }
 
   //! Assign Id for this group
   void setID(int id) {
-    TORCH_INTERNAL_ASSERT(group_id_ == -1);
+    NVF_ERROR(group_id_ == -1);
     group_id_ = id;
   }
 
   //! SegmentedFusion this group belongs to
   SegmentedFusion* segmented_fusion_;
+
+  //! The cloned segmented fusion
+  std::unique_ptr<Fusion> cloned_fusion_;
+
+  //! These are the complete fusion's inputs mapped to the cloned fusion
+  std::vector<Val*> original_inputs_in_cloned_fusion_;
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group);
 
-//! Auxiliary class for storing heuristics. The managed data is either
-//!  a single scheduler entry for complete fusion,
-//!  or a vector of schedulers, one for each segment, for segmented fusion.
-class TORCH_CUDA_CU_API FusionHeuristics {
-  using SchedulerEntryOwningPtr = std::unique_ptr<SchedulerEntry>;
-
- public:
-  //! Constructor for segmented fusion case. Created with empty list and
-  //!  uses emplaceBack for inserting heuristics in order
-  explicit FusionHeuristics() = default;
-
-  //! Constructor for complete fusion case, generates the scheduler entry
-  //!  for the fusion owning the given expression
-  explicit FusionHeuristics(
-      ScheduleHeuristic schedule_heuristic,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr)
-      : is_segmented_(false) {
-    heuristics_.emplace_back(SchedulerEntry::makeEntry(
-        schedule_heuristic, runtime_info.fusion(), runtime_info, data_cache));
-  }
-
-  FusionHeuristics(const FusionHeuristics&) = delete;
-  FusionHeuristics& operator=(const FusionHeuristics&) = delete;
-
-  //! Place a scheduler entry on the list. Applies to segmented fusion only.
-  void emplaceBack(SchedulerEntryOwningPtr&& pt) {
-    TORCH_INTERNAL_ASSERT(is_segmented_);
-    heuristics_.emplace_back(std::move(pt));
-  }
-
-  //! Returns list of schedulers for a segmneted fusion.
-  const std::vector<SchedulerEntryOwningPtr>& heuristicsList() const {
-    return heuristics_;
-  }
-
-  //! Returns the single scheduler for a complete fusion.
-  SchedulerEntry* singleKernelHeuristics() {
-    TORCH_INTERNAL_ASSERT(!is_segmented_);
-    return heuristics_.begin()->get();
-  }
-
- private:
-  std::vector<SchedulerEntryOwningPtr> heuristics_;
-  bool is_segmented_ = true;
-};
-
 //! Exported Interface for representing segmented fusion graph
 //!   this class owns the segmented groups
-class TORCH_CUDA_CU_API SegmentedFusion {
+class SegmentedFusion {
  public:
   explicit SegmentedFusion(std::unique_ptr<Fusion> fusion);
 
@@ -281,7 +257,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //!  as the only group.
   static std::unique_ptr<SegmentedFusion> fromCompleteFusion(
       std::unique_ptr<Fusion> fusion,
-      ScheduleHeuristic heuristic,
+      SchedulerType scheduler_type,
       const KernelArgumentHolder& runtime_inputs);
 
   //! Is the fusion segmented?
@@ -322,24 +298,15 @@ class TORCH_CUDA_CU_API SegmentedFusion {
     return complete_fusion_->outputs();
   }
 
-  Val* findAlias(Val* val) const {
-    auto alias_it = complete_fusion_->ioAlias().find(val);
-    if (alias_it != complete_fusion_->ioAlias().end()) {
-      return alias_it->second;
-    }
-    return nullptr;
-  }
+  //! Get the fusion for the segmented group and return the IrCloner used to
+  //! clone the complete fusion
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(
+      SegmentedGroup* sg) const;
 
-  //! Make a clone of the group and convert to fusion
-  std::unique_ptr<Fusion> makeFusion(SegmentedGroup* sg);
-
-  //! Make heuristics for all groups in this segmented fusion
-  std::unique_ptr<FusionHeuristics> makeInitialHeuristics(
-      const KernelArgumentHolder& inputs,
+  //! Make a heuristics entry for a group and parameters
+  std::unique_ptr<HeuristicParams> makeInitialHeuristicParams(
+      SegmentedGroup* sg,
       SchedulerRuntimeInfo& runtime_info);
-
-  //! Inline Debug print for segmented fusion
-  std::string toString(int verbosity) const;
 
   //! Debug drawing for graphviz
   void draw();
@@ -359,7 +326,14 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
-  HeuristicSummary* getCachedHeuristicDataFor(SegmentedGroup* group);
+  //! Remove an edge from the segmented fusion graph and update all affected
+  //! groups The edge object will be deleted and should not be used after this
+  //! call
+  void removeEdge(SegmentedEdge* edge);
+
+  void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+
+  HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
   //! Lower FP precision of inputs and outputs specified by the given
   //! edges.
@@ -389,15 +363,32 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //! Grab edges with val
   std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
 
-  //! Make sure it's a DAG and optionally disjoint
-  void validate(bool require_disjoint = true) const;
+  //! Get edges between two groups
+  std::vector<SegmentedEdge*> getEdgesBetween(
+      const SegmentedGroup* from,
+      const SegmentedGroup* to) const;
 
-  //! Same as validate but only enabled when NDEBUG is undefined
-  void validateIfDebug(bool require_disjoint = true) const;
+  //! Serialize SegmentedFusion using flatbuffers
+  flatbuffers::Offset<serde::SegmentedFusion> serialize(
+      flatbuffers::FlatBufferBuilder& builder) const;
+
+  //! Deserialize SegmentedFusion using flatbuffers
+  void deserialize(const serde::SegmentedFusion* buffer);
+
+  void validateDisjoint() const;
 
  private:
-  void validateDAG() const;
-  void validateDisjoint() const;
+  //! Serialize SegmentedEdge using flatbuffers
+  flatbuffers::Offset<serde::SegmentedEdge> serialize(
+      flatbuffers::FlatBufferBuilder& builder,
+      const nvfuser::SegmentedEdge* edge,
+      const std::unordered_map<Val*, int64_t>& vals_map,
+      const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
+
+  //! Deserialize SegmentedEdge using flatbuffers
+  nvfuser::SegmentedEdge deserialize(
+      const serde::SegmentedEdge* buffer,
+      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion
@@ -414,9 +405,10 @@ class TORCH_CUDA_CU_API SegmentedFusion {
 
     SegmentedGroup* makeGroup();
     SegmentedGroup* makeGroup(Expr*);
-    SegmentedGroup* makeFusionInputGroup();
     SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
     void cleanUnused();
+    std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
+    std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
 
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;
@@ -436,16 +428,20 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   DataType force_half_precision_type_;
 
   //! Static traversal information to be used for fast heuristics lookup
-  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicSummary>>
-      heuristic_summary_cache_;
+  std::unordered_map<SegmentedGroup*, std::unique_ptr<HeuristicDataCache>>
+      heuristic_data_cache_;
+
+  //! The number of values in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_vals_size_;
+
+  //! The number of expressions in fusion after constructing segmented fusion.
+  //! Used for checking state during deserialization.
+  size_t initial_exprs_size_;
 
   // TODO: this class needs cleanup
  protected:
   friend class SegmentCandidateFinder;
-  //! Make a heuristics entry for a group and parameters
-  std::unique_ptr<SchedulerEntry> makeInitialSchedulerEntry(
-      SegmentedGroup* sg,
-      SchedulerRuntimeInfo& runtime_info);
 
   //! Cleanup function to be call at the end of fusion
   //!  segment pass
@@ -458,7 +454,7 @@ class TORCH_CUDA_CU_API SegmentedFusion {
   //! Keep heuristic checking intermediate data
   void setCachedHeuristicDataFor(
       SegmentedGroup* group,
-      std::unique_ptr<HeuristicSummary> data);
+      std::unique_ptr<HeuristicDataCache> data);
 
   //! Utility to give unique name for each segmented fusion
   static size_t segmentedFusionName() {
@@ -483,13 +479,21 @@ class GroupDependencyAnalysis;
 
 // Manual node merging passes
 class CombineReductions;
+class MergeUpAndDownCast;
+class MergeCatWithInputPads;
 
 //! Options to configure/debug candidate finder
-struct TORCH_CUDA_CU_API SegmentCandidateFinderOptions {
+struct SegmentCandidateFinderOptions {
   bool run_translate_welford = true;
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
+  // if provided, this custom function will be used to determine if two groups
+  // should be merged. If not provided, the tryMerge function will be used. This
+  // option is used in the context of MultiGpus where we proceed to a first
+  // segmentation to scoop out communications from compute.
+  std::function<bool(SegmentedGroup*, SegmentedGroup*)>
+      custom_should_merge_groups = nullptr;
 };
 
 //!  SegmentCandidateFinder
@@ -515,36 +519,20 @@ struct TORCH_CUDA_CU_API SegmentCandidateFinderOptions {
 //! SIAM Journal on Scientific Computing, Society for Industrial and Applied
 //! Mathematics, 2019, 41 (4), pp.A2117-A2145. ff10.1137/18M1176865ff.
 //! ffhal02306566f
-class TORCH_CUDA_CU_API SegmentCandidateFinder {
+class SegmentCandidateFinder {
  public:
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion_copy->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion_copy), inputs, options);
-    return std::move(scf.segmented_fusion_);
-  }
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      scf.completeFusion()->printMath();
-    }
-    return std::move(scf.segmented_fusion_);
-  }
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
@@ -553,18 +541,21 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   static bool hasSegmentHints(Fusion* fusion);
 
-  static bool translateWelfordInFusion(
+  NVF_API static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
+  //! Validate the graph is a DAG, and if require_disjoint that exprs are
+  //! disjoint
+  void validateIfDebug(bool require_disjoint = false);
+
  private:
   // Perform segmentation on and take ownership of the given fusion
-  SegmentCandidateFinder(
+  NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
       const KernelArgumentHolder& inputs,
-      SegmentCandidateFinderOptions options);
-
-  void resetTraversal();
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetLevels();
 
@@ -574,7 +565,17 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment. See
+  // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
+  void privatizeUpcast();
+
   void findSegments();
+
+  // Revert privatized upcast ops when not necessary
+  void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -584,32 +585,30 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
       SegmentedGroup* group,
       std::vector<SegmentedGroup::NeighborGroup> candidates = {});
 
-  std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
+  void disconnectGroup(SegmentedGroup* group);
 
   std::vector<SegmentedGroup*>& groups() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->groups();
   }
 
   std::vector<SegmentedEdge*>& edges() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->edges();
   }
 
   Fusion* completeFusion() {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    return runtime_info_;
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
-    return runtime_info_.expressionEvaluator();
+    return runtimeInfo().expressionEvaluator();
   }
 
   //! Additional merging iteration, clean up the rest of
@@ -632,17 +631,25 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //!  scalar values in group
   void resolveScalarsInGroup(SegmentedGroup* group);
 
-  //! Duplicate and add all exprs from "inputs" in the group, to complete
-  //! inputs. These expressions are simply unary ops of inputs that we want to
-  //! recompute for each segment, instead of computing and producing a segmented
-  //! val. For example if we have:
-  //! tv1 = tv0 * 2;
-  //! tv3 = tv1 + tv2;
-  //! tv4 = tv1 + tv4
+  //! Duplicate and add all exprs from fusion inputs to `forwarded_input` into
+  //! the group, to complete inputs. These expressions are simply unary ops of
+  //! inputs that we want to recompute for each segment, instead of computing
+  //! and producing a segmented val. For example if we have:
+  //!
+  //!   tv1 = tv0 * 2;
+  //!   tv3 = tv1 + tv2;
+  //!   tv4 = tv1 + tv4
+  //!
   //! If we segmented on tv1, we would be producing an output for tv1 for 2
   //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
   //! tv0.
-  void resolveInputsInGroup(SegmentedGroup* group);
+  void resolveNonscalarForwardedInput(Val* forwarded_input);
+
+  void resolveForwardedInputs();
+
+  // Creates the input group that ends at `forwarded_input`, i.e., the region
+  // between fusion inputs and `forwarded_input`.
+  SegmentedGroup* createInputGroup(Val* forwarded_input);
 
   //! Remove all scalar edges in group
   //!  (TODO: need structure better so we don't have to do this)
@@ -659,9 +666,9 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
 
   void finalize();
 
-  //! Return the resulting heuristic corresponding to the merged
+  //! Return the resulting SchedulerType corresponding to the merged
   //!  group built by merging the two groups connected by edge
-  ScheduleHeuristic deriveHeuristic(SegmentedGroup* edge);
+  SchedulerType deriveSchedulerType(SegmentedGroup* edge);
 
   GroupDependencyAnalysis* getGroupDependency();
 
@@ -688,20 +695,21 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
                val) != forwarded_fusion_inputs_.end();
   };
 
+  // Get all auxiliary groups created for fusion inputs
+  std::vector<SegmentedGroup*> getAuxiliaryInputGroups() const;
+
  protected:
   //! These are the merge node heuristic passes, should
   //!  eventually should have a dedicated interface
   //!  instead of keeping adding friends
   friend class CombineReductions;
+  friend class MergeUpAndDownCast;
+  friend class MergeCatWithInputPads;
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
 
-  std::deque<SegmentedGroup*> to_visit_;
-  std::vector<SegmentedGroup*> next_to_visit_;
-
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
-  std::unordered_set<SegmentedEdge*> clean_up_edges_;
 
   std::vector<SegmentedGroup*> to_merge_;
 
@@ -719,7 +727,12 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   // unary ops on inputs to the complete fusion
   VectorOfUniqueEntries<Expr*> excluded_inp_unary_exprs_;
 
-  SchedulerRuntimeInfo runtime_info_;
+  // This is allowed to be null in the multidevice case where the segmenter is
+  // used for breaking the fusion into compute and communication segments
+  std::optional<SchedulerRuntimeInfo> runtime_info_;
+
+  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+      privatized_upcast_ops_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
@@ -737,14 +750,13 @@ class TORCH_CUDA_CU_API SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder& runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope
-TORCH_CUDA_CU_API std::string toString(const SegmentedGroup* group);
-TORCH_CUDA_CU_API std::string toString(const SegmentedEdge* edge);
-TORCH_CUDA_CU_API std::string toString(const SegmentedFusion* segmented_fusion);
-TORCH_CUDA_CU_API std::string toString(
-    const SegmentCandidateFinderOptions& segment_options);
+std::string toString(const SegmentedGroup* group);
+std::string toString(const SegmentedEdge* edge);
+std::string toString(const SegmentedFusion* segmented_fusion);
+std::string toString(const SegmentCandidateFinderOptions& segment_options);
 
 } // namespace nvfuser

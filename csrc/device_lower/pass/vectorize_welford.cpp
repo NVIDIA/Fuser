@@ -66,16 +66,16 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto out_tv = ir_utils::getTvOutput(wop);
     const auto out_domain = out_tv->domain();
 
-    // Only consider the innermost leaf ID to vectorize. Should be
+    // Only consider the innermost loop ID to vectorize. Should be
     // possible to consider non-innermost IDs as well
-    auto innermost_leaf_id = out_tv->axis(-1);
+    auto innermost_loop_id = out_tv->axis(-1);
 
-    if (innermost_leaf_id->isReduction() || innermost_leaf_id->isBroadcast()) {
+    if (innermost_loop_id->isReduction() || innermost_loop_id->isBroadcast()) {
       return false;
     }
 
     // Check if the innermost loop can be vectorized
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
 
     if (innermost_loop->isTrivial()) {
@@ -89,7 +89,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
     if (!GpuLower::current()->caMap()->areMapped(
             innermost_loop->iter_domain(),
-            innermost_leaf_id,
+            innermost_loop_id,
             IdMappingMode::EXACT)) {
       return false;
     }
@@ -101,7 +101,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& exact_set = GpuLower::current()
                                 ->caMap()
                                 ->getIdSets(IdMappingMode::EXACT)
-                                .getDisjointSetOf(innermost_leaf_id);
+                                .getDisjointSetOf(innermost_loop_id);
     // If none of IterDomains is vectorized, don't vectorize the WelfordOp
     if (std::none_of(exact_set.begin(), exact_set.end(), [&](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
@@ -126,7 +126,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     //
     // Bail out if the structure is not detected.
 
-    TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+    NVF_ERROR(!scope_exprs_.empty());
     kir::IfThenElse* wop_ite =
         dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
     if (wop_ite == nullptr) {
@@ -140,7 +140,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         wop_ite->predicate()->hasValue(),
         "All predicates should have been lowered at this point: ",
         wop_ite->toString());
@@ -155,15 +155,15 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   // Transform a serial WelfordOp.
   void vectorize(WelfordOp* wop) {
-    TORCH_INTERNAL_ASSERT(!scope_exprs_.empty());
+    NVF_ERROR(!scope_exprs_.empty());
     kir::IfThenElse* wop_ite =
         dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         wop_ite != nullptr,
         "Predicate IfThenElse not found for ",
         wop->toString());
 
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     innermost_loop_ = for_loops_.back();
 
     scope_of_innermost_loop_ = nullptr;
@@ -172,7 +172,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         scope_of_innermost_loop_ = scope_.at(i - 1);
       }
     }
-    TORCH_INTERNAL_ASSERT(scope_of_innermost_loop_ != nullptr);
+    NVF_ERROR(scope_of_innermost_loop_ != nullptr);
 
     // If the expr is predicated, hoist the predicate as the innermost
     // loop should not have any dependency with the predicate (which
@@ -189,7 +189,7 @@ class WelfordVectorizer : public kir::ExprMutator {
       if (!pred->value()->value()) {
         // Can this happen? This should be just ignored, assuming
         // there's no else path.
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             wop_ite->elseBody().empty(),
             "Unexpected IfThenElse: ",
             wop_ite->toString());
@@ -388,7 +388,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
   // Declare a scalar variable of type dt and insert its allocation
   Val* defineScalar(DataType dt) {
-    Val* val = IrBuilder::newScalar(dt);
+    Val* val = IrBuilder::create<Val>(dt);
 
     auto alloc = IrBuilder::create<kir::Allocate>(
         val, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
@@ -403,7 +403,7 @@ class WelfordVectorizer : public kir::ExprMutator {
   // with what ever value within the loop range since it is
   // independent of the loop index.
   kir::TensorIndex* hoistCount(kir::TensorIndex* out_N) {
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
     const auto& original_index = out_N->index();
     std::unordered_map<Val*, Val*> index_replacement_map;
@@ -468,13 +468,13 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    TORCH_INTERNAL_ASSERT(!for_loops_.empty());
+    NVF_ERROR(!for_loops_.empty());
     auto innermost_loop = for_loops_.back();
 
     // Check all the exprs in the same scope
     for (auto expr : innermost_loop->body().exprs()) {
       // Bail out if a loop is found
-      if (expr->isA<kir::ForLoop>()) {
+      if (expr->isA<ForLoop>()) {
         return false;
       }
 
@@ -536,13 +536,13 @@ class WelfordVectorizer : public kir::ExprMutator {
       // mean the expr predicate is different, but likely not
       // worthwhile to consider.
       auto wop_out = ir_utils::getTvOutput(wop);
-      for (auto tv_leaf_id : tv->getLeafDomain()) {
+      for (auto tv_loop_id : tv->getLoopDomain()) {
         if (std::none_of(
-                wop_out->getLeafDomain().begin(),
-                wop_out->getLeafDomain().end(),
-                [&](auto wop_leaf_id) {
+                wop_out->getLoopDomain().begin(),
+                wop_out->getLoopDomain().end(),
+                [&](auto wop_loop_id) {
                   return GpuLower::current()->caMap()->areMapped(
-                      tv_leaf_id, wop_leaf_id, IdMappingMode::LOOP);
+                      tv_loop_id, wop_loop_id, IdMappingMode::LOOP);
                 })) {
           return false;
         }
@@ -557,14 +557,17 @@ class WelfordVectorizer : public kir::ExprMutator {
   }
 
  private:
-  kir::ForLoop* innermost_loop_ = nullptr;
-  kir::Scope* scope_of_innermost_loop_ = nullptr;
+  ForLoop* innermost_loop_ = nullptr;
+  Scope* scope_of_innermost_loop_ = nullptr;
 };
 
 } // namespace
 
 std::vector<Expr*> vectorizeWelford(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::vectorizeWelford");
+  if (isOptionDisabled(DisableOption::WelfordVectorization)) {
+    return exprs;
+  }
   return WelfordVectorizer::vectorize(exprs);
 }
 

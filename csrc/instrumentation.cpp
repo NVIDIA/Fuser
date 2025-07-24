@@ -9,8 +9,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <c10/macros/Export.h>
-
 #ifdef _WIN32
 #include <c10/util/win32-headers.h>
 #else
@@ -25,7 +23,7 @@ Trace::Trace() {
   const char* trace_filename = getNvFuserEnv("TRACE");
   if (trace_filename != nullptr) {
     log_file_ = fopen(trace_filename, "w");
-    TORCH_CHECK(log_file_ != nullptr, "Can't open trace file");
+    NVF_CHECK(log_file_ != nullptr, "Can't open trace file");
 
     // Disable the file stream buffering, since it may result
     // in torn writes in multi-threaded tracing
@@ -68,7 +66,8 @@ void Trace::logEvent(char ph, const char* name, char sep) {
 
   fprintf(
       log_file_,
-      "{ \"name\": \"%s\", \"ph\": \"%c\", \"pid\": %u, \"tid\": %u, \"ts\": %.0f }%c\n",
+      "{ \"name\": \"%s\", \"ph\": \"%c\", \"pid\": %u, \"tid\": %u, \"ts\": "
+      "%.0f }%c\n",
       name,
       ph,
       pid,

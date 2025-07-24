@@ -9,15 +9,19 @@
 
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <disjoint_set.h>
+#include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <deque>
 #include <unordered_map>
 
 namespace nvfuser {
 
-// There's three modes of these iter domain mappings all uniquely important in
+class IdModelValidator;
+
+// There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
 //
 // For EXACT/PERMISSIVE mode consider:
@@ -58,6 +62,10 @@ namespace nvfuser {
 //   inputs and outputs of resize ops. Used for, e.g., propagating
 //   parallel types across those domains. It also maps producers and
 //   consumers of gathered and scattered domains
+// IdMappingMode::INNERMOST
+//   Include everything in PERMISSIVE_RESIZE. Maps also iter domain across
+//   split/merge to the inner domain, it is used to map inner most iter domain.
+//   i.e. transpose scheduler use this to map inner most domain.
 // IdMappingMode::EXACT
 //   Don't map any broadcast axes to non-broadcast axes
 //   Do not forward through any broadcast IDs
@@ -68,9 +76,9 @@ namespace nvfuser {
 //          PERMISSIVE)
 //   Forward through split one axes, i.e. id{ceilDiv(i0, 1)}, id{i0} are mapped
 //
-class TORCH_CUDA_CU_API IterDomainGraph {
+class IterDomainGraph {
  public:
-  IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
+  NVF_API IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
 
   const DisjointSets<IterDomain*>& permissiveNodes() const {
     return permissive_nodes_;
@@ -86,6 +94,9 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   }
   const DisjointSets<IterDomain*>& permissiveResizeNodes() const {
     return permissive_resize_nodes_;
+  }
+  const DisjointSets<IterDomain*>& innermostNodes() const {
+    return innermost_nodes_;
   }
 
   // Consumers and producers is not symmetric like the other sets
@@ -130,7 +141,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
  private:
   void build(Fusion* fusion);
 
-  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_leaf_id);
+  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_loop_id);
 
   // Checks if exprsMap then if forward will map outputs else inputs in exact
   // and permissive map.
@@ -141,6 +152,7 @@ class TORCH_CUDA_CU_API IterDomainGraph {
   DisjointSets<IterDomain*> almost_exact_nodes_;
   DisjointSets<IterDomain*> loop_nodes_;
   DisjointSets<IterDomain*> permissive_resize_nodes_;
+  DisjointSets<IterDomain*> innermost_nodes_;
 
   // Consumers and producers is not symmetric like the other sets.
   // Mapping is based on the most permissive map, i.e., the
@@ -160,18 +172,21 @@ class TORCH_CUDA_CU_API IterDomainGraph {
 
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
+using CircularBufferIndices = std::unordered_map<CircularBufferLoopStage, Val*>;
 
-class TORCH_CUDA_CU_API ComputeAtMap {
+class ComputeAtMap {
  public:
   ComputeAtMap() = delete;
   ComputeAtMap(const ComputeAtMap&) = delete;
   ComputeAtMap& operator=(const ComputeAtMap&) = delete;
   ComputeAtMap(ComputeAtMap&&) = default;
   ComputeAtMap& operator=(ComputeAtMap&&) = default;
-  ComputeAtMap(Fusion* fusion);
+  NVF_API ComputeAtMap(Fusion* fusion, bool allow_self_mapping = false);
 
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
@@ -197,14 +212,17 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   //!  would help optimizing the generated integer math for indexing.
   void allocateIndexVariables();
 
-  //! Returns if id0 and id1 are mapped to eachother with provided IdMappingMode
-  bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode) const;
+  //! Returns if id0 and id1 are mapped to each other with provided
+  //! IdMappingMode
+  NVF_API bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode)
+      const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
   //! iteration size. Not guarenteed to return the same ID every call, but is
   //! guarenteed to return iter domains in the same disjoint set.
-  IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode) const;
+  NVF_API IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode)
+      const;
 
   //! Returns a list of expressions that produce the iter domains of all exact
   //! mapped id's to 'id'. Expressions that are the same exact transformations
@@ -237,10 +255,10 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   // Returns if the provided ID is an rfactor id
   bool isRfactor(IterDomain* ref_id) const;
 
-  // Returns all rfactor domains in rfactor_concrete_count_reset_domains_ that
+  // Returns all logical domains in rfactor_concrete_count_reset_domains_ that
   // are in the disjoint set of the provided IterDomain. This will be every
   // rfactor ID the provided ID "depends" on in the map.
-  std::vector<IterDomain*> getRfactorDomainsOfIdGroup(
+  std::vector<IterDomain*> getLogicalDomainsOfIdGroup(
       IterDomain* ref_id,
       IdMappingMode mode) const;
 
@@ -253,17 +271,18 @@ class TORCH_CUDA_CU_API ComputeAtMap {
 
   // Returns if the ID actually has a disjoint set meaning it has been processed
   // in the creation of the compute at map.
-  bool idExistsInMap(IterDomain* id) const;
+  bool idExistsInMap(IterDomain* id, IdMappingMode mode = IdMappingMode::EXACT)
+      const;
 
   //! Returns the pre-allocated index variable integer used in
-  //!  the kir::ForLoop corresponding to the given IterDomain.
+  //!  the ForLoop corresponding to the given IterDomain.
   //!  this interface is only valid if the ID has a loop mapping,
   //!  ca_map will throw exceptions if given iterdomain doesn't
   //!  have a loop map entry.
   Val* getIndexVariable(
       IterDomain* id,
-      DoubleBufferLoopStage double_buffer_loop_stage =
-          DoubleBufferLoopStage::NotApplicable) const;
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
 
   // Returns if expr_1 and expr_2 have exact mapped IterDomains in
   // inputs/outputs (order matters) and if the expressions have matching
@@ -355,18 +374,21 @@ class TORCH_CUDA_CU_API ComputeAtMap {
   std::unordered_map<const VectorOfUniqueEntries<IterDomain*>*, Val*>
       loop_index_variable_map_;
 
-  //! Allocated loop indices for double buffer loop.
+  //! Allocated loop indices for circular buffer loop.
   //!  only valid for disjoint sets on the loop ca map
-  //!  that have double buffer-ed iterdomains.
-  using DoubleBufferIndicesPtr = std::unique_ptr<DoubleBufferIndices>;
+  //!  that have circular buffer-ed iterdomains.
+  using CircularBufferIndicesPtr = std::unique_ptr<CircularBufferIndices>;
   std::unordered_map<
       const VectorOfUniqueEntries<IterDomain*>*,
-      DoubleBufferIndicesPtr>
-      double_buffered_loop_index_variable_map_;
+      CircularBufferIndicesPtr>
+      circular_buffered_loop_index_variable_map_;
 
   // Shortcut to access the fusion this computeAt map was
   //  built from.
   Fusion* fusion_;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 } // namespace nvfuser

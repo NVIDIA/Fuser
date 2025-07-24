@@ -7,9 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <utils.h>
 
-#include <nvToolsExt.h>
+#include <nvtx3/nvToolsExt.h>
 
 // NOLINTNEXTLINE(modernize-deprecated-headers)
 #include <stdio.h>
@@ -35,12 +36,12 @@ namespace inst {
 //! An easy way to view traces is to type `about://tracing` in Chrome or
 //! Chromium.
 //!
-class TORCH_CUDA_CU_API Trace : public NonCopyable {
+class Trace : public NonCopyable {
  public:
   using Clock = std::chrono::steady_clock;
 
  public:
-  static Trace* instance() {
+  NVF_API static Trace* instance() {
     static Trace trace;
     return &trace;
   }
@@ -64,10 +65,10 @@ class TORCH_CUDA_CU_API Trace : public NonCopyable {
   }
 
  private:
-  Trace();
-  ~Trace();
+  NVF_API Trace();
+  NVF_API ~Trace();
 
-  void logEvent(char ph, const char* name, char sep = ',');
+  NVF_API void logEvent(char ph, const char* name, char sep = ',');
 
  private:
   FILE* log_file_ = nullptr;
@@ -77,7 +78,7 @@ class TORCH_CUDA_CU_API Trace : public NonCopyable {
 
 //! \internal Automatic scope for a perf marker
 //!   (normally used through the FUSER_PERF_SCOPE macro)
-class TORCH_CUDA_CU_API TraceScope : public NonCopyable {
+class TraceScope : public NonCopyable {
  public:
   explicit TraceScope(const char* event_name) : event_name_(event_name) {
     Trace::instance()->beginEvent(event_name_);

@@ -7,26 +7,15 @@
 // clang-format on
 #pragma once
 
+#include <exceptions.h>
 #include <ir/interface_nodes.h>
-#include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 
 namespace nvfuser {
 
-//!
-//! The TypePromotionConfig flags are derived from Aten/TensorIterator.h
-//!
-//! 1) check_all_same_dtype_ flag checks that all inputs and defined outputs
-//! have the same dtype. Default = False
-//!
-//! 2) promote_inputs_to_common_dtype flag will cast the inputs to the common
-//! dtype. Default = True
-//!
-//! 3) promote_integer_inputs_to_float flag will cast the common dtype to the
-//! default float scalar type if it is an integral type (including bool).
-//!
 struct TypePromotionConfig {
   bool promote_integer_inputs_to_float = false;
+  // Checks the promoted type is either single or double.
   bool require_full_precision_promoted = false;
 };
 
@@ -46,10 +35,6 @@ static const TypePromotionConfig float_only_op_config{
 // Implements the the behavior of the following flags:
 //   - promote_inputs_to_common_dtype
 //   - promote_integer_inputs_to_float
-DataType computeTypes(
-    const TypePromotionConfig& config,
-    const std::vector<torch::jit::TypePtr>& operands);
-
 DataType computeTypes(
     const TypePromotionConfig& config,
     const std::vector<Val*>& operands,

@@ -59,7 +59,9 @@ ResultTypeState updateResultTypeState(
     const ResultTypeState& in_state) {
   ResultTypeState new_state = in_state;
   DataType current = scalar;
-  if (scalar == DataType::Half || scalar == DataType::BFloat16) {
+  if (scalar == DataType::Half || scalar == DataType::BFloat16 ||
+      scalar == DataType::Float8_e4m3fn || scalar == DataType::Float8_e5m2 ||
+      scalar == DataType::Float8_e8m0fnu || scalar == DataType::Float4_e2m1fn) {
     current = DataType::Float;
   }
   new_state.wrappedResult =
@@ -108,7 +110,7 @@ DataType computeCommonDtype(const std::vector<OperandType>& operands) {
     }
   }
   auto common_dtype = resultType(state);
-  TORCH_INTERNAL_ASSERT(common_dtype != DataType::Null);
+  NVF_ERROR(common_dtype != DataType::Null);
   return common_dtype;
 }
 
@@ -141,7 +143,7 @@ DataType computeTypes(
 
   // Some ops like nextafter are not implemented for non-float types
   if (config.require_full_precision_promoted) {
-    TORCH_CHECK(
+    NVF_CHECK(
         common_dtype == DataType::Float || common_dtype == DataType::Double,
         "Promoted type must be single or double precision float but found ",
         common_dtype);
@@ -152,7 +154,7 @@ DataType computeTypes(
 
 OperandType getValueType(at::TypePtr type) {
   if (auto tensor_type = type->cast<at::TensorType>()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         tensor_type->scalarType().has_value(),
         "Missing Scalar Type information");
     // TODO: Type Inference does not propagate Shape Information
@@ -168,14 +170,14 @@ OperandType getValueType(at::TypePtr type) {
 }
 
 OperandType getValueType(Val* type) {
-  TORCH_INTERNAL_ASSERT(type->getDataType().has_value());
+  NVF_ERROR(type->getDataType().has_value());
 
   if (type->isA<TensorView>()) {
     auto tensor_view = type->as<TensorView>();
     return {
         ValueType::Tensor,
         tensor_view->getDataType().value(),
-        tensor_view->getMaybeRFactorDomain().size()};
+        tensor_view->getLogicalDomain().size()};
   } else if (type->getDataType().has_value()) {
     return {ValueType::Scalar, type->getDataType().value()};
   } else {
@@ -184,17 +186,6 @@ OperandType getValueType(Val* type) {
 }
 
 } // namespace
-
-DataType computeTypes(
-    const TypePromotionConfig& config,
-    const std::vector<torch::jit::TypePtr>& operands) {
-  std::vector<OperandType> vt_operands;
-  vt_operands.reserve(operands.size());
-  for (const auto& op : operands) {
-    vt_operands.emplace_back(getValueType(op));
-  }
-  return computeTypes(config, vt_operands);
-}
 
 DataType computeTypes(
     const TypePromotionConfig& config,
@@ -207,9 +198,13 @@ DataType computeTypes(
   }
 
   auto common_type = computeTypes(config, vt_operands);
-  // Cast FP16 / BFloat16 to Float
+  // Cast FP16 / BFloat16 / FP8 to Float
   if (cast_half_to_float &&
-      (common_type == DataType::Half || common_type == DataType::BFloat16)) {
+      (common_type == DataType::Half || common_type == DataType::BFloat16 ||
+       common_type == DataType::Float8_e4m3fn ||
+       common_type == DataType::Float8_e5m2 ||
+       common_type == DataType::Float8_e8m0fnu ||
+       common_type == DataType::Float4_e2m1fn)) {
     common_type = DataType::Float;
   }
 
@@ -225,7 +220,7 @@ std::vector<Val*> promoteValues(
     promoted_operands.push_back(optionalCast(common_type, op));
   }
 
-  TORCH_INTERNAL_ASSERT(operands.size() == promoted_operands.size());
+  NVF_ERROR(operands.size() == promoted_operands.size());
   return promoted_operands;
 }
 
@@ -236,7 +231,7 @@ std::vector<Val*> promoteValues(
 }
 
 Val* optionalCast(DataType dtype, Val* v) {
-  TORCH_INTERNAL_ASSERT(v->getDataType().has_value());
+  NVF_ERROR(v->getDataType().has_value());
   // Avoid casting Float/Int/ComplexDouble scalar to any corresponding
   // FloatingPoint/Integral/Double type in fusion. Instead, we cast them
   // directly. The exception is Bool, which is always cast to the desired
@@ -257,7 +252,7 @@ Val* optionalCast(DataType dtype, Val* v) {
 }
 
 Val* optionalCastStrict(DataType dtype, Val* v) {
-  TORCH_INTERNAL_ASSERT(v->getDataType().has_value());
+  NVF_ERROR(v->getDataType().has_value());
   const bool kSameDtype = v->getDataType().value() == dtype;
   return (kSameDtype) ? v : castOp(dtype, v);
 }

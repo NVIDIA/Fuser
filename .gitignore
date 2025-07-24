@@ -5,19 +5,25 @@ bin
 build
 .lintbin
 
-# pip wheel directory
-dist
+nvfuser_common/version.py
+nvfuser_common/include
+nvfuser_comon/lib
+nvfuser_common/share
+nvfuser_common/cmake
 
-nvfuser/version.py
-nvfuser/include
-nvfuser/lib
-nvfuser/share
-nvfuser/cmake
+python/nvfuser/version.py
+python/nvfuser_common/build
+python/nvfuser_common/include
+python/nvfuser_common/lib
+python/nvfuser_common/share
+python/nvfuser_common/cmake
 
 .hypothesis
 *.egg-info/
 **/__pycache__
 */*.so
+python/nvfuser/*.so
+python/nvfuser_direct/*.so
 
 # Editor temporaries
 *.swa
@@ -43,3 +49,22 @@ nvfuser/cmake
 # debugging temporaries
 *.log
 foo.bin
+
+# Config for https://pre-commit.com/
+.pre-commit-config.yaml
+
+*_generated.*
+
+# Mac OS internal file
+.DS_Store
+
+test_log*
+
+# Skip files created commonly during development
+.lintrunner.private.toml
+compile_commands.json
+
+# Skip nsight files that are created during perf debugging
+*.sqlite
+*.nsys-rep
+*.ncu-rep

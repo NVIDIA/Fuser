@@ -76,7 +76,7 @@ class EliminateDeadBroadcastAndAllocate {
 
   void findLiveTvs(const std::vector<Expr*>& exprs) {
     for (auto expr : exprs) {
-      if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
         findLiveTvs(for_loop->body().exprs());
         continue;
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
@@ -104,8 +104,7 @@ class EliminateDeadBroadcastAndAllocate {
           // Also find any TVs used in index expressions.
           // These expressions will likely not be in the Expr tree we are
           // provided, so we need to traverse to find them.
-          auto all_index_roots =
-              InputsOf::outputs(FusionGuard::getCurFusion(), {ti->index()});
+          auto all_index_roots = InputsOf::outputs({ti->index()});
           auto index_root_tis =
               ir_utils::filterByType<kir::TensorIndex>(all_index_roots);
           for (auto rootti : index_root_tis) {
@@ -194,7 +193,22 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  bool openLoopNestLevel(IterDomain* id) {
+  bool openLoopNestLevel(ForLoop* fl) {
+    // circular buffering duplicates for-loops. Depending on the number of
+    // iterations in for-loop and size of circular buffering pipeline, either
+    // the main loop or epilogue loops can be trivial. In this case, we do not
+    // open another loop nest level. Allocations are added directly to the
+    // previous level.
+    bool is_main_loop =
+        fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
+    bool is_epilogue_loop =
+        fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog;
+
+    if ((is_main_loop || is_epilogue_loop) && fl->isTrivial()) {
+      return false;
+    }
+
+    IterDomain* id = fl->iter_domain();
     if (id->isThread() || id->getParallelType() == ParallelType::Unswitch) {
       return false;
     }
@@ -205,9 +219,9 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     return true;
   }
 
-  void handle(kir::ForLoop* for_loop) final {
+  void handle(ForLoop* for_loop) final {
     // Keep track of visible reduction outputs
-    bool open_nest_level = openLoopNestLevel(for_loop->iter_domain());
+    bool open_nest_level = openLoopNestLevel(for_loop);
     if (open_nest_level) {
       running_tv_to_allocate_map_.emplace_back(
           std::make_unique<std::unordered_map<TensorView*, kir::Allocate*>>());
@@ -282,8 +296,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         }
       }
     }
-    TORCH_INTERNAL_ASSERT(
-        false, "lower_warp_reduce: cannot find allocation for this op");
+    NVF_THROW("lower_warp_reduce: cannot find allocation for this op");
     return nullptr;
   }
 
@@ -318,7 +331,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       return;
     }
     auto reduction_ti_out = dynamic_cast<kir::TensorIndex*>(reduction->out());
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         reduction_ti_out,
         "lower_warp_reduce: Pass needs to be run after indexing");
 
@@ -366,13 +379,14 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       // not have
       //  a size of 1, since it would have required re-indexing.
       if (!reduction_allocate_it->second->size()->isConstInt() ||
-          reduction_allocate_it->second->size()->evaluateInt() != 1) {
+          reduction_allocate_it->second->size()->evaluate().as<int64_t>() !=
+              1) {
         return;
       }
 
       auto broadcast_allocate = getActiveAllocateFor(out_tv);
       if (!broadcast_allocate->size()->isConstInt() ||
-          broadcast_allocate->size()->evaluateInt() != 1) {
+          broadcast_allocate->size()->evaluate().as<int64_t>() != 1) {
         return;
       }
 
@@ -402,7 +416,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     }
 
     if (id->extent()->isConstScalar()) {
-      return id->extent()->evaluateInt() == warp_size;
+      return id->extent()->evaluate() == warp_size;
     }
 
     return false;
@@ -421,7 +435,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
 
     bool reduction_has_single_warp = false, broadcast_has_single_warp = false;
 
-    for (auto id : reduction_out_tv->getLeafDomain()) {
+    for (auto id : reduction_out_tv->getLoopDomain()) {
       if (id->isReduction() && id->isThread() && !isSingleWarp(id)) {
         return false;
       }
@@ -429,7 +443,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
         reduction_has_single_warp = true;
       }
     }
-    for (auto id : broadcast_out_tv->getLeafDomain()) {
+    for (auto id : broadcast_out_tv->getLoopDomain()) {
       if (id->isBroadcast() && id->isThread() && !isSingleWarp(id)) {
         return false;
       }

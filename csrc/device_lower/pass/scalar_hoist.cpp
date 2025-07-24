@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <expr_simplifier.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 #include <options.h>
@@ -18,10 +19,18 @@ namespace nvfuser {
 
 namespace {
 
+bool shouldHoistToHost(Val* value) {
+  if (value->definition() == nullptr) {
+    return false;
+  }
+  auto def = value->definition();
+  return def->isA<kir::EncodeTensorMapTiled>();
+}
+
 // Get the position of the innermost non-trivial loop
-int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
+int64_t getInnermostNonTrivialLoop(const std::vector<ForLoop*>& loops) {
   int64_t position = -1;
-  for (auto i : c10::irange(loops.size())) {
+  for (auto i : arange(loops.size())) {
     if (!loops.at(i)->isTrivial()) {
       position = (int64_t)i;
     }
@@ -32,21 +41,34 @@ int64_t getInnermostNonTrivialLoop(const std::vector<kir::ForLoop*>& loops) {
 // Find the outer-most loop nest that contains all the dependencies of `value`.
 int64_t findOutermostPosWithSatisfiedDependency(
     Val* value,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
+  DEBUG_PRINT_SCOPE(value->toInlineString());
   // We don't recursively look into tensor indexing to find its dependency.
   // Instead, we always assume tensor indices to have dependency on all loop
   // variables and prefer to put it at the innermost loop.
   if (value->isA<kir::TensorIndex>()) {
-    return getInnermostNonTrivialLoop(loops);
+    RECORD_AND_RETURN(getInnermostNonTrivialLoop(loops));
   }
   // For TensorView, we must find its allocation to determine which loop it
   // belongs to. TensorView is handled differently from TensorIndex because
   // TensorIndex is a tensor data access, but TensorView only contains meta data
   // access like `T1.data`, or `toSmem(T1)`.
   if (TensorView* tv = dynamic_cast<TensorView*>(value)) {
-    // In getAllocInformation, position i means before the ith loop, in this
-    // function, i means after the ith loop, so we need to -1 here.
-    return (int64_t)lower_utils::getAllocInformation(tv, loops).alloc_pos - 1;
+    // Can not use lower_utils::getAllocInformation to get the allocation
+    // position of TensorView here, because the TensorView might be a special
+    // purposed tensor view, like a mbarrier, whose IterDomains are unrelated to
+    // the actual allocation.
+    for (int64_t pos = (int64_t)loops.size() - 1; pos >= 0; pos--) {
+      auto loop = loops.at(pos);
+      for (auto expr : loop->body().exprs()) {
+        if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+          if (alloc->buffer() == tv) {
+            RECORD_AND_RETURN(pos);
+          }
+        }
+      }
+    }
+    RECORD_AND_RETURN(-1);
   }
 
   auto def = value->definition();
@@ -55,7 +77,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
   // variable or something like named scalar or constant
   if (def == nullptr) {
     // Check if `value` is a loop variable
-    for (auto i : c10::irange(loops.size())) {
+    for (auto i : arange(loops.size())) {
       auto loop = loops.at(i);
       // We skip trivial loop here because it is never materialized, so its loop
       // variable is accessible everywhere. For example, if the trivial loop is
@@ -66,7 +88,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
         continue;
       }
       if (loop->index()->sameAs(value)) {
-        return (int64_t)i;
+        RECORD_AND_RETURN((int64_t)i);
       }
     }
     // If no loop found, then `value` would could only depend on constants and
@@ -74,7 +96,7 @@ int64_t findOutermostPosWithSatisfiedDependency(
     // value = blockIdx.x * 256 + threadIdx.x
     // For this case, return -1, which indicates that the computation of this
     // value should be placed at top-level exprs.
-    return -1;
+    RECORD_AND_RETURN(-1);
   }
 
   int64_t pos = -1;
@@ -83,13 +105,11 @@ int64_t findOutermostPosWithSatisfiedDependency(
     pos = std::max(pos, findOutermostPosWithSatisfiedDependency(v, loops));
   }
 
-  return pos;
+  RECORD_AND_RETURN(pos);
 }
 
 // Get the key for `common_scalar_map_`
-kir::ForLoop* getLoopAtPos(
-    const std::vector<kir::ForLoop*>& loops,
-    int64_t position) {
+ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
   // position < 0 refers to the top level exprs (no corresponding loop)
   if (position < 0) {
     return nullptr;
@@ -100,6 +120,9 @@ kir::ForLoop* getLoopAtPos(
 // Check if in the definition of from, there is a subexpression equivalent to
 // reference. If found, then return this subexpression.
 Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
+  if (!ir_utils::isFunctional(reference)) {
+    return nullptr;
+  }
   if (exact) {
     if (from == reference) {
       return from;
@@ -142,11 +165,22 @@ bool isHelpfulToReuse(Val* value) {
   return true;
 }
 
+// Find if the given `value` is already computed on the host. If yes, then
+// return the host value, else return nullptr.
+Val* reuseValsKnownToKernel(Val* value) {
+  for (auto val : GpuLower::current()->allKnownVals()) {
+    if (val->sameAs(value)) {
+      return val;
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
     Val* value,
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     std::vector<Val*>& seen_subexprs,
     int64_t parent_pos,
     bool is_given) {
@@ -177,10 +211,25 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   auto my_pos = findOutermostPosWithSatisfiedDependency(value, loops);
   auto my_loop = getLoopAtPos(loops, my_pos);
 
+  // There are certain experesions that must be evaluated on the host, such as
+  // kir::EncodeTensorMapTiled. For these expressions, we should add them to
+  // known values of the kernel. Also, reusing subexpressions of these exprs
+  // are disabled, because the subexpressions on the host is not accessible to
+  // the device. This must happen before reusing, because we can not reuse
+  // values on the host for device.
+  if (shouldHoistToHost(value)) {
+    if (auto known_val = reuseValsKnownToKernel(value)) {
+      return {known_val, false};
+    }
+    GpuLower::current()->allKnownVals().emplace_back(value);
+    return {value, false};
+  }
+
   // Check if `value` is already computed. If yes, just reuse it and return.
   if (auto existing_subexpr = reuseScalarIfAlreadyComputed(value, my_loop)) {
     return {existing_subexpr, false};
   }
+
   for (auto existing_subexpr : seen_subexprs) {
     if (value->sameAs(existing_subexpr)) {
       common_scalar_map_[my_loop].emplace_back(existing_subexpr);
@@ -207,8 +256,8 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // If any of the inputs is replaced, then create a new expression whose inputs
   // are replaced with hoisted input
   if (changed) {
-    value = IrBuilder::newScalar(*value->getDataType());
-    TORCH_INTERNAL_ASSERT(def->outputs().size() == 1);
+    value = IrBuilder::create<Val>(*value->getDataType());
+    NVF_ERROR(def->outputs().size() == 1);
     auto create_fn = def->newObjectFunc();
     create_fn(value->container(), inputs, {value}, def->attributes());
   }
@@ -222,7 +271,9 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // `common_scalar_map_` only if it can be hoisted to outer loops.
   if (!has_tensor_index_dependency && (is_given || my_pos < parent_pos)) {
     common_scalar_map_[my_loop].emplace_back(value);
-    if (my_pos < parent_pos) {
+    // We never hoist non-functional values because each call returns a
+    // different value, therefore non-hoistable.
+    if (my_pos < parent_pos && ir_utils::isFunctional(value)) {
       hoisted_or_reused_.emplace(value);
     }
   }
@@ -234,7 +285,7 @@ namespace {
 
 std::list<VarInfo> getVariableInfo(
     Val* value,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
   std::list<VarInfo> variables;
   // Loop indices
   for (auto loop : loops) {
@@ -264,7 +315,7 @@ std::list<VarInfo> getVariableInfo(
   return variables;
 }
 
-std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
+std::vector<Val*> getAssumptions(const std::vector<ForLoop*>& loops) {
   std::vector<Val*> assumptions;
   // assumptions from parallel dimension
   for (auto [p, extent] :
@@ -292,9 +343,25 @@ std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
     if (loop->isTrivial()) {
       continue;
     }
-    assumptions.push_back(
-        IrBuilder::ltExpr(loop->index(), loop->simplifiedStop()));
-    assumptions.push_back(IrBuilder::geExpr(loop->index(), loop->start()));
+    Val* start = loop->start();
+    assumptions.push_back(IrBuilder::geExpr(loop->index(), start));
+    Val* stop = loop->simplifiedStop();
+    if (stop->sameAs(start)) {
+      // If stop = start, then this loop will not be computed, so it's not
+      // important to simplify its index. However, it is important that we avoid
+      // contradicting assumptions, so we omit the index < stop assumption in
+      // these cases.
+      TORCH_WARN_ONCE(
+          "Encountered loop with no iterations. Stop value ",
+          stop->toInlineString(),
+          " is same as start value ",
+          start->toInlineString(),
+          ". This could indicate a suboptimal schedule such as "
+          "circular-buffering a ",
+          "loop that has only a single iteration.");
+    } else {
+      assumptions.push_back(IrBuilder::ltExpr(loop->index(), stop));
+    }
   }
   return assumptions;
 }
@@ -303,12 +370,9 @@ std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
 
 Val* CommonScalarMap::hoistScalar(
     Val* value,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
   value =
       simplifyExpr(value, getVariableInfo(value, loops), getAssumptions(loops));
-  if (isOptionDisabled(DisableOption::IndexHoist)) {
-    return value;
-  }
   std::vector<Val*> seen_subexprs;
   return hoistScalarImpl(
              value,
@@ -319,22 +383,24 @@ Val* CommonScalarMap::hoistScalar(
       .first;
 }
 
-Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
-    Val* value,
-    kir::ForLoop* loop) {
+Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
+  // Find if value is computed on the host.
+  if (auto host_val = reuseValsKnownToKernel(value)) {
+    return host_val;
+  }
   // Find if loop already contain `value`.
   auto it = common_scalar_map_.find(loop);
   if (it != common_scalar_map_.end()) {
-    auto& indices = it->second;
-    for (auto it = indices.begin(); it != indices.end(); it++) {
-      auto idx = *it;
-      auto common_subexpr = findRefAsSubexprOf(idx, value, false);
+    auto& scalars = it->second;
+    for (auto it = scalars.begin(); it != scalars.end(); it++) {
+      auto scalar = *it;
+      auto common_subexpr = findRefAsSubexprOf(scalar, value, false);
       if (common_subexpr != nullptr) {
-        if (common_subexpr != idx) {
+        if (common_subexpr != scalar) {
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.
-          indices.insert(it, common_subexpr);
+          scalars.insert(it, common_subexpr);
         }
         hoisted_or_reused_.emplace(common_subexpr);
         return common_subexpr;
@@ -344,7 +410,7 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(
   return nullptr;
 }
 
-std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
+std::vector<Val*> CommonScalarMap::getHoistedScalars(ForLoop* loop) const {
   // In codegen, parallel type group may not be generated as a for loop, so
   // don't allocate in this loop
   if (loop != nullptr && loop->isGroup()) {
@@ -365,7 +431,7 @@ std::vector<Val*> CommonScalarMap::getHoistedScalars(kir::ForLoop* loop) const {
 void CommonScalarMap::initialize(const std::vector<Expr*> exprs) {
   // We only hoist scalars not depending on tensors. In lowered expressions, all
   // these scalars are computed in top level scope.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       common_scalar_map_.empty(),
       "CommonScalarMap used before initialization.");
   for (auto expr : exprs) {
@@ -404,9 +470,9 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
                                      // the hoisted value should be inserted
     Val* value) {
   int64_t pos = -1;
-  for (auto i : c10::irange(exprs.size())) {
+  for (auto i : arange(exprs.size())) {
     auto expr = exprs[i];
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
       // Currently this branch is only to handle shared memory address. For
       // shared memory address, we generate code like `toSmem(T7)`, this does
@@ -432,17 +498,17 @@ std::pair<int64_t, bool> findAllocPointFromDataDependency(
 }
 
 // Inserts allocations of hoisted indices
-class CommonIndexInserter : private kir::ExprMutator {
+class CommonScalarInserter : private kir::ExprMutator {
  public:
   static std::vector<Expr*> run(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_indices) {
-    CommonIndexInserter inserter(exprs, common_indices);
+    CommonScalarInserter inserter(exprs, common_indices);
     return std::move(inserter.exprs_);
   }
 
  private:
-  CommonIndexInserter(
+  CommonScalarInserter(
       const std::vector<Expr*>& exprs,
       const CommonScalarMap& common_scalar_map)
       : common_scalar_map_(common_scalar_map) {
@@ -451,8 +517,8 @@ class CommonIndexInserter : private kir::ExprMutator {
     mutate();
   }
 
-  void maybeInsertAllocation(kir::ForLoop* loop) {
-    kir::Scope* scope = nullptr;
+  void maybeInsertAllocation(ForLoop* loop) {
+    Scope* scope = nullptr;
     if (loop != nullptr) {
       scope = &loop->body();
     }
@@ -481,7 +547,7 @@ class CommonIndexInserter : private kir::ExprMutator {
       auto alloc = IrBuilder::create<kir::Allocate>(
           value, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
       const auto def = value->definition();
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           def != nullptr,
           "Hoisted value must have a definition. ",
           value->toString());
@@ -497,7 +563,7 @@ class CommonIndexInserter : private kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* loop) final {
+  void handle(ForLoop* loop) final {
     maybeInsertAllocation(loop);
     kir::ExprMutator::handle(loop);
   }
@@ -509,7 +575,10 @@ class CommonIndexInserter : private kir::ExprMutator {
 } // namespace
 
 std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
-  return CommonIndexInserter::run(
+  if (isOptionDisabled(DisableOption::IndexHoist)) {
+    return exprs;
+  }
+  return CommonScalarInserter::run(
       exprs, GpuLower::current()->commonScalarMap());
 }
 

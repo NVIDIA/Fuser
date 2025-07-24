@@ -58,7 +58,8 @@ class MemberStatements : public OptOutDispatch {
   void dispatch(Val* val) final {
     FusionGuard::getCurFusion()->assertInContainer(
         val,
-        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse val, ");
+        "IterVisitor.cpp::MemberStatements::dispatch(Val*) Cannot traverse "
+        "val, ");
     OptOutDispatch::dispatch(val);
   }
 
@@ -70,7 +71,7 @@ class MemberStatements : public OptOutDispatch {
 
   void handle(TensorDomain* stmt) final {
     next_stmts_.insert(
-        next_stmts_.end(), stmt->leaf().begin(), stmt->leaf().end());
+        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
   }
 
   void handle(TensorView* tv) final {
@@ -126,7 +127,7 @@ void IterVisitor::dispatch(Val* v) {
 
 // Implementation details:
 // We start with an entry in stmt_stack that is the outputs we want to
-// process. We cannot process these outputs untill all Stmts in their history
+// process. We cannot process these outputs until all Stmts in their history
 // have been processed, as those Stmts contain all dependencies to produce
 // these values. What we will do is traverse towards inputs until we hit a
 // leaf node. Once we hit a leaf node that node will be visited, then we will
@@ -138,13 +139,16 @@ void IterVisitor::dispatch(Val* v) {
 // function to remove visited nodes from being re-added to the stack
 // (remove_visited).
 void IterVisitor::traverseBetween(
-    Fusion* fusion,
     const std::unordered_set<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_all_paths,
     bool traverse_into_members,
     bool traverse_attributes,
     bool traverse_siblings) {
+  if (to.empty()) {
+    return;
+  }
+  Fusion* fusion = to.front()->fusion();
   FusionGuard fg(fusion);
 
   std::unordered_set<Statement*> visited;
@@ -261,13 +265,14 @@ void IterVisitor::traverseBetween(
                 })) {
           std::unordered_set<Statement*> from_stmt(from.begin(), from.end());
           auto cycle = ir_utils::checkCycle(fusion, from_stmt, to);
+          TORCH_WARN("A cycle is detected in the fusion.");
           std::stringstream ss;
-          ss << "cycle detected in fusion: " << std::endl;
+          ss << "Statements found in the cycle: " << std::endl;
           for (auto expr :
                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
             ss << expr << std::endl;
           }
-          TORCH_INTERNAL_ASSERT(false, ss.str());
+          NVF_THROW(ss.str());
         }
         // Add all these new stmts to visit to the stack.
         stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
@@ -287,14 +292,12 @@ void IterVisitor::traverseBetween(
 }
 
 void IterVisitor::traverseTo(
-    Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_all_paths,
     bool traverse_into_members,
     bool traverse_attributes,
     bool traverse_siblings) {
   traverseBetween(
-      fusion,
       {},
       to,
       traverse_all_paths,
@@ -308,7 +311,7 @@ void IterVisitor::traverseHelper(Fusion* fusion, bool traverse_all_paths) {
 
   auto term_val_outs = fusion->getTerminatingOutputs();
   if (!term_val_outs.empty()) {
-    traverseTo(fusion, term_val_outs, traverse_all_paths);
+    traverseTo(term_val_outs, traverse_all_paths);
   }
 }
 
@@ -364,7 +367,7 @@ class Inputs : public IterVisitor {
       return {};
     }
     Inputs inps(all_inputs);
-    inps.traverseTo(of[0]->fusion(), of);
+    inps.traverseTo(of);
     return inps.inputs_;
   }
 };
@@ -393,7 +396,7 @@ class AllVals : public IterVisitor {
       Fusion* fusion,
       const std::vector<Val*>& from) {
     AllVals av;
-    av.traverseTo(fusion, from, false);
+    av.traverseTo(from, false);
     return av.vals;
   }
 };
@@ -408,8 +411,7 @@ std::vector<Statement*> BackwardVisitor::next(Statement* stmt) {
   } else if (stmt->isExpr()) {
     return next(stmt->as<Expr>());
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "BackwardVisitor could not detect type in next_dispatch.");
+    NVF_THROW("BackwardVisitor could not detect type in next_dispatch.");
   }
 }
 
@@ -452,26 +454,26 @@ void BackwardVisitor::dispatch(Val* val) {
 }
 
 void BackwardVisitor::traverseTo(
-    Fusion* fusion,
     const std::vector<Val*>& from,
     bool traverseAllPaths) {
+  if (from.empty()) {
+    return;
+  }
+  Fusion* fusion = from.front()->fusion();
   FusionGuard fg(fusion);
 
   // Reset members
   stmt_stack_.clear();
   traversal_exprs_.clear();
 
-  if (from.empty()) {
-    return;
-  }
-
   auto vals = AllVals::get(fusion, from);
-  auto exprs = StmtSort::getExprsTo(fusion, from);
+  auto exprs = StmtSort::getExprsTo(from);
 
   {
     size_t pos = 0;
-    for (auto expr : exprs)
+    for (auto expr : exprs) {
       traversal_exprs_[expr] = pos++;
+    }
   }
 
   // All stmts we've called handle on
@@ -480,9 +482,10 @@ void BackwardVisitor::traverseTo(
   if (must_cover_all_expr_outputs_) {
     for (auto traversal_pair : traversal_exprs_) {
       for (auto out : traversal_pair.first->outputs()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             vals.find(out) != vals.end(),
-            "Invalid backward traversal found. Some output paths were not provided:",
+            "Invalid backward traversal found. Some output paths were not "
+            "provided:",
             out);
       }
     }
@@ -566,7 +569,7 @@ struct Dependencies : public IterVisitor {
     // 1. it is one of the dependencies, or
     // 2. its defining expression is included in the dependent expr set
     if (dependencies_.find(val) != dependencies_.end()) {
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           dependent_vals_.find(val) == dependent_vals_.end(),
           "Trying to add already added val: ",
           val);
@@ -576,7 +579,7 @@ struct Dependencies : public IterVisitor {
       auto def = val->definition();
       if (def != nullptr &&
           dependent_exprs_.find(def) != dependent_exprs_.end()) {
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             dependent_vals_.find(val) == dependent_vals_.end(),
             "Trying to add already added val: ",
             val);
@@ -603,7 +606,7 @@ struct Dependencies : public IterVisitor {
       std::unordered_set<Val*> _dependencies,
       const std::vector<Val*>& of)
       : dependencies_(std::move(_dependencies)) {
-    traverseTo(of[0]->fusion(), of, false);
+    traverseTo(of, false);
   };
 
  public:
@@ -638,7 +641,7 @@ struct FindOutputs : public IterVisitor {
   void dispatch(Val* val) override {
     if (of_.find(val) != of_.end()) {
       Statement* out_stmt = stmt_stack.front().back();
-      TORCH_INTERNAL_ASSERT(out_stmt->isVal());
+      NVF_ERROR(out_stmt->isVal());
       auto out_val = out_stmt->as<Val>();
       if (of_.find(out_val) == of_.end()) {
         outs_.emplace(out_val);
@@ -650,7 +653,7 @@ struct FindOutputs : public IterVisitor {
   // tracing all paths like this.
   FindOutputs(const std::unordered_set<Val*>& _of) : of_(_of) {
     auto fusion = (*of_.begin())->fusion();
-    traverseTo(fusion, fusion->outputs(), true);
+    traverseTo(fusion->outputs(), true);
   };
 
   static std::unordered_set<Val*> getAllOutputsOf(
@@ -680,8 +683,9 @@ class DependentVals : public IterVisitor {
   std::unordered_set<Val*> boundary_;
 
   std::vector<Statement*> next(Val* v) override {
-    if (boundary_.find(v) != boundary_.end())
+    if (boundary_.find(v) != boundary_.end()) {
       return std::vector<Statement*>();
+    }
     return IterVisitor::next(v);
   }
 
@@ -718,7 +722,7 @@ class DependentVals : public IterVisitor {
   DependentVals(const std::unordered_set<Val*>& _of) : of_(_of) {
     createBoundary();
     auto fusion = (*of_.begin())->fusion();
-    traverseTo(fusion, fusion->outputs(), false);
+    traverseTo(fusion->outputs(), false);
   };
 
  public:
@@ -754,7 +758,7 @@ class DependencyChains : public IterVisitor {
 
   DependencyChains(Val* _dependency, Val* _of, bool all_chains_ = false)
       : dependencies_({_dependency}) {
-    traverseTo(_of->fusion(), {_of}, all_chains_);
+    traverseTo({_of}, all_chains_);
   }
 
   DependencyChains(Val* _dependency, bool all_chains_ = false)
@@ -875,13 +879,12 @@ void StmtSort::dispatch(Statement* stmt) {
 }
 
 std::vector<Expr*> StmtSort::getExprs(
-    Fusion* fusion,
+    const Fusion* fusion,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
   return StmtSort::getExprsTo(
-      fusion,
       terminating_outputs,
       traverse_members,
       traverse_attributes,
@@ -889,32 +892,25 @@ std::vector<Expr*> StmtSort::getExprs(
 }
 
 std::vector<Expr*> StmtSort::getExprsTo(
-    Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {
   auto stmts = StmtSort::getStmtsTo(
-      fusion, to, traverse_members, traverse_attributes, traverse_siblings);
+      to, traverse_members, traverse_attributes, traverse_siblings);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
 }
 
 std::vector<Expr*> StmtSort::getExprsBetween(
-    Fusion* fusion,
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {
   auto stmts = StmtSort::getStmtsBetween(
-      fusion,
-      from,
-      to,
-      traverse_members,
-      traverse_attributes,
-      traverse_siblings);
+      from, to, traverse_members, traverse_attributes, traverse_siblings);
   auto filter = ir_utils::filterByType<Expr>(stmts.begin(), stmts.end());
   std::vector<Expr*> exprs(filter.begin(), filter.end());
   return exprs;
@@ -927,7 +923,6 @@ std::vector<Statement*> StmtSort::getStmts(
     bool traverse_siblings) {
   auto terminating_outputs = fusion->getTerminatingOutputs();
   return StmtSort::getStmtsTo(
-      fusion,
       terminating_outputs,
       traverse_members,
       traverse_attributes,
@@ -935,24 +930,109 @@ std::vector<Statement*> StmtSort::getStmts(
 }
 
 std::vector<Statement*> StmtSort::getStmtsTo(
-    Fusion* fusion,
     const std::vector<Val*>& to,
     bool traverse_members,
     bool traverse_attributes,
     bool traverse_siblings) {
   StmtSort es;
   es.traverseTo(
-      fusion,
-      to,
-      false,
-      traverse_members,
-      traverse_attributes,
-      traverse_siblings);
+      to, false, traverse_members, traverse_attributes, traverse_siblings);
   return es.stmts;
 }
 
-std::vector<Statement*> StmtSort::getStmtsBetween(
+std::vector<Statement*> StmtSort::getAllStmts(
     Fusion* fusion,
+    bool traverse_members,
+    bool traverse_attributes,
+    bool traverse_siblings) {
+  return getAllStmtsTo(
+      fusion->getTerminatingOutputs(),
+      traverse_members,
+      traverse_attributes,
+      traverse_siblings);
+}
+
+std::vector<Statement*> StmtSort::getAllStmtsTo(
+    const std::vector<Val*>& to,
+    bool traverse_members,
+    bool traverse_attributes,
+    bool traverse_siblings) {
+  // If members are not traversed, this can just be handled by getStmts
+  if (!traverse_members) {
+    return getStmtsTo(
+        to, traverse_members, traverse_attributes, traverse_siblings);
+  }
+
+  // to is assumed to include only scalar or TensorView
+  NVF_ERROR(std::all_of(to.begin(), to.end(), [](Val* to_val) {
+    return to_val->vtype() == ValType::TensorView ||
+        to_val->vtype() == ValType::Others;
+  }));
+
+  // First, grab all statements without traversing tensor members
+  auto stmts = getStmtsTo(to, false, traverse_attributes, traverse_siblings);
+
+  VectorOfUniqueEntries<Statement*> all_stmts;
+
+  // For TensorView, further traversing into its members. Note that
+  // traverse_members is always true here
+  for (auto stmt : stmts) {
+    auto tv = dynamic_cast<TensorView*>(stmt);
+    if (tv == nullptr) {
+      all_stmts.pushBack(stmt);
+      continue;
+    }
+
+    // Instead of using MemberStatements, grab the iter domains and
+    // their exprs with TensorDomain::allStatements(), which
+    // internally uses IRBFS.
+    auto all_id_stmts = tv->domain()->allStatements();
+
+    // For iter domains, traverse further their members and then visit
+    // themselves. For ID exprs, traverse attributes then the expr
+    // themselves.
+    for (auto id_stmt : all_id_stmts) {
+      if (auto id = dynamic_cast<IterDomain*>(id_stmt)) {
+        auto id_members = MemberStatements::next(id);
+        // Note that traverse_members is always true at this point
+        for (auto id_member : id_members) {
+          for (auto stmt_dep : StmtSort::getStmtsTo(
+                   {id_member->as<Val>()},
+                   /*traverse_members=*/true,
+                   traverse_attributes,
+                   traverse_siblings)) {
+            all_stmts.pushBack(stmt_dep);
+          }
+        }
+        all_stmts.pushBack(id);
+      } else {
+        auto expr = dynamic_cast<Expr*>(id_stmt);
+        NVF_ERROR(expr != nullptr);
+        if (traverse_attributes) {
+          for (auto attr : expr->attributes()) {
+            for (auto stmt_dep : StmtSort::getStmtsTo(
+                     {attr->as<Val>()},
+                     /*traverse_members=*/true,
+                     traverse_attributes,
+                     traverse_siblings)) {
+              all_stmts.pushBack(stmt_dep);
+            }
+          }
+        }
+        all_stmts.pushBack(expr);
+      }
+    }
+
+    // All depednent vals and exprs for this TensorDomain are in
+    // all_stmts. Append TensorDomain and then TensorView
+    all_stmts.pushBack(tv->domain());
+    all_stmts.pushBack(tv);
+  }
+
+  return all_stmts.vector();
+}
+
+std::vector<Statement*> StmtSort::getStmtsBetween(
     const std::vector<Val*>& from,
     const std::vector<Val*>& to,
     bool traverse_members,
@@ -960,7 +1040,6 @@ std::vector<Statement*> StmtSort::getStmtsBetween(
     bool traverse_siblings) {
   StmtSort es;
   es.traverseBetween(
-      fusion,
       {from.begin(), from.end()},
       to,
       false,
@@ -978,15 +1057,13 @@ void InputsOf::dispatch(Val* v) {
   }
 }
 
-std::vector<Val*> InputsOf::output(Fusion* fusion, Val* output_) {
-  return outputs(fusion, {output_});
+std::vector<Val*> InputsOf::output(Val* output_) {
+  return outputs({output_});
 }
 
-std::vector<Val*> InputsOf::outputs(
-    Fusion* fusion,
-    const std::vector<Val*>& outputs_) {
+std::vector<Val*> InputsOf::outputs(const std::vector<Val*>& outputs_) {
   InputsOf io;
-  io.traverseTo(fusion, outputs_, false);
+  io.traverseTo(outputs_, false);
   return io.ordered_inputs;
 }
 
@@ -994,14 +1071,14 @@ std::vector<Val*> InputsOf::outputs(
 bool DeadCodeRemover::run() {
   // First we build a set of all live Statements so that we can detect dead
   // branches.
-  for (auto stmt : StmtSort::getStmtsTo(fusion_, fusion_->outputs())) {
+  for (auto stmt : StmtSort::getStmtsTo(fusion_->outputs())) {
     markLive(stmt);
   }
 
   // Note that StmtSort::getStmtsTo() is also run in traverseTo. In the future,
   // we could potentially refactor this so that derived classes from
   // BackwardVisitor can make use of that traversal instead of repeating it.
-  traverseTo(fusion_, fusion_->outputs(), false);
+  traverseTo(fusion_->outputs(), false);
 
   // We do not remove Statements from the Fusion while traversing, to avoid
   // dereferencing invalid pointers. Instead, we wait until this point to do the
@@ -1047,13 +1124,16 @@ void DeadCodeRemover::handle(TensorView* tv) {
 }
 
 bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
+  // Mark new val live
+  markLiveRecursive(new_val);
+
   vals_to_replace_.emplace_back(old_val, new_val);
 
   if (old_val->isFusionInput()) {
     // Skip removing Fusion inputs
     return false;
   }
-  TORCH_CHECK(
+  NVF_CHECK(
       old_val->definition(),
       "Found non-input ",
       old_val->toString(),
@@ -1061,7 +1141,7 @@ bool DeadCodeRemover::registerReplacement(Val* old_val, Val* new_val) {
 
   // Mark old_val dead even if we can't yet remove it due to its definition
   // having some live outputs
-  TORCH_CHECK(
+  NVF_CHECK(
       markDead(old_val),
       "Attempted to replace ",
       old_val->toString(),
@@ -1091,7 +1171,7 @@ bool DeadCodeRemover::maybeRemoveExpr(Expr* expr) {
 }
 
 void DeadCodeRemover::registerRemoval(Val* val) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !val->isFusionInput(),
       "Call to registerRemoval on Fusion input is illegal: ",
       val->toString());
@@ -1103,9 +1183,9 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
     return;
   }
   markLive(stmt);
-  if (stmt->isVal() && stmt->asVal()->definition()) {
-    markLiveRecursive(stmt);
-  } else {
+  if (stmt->isVal() && stmt->asVal()->definition() != nullptr) {
+    markLiveRecursive(stmt->asVal()->definition());
+  } else if (stmt->isExpr()) {
     auto expr = stmt->asExpr();
     for (const auto inp : expr->outputs()) {
       markLive(inp);
@@ -1117,7 +1197,20 @@ void DeadCodeRemover::markLiveRecursive(Statement* stmt) {
 }
 
 bool DeadCodeRemover::markDead(Statement* stmt) {
-  return (bool)live_statements_.erase(stmt);
+  if (auto e = dynamic_cast<Expr*>(stmt)) {
+    // If this is an expression, ensure it is not marked as a future live use
+    // of any of its inputs
+    for (Val* inp : e->inputs()) {
+      if (std::find(inp->uses().begin(), inp->uses().end(), e) ==
+          inp->uses().end()) {
+        auto fu_it = future_uses_.find(inp);
+        if (fu_it != future_uses_.end()) {
+          fu_it->second.erase(e);
+        }
+      }
+    }
+  }
+  return live_statements_.erase(stmt);
 }
 
 bool DeadCodeRemover::modifyFusion() const {
@@ -1126,8 +1219,10 @@ bool DeadCodeRemover::modifyFusion() const {
     if (old_val->isFusionOutput()) {
       fusion_->replaceOutput(old_val, new_val);
     }
-    for (auto use : old_val->uses()) {
-      ir_utils::replaceValInExpr(use, old_val, new_val);
+    // Copy old_val->uses() since we will modify it as we replace its Exprs
+    const std::vector<Expr*> old_uses = old_val->uses();
+    for (auto use : old_uses) {
+      ir_utils::replaceValInExprInputs(use, old_val, new_val);
     }
     modified_fusion = true;
   }
@@ -1140,7 +1235,7 @@ bool DeadCodeRemover::modifyFusion() const {
     // Fusion, and sets all its outputs' definitions to nullptr. So we should
     // not need to manually remove Exprs here. Instead, we just assert that
     // they have already been removed if they were registered for removal.
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !fusion_->inContainer(expr),
         "Expression ",
         expr->toString(),

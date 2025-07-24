@@ -1,0 +1,39 @@
+{#-
+SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+All rights reserved.
+SPDX-License-Identifier: BSD-3-Clause
+-#}
+{%- set is_benchmark = run1.command_type == 'GOOGLEBENCH' -%}
+{%- set testorbench = 'Benchmark' if is_benchmark else 'Test' -%}
+<html>
+    <head>{% include 'header.html' %}</head>
+    <body>
+        <h1>
+            <i>{{ run1.name }}</i> vs <i>{{ run2.name }}</i> - NVFuser codegen diff
+        </h1>
+        {% from 'gitinfo.j2' import gitinfo %}
+        {%- if run1.git != run2.git -%}
+            {{ gitinfo(1, run1.name, run1.git) }}
+            <br>
+            {{ gitinfo(2, run2.name, run2.git) }}
+            <br>
+        {%- else -%}
+            {{ gitinfo(1, none, run1.git) }}
+            <br>
+        {%- endif -%}
+        {% include 'command_env_info.html' %}
+        {% include 'preamble.html' %}
+        {% if new_tests|length > 0 %}
+            <hr>
+            {% include 'new_test_section.html' %}
+        {% endif %}
+        {% if removed_tests|length > 0 %}
+            <hr>
+            {% include 'removed_test_section.html' %}
+        {% endif %}
+        <hr>
+        {% include 'test_diff_section.html' %}
+        <hr>
+        {%- include 'footer.html' -%}
+    </body>
+</html>

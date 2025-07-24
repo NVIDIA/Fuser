@@ -7,28 +7,30 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <iostream>
 
 #include <dispatch.h>
-
-#include <c10/util/irange.h>
-
-#include <iostream>
+#include <exceptions.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
 class Fusion;
+class Scope;
 namespace kir {
 class Kernel;
-class Scope;
 } // namespace kir
+
+namespace hir {
+class HostIrContainer;
+} // namespace hir
 
 void checkInlineable(const Expr* expr);
 static constexpr char const* kTab = "  ";
 
 // Indent the generated code
 inline std::ostream& indent(std::ostream& os, int indent_size) {
-  for (const auto _ : c10::irange(indent_size)) {
+  for (const auto _ : arange(indent_size)) {
     (void)_; // Suppress unused variable warning
     os << "  ";
   }
@@ -40,7 +42,7 @@ inline std::ostream& indent(std::ostream& os, int indent_size) {
 //! This class is intended for debug printing, so it attempts
 //! to handle invalid states as well.
 //!
-class TORCH_CUDA_CU_API IrPrinter {
+class IrPrinter {
  public:
   explicit IrPrinter(std::ostream& os, int indent_size = 0)
       : os_(os), indent_size_(indent_size) {}
@@ -71,6 +73,9 @@ class TORCH_CUDA_CU_API IrPrinter {
   virtual void handle(const kir::Kernel* kernel);
   virtual void handle(kir::Kernel& kernel);
 
+  virtual void handle(const hir::HostIrContainer* host_ir_container);
+  virtual void handle(hir::HostIrContainer& host_ir_container);
+
  protected:
   std::ostream& os() {
     return os_;
@@ -82,11 +87,9 @@ class TORCH_CUDA_CU_API IrPrinter {
   int indent_size_ = 0;
 };
 
-TORCH_CUDA_CU_API std::ostream& operator<<(
-    std::ostream& os,
-    const Statement* stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream& os, Fusion* f);
-TORCH_CUDA_CU_API std::ostream& operator<<(std::ostream& os, Fusion& f);
+std::ostream& operator<<(std::ostream& os, Fusion* f);
+NVF_API std::ostream& operator<<(std::ostream& os, Fusion& f);
 
 } // namespace nvfuser

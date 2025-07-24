@@ -7,14 +7,16 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <fusion.h>
 #include <ir/builder_passkey.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <mma_type.h>
+#include <multidevice/device_mesh.h>
 #include <type.h>
+#include <visibility.h>
 
 #include <torch/csrc/jit/ir/ir.h>
 
@@ -34,13 +36,12 @@
 
 namespace nvfuser {
 
-class WelfordResult;
 class ViewTransform;
 
 class IrCloner;
 
 namespace ir_utils {
-TORCH_CUDA_CU_API std::string varName(const Val* val);
+std::string varName(const Val* val);
 }
 
 template <typename T>
@@ -71,11 +72,295 @@ namespace ir_utils {
 class TVDomainGuard;
 }
 
+// [Circular buffering]
+//
+// A non-circle-buffered loop looks like below (assuming both the load and the
+// compute are async ops):
+//   for i in range(data.size):
+//     load data[i] to buffer
+//     wait buffer to be ready (RAW sync)
+//     compute buffer
+//     wait compute to be done (WAR sync)
+//
+// Circular buffering allows removing RAW and WAR hazards to maximize
+// overlapping of memory load and compute. Both the load and compute operations
+// are pipelined. In order to pipeline the load operations, the RAW hazards need
+// to be removed, so that at every iteration, the data needed for computation is
+// already prefetched a few iterations ago. In order to pipeline the compute,
+// WAR hazards need to be removed, so that each iterations's compute is not
+// required to be completed immediately in this iteration to avoid next
+// iteration's load overwriting the current iteration's operand for the compute
+// operation.
+//
+// With circular buffering, we want to prefetch a few iterations ahead of the
+// compute, and defer the load to the just-used buffer a few iterations, so that
+// both the load and the compute can be pipelined, minimizing the idle time.
+//
+// Circular buffering is controlled by two parameters: stage and prefetch. The
+// stage parameter determines the size of the circular buffer, and the prefetch
+// parameter determines how many iterations ahead of the compute the data is
+// prefetched. Note that prefetch must be < stage. Both the removal of RAW and
+// WAR hazards require additional storage space. The prefetch parameter
+// determines how buffers are partitioned between RAW and WAR hazards. If we are
+// not interested in pipelining the compute, then use prefetch = stage - 1, so
+// that all buffers are used for RAW removal.
+//
+// The figure below illustrates the timeline of a circular buffered loop, where
+// each row represents an iteration:
+
+// clang-format off
+
+//
+//                 /load 0;\                 \.
+//                / load 1; [prefetch = 3]    | [prefetching]
+//          [stage] load 2;/                 /'
+//          [ = 6 ] load 3;  wait load 0;  compute 0;                  \.
+//                \ load 4;  wait load 1;  compute 1;                   |
+//                 \load 5;  wait load 2;  compute 2;  wait compute 0;  |
+//                  load 0;  wait load 3;  compute 3;  wait compute 1;  |
+//                  load 1;  wait load 4;  compute 4;  wait compute 2;  |
+//                  load 2;  wait load 5;  compute 5;  wait compute 3;  |
+//                  load 3;  wait load 0;  compute 0;  wait compute 4;  |
+//                  load 4;  wait load 1;  compute 1;  wait compute 5;  | [main]
+//                  load 5;  wait load 2;  compute 2;  wait compute 0;  |
+//                  ..................................................  |
+//                  ..................................................  |
+//                  ..................................................  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;  wait compute  ;  |
+//                  load  ;  wait load  ;  compute  ;                  /'
+//                          /wait load  ;  compute  ;                      \.
+// [same number as prefetch] wait load  ;  compute  ;                       | [draining]
+//                          \wait load  ;  compute  ;  wait all computes;  /'
+
+// clang-format on
+
+// In the above figure, we have:
+// storage required = stage * tile_size
+// load pipeline depth = prefetch + 1
+// compute pipeline depth = stage - prefetch
+//
+// There are two ways to implement the above timeline: pipelined, and
+// warp-specialization.
+//
+// In the pipelined way, the prefetching stage is implemented as a prologue
+// loop, and main stage is implemented as a main loop, and the draining stage is
+// implemented as an epilogue loop. That is, we will have the following loop
+// structure:
+//
+// Prologue loop:
+//   for i in range(prefetch):
+//     load data[i] to buffer[i]
+//
+// Main loop (using syncthreads to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     __syncthreads();
+//
+// Main loop (using mbarrier to avoid WAR harzard):
+//   for i in range(data.size - prefetch):
+//     wait buffer[(i + prefetch) % stage] to be empty
+//     load data[i + prefetch] to buffer[(i + prefetch) % stage]
+//     wait buffer[i % stage] to be loaded
+//     compute buffer[i % stage]
+//     wait until the first compute in the queue is done
+//       (i.e. stage - prefetch - 1 in flight computes remaining)
+//     signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//       loaded again
+//
+// Epilogue loop:
+//   for i in range(data.size - prefetch, data.size):
+//     wait buffer[i % stage] to be ready
+//     compute buffer[i % stage]
+//   wait until all computes are done
+//
+// Note that in the above loop structure, the "wait compute" in the first
+// stage - prefetch - 1 iterations and last iteration of the main loop is
+// redundant. We can remove them to further optimize the performance, but
+// we decide to keep them for simplicity.
+//
+// In the warp-specialized approach, we will use different warp/warp-group
+// for loading and computing. We will generate code like below (assuming warp
+// specialized on TIDy):
+//
+//   if (threadIdx.y == blockDim.y - 1) {
+//     // If we use warp specialization on TIDy, then the blockDim.y of the
+//     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
+//     // last threadIdx.y will be used as async warp
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be empty
+//       load data[i] to buffer[i % stage]
+//   } else {
+//     // Every threadIdx.y other than the last will be used for compute
+//     for i in range(prefetch + 1):
+//       signal that buffer i % stage is empty and ready to load
+//     for i in range(data.size):
+//       wait buffer[i % stage] to be loaded
+//       compute buffer[i % stage]
+//       wait until the first compute in the queue is done
+//         (i.e. stage - prefetch - 1 in flight computes remaining)
+//       signal that buffer (i + prefetch + 1) % stage is empty and ready to be
+//         loaded again
+//   }
+
+struct Pipelined {
+  bool uses_mbarrier_for_war = false;
+  explicit Pipelined(bool uses_mbarrier_for_war)
+      : uses_mbarrier_for_war(uses_mbarrier_for_war) {}
+  Pipelined() = default;
+  bool operator==(const Pipelined& other) const {
+    return uses_mbarrier_for_war == other.uses_mbarrier_for_war;
+  }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Pipelined& pipelined) {
+  if (pipelined.uses_mbarrier_for_war) {
+    return os << "PipelinedMBarrierForWAR";
+  }
+  return os << "Pipelined";
+}
+
+struct WarpSpecialized {
+  ParallelType on = ParallelType::Serial;
+  // The number of registers for load and compute warps respectively.
+  std::optional<std::pair<int64_t, int64_t>> num_registers = std::nullopt;
+  // The iterDomain position to define the shape of the circular buffer stage.
+  std::optional<int64_t> stage_slice_position = std::nullopt;
+
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers,
+      int64_t stage_slice_position)
+      : on(on),
+        num_registers(num_registers),
+        stage_slice_position(stage_slice_position) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on, int64_t stage_slice_position)
+      : on(on), stage_slice_position(stage_slice_position) {}
+  explicit WarpSpecialized(
+      ParallelType on,
+      std::pair<int64_t, int64_t> num_registers)
+      : on(on), num_registers(num_registers) {
+    validateRegisterSharing();
+  }
+  explicit WarpSpecialized(ParallelType on)
+      : on(on), num_registers(std::nullopt) {}
+  WarpSpecialized() = default;
+
+  void validateRegisterSharing() {
+    // short-circuit: register sharing is not used.
+    if (!num_registers.has_value()) {
+      return;
+    }
+    auto validate_num_registers = [](int64_t a) {
+      NVF_ERROR(
+          a >= 24 && a <= 256 && a % 8 == 0,
+          "The number of registers for setmaxnreg must be between 24 and",
+          " 256 (inclusive) and be a multiple of 8.");
+    };
+    validate_num_registers(num_registers.value().first);
+    validate_num_registers(num_registers.value().second);
+    NVF_ERROR(
+        num_registers.value().first <= num_registers.value().second,
+        "The number of registers for async warp group must be <= to the number",
+        " of registers for the compute warp groups.");
+  }
+
+  bool operator==(const WarpSpecialized& other) const {
+    return on == other.on && num_registers == other.num_registers &&
+        stage_slice_position == other.stage_slice_position;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const WarpSpecialized& warp_specialized) {
+  std::string parallel_type_str = "";
+  switch (warp_specialized.on) {
+    case ParallelType::TIDx:
+      parallel_type_str = "TIDx";
+      break;
+    case ParallelType::TIDy:
+      parallel_type_str = "TIDy";
+      break;
+    case ParallelType::TIDz:
+      parallel_type_str = "TIDz";
+      break;
+    default:
+      NVF_THROW("Invalid parallel type");
+  }
+  std::string num_registers = "RegisterSharing_None";
+  if (warp_specialized.num_registers.has_value()) {
+    auto&& [decrease_num_reg, increase_num_reg] =
+        warp_specialized.num_registers.value();
+    std::stringstream s;
+    s << "RegisterSharing_" << decrease_num_reg << "_" << increase_num_reg;
+    num_registers = s.str();
+  }
+  std::string slice_position = "StageSlicePosition_None";
+  if (warp_specialized.stage_slice_position.has_value()) {
+    std::stringstream s;
+    s << "StageSlicePosition_" << warp_specialized.stage_slice_position.value();
+    slice_position = s.str();
+  }
+  return os << "WarpSpecializedOn" << parallel_type_str << num_registers
+            << slice_position;
+}
+
+using CircularBufferType = std::variant<Pipelined, WarpSpecialized>;
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferType& type) {
+  return std::visit(
+      [&os](const auto& t) -> std::ostream& { return os << t; }, type);
+}
+
+struct CircularBufferOptions {
+  CircularBufferType type =
+      Pipelined(false); // Type of circular buffer. Currently supports:
+                        // - pipelined using syncthreads for WAR hazards
+                        // - pipelined using mbarrier for WAR hazards.
+  int64_t stage = 0; // Size of the circular buffer (number of buffers)
+  int64_t prefetch = 0; // Number of iterations ahead of the compute to
+                        // prefetch, can only be < stage.
+
+  bool isEnable() const {
+    return stage > 1;
+  }
+
+  bool usesMBarrierForWAR() const {
+    return (std::holds_alternative<Pipelined>(type) &&
+            std::get<Pipelined>(type).uses_mbarrier_for_war) ||
+        std::holds_alternative<WarpSpecialized>(type);
+    return false;
+  }
+
+  bool operator==(const CircularBufferOptions& other) const {
+    return type == other.type && stage == other.stage &&
+        prefetch == other.prefetch;
+  }
+};
+
+inline std::ostream& operator<<(
+    std::ostream& os,
+    const CircularBufferOptions& options) {
+  return os << "CircularBufferOptions{ stage=" << options.stage
+            << ", prefetch=" << options.prefetch << ", type=" << options.type
+            << " }";
+}
+
 //! TensorView is our primitive Tensor Type used in code generation. It can be
 //! thought of as representing physical memory, however, its dimensionality is
 //! modifed as split/merge/computeAt functions are called. The history of
 //! these transformations are kept and used for generating actual code
-//! referncing physical memory. Generally when users are thinking of code
+//! referencing physical memory. Generally when users are thinking of code
 //! generation in reference to a Tensor, this is the class they should be
 //! interacting with.
 //!
@@ -95,21 +380,13 @@ class TVDomainGuard;
 //! getComputeAtAxis not being const because it can return a TV that some expect
 //! to be non-const is the biggest headache.
 //!
-class TORCH_CUDA_CU_API TensorView : public Val {
+class NVF_API TensorView : public Val {
  public:
   TensorView(
       IrBuilderPasskey passkey,
       TensorDomain* domain,
       DataType dtype,
       MemoryType mtype = MemoryType::Local);
-
-  explicit TensorView(
-      IrBuilderPasskey passkey,
-      const std::shared_ptr<c10::TensorType>& tensor_type);
-
-  explicit TensorView(
-      IrBuilderPasskey passkey,
-      const std::shared_ptr<torch::jit::Value>& jit_value);
 
   TensorView(const TensorView* src, IrCloner* ir_cloner);
 
@@ -118,6 +395,8 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
+
+  void printTransforms() const;
 
   TensorDomain* domain() const {
     return domain_;
@@ -128,11 +407,11 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   }
 
   void setContiguity(bool contig) {
-    setContiguity(
-        TensorDomain::getContiguityFilledWith(getMaybeRFactorDomain(), contig));
+    setContiguity(TensorDomain::getContiguityFilledWith(
+        getMaybeAllocationDomain(), contig));
   }
 
-  const std::vector<std::optional<bool>>& getContiguity() {
+  const std::vector<std::optional<bool>>& getContiguity() const {
     return domain()->contiguity();
   }
 
@@ -152,8 +431,8 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain()->hasBroadcast();
   }
 
-  bool hasRFactor() const {
-    return domain()->hasRFactor();
+  bool hasRoot() const {
+    return domain()->hasRoot();
   }
 
   bool hasAllocation() const {
@@ -170,7 +449,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //!  any value.
   bool isEmptyTensor() const;
 
-  std::optional<unsigned int> getReductionAxis() const {
+  std::optional<int64_t> getReductionAxis() const {
     return domain()->getReductionAxis();
   }
 
@@ -178,29 +457,44 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return domain()->root();
   };
 
-  const std::vector<IterDomain*>& getRFactorDomain() const {
-    return domain()->rfactor();
+  const std::vector<IterDomain*>& getMaybeRootDomain() const {
+    return domain()->maybeRoot();
+  };
+
+  const std::vector<IterDomain*>& getLogicalDomain() const {
+    return domain()->logical();
   };
 
   const std::vector<IterDomain*>& getAllocationDomain() const {
     return domain()->allocation();
   };
 
-  const std::vector<IterDomain*>& getLeafDomain() const {
-    return domain()->leaf();
+  const std::vector<IterDomain*>& getLoopDomain() const {
+    return domain()->loop();
   };
 
-  // If rfactor domain exists in domain() return it, otherwise return root
-  // domain.
-  const std::vector<IterDomain*>& getMaybeRFactorDomain() const {
-    return domain()->maybeRFactor();
+  const std::optional<std::vector<IterDomain*>>& getAlternateLoopDomain()
+      const {
+    return domain()->alternateLoop();
+  };
+
+  const std::vector<IterDomain*>& getInitialLoopDomain() const {
+    return domain()->initialLoop();
   };
 
   // If allocation domain exists in domain() return it, otherwise return
-  // getMaybeRFactorDomain()
+  // logical domain
   const std::vector<IterDomain*>& getMaybeAllocationDomain() const {
     return domain()->maybeAllocation();
   };
+
+  void setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setLoopDomain(std::move(new_loop_domain));
+  }
+
+  void setAlternateLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+    domain()->setAlternateLoopDomain(std::move(new_loop_domain));
+  }
 
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
@@ -216,7 +510,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
         std::move(new_allocation_domain), new_contiguity);
   }
 
-  IterDomain* axis(int pos) const;
+  IterDomain* axis(int64_t pos) const;
 
   // Does it share outer axes with other tensors?
   bool hasComputeAt() const {
@@ -227,7 +521,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return max_producer_pos_ > 0;
   }
 
-  size_t nDims() const {
+  int64_t nDims() const {
     return domain()->nDims();
   }
 
@@ -250,17 +544,17 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   }
 
   // Returns the position that this tensor is produced at relative to its axes.
-  unsigned int getComputeAtPosition() const {
+  int64_t getComputeAtPosition() const {
     return compute_at_pos_;
   }
 
   // Returns the maximum position of producers are being computed at relative to
   // this tensor. This position dictates the clear expectations of producers.
-  unsigned int getMaxProducerPosition() const {
+  int64_t getMaxProducerPosition() const {
     return max_producer_pos_;
   }
 
-  unsigned int getMaybeMaxProducerPosition() const {
+  int64_t getMaybeMaxProducerPosition() const {
     return maybe_max_producer_pos_;
   }
 
@@ -281,8 +575,12 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! ignored, and the deepest possible position is searched.
   TensorView* computeAt(
       TensorView* consumer,
-      int position,
+      int64_t position,
       ComputeAtMode mode = ComputeAtMode::Standard);
+
+  //! Create a new broadcast IterDomain with the given extent in the loop domain
+  TensorView* broadcast(int64_t axis, int64_t extent = 1);
+  TensorView* broadcast(int64_t axis, Val* extent);
 
   // Split "axis" into 2 axes
   //! inner_split dictates if the factor section of the split should be inside
@@ -292,43 +590,64 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! tv[id{extent}] -> tv[id{ceilDiv(extent, factor)}, id{factor}]
   //! e.g. split(0, 4, inner_split = false) will result in:
   //! tv[id{extent}] -> tv[id{factor}, id{ceilDiv(extent, factor)}]
-  //!
-  //! When trim_out_of_bounds is true, only the inner domain defined by the
-  //! start and stop positions is split.
-  TensorView* split(
-      int axis,
-      unsigned int factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, int64_t factor, bool inner_split = true);
 
   // Split "axis" into 2 axes where the inner axes is size of "factor"
   // and outer axis is size axis.size() / factor. Factor can be a symbolic
   // value instead of constant. This requires setting the symbolic value as an
   // input, or using a parallel dim from NamedScalar::getParallelDim
-  TensorView* split(
-      int axis,
-      Val* factor,
-      bool inner_split = true,
-      bool trim_out_of_bounds = false);
+  TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
+
+  template <typename FactorType>
+  TensorView* inner_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/true);
+  }
+
+  template <typename FactorType>
+  TensorView* outer_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/false);
+  }
 
   // Merge axis_o and axis_i into 1 IterDomain
-  TensorView* merge(int axis_o, int axis_i);
+  TensorView* merge(int64_t axis_o, int64_t axis_i);
 
   // Merge axis and axis+1 into 1 IterDomain
-  TensorView* merge(int axis) {
+  TensorView* merge(int64_t axis) {
     return merge(axis, axis + 1);
   }
 
+  // Flatten the axis from `from` to `to` into a single axis.
+  // Both `from` and `to` are inclusive.
+  TensorView* flatten(int64_t from = 0, int64_t to = -1);
+
   // Reorder axes according to old2new[old_pos] = new_pos
-  TensorView* reorder(const std::unordered_map<int, int>& old2new);
+  TensorView* reorder(const std::unordered_map<int64_t, int64_t>& old2new);
+  TensorView* reorder(
+      const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new);
+
+  // Reorder axes based on the vector permutation.
+  // In terms of the function above, this can be seen as old2new[index] =
+  // permutation[index]
+  TensorView* reorder(const std::vector<int64_t>& permutation);
+  TensorView* reorder(const std::initializer_list<int64_t>& permutation);
 
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
+  TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
   TensorView* swizzle(
       Swizzle2DType swizzle_type,
-      int x,
-      int y,
+      int64_t x,
+      int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  //! Resize an IterDomain by expanding both the left and right sides
+  //! by given widths. The resulting IterDomain has an extent of
+  //! (left_expansion + axis->extent() + right_expansion).
+  TensorView* resize(
+      int64_t axis,
+      Val* left_expansion,
+      Val* right_expansion,
+      std::optional<IterType> iter_type = std::nullopt);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
@@ -348,29 +667,38 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //  TV2[I0, R1, I2, I3] = TV0[I0, I1, I2, I3]
   //  TV1[I0, R2, I3] = TV2[I0, R1, I2, I3]
   //
-  TensorView* rFactor(const std::vector<int>& axes);
+  TensorView* rFactor(const std::vector<int64_t>& axes);
 
   //! Multi-output version of rFactor, semantically similar with
   //! the reduction version except that the rfactor is done
   //! for all outputs in a consistent way
   std::vector<TensorView*> rFactor(
-      const std::vector<int>& axes,
+      const std::vector<int64_t>& axes,
       const std::vector<TensorView*>& tvs);
 
   //! Create a TensorView before the original tensor. A common use case is to
   //! write results into shared memory or registers before moving to global
   //! memory. Analogous to TVM Cache_Write
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheBefore(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  TensorView* cacheBefore(LoadStoreOpType op_type = LoadStoreOpType::Set);
 
   //! Create a TensorView after the original tensor. A common use case is to
   //! read tensor into shared memory or registers. Analogous to TVM Cache_Read
   //!
-  //! @param cache_op: memory operator to use for the inserted op between
+  //! @param op_type: memory operator to use for the inserted op between
   //!   the the data tensor and the cache tensor
-  TensorView* cacheAfter(LoadStoreOpType cache_op = LoadStoreOpType::Set);
+  //! @param cache_op: cache operator, see enum class CacheOp
+  //! @param propagate_allocation_domain: replay allocation domain on cached
+  //! load
+  //! @param cached_uses: if empty, cache all uses; otherwise, only try to cache
+  //! uses in cached_uses.
+  TensorView* cacheAfter(
+      LoadStoreOpType op_type = LoadStoreOpType::Set,
+      CacheOp cache_op = CacheOp::Unspecified,
+      bool propagate_allocation_domain = true,
+      std::vector<Expr*> cached_uses = {});
 
   // For a fusion output with other uses, we want to avoid writing to global
   // memory and then reading the output again. We write to global memory
@@ -384,35 +712,41 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 
   void setMemoryType(MemoryType mt);
 
-  // Apply double buffering transformation
-  void doubleBuffer();
-
-  // Apply circular buffering transformation
-  void circularBuffer(unsigned int number_of_stage);
-
-  // Returns true if this tensor is double buffered.
-  bool isDoubleBuffered() const {
-    return is_double_buffered_;
-  }
+  // Apply circular buffering transformation. Negative prefetch_distance
+  // means "all but", for example, -1 means number_of_stages - 1.
+  void circularBuffer(
+      int64_t number_of_stages,
+      int64_t prefetch_distance = -1,
+      CircularBufferType type = Pipelined(false));
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {
-    return is_circular_buffered_;
+    return circular_buffer_options_.isEnable();
   }
 
-  // Returns the depth of circular buffering if applicable.
-  unsigned int circularBufferDepth() const {
-    TORCH_INTERNAL_ASSERT(
-        is_circular_buffered_, toString(), "not circular buffered");
-    return circular_buffer_stage_;
+  const CircularBufferOptions& circularBufferOptions() const {
+    return circular_buffer_options_;
   }
 
   //! Transforms the innermost iterdomains according to the given mma swizzle,
   //!  this should be used on the tvs that are either inputs/outputs of an
   //!  MmaOp, or any tv's that are involved in prolog/epilog fusions and need to
   //!  have a matching thread swizzle with the mma operand/result.
-  //! More detail on usage see [WarpMmaSwizzler] in scheduler/mma_utils.h .
-  void applyMmaSwizzle(MmaOptions options);
+  //! More detail on usage see [MmaSwizzler] in scheduler/mma_utils.h .
+  void applyMmaSwizzle(MmaOperand operand);
+  void applyMmaSwizzle(MmaInputSmemSwizzle swizzle);
+
+  //! Function to schedule the swizzled TMA box.
+  //! This functions works on the assumption that the TMA box is 2D
+  //! and the inner-dimension is less or equal to the swizzle size.
+  //! This doesn't work for the swizzle none mode. For more details
+  //! refer to the figure doc/dev/tma/swizzle.svg
+  void swizzleTMABox(MmaInputSmemSwizzle swizzle);
+
+  //! Transforms the innermost iterdomains according to the given mma swizzle,
+  //!  this should be used on the tvs that are inputs of a MmaOp or are loaded
+  //!  using TMA.
+  void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
 
   //! Returns if this tensor view has swizzle operator on its tensor domain.
   //!  This is the temporary flag for indicating that the new swizzle
@@ -421,10 +755,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return has_swizzle_op_;
   }
 
-  friend TORCH_CUDA_CU_API TransformPropagator;
-  friend TORCH_CUDA_CU_API MostInlinedTransformPropagator;
-  friend TORCH_CUDA_CU_API TransformReplay;
-  friend TORCH_CUDA_CU_API OptOutMutator;
+  //! A temporary helper function for the transition from Swizzle2D to Swizzle
+  void setHasSwizzleOp() {
+    has_swizzle_op_ = true;
+  }
+
+  friend TransformPropagator;
+  friend MostInlinedTransformPropagator;
+  friend TransformReplay;
+  friend OptOutMutator;
   friend class InlineBatchingGuard;
   friend class ir_utils::TVDomainGuard;
 
@@ -452,7 +791,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! consumer, then this call is a no-op. The actual position is
   //! computed in the same way as inlineAt, except that computeWith
   //! does not have the constraint of the persistent data-dependency pattern.
-  void computeWith(int pos, bool best_effort = false);
+  void computeWith(int64_t pos, bool best_effort = false);
 
   //! Set the actual consumer tensors that this tensor is
   //! computed with. Requires a topologically sorted list expressions,
@@ -476,11 +815,11 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! error to use this function without first resolving computeWith.
   const std::vector<TensorView*>& getComputeWithConsumers() const;
 
-  unsigned int getComputeWithPosition() const {
+  int64_t getComputeWithPosition() const {
     return compute_with_pos_;
   }
 
-  unsigned int getMaxComputePosition() const {
+  int64_t getMaxComputePosition() const {
     return std::max(getComputeWithPosition(), getComputeAtPosition());
   }
 
@@ -489,21 +828,21 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! which also means its computeWith needs to have been resolved, the
   //! computeWith position is returned. Otherwise, the default computeAt
   //! position is retured.
-  unsigned int getComputePosition(const TensorView* consumer) const;
+  int64_t getComputePosition(const TensorView* consumer) const;
 
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
-  void updateMaxProducerPosition();
+  void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
-  // Commit the current changes in leaf domain into rFactor domain. This
+  // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
   // implicit transpose is being tested. This function can be dangerous: it
   // changes the the semantics of the current tensor without updating its
   // consumers consistently, and there is no reliable way to detect this
   // inconsistency. It is the responsibility of the caller of this function to
   // ensure consistency.
-  void commitLeafToRFactor();
+  void commitLeafToLogical();
 
   //! Request that we reclaim the memory of this tv before any subsequent
   //! tensors are allocated.
@@ -513,7 +852,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! is present in the kernel to reuse memory and inserts new block
   //! synchronizations if necessary.
   void promoteReuse(bool b = true) {
-    TORCH_CHECK(
+    NVF_CHECK(
         memory_type_ == MemoryType::Shared,
         "promoteReuse should only be called on shared memory tensors");
     promote_reuse_ = b;
@@ -525,39 +864,53 @@ class TORCH_CUDA_CU_API TensorView : public Val {
     return promote_reuse_;
   }
 
+  void setDeviceMesh(const DeviceMesh& mesh) {
+    mesh_ = mesh;
+  }
+
+  const DeviceMesh& getDeviceMesh() const {
+    return mesh_;
+  }
+
+  bool hasDeviceMesh() const {
+    return !mesh_.vector().empty();
+  }
+
+  // Get/set the "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t getTMemDimSepPos() const {
+    return tmem_dim_sep_pos_;
+  }
+  void setTMemDimSepPos(int64_t pos);
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
   }
 
  private:
-  int64_t normalizeAxisPos(int64_t pos) const {
-    if (pos < 0) {
-      pos += (int64_t)nDims();
-    }
-    return pos;
+  int64_t wrapDim(int64_t dim) const {
+    return nvfuser::wrapDim(dim, nDims());
   }
 
   //! A helper function to maintain the consistency of schedules of
   //! multiple outputs wheen doing rfactor on multi-output reduction ops.
-  TensorView* multiOutputRfactorHelper(
+  TensorView* multiOutputRFactorHelper(
       TensorView* tv,
-      const std::vector<int>& axes);
+      const std::vector<int64_t>& axes);
 
   void clearComputeWith();
 
  private:
   TensorDomain* domain_ = nullptr;
-  unsigned int compute_at_pos_ = 0;
-  unsigned int max_producer_pos_ = 0;
+  int64_t compute_at_pos_ = 0;
+  int64_t max_producer_pos_ = 0;
   MemoryType memory_type_ = MemoryType::Local;
-  bool is_double_buffered_ = false;
 
-  //! Indicates if the tensor is circular buffered.
-  bool is_circular_buffered_ = false;
-
-  //! Indicates the circular buffering stage depth if applicable.
-  unsigned int circular_buffer_stage_ = 0;
+  //! Indicates the circular buffering options if applicable.
+  CircularBufferOptions circular_buffer_options_;
 
   // special handling for CPU based zero-dim tensors (i.e. CPU Tensors that
   // only have one value). This is only used if on an input value, otherwise
@@ -578,7 +931,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! Position where this tensor is computed with the compute-with
   //! consumer tensors. It should be always be equal or greater than
   //! the computeAt position
-  unsigned int compute_with_pos_ = 0;
+  int64_t compute_with_pos_ = 0;
 
   //! Maximum position where producers may be computed at, including
   //! unresolved computeWith. This is equal to max_producer_pos_ when
@@ -586,7 +939,7 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! resolving computeWith so that no IterDomain should never be
   //! transformed when there may actually be a producer tensor that
   //! may be computed at.
-  unsigned int maybe_max_producer_pos_ = 0;
+  int64_t maybe_max_producer_pos_ = 0;
 
   //! When this is true, it indicates, if this is a shared memory tensor and
   //! there other shared memory tensors whose lifetimes do not overlap and come
@@ -596,6 +949,15 @@ class TORCH_CUDA_CU_API TensorView : public Val {
   //! current tensor. This will then allow us to safely reuse the memory
   //! allocated to this tensor.
   bool promote_reuse_ = false;
+
+  // Device Mesh on which the Tensor is sharded
+  DeviceMesh mesh_;
+
+  // The "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t tmem_dim_sep_pos_ = 0;
 };
 
 //! A simple TensorView builder
@@ -608,10 +970,10 @@ class TORCH_CUDA_CU_API TensorView : public Val {
 //!       .contiguity(contiguity)
 //!       .build();
 //!
-class TORCH_CUDA_CU_API TensorViewBuilder {
+class NVF_API TensorViewBuilder {
  public:
   //! Set the number of dimensions of the tensor (default 0, meaning scalar)
-  TensorViewBuilder& ndims(size_t ndims);
+  TensorViewBuilder& ndims(int64_t ndims);
 
   //! Set the data type of the tensor (default DataType::Float)
   TensorViewBuilder& dtype(DataType dtype);
@@ -627,11 +989,14 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   //! Set if a dimension is expanded
   TensorViewBuilder& expanded(std::vector<bool> expanded);
 
+  //! Set the permutation from allocation domain on root domain
+  TensorViewBuilder& strideOrder(std::vector<int64_t> stride_order);
+
   //! Creates a new TensorView with the specified options
   TensorView* build() const;
 
  private:
-  size_t ndims_ = 0;
+  int64_t ndims_ = 0;
   DataType dtype_ = DataType::Float;
 
   // contiguity_ is the vector that you will pass to the constructor of
@@ -647,6 +1012,8 @@ class TORCH_CUDA_CU_API TensorViewBuilder {
   std::optional<bool> uniform_contiguity_ = std::nullopt;
 
   std::vector<Val*> shape_;
+
+  std::vector<int64_t> stride_order_;
   std::vector<bool> expanded_;
 };
 

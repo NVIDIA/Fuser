@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -19,11 +18,10 @@ namespace nvfuser {
 // vectorization splits and gathers all splits that provably don't have a
 // remainder, therefore the extents of the associated IterDomains do not require
 // a ceilDiv expressions.
-TORCH_CUDA_CU_API std::unordered_set<Split*> getAllDivisibleSplits(
-    Fusion* fusion);
+NVF_API std::unordered_set<Split*> getAllDivisibleSplits(Fusion* fusion);
 
 // Same as above but will use provided ComputeAtMap instead of building its own.
-TORCH_CUDA_CU_API std::unordered_set<Split*> getAllDivisibleSplits(
+NVF_API std::unordered_set<Split*> getAllDivisibleSplits(
     Fusion* fusion,
     const ComputeAtMap* ca_map);
 

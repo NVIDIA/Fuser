@@ -8,27 +8,13 @@ namespace nvfuser.serde;
 
 // This indicates the flatbuffer compatibility. The number will bump up when a
 // breaking change is applied to the schema.
-file_identifier "NV00";
+file_identifier "NV01";
 
 // =====================================================================================
 // Enum definitions
 
-// Datatype enum represents the data type of a Tensor, Scalar, or Function.
-enum DataType : int {
-    Double = 0,
-    Float,
-    Half,
-    Int,
-    Int32,
-    Bool,
-    BFloat16,
-    ComplexFloat,
-    ComplexDouble,
-    None
-}
-
 // The StateType enum indicates whether the state object is a Scalar or Tensor.
-enum StateType : int {
+enum StateType: int {
     Tensor = 0,
     Scalar,
     Vector,
@@ -37,7 +23,7 @@ enum StateType : int {
 
 // The Contiguity enum shows whether a tensor dimension is contiguous
 // with the dimension to its right.
-enum Contiguity : int {
+enum Contiguity: int {
     Strided = 0,
     Contiguous,
     None,
@@ -47,7 +33,7 @@ enum Contiguity : int {
 // Otherwise, the record type is determined via the success of dynamic casting.
 // We enumerate the template arguments of a RecordFunctor, so we can specify
 // them during deserialization.
-enum RecordType : int {
+enum RecordType: int {
     Base = 0,
     AtOp,
     BatchNormOp,
@@ -56,11 +42,16 @@ enum RecordType : int {
     CastTv,
     CastVal,
     CatOp,
+    EmbeddingFwdOp,
     End,
+    ExpandOp,
     FullOp,
     IotaOp,
     IndexSelectOp,
-    TorchGatherOp,
+    IndexPutAccumulateOp,
+    SelectOp,
+    ScatterOp,
+    GatherOp,
     TakeAlongAxisOp,
     Unary_TV,
     Unary_VAL,
@@ -84,17 +75,22 @@ enum RecordType : int {
     Ternary_Alpha_VAL_VAL_TV,
     Ternary_Alpha_TV_VAL_VAL,
     Ternary_Alpha_VAL_TV_VAL,
+    NormalDistOp,
     OutputTv,
     OutputVal,
     PadOp,
     PermuteOp,
-    RandomOp,
+    StrideOrderOp,
     ReductionMax,
     ReductionMin,
     ReductionProd,
     ReductionSum,
     ReshapeOp,
     Scalar,
+    ScaledGroupedMmaOp,
+    ScaledMmaOp,
+    SdpaFwdOp,
+    SdpaBwdOp,
     ShapeOp,
     SizeOp,
     SliceOp,
@@ -102,9 +98,13 @@ enum RecordType : int {
     Start,
     Tensor,
     TensorSizes,
+    UniformDistOp,
     VarianceOp,
     VarianceMeanOp,
     Vector,
+    WelfordOp,
+    ArgsortOp,
+    TopKOp,
 }
 
 // =====================================================================================
@@ -116,22 +116,24 @@ union RecordData {
   BatchNorm,
   Broadcast,
   BroadcastInDim,
+  Cat,
   Dimension,
   Dtype,
   Norm,
   Output,
-  Pad,
-  Permute,
+  Dims,
   Slice,
   Squeeze,
   Reduction,
-  Reshape,
   Scalar,
   Size,
   Tensor,
-  TensorCreation,
   TensorCreationSymbolic,
   Vector,
+  Welford,
+  Sort,
+  TopK,
+  ScaledOp,
 }
 
 // The PolymorphicValueData union holds the attribute information for each PolymorphicValue.
@@ -153,9 +155,9 @@ struct State {
 
 // Data for Scalar
 table Scalar {
-  dtype: DataType;
+  dtype: long;
   has_value: bool;
-  value_type: DataType;
+  value_type: long;
   bool_value: bool;
   long_value: long;
   double_value: double;
@@ -164,11 +166,11 @@ table Scalar {
 }
 
 // =====================================================================================
-// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in FusionExecutor.
+// Tables for PolymorphicValue, ScalarCpu, TensorArg, KernelArgumentHolder used in KernelExecutor.
 
 // The ScalarCpu is represented by a fixed size array of raw bytes.
 table ScalarCpu {
-  scalar_value : Scalar;
+  scalar_value: Scalar;
 }
 
 // Data of TensorArg.
@@ -179,40 +181,40 @@ table TensorArg {
   ptr : ulong;
   sizes : [long];
   strides : [long];
-  dtype: DataType;
+  dtype: long;
 }
 
 // This table corresponds with a given PolymorphicValue object.
 table PolymorphicValue {
-  data : PolymorphicValueData;
+  data: PolymorphicValueData;
 }
 
 // This table holds multiple PolymorphicValue objects.
 table KernelArgumentHolder {
-  arguments : [PolymorphicValue];
-  device_index : byte;
-  cache_id : ulong;
+  arguments: [PolymorphicValue];
+  device_index: byte;
+  cache_id: ulong;
 }
 
 //
 // =====================================================================================
-// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in FusionExecutor
+// Tables for LaunchParams, GlobalBufferInfo, KernelExecutorEntry, and TensorShape used in KernelExecutor
 
 // Data representing a tensor shape used in LaunchParam
 table TensorShape {
-  shape : [long];
+  shape: [long];
 }
 
 // This table holds the cached launch parameters for a kernel.
 table LaunchParams {
-  gdimx : long;
-  gdimy : long;
-  gdimz : long;
-  bdimx : long;
-  bdimy : long;
-  bdimz : long;
-  smem : long;
-  output_sizes : [TensorShape];
+  gdimx: long;
+  gdimy: long;
+  gdimz: long;
+  bdimx: long;
+  bdimy: long;
+  bdimz: long;
+  smem: long;
+  output_sizes: [TensorShape];
 }
 
 // This table describes the cached global buffers for a kernel.
@@ -221,24 +223,28 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv : long = -1;
-  sizes : [long];
-  strides : [long];
-  dtype : DataType;
+  tv_pos : long = -1;
+  logical_sizes : [long];
+  logical_strides : [long];
+  unsharded_logical_sizes : [long];
+  alloc_sizes : [long];
+  alloc_strides : [long];
+  dtype : long;
   zero_init : bool;
+  resets_to_zero : bool;
   is_profile_buffer : bool;
   is_fusion_output : bool;
+  is_fusion_input : bool;
 }
 
-// This table describes the cached ExecutorEntry for a kernel.
-table ExecutorEntry {
-    init : bool;
-    launch_params : LaunchParams;
-    // Aliased output and input mappings
-    output_aliases : [int];
-    input_aliases : [int];
-    outputs : [GlobalBufferInfo];
-    intermediates : [GlobalBufferInfo];
+// This table describes the cached KernelExecutorEntry for a kernel.
+table KernelExecutorEntry {
+  init : bool;
+  launch_params : LaunchParams;
+  outputs : [GlobalBufferInfo];
+  intermediates : [GlobalBufferInfo];
+  inputs : [GlobalBufferInfo];
+  output_aliased_to_input : [int];
 }
 
 // =====================================================================================
@@ -266,19 +272,25 @@ table BroadcastInDim {
   broadcast_dims: [long];
 }
 
-// Data for CastOpRecord, ScalarRecord, and IotaOpRecord
-table Dtype {
-  dtype: DataType;
+// Data for CatOpRecord
+table Cat {
+  dim: long;
+  manual_padding: bool;
 }
 
-// Data for TorchGatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
+// Data for CastOpRecord, ScalarRecord, and IotaOpRecord
+table Dtype {
+  dtype: long;
+}
+
+// Data for GatherOpRecord, TakeAlongAxisOpRecord, and IndexSelectOpRecord
 table Dimension {
   dim: long;
 }
 
 // Data for NormOpRecord
 table Norm {
-  axes: [int];
+  axes: [long];
   correction: long;
   keep_dim: bool;
 }
@@ -288,27 +300,16 @@ table Output {
   stride_order: [long];
 }
 
-// Data for PadOpRecord
-table Pad {
-  pad_widths: [long];
-}
-
-// Data for PermuteOpRecord
-table Permute {
+// Data for DimsOpRecord
+table Dims {
   dims: [long];
 }
 
 // Data for ReductionOpRecord
 table Reduction {
-  axes: [int];
+  axes: [long];
   keep_dim: bool;
-  dtype: DataType;
-}
-
-// Data for ReshapeOpRecord
-table Reshape {
-  original_shape: [long];
-  new_shape: [long];
+  dtype: long;
 }
 
 // Data for SizeOpRecord
@@ -318,70 +319,150 @@ table Size {
 
 // Data for SliceOpRecord
 table Slice {
-  start_indices: [long];
-  end_indices:[long];
-  strides: [long];
+  manual_normalization: bool;
 }
 
 // Data for SqueezeOpRecord
 table Squeeze {
-  original_shape: [long];
   squeeze_dims: [long];
+  squeeze_expanded: bool;
 }
 
 // Data for TensorRecord
 table Tensor {
   sizes: [long];
   contiguity: [Contiguity];
-  dtype: DataType;
+  stride_order: [long];
+  dtype: long;
   is_cpu: bool;
 }
 
-// Data for FullOpRecord
-// The shape is defined with constant numbers.
-table TensorCreation {
-  shape: [long];
-  dtype: DataType;
-}
-
-// Data for RandomOpRecord
+// Data for RandomDistOpRecord
 // The shape is symbolic.
 table TensorCreationSymbolic {
-  shape: [State];
-  dtype: DataType;
+  dtype: long;
 }
 
 // Data for Vector
 table Vector {
-  dtype: DataType;
+  dtype: long;
+}
+
+// Data for WelfordOpRecord
+table Welford {
+  axes: [long];
+}
+
+// Data for ArgsortOpRecord
+table Sort {
+  dim: long;
+  descending: bool;
+  stable: bool;
+}
+
+// Data for TopKOpRecord
+table TopK {
+  dim: long;
+  largest: bool;
+  sorted: bool;
+}
+
+// Data for ScaledGroupedMmaOpRecord and ScaledMmaOpRecord
+table ScaledOp {
+  dtype: long;
+  block_scale_size: long;
+  block_scale_dtype: long;
+  gamma: bool;
 }
 
 // =====================================================================================
 //
 
+// Each CudaKernel represents a single, compiled kernel.
+table CudaKernel {
+  kernel_name: string;
+  compile_args: string;
+  cubin: [ubyte];
+  cubin_filename: string;
+  ptx: [ubyte];
+  ptx_filename: string;
+  // The block size field is used to generate compile arguments.
+  // We compare the generated compile args against those stored in this table
+  // when deserializing this cuda kernel.
+  block_size: long = -1;
+}
+
 // Each Fusion Executor maps to a lowered and compiled kernel.
-table FusionExecutor {
+table KernelExecutor {
   device_smem_limit: long;
   block_size_high_water_mark: long;
   maxrregcount_high_water_mark: long;
   warp_size: long;
+  heuristic: long;
   fusion_id: long;
-  fusion_id_counter : long;
-  kernel_code : string;
-  executor_entry_lookup_keys : [ulong];
-  executor_entry_lookup_values : [ExecutorEntry];
-  // Is this kernel being compiled with int32 or int64 indexing. This
-  // information is required to resolve DataType::Index
-  index_type : DataType;
+  concrete_id: long;
+  runtime_id: long;
+  group_id: long;
+  kernel_code: string;
+  executor_entry_lookup_keys: [ulong];
+  executor_entry_lookup_values: [KernelExecutorEntry];
+  // Is this kernel being compiled with int32 or int64 indexing?
+  index_type : long;
+  compiled_kernel: CudaKernel;
+  has_rng: bool;
+  has_tma: bool;
+  has_dynamic_alias: bool;
+}
+
+// A directed edge on DAG, which wraps a value that connects segmented groups.
+table SegmentedEdge {
+  from_segmented_group: long;
+  to_segmented_group: long;
+  val: long;
+}
+
+// Each SegmentedGroup represents a segmented fusion.
+table SegmentedGroup {
+  producer_edges: [long];
+  consumer_edges: [long];
+  input_vals: [long];
+  output_vals: [long];
+  group_id: int;
+  heuristic: long;
+  exprs: [long];
+  level: int;
+  merge_with_segmented_group: long;
+  merge_through_segmented_edge: long;
+  merged: bool;
+}
+
+// The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
+table SegmentedFusion {
+  // The valid flag is false when we cannot get all statements for
+  // SegmentedFusion from the original fusion. This occurs when
+  // SegmentCandidateFinder::findSegments adds new statements while finding
+  // valid sub-fusions. See https://github.com/NVIDIA/Fuser/issues/1706 for details.
+  valid: bool;
+  segmented_fusion_name: ulong;
+  num_vals: ulong;
+  num_exprs: ulong;
+  edges: [SegmentedEdge];
+  groups: [SegmentedGroup];
+  force_fp16_tv_set: [long];
+  force_half_precision_type: long;
 }
 
 // Each FusionKernelRuntime represents a concretized, segmented Fusion.
 // We store the metadata for the original arguments to segment, schedule, and compile the Fusion at deserialization.
-// Each fusion segment is given a FusionExecutor.
+// Each fusion segment is given a KernelExecutor.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionKernelRuntime {
-  args : KernelArgumentHolder;
-  executors : [FusionExecutor];
+  fusion_id: long;
+  concrete_id: long;
+  runtime_id: long;
+  args: KernelArgumentHolder;
+  executors: [KernelExecutor];
+  segmented_fusion: SegmentedFusion;
 }
 
 // EncodingEntry for InputsIdLookup LRU cache.
@@ -392,35 +473,37 @@ struct EncodingEntry {
 
 // This table is a LRU cache containing input arguments known by the FusionExecutorCache.
 table InputsIdLookup {
-  max_cache_size : ulong;
-  current_id : ulong;
-  lru_cache : [string];
+  max_cache_size: ulong;
+  current_id: ulong;
+  lru_cache: [string];
 
   // This field defines map<std::string, EncodingEntry> encoding_lookup
-  encoding_lookup_keys : [string];
-  encoding_lookup_values : [EncodingEntry];
+  encoding_lookup_keys: [string];
+  encoding_lookup_values: [EncodingEntry];
 }
 
 // This table represents a key-value pair in the kernel_runtimes map in FusionExecutorCache.
 table KernelRuntimeState {
-  device_id : ulong;
-  has_dynamic_transform_info : bool;
-  runtimes : [FusionKernelRuntime];
+  device_id: long;
+  concrete_id: long;
+  has_dynamic_transform_info: bool;
+  runtimes: [FusionKernelRuntime];
 }
 
 // This table describes the FusionExecutorCache.
 // The unscheduled fusion is defined by traversing Trie in FusionCache.
 table FusionExecutorCache {
-  inputs_cache : InputsIdLookup;
+  fusion_id: long;
+  inputs_cache: InputsIdLookup;
 
   // This field represents a map<<size_t, DynamicTransformConcretizationInfo>, vector<FusionKernelRuntime>>.
   // DynamicTransformConcretizationInfo is regenerated during deserialization.
-  kernel_runtimes_map : [KernelRuntimeState];
+  kernel_runtimes_map: [KernelRuntimeState];
 
   // This field defines a map<size_t, FusionKernelRuntime> id_to_kernel_runtime.
-  kernel_cache_keys : [ulong];
+  kernel_cache_keys: [ulong];
   // indices into kernel_runtime_values
-  kernel_cache_values : [ulong];
+  kernel_cache_values: [ulong];
 }
 
 // RecordFunctor represents operations in the Fusion. It is a node in the graph with input and output edges.
@@ -454,7 +537,13 @@ table FusionCache {
   max_fusions: ulong;
   structure: [TrieNode];
   terminal_nodes: [ulong];
-  auto_gen_schedules : [FusionExecutorCache];
+  auto_gen_schedules: [FusionExecutorCache];
+  // static fusion executor counter
+  global_fusion_count: long;
+  device_major: long;
+  device_minor: long;
+  cuda_major: long;
+  cuda_minor: long;
 }
 
 root_type FusionCache;

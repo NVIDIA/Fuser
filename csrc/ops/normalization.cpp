@@ -6,8 +6,10 @@
  */
 // clang-format on
 #include <ir/builder.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/normalization.h>
+#include <ops/utils.h>
 
 namespace nvfuser {
 
@@ -15,24 +17,29 @@ int nonNegativeAxis(int axis, size_t ndims) {
   return (axis >= 0) ? axis : ((int)ndims + axis);
 }
 
-Val* numFeatures(TensorView* x, const std::vector<int>& dims, size_t ndims) {
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
+Val* numFeatures(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    int64_t ndims) {
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   if (ndims == 0) {
     return num_features;
   }
-
   for (const auto dim : dims) {
-    const int axis = nonNegativeAxis(dim, ndims);
-    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+    const int64_t axis = wrapDim(dim, ndims);
+    num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
   }
   return num_features;
 }
 
-TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+TensorView* mean(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool keepdim) {
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
 
   auto sum_x = sum(x, dims, keepdim);
   auto y = div(sum_x, numFeatures(x, dims, kNumberOfDims));
@@ -41,56 +48,62 @@ TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim) {
 
 TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   int64_t correction = unbiased ? 1 : 0;
   return variance(x, dims, correction, keepdim);
 }
 
 TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
-
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
 
   auto bcast_mean = mean(x, dims, true /* keepdim */);
   auto x_mean_sub = sub(x, bcast_mean);
   auto x_mean_sub_sq = mul(x_mean_sub, x_mean_sub);
   auto sum_x_mean_sub_sq = sum(x_mean_sub_sq, dims, keepdim);
 
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
-  if (correction > 0) {
-    num_features =
-        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
-  }
-  auto y = div(sum_x_mean_sub_sq, num_features);
+
+  // NOTE PyTorch returns 'inf' for the variance if correction is greater than
+  // the number of elements. Reference: 'std_var_all_cpu' function in
+  // aten/src/ATen/native/ReduceOps.cpp.
+  auto correction_val =
+      IrBuilder::createInContainer<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
+  auto denom = sub(num_features, correction_val);
+  denom = where(ge(denom, zero_val), denom, zero_val);
+
+  auto y = mul(sum_x_mean_sub_sq, reciprocal(denom));
 
   return y;
 }
 
 VarMeanResult variance_mean(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       correction >= 0, "correction must be non-negative, but got ", correction);
 
   // There are compilation errors for half precision
   auto dtype = x->getDataType().value();
-  TORCH_CHECK(
-      !(dtype == DataType::Half || dtype == DataType::BFloat16),
+  NVF_CHECK(
+      !(dtype == DataType::Half || dtype == DataType::BFloat16 ||
+        dtype == DataType::Float8_e4m3fn || dtype == DataType::Float8_e5m2),
       "variance_mean is not supported for ",
       dtype,
       " please upcast to float");
@@ -106,13 +119,18 @@ VarMeanResult variance_mean(
         add(out_real.var, out_imag.var), complex(out_real.mean, out_imag.mean)};
   }
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
   auto num_features = numFeatures(x, dims, kNumberOfDims);
-  if (correction > 0) {
-    num_features =
-        sub(num_features, IrBuilder::create<Val>(x->container(), correction));
-  }
+
+  // NOTE PyTorch returns 'inf' for the variance if correction is greater than
+  // the number of elements. Reference: 'std_var_all_cpu' function in
+  // aten/src/ATen/native/ReduceOps.cpp.
+  auto correction_val =
+      IrBuilder::createInContainer<Val>(x->container(), correction);
+  auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
+  auto denom = sub(num_features, correction_val);
+  denom = where(ge(denom, zero_val), denom, zero_val);
 
   // Welford op can't handle 0-dim tensors, so we need to handle them separately
   if (x->nDims() == 0) {
@@ -121,11 +139,11 @@ VarMeanResult variance_mean(
 
   auto welford_out = Welford(x, dims);
   auto mean = welford_out.avg;
-  auto var = mul(welford_out.var_sum, reciprocal(num_features));
+  auto var = mul(welford_out.var_sum, reciprocal(denom));
 
   if (keepdim) {
     std::vector<bool> is_broadcast(kNumberOfDims, false);
-    for (auto dim : dims) {
+    for (auto dim : ops::canonicalizeAxes(dims, kNumberOfDims)) {
       is_broadcast[dim] = true;
     }
     var = broadcast(var, is_broadcast);
@@ -137,21 +155,20 @@ VarMeanResult variance_mean(
 
 TensorView* standard_deviation(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
   return sqrt(variance(x, dims, unbiased, keepdim));
 }
 
-TensorView* softmax(TensorView* x, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+TensorView* softmax(TensorView* x, int64_t dim) {
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
+  const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -167,15 +184,14 @@ TensorView* softmax(TensorView* x, int dim) {
   return y;
 }
 
-TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
+TensorView* softmax_backward(TensorView* dy, TensorView* y, int64_t dim) {
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(y != nullptr, "Output is invalid.");
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(y->getLogicalDomain()).size();
+  const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -189,14 +205,13 @@ TensorView* softmax_backward(TensorView* dy, TensorView* y, int dim) {
   return dx;
 }
 
-TensorView* log_softmax(TensorView* x, int dim) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+TensorView* log_softmax(TensorView* x, int64_t dim) {
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
+  const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   broadcast_mask[kReductionAxis] = true;
@@ -212,15 +227,14 @@ TensorView* log_softmax(TensorView* x, int dim) {
   return y;
 }
 
-TensorView* log_softmax_backward(TensorView* dy, TensorView* y, int dim) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(y != nullptr, "Output is invalid.");
+TensorView* log_softmax_backward(TensorView* dy, TensorView* y, int64_t dim) {
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(y != nullptr, "Output is invalid.");
 
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(y->getMaybeRFactorDomain()).size();
-  const int kReductionAxis = (dim < 0) ? dim + (int)kNumberOfDims : dim;
-  TORCH_INTERNAL_ASSERT(
-      kReductionAxis >= 0 && kReductionAxis < (int)kNumberOfDims);
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(y->getLogicalDomain()).size();
+  const int64_t kReductionAxis = (dim < 0) ? dim + kNumberOfDims : dim;
+  NVF_ERROR(kReductionAxis >= 0 && kReductionAxis < kNumberOfDims);
 
   auto bcast_sum_grad = sum(dy, {kReductionAxis}, true /* keepdim */);
   auto softmax = exp(y);
@@ -236,42 +250,42 @@ ForwardNormResult layer_norm(
     TensorView* weight,
     TensorView* bias,
     Val* eps) {
-  return layer_norm(x, norm_shape.size(), weight, bias, eps);
+  return layer_norm(x, (int64_t)norm_shape.size(), weight, bias, eps);
 }
 
 auto norm_properties_from_num_dims(
     const TensorView* x,
-    const size_t kNormShapeNumDims) {
+    const int64_t kNormShapeNumDims) {
   // (B, C, H, W, D) tensor
   // norm_shape = [H, W, D]
   // M = outer = product of remaining dimensions = B * C
   // N = reduction = product of norm_shape = H * W * D
   // weight = bias = norm_shape tensor
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const size_t kOuterNumDims = kNumberOfDims - kNormShapeNumDims;
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
+  const int64_t kOuterNumDims = kNumberOfDims - kNormShapeNumDims;
 
-  std::vector<int> outer_reduction_axes(kOuterNumDims);
+  std::vector<int64_t> outer_reduction_axes(kOuterNumDims);
   std::vector<bool> outer_broadcast_mask(kNumberOfDims, false);
-  std::vector<int> inner_reduction_axes(kNormShapeNumDims);
+  std::vector<int64_t> inner_reduction_axes(kNormShapeNumDims);
   std::vector<bool> inner_broadcast_mask(kNumberOfDims, false);
 
-  for (const auto idx : c10::irange(kOuterNumDims)) {
-    outer_reduction_axes[idx] = (int)idx;
+  for (const auto idx : arange(kOuterNumDims)) {
+    outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
   }
 
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
-  for (const auto idx : c10::irange(kNormShapeNumDims)) {
-    const size_t axis = kNumberOfDims - 1 - idx;
-    inner_reduction_axes[idx] = (int)axis;
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
+  for (const auto idx : arange(kNormShapeNumDims)) {
+    const int64_t axis = kNumberOfDims - 1 - idx;
+    inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
-    num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+    num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
   }
   struct result {
-    std::vector<int> outer_reduction_axes;
+    std::vector<int64_t> outer_reduction_axes;
     std::vector<bool> outer_broadcast_mask;
-    std::vector<int> inner_reduction_axes;
+    std::vector<int64_t> inner_reduction_axes;
     std::vector<bool> inner_broadcast_mask;
     Val* num_features = nullptr;
   } r;
@@ -285,12 +299,12 @@ auto norm_properties_from_num_dims(
 
 ForwardNormResult layer_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     TensorView* bias,
     Val* eps) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -329,16 +343,16 @@ ForwardRMSNormResult rms_norm(
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     Val* eps) {
-  return rms_norm(x, norm_shape.size(), weight, eps);
+  return rms_norm(x, (int64_t)norm_shape.size(), weight, eps);
 }
 
 ForwardRMSNormResult rms_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     Val* eps) {
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -372,12 +386,12 @@ BackwardNormResult layer_norm_backward(
     TensorView* weight,
     TensorView* bias,
     const std::vector<bool>& output_mask) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(mean != nullptr, "Mean is invalid.");
-  TORCH_INTERNAL_ASSERT(invstd != nullptr, "Inv std is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(mean != nullptr, "Mean is invalid.");
+  NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
-  auto r = norm_properties_from_num_dims(x, norm_shape.size());
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
 
   auto x_hat = mul(sub(x, mean), invstd);
 
@@ -426,11 +440,11 @@ BackwardRMSNormResult rms_norm_backward(
     TensorView* invstd,
     TensorView* weight,
     const std::vector<bool>& output_mask) {
-  TORCH_INTERNAL_ASSERT(dy != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(invstd != nullptr, "Inv std is invalid.");
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
 
-  auto r = norm_properties_from_num_dims(x, norm_shape.size());
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
 
   auto x_hat = mul(x, invstd);
 
@@ -468,6 +482,56 @@ BackwardRMSNormResult rms_norm_backward(
   return {dx, dw};
 }
 
+BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
+    TensorView* weight,
+    const std::vector<bool>& output_mask) {
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(rms != nullptr, "rms_eps std is invalid.");
+
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
+
+  TensorView* grad_weight = nullptr;
+  if (weight != nullptr) {
+    auto* bcast_weight = broadcast(weight, r.outer_broadcast_mask);
+    grad_weight = mul(dy, bcast_weight);
+  } else {
+    grad_weight = dy;
+  }
+  auto neg_grad_weight = neg(grad_weight);
+  auto neg_grad_weight_x = mul(neg_grad_weight, x);
+  auto rms_pow2 = mul(rms, rms);
+  auto inv_rms_pow2 = reciprocal(rms_pow2);
+  auto neg_grad_weight_x_inv_rms_pow2 = mul(neg_grad_weight_x, inv_rms_pow2);
+  auto inner_sum = sum(neg_grad_weight_x_inv_rms_pow2, r.inner_reduction_axes);
+  auto inner_bcast = broadcast(inner_sum, r.inner_broadcast_mask);
+  auto rms_mul2 =
+      mul(rms, IrBuilder::createInContainer<Val>(x->container(), 2.0));
+  auto inv_rms_mul2 = reciprocal(rms_mul2);
+  auto reciprocal_size = reciprocal(r.num_features);
+  auto inv_rms_mul2_reciprocal_size = mul(inv_rms_mul2, reciprocal_size);
+  auto x_inv_rms_mul2_reciprocal_size = mul(x, inv_rms_mul2_reciprocal_size);
+  auto inner_bcast_mul = mul(inner_bcast, x_inv_rms_mul2_reciprocal_size);
+  auto inv_rms = reciprocal(rms);
+  auto grad_weight_inv_rms = mul(grad_weight, inv_rms);
+
+  TensorView* dx = nullptr;
+  if (output_mask[0]) {
+    dx = add(inner_bcast_mul, grad_weight_inv_rms);
+  }
+
+  TensorView* dw = nullptr;
+  if (output_mask[1] && weight != nullptr) {
+    dw = sum(mul(dy, mul(x, inv_rms)), r.outer_reduction_axes);
+  }
+
+  return {dx, dw};
+}
+
 ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
@@ -480,18 +544,18 @@ ForwardNormResult batch_norm(
     bool channels_last) {
   auto fusion = FusionGuard::getCurFusion();
 
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !((running_var == nullptr) ^ (running_mean == nullptr)),
       "running stats should comes in pairs");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       momentum != nullptr && momentum->getDataType().has_value() &&
           momentum->getDataType().value() == DataType::Double,
       "Momentum is not a valid Double.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -500,20 +564,20 @@ ForwardNormResult batch_norm(
   // M = outer = channels
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x
-  size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
-  Val* num_features = IrBuilder::create<Val>(x->container(), 1.0);
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
 
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
-      reduction_axes.push_back((int)axis);
+      reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
-      num_features = mul(num_features, x->getLeafDomain()[axis]->extent());
+      num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
     }
   }
 
@@ -527,12 +591,13 @@ ForwardNormResult batch_norm(
     // updating running mean and running var
     if (running_mean != nullptr && running_var != nullptr) {
       // Note: kTraining is true here!
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           kTraining,
-          "When running stats are provided, batch stats should only be computed during training");
+          "When running stats are provided, batch stats should only be "
+          "computed during training");
 
       auto rev_momentum =
-          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
+          sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -549,31 +614,35 @@ ForwardNormResult batch_norm(
       auto cast_to_input_dtype = [fusion](
                                      Val* cast_input, Val* aliased_output) {
         auto unary_op = cast_input->definition();
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             unary_op->isA<UnaryOp>() &&
                 unary_op->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast,
             "check for cast op");
         auto input_to_cast = unary_op->input(0);
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             input_to_cast->isFusionInput(),
-            "IO_tensor batch_norm::running_stats can only updating input tensor to fusion");
+            "IO_tensor batch_norm::running_stats can only updating input "
+            "tensor to fusion");
         auto rm_dtype = input_to_cast->getDataType();
-        TORCH_INTERNAL_ASSERT(
+        NVF_ERROR(
             rm_dtype.has_value(),
             "Input running stats must have dtype defined");
         auto cast_output = castOp(*rm_dtype, aliased_output);
 
-        fusion->aliasOutputToInput(cast_output, input_to_cast);
+        fusion->aliasOutputToInput(
+            cast_output, input_to_cast, AllocationType::ReuseBuffer);
       };
 
       if (running_mean->isFusionInput()) {
-        fusion->aliasOutputToInput(new_mean_hat, running_mean);
+        fusion->aliasOutputToInput(
+            new_mean_hat, running_mean, AllocationType::ReuseBuffer);
       } else {
         cast_to_input_dtype(running_mean, new_mean_hat);
       }
 
       if (running_var->isFusionInput()) {
-        fusion->aliasOutputToInput(new_var_hat, running_var);
+        fusion->aliasOutputToInput(
+            new_var_hat, running_var, AllocationType::ReuseBuffer);
       } else {
         cast_to_input_dtype(running_var, new_var_hat);
       }
@@ -632,9 +701,9 @@ BackwardNormResult batch_norm_backward(
     Val* eps,
     const std::vector<bool>& output_mask,
     bool channels_last) {
-  TORCH_INTERNAL_ASSERT(input != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(grad_output != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(input != nullptr, "Input is invalid.");
+  NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -643,25 +712,25 @@ BackwardNormResult batch_norm_backward(
   // M = outer = channels
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(input->getLogicalDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x /
   // grad_out
-  size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
-      reduction_axes.push_back((int)axis);
+      reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
       if (num_features == nullptr) {
         num_features =
-            castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+            castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
       } else {
         num_features =
-            mul(num_features, input->getLeafDomain()[axis]->extent());
+            mul(num_features, input->getLoopDomain()[axis]->extent());
       }
     }
   }
@@ -669,7 +738,7 @@ BackwardNormResult batch_norm_backward(
   auto mean = save_mean;
   auto invstd = save_invstd;
   if (kTraining) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         save_mean != nullptr && save_invstd != nullptr,
         "When training=True, save_mean and save_invstd are required.");
   } else {
@@ -692,7 +761,7 @@ BackwardNormResult batch_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale = mul(
         broadcast(invstd, broadcast_mask), broadcast(weight, broadcast_mask));
@@ -731,18 +800,18 @@ ForwardNormResult instance_norm(
     bool channels_last) {
   auto fusion = FusionGuard::getCurFusion();
 
-  TORCH_INTERNAL_ASSERT(x != nullptr, "Input is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !((running_var == nullptr) ^ (running_mean == nullptr)),
       "running stats should comes in pairs");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       momentum != nullptr && momentum->getDataType().has_value() &&
           momentum->getDataType().value() == DataType::Double,
       "Momentum is not a valid Double.");
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -751,26 +820,26 @@ ForwardNormResult instance_norm(
   // M = outer = B * C
   // N = reduction = H * W * D
   // weight = bias = C tensor
-  const size_t kBatchDim = 0;
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(x->getMaybeRFactorDomain()).size();
-  const size_t kChannelsDim = channels_last ? kNumberOfDims - 1 : 1;
+  const int64_t kBatchDim = 0;
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
+  const int64_t kChannelsDim = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> x_reduction_axes;
+  std::vector<int64_t> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
-  Val* N = IrBuilder::create<Val>(x->container(), 1.0);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  Val* N = IrBuilder::createInContainer<Val>(x->container(), 1.0);
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
-      x_reduction_axes.push_back((int)axis);
+      x_reduction_axes.push_back(axis);
       x_broadcast_mask[axis] = true;
-      N = mul(N, x->getLeafDomain()[axis]->extent());
+      N = mul(N, x->getLoopDomain()[axis]->extent());
     }
   }
-  Val* B = IrBuilder::create<Val>(x->container(), 1.0);
-  B = mul(B, x->getLeafDomain()[kBatchDim]->extent());
+  Val* B = IrBuilder::createInContainer<Val>(x->container(), 1.0);
+  B = mul(B, x->getLoopDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kChannelsDim) {
       channels_only_broadcast_mask[axis] = true;
     }
@@ -788,15 +857,19 @@ ForwardNormResult instance_norm(
       auto _running_mean = running_mean;
       auto _running_var = running_var;
       if (_running_mean->getDataType().value() == DataType::Half ||
-          _running_mean->getDataType().value() == DataType::BFloat16) {
+          _running_mean->getDataType().value() == DataType::BFloat16 ||
+          _running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
+          _running_mean->getDataType().value() == DataType::Float8_e5m2) {
         _running_mean = castOp(DataType::Float, _running_mean);
       }
       if (_running_var->getDataType().value() == DataType::Half ||
-          _running_var->getDataType().value() == DataType::BFloat16) {
+          _running_var->getDataType().value() == DataType::BFloat16 ||
+          _running_var->getDataType().value() == DataType::Float8_e4m3fn ||
+          _running_var->getDataType().value() == DataType::Float8_e5m2) {
         _running_var = castOp(DataType::Float, running_var);
       }
       auto rev_momentum =
-          sub(IrBuilder::create<Val>(x->container(), 1.0), momentum);
+          sub(IrBuilder::createInContainer<Val>(x->container(), 1.0), momentum);
       auto current_mean_hat = mul(welford_out.avg, momentum);
       auto mean_hat = mul(_running_mean, rev_momentum);
       auto new_mean_hat = add(mean_hat, current_mean_hat);
@@ -806,12 +879,14 @@ ForwardNormResult instance_norm(
       auto new_mean_sum = sum(new_mean_hat, {static_cast<int>(kBatchDim)});
       auto new_mean_channels_only = mul(new_mean_sum, reciprocal(B));
       if (running_mean->getDataType().value() == DataType::Half ||
-          running_mean->getDataType().value() == DataType::BFloat16) {
+          running_mean->getDataType().value() == DataType::BFloat16 ||
+          running_mean->getDataType().value() == DataType::Float8_e4m3fn ||
+          running_mean->getDataType().value() == DataType::Float8_e5m2) {
         new_mean_channels_only =
             castOp(running_mean->getDataType().value(), new_mean_channels_only);
       }
-      // fusion->addOutput(new_mean_channels_only);
-      fusion->aliasOutputToInput(new_mean_channels_only, running_mean);
+      fusion->aliasOutputToInput(
+          new_mean_channels_only, running_mean, AllocationType::ReuseBuffer);
 
       auto num_feature_decrement = sub(N, x->container()->oneVal(N->dtype()));
       auto unbiased_var =
@@ -825,12 +900,14 @@ ForwardNormResult instance_norm(
       auto new_var_sum = sum(new_var_hat, {static_cast<int>(kBatchDim)});
       auto new_var_channels_only = mul(new_var_sum, reciprocal(B));
       if (running_var->getDataType().value() == DataType::Half ||
-          running_var->getDataType().value() == DataType::BFloat16) {
+          running_var->getDataType().value() == DataType::BFloat16 ||
+          running_var->getDataType().value() == DataType::Float8_e4m3fn ||
+          running_var->getDataType().value() == DataType::Float8_e5m2) {
         new_var_channels_only =
             castOp(running_var->getDataType().value(), new_var_channels_only);
       }
-      // fusion->addOutput(new_var_channels_only);
-      fusion->aliasOutputToInput(new_var_channels_only, running_var);
+      fusion->aliasOutputToInput(
+          new_var_channels_only, running_var, AllocationType::ReuseBuffer);
     }
 
     mean = welford_out.avg;
@@ -887,9 +964,9 @@ BackwardNormResult instance_norm_backward(
     Val* eps,
     const std::vector<bool>& output_mask,
     bool channels_last) {
-  TORCH_INTERNAL_ASSERT(input != nullptr, "Input is invalid.");
-  TORCH_INTERNAL_ASSERT(grad_output != nullptr, "Grad Output is invalid.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(input != nullptr, "Input is invalid.");
+  NVF_ERROR(grad_output != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(
       eps != nullptr && eps->getDataType().has_value() &&
           eps->getDataType().value() == DataType::Double,
       "Epsilon (eps) is not a valid Double.");
@@ -898,31 +975,31 @@ BackwardNormResult instance_norm_backward(
   // M = outer = channels
   // N = reduction = B * H * W * D
   // weight = bias = (C) tensor
-  const size_t kNumberOfDims =
-      TensorDomain::noReductions(input->getMaybeRFactorDomain()).size();
+  const int64_t kNumberOfDims =
+      (int64_t)TensorDomain::noReductions(input->getLogicalDomain()).size();
   // channels last format means C dimension is at axis kNumberOfDims-1 at x /
   // grad_out
-  const size_t b_axis = 0; // for clarity
-  const size_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
+  const int64_t b_axis = 0; // for clarity
+  const int64_t c_axis = channels_last ? kNumberOfDims - 1 : 1;
 
-  std::vector<int> reduction_axes;
+  std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   // weight has its own broadcast mask as it is broadcast for the batch unlike
   // mean/var
   std::vector<bool> weight_broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       weight_broadcast_mask[axis] = true;
       if (axis != b_axis) {
-        reduction_axes.push_back((int)axis);
+        reduction_axes.push_back(axis);
         broadcast_mask[axis] = true;
         if (num_features == nullptr) {
           num_features =
-              castOp(DataType::Double, input->getLeafDomain()[axis]->extent());
+              castOp(DataType::Double, input->getLoopDomain()[axis]->extent());
         } else {
           num_features =
-              mul(num_features, input->getLeafDomain()[axis]->extent());
+              mul(num_features, input->getLoopDomain()[axis]->extent());
         }
       }
     }
@@ -931,7 +1008,7 @@ BackwardNormResult instance_norm_backward(
   auto mean = save_mean;
   auto invstd = save_invstd;
   if (kTraining) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         save_mean != nullptr && save_invstd != nullptr,
         "When training=True, save_mean and save_invstd are required.");
   } else {
@@ -955,7 +1032,7 @@ BackwardNormResult instance_norm_backward(
   if (weight == nullptr) {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),
-            IrBuilder::create<Val>(input->container(), 1.0));
+            IrBuilder::createInContainer<Val>(input->container(), 1.0));
   } else {
     grad_scale =
         mul(broadcast(invstd, broadcast_mask),

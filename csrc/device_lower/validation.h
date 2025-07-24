@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
+#include <exceptions.h>
 
 #include <ir/all_nodes.h>
 
@@ -21,27 +21,19 @@ void validateIr(Fusion* fusion);
 //! used in code generation as well as runtime validation.
 void validateAndCollectVectorizeInfo(Fusion* fusion);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a consumer TV depends on. Required for runtime validation.
 void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
 
-//! Find the contig allocation domains that a vectorized leaf domain
+//! Find the contig allocation domains that a vectorized loop domain
 //! of a producer TV depends on. Required for runtime validation.
 //! Producer must be transformed as consumer.
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder);
-
-//! Validates partial split expressions. Partial split only uses an
-//! inner subdomain specified by start and stop offsets, ignoring the
-//! values outside the range. It's designed to be used with non-padded
-//! shift, which introduces non-zero start and stop smaller than the
-//! extent. This function makes sure all tensors have all values
-//! calculated that are necessary for output values.
-void validatePartialSplit(Fusion* fusion);
 
 //! Validate data format and GPU arch compatibility of scheduled
 //!  mma operators on the fusion.
@@ -76,7 +68,11 @@ void validateGroupedReductions(Fusion* fusion);
 //! Validate all of the lookup TVs are ensured to be fusion inputs
 void validateLookupTV(Fusion* fusion);
 
-//! Validate resize usage
-void validateResize(Fusion* fusion);
+//! Check that there are no reductions over unexpanded broadcasts
+void validateReductions(Fusion* fusion);
 
+//! Validate if split output domain is loaded with 1D TMA, the split must be
+//! divisible. This is similar to vectorization, where we don't have an extra
+//! else branch to load the tailing elements.
+void validate1dTmaLoad(Fusion* fusion);
 } // namespace nvfuser

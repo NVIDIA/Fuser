@@ -7,7 +7,7 @@
 // clang-format on
 #include <ir/builder.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <transform_iter.h>
 
 #include <grouped_reduction.h>
@@ -19,7 +19,7 @@ namespace {
 #define GROUP_REDUCTION_CHECK(error_on_failure, condition, ...) \
   do {                                                          \
     if (error_on_failure) {                                     \
-      TORCH_CHECK(condition, ##__VA_ARGS__);                    \
+      NVF_CHECK(condition, ##__VA_ARGS__);                      \
     } else {                                                    \
       if (!(condition)) {                                       \
         return false;                                           \
@@ -30,17 +30,17 @@ namespace {
 // Return if ref and other are transformed in the same way.
 bool hasMatchingTransformations(TensorView* ref, TensorView* other) {
   std::unordered_map<IterDomain*, IterDomain*> ref_2_other;
-  for (const auto i : c10::irange(ref->getRootDomain().size())) {
+  for (const auto i : arange(ref->getLogicalDomain().size())) {
     ref_2_other.emplace(
-        ref->getRootDomain().at(i), other->getRootDomain().at(i));
+        ref->getLogicalDomain().at(i), other->getLogicalDomain().at(i));
   }
 
   auto replay = BestEffortReplay(
-                    other->getLeafDomain(), ref->getLeafDomain(), ref_2_other)
+                    other->getLoopDomain(), ref->getLoopDomain(), ref_2_other)
                     .getIterDomainEquivalence();
 
-  for (const auto i : c10::irange(ref->nDims())) {
-    if (!replay.permissiveAreMapped(ref->axis((int)i), other->axis((int)i))) {
+  for (const auto i : arange(ref->nDims())) {
+    if (!replay.permissiveAreMapped(ref->axis(i), other->axis(i))) {
       return false;
     }
   }
@@ -53,20 +53,20 @@ bool validateReductionGrouping(
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     bool error_on_failure) {
-  TORCH_INTERNAL_ASSERT(inputs.size() == outputs.size());
-  TORCH_INTERNAL_ASSERT(!inputs.empty());
+  NVF_ERROR(inputs.size() == outputs.size());
+  NVF_ERROR(!inputs.empty());
 
   auto fusion = dynamic_cast<Fusion*>(outputs[0]->container());
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       fusion != nullptr, "Grouping of reductions must be done within a Fusion");
 
-  ExactRootDomainMap exact_map(fusion);
+  ExactLogicalDomainMap exact_map(fusion);
 
   // Pick the first output TV as a reference and compare it with the
   // rest. Do not allow grouping if any mismatch is detected.
   auto ref_tv = outputs[0]->as<TensorView>();
-  const auto ref_domain = ref_tv->getRootDomain();
-  const auto num_root_dims = ref_domain.size();
+  const auto ref_domain = ref_tv->getLogicalDomain();
+  const auto num_logical_dims = ref_domain.size();
   const auto num_dims = ref_tv->nDims();
   const auto ref_ca_pos = ref_tv->getComputeAtPosition();
   const auto ref_cw_pos = ref_tv->getComputeWithPosition();
@@ -76,18 +76,19 @@ bool validateReductionGrouping(
   // condition and could be made more flexible
   const auto uses_of_ref =
       ref_tv->hasComputeWith() ? ref_tv->uses() : std::vector<Expr*>();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     auto output_tv = outputs.at(i)->as<TensorView>();
-    const auto& output_domain = output_tv->getRootDomain();
+    const auto& output_domain = output_tv->getLogicalDomain();
     if (ref_tv == output_tv) {
       continue;
     }
     GROUP_REDUCTION_CHECK(
         error_on_failure,
-        output_domain.size() == num_root_dims,
-        "Invalid grouped reduction due to mismatched number of root dimensions. "
+        output_domain.size() == num_logical_dims,
+        "Invalid grouped reduction due to mismatched number of root "
+        "dimensions. "
         "Expected: ",
-        num_root_dims,
+        num_logical_dims,
         ". Detected: ",
         output_domain.size(),
         ". Invalid output tensor: ",
@@ -102,7 +103,7 @@ bool validateReductionGrouping(
         output_tv->nDims(),
         ". Invalid output tensor: ",
         output_tv->toString());
-    for (const auto i : c10::irange(num_root_dims)) {
+    for (const auto i : arange(num_logical_dims)) {
       auto ref_id = ref_domain.at(i);
       auto output_id = output_domain.at(i);
       // If an IterDomain is broadcast, require the other
@@ -111,7 +112,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isBroadcast() == output_id->isBroadcast(),
-          "Invalid grouped reduction due to mismatched broadcast root domains. ",
+          "Invalid grouped reduction due to mismatched broadcast root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -124,7 +126,8 @@ bool validateReductionGrouping(
       GROUP_REDUCTION_CHECK(
           error_on_failure,
           ref_id->isReduction() == output_id->isReduction(),
-          "Invalid grouped reduction due to mismatched reduction root domains. ",
+          "Invalid grouped reduction due to mismatched reduction root "
+          "domains. ",
           "Reference domain: ",
           ref_id->toString(),
           ". Mismatched domain: ",
@@ -205,7 +208,7 @@ bool validateReductionGrouping(
 bool groupReductions(
     const std::vector<TensorView*>& reduction_outputs,
     bool error_on_failure) {
-  TORCH_CHECK(!reduction_outputs.empty(), "No tensor is given");
+  NVF_CHECK(!reduction_outputs.empty(), "No tensor is given");
 
   auto container = reduction_outputs[0]->container();
 
@@ -216,7 +219,7 @@ bool groupReductions(
   std::vector<Val*> outputs(num_reductions);
   std::vector<Val*> inputs(num_reductions);
 
-  for (const auto i : c10::irange(num_reductions)) {
+  for (const auto i : arange(num_reductions)) {
     auto reduction_out = reduction_outputs.at(i);
     GROUP_REDUCTION_CHECK(
         error_on_failure,
@@ -234,8 +237,7 @@ bool groupReductions(
         reduction_out->definition()->toString());
     // Fused reduction is only enabled during the lowering, so at this
     // point it should be false.
-    TORCH_INTERNAL_ASSERT(
-        !rop->isAllreduce(), "Invalid ReductionOp: ", rop->toString());
+    NVF_ERROR(!rop->isAllreduce(), "Invalid ReductionOp: ", rop->toString());
     op_types.at(i) = rop->getReductionOpType();
     init_vals.at(i) = rop->init();
     outputs.at(i) = rop->out();
@@ -246,7 +248,7 @@ bool groupReductions(
     return false;
   }
 
-  IrBuilder::create<GroupedReductionOp>(
+  IrBuilder::createInContainer<GroupedReductionOp>(
       container, op_types, init_vals, outputs, inputs);
 
   for (auto output : ir_utils::filterByType<TensorView>(outputs)) {

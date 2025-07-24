@@ -5,20 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <compute_at.h>
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/double_buffer.h>
+#include <exceptions.h>
 #include <fusion.h>
-#include <inlining.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/inlining.h>
 
 // Cleanup
 #include <transform_iter.h>
@@ -42,151 +44,11 @@ TensorView::TensorView(
       domain_(domain),
       memory_type_(mtype) {}
 
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<c10::TensorType>& tensor_type)
-    : Val(passkey,
-          ValType::TensorView,
-          aten_opt_type_map(tensor_type->scalarType())) {
-  TORCH_INTERNAL_ASSERT(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-
-  TORCH_CHECK(
-      tensor_type->dim().has_value(), "Requires static rank for Tensor");
-
-  // [ Note -- stride_properties in tensor type ]
-  //
-  // `stride_properties()` returns a vector<optional<Stride>>, while
-  //     Stride {
-  //       optional<size_t> stride_index_;
-  //       optional<bool> contiguous_;
-  //       optional<size_t> stride_;
-  //     };
-  // To keep things simple, we ignore all the optional wrapper, as in reality,
-  // they would always be available unless we start doing multiple profiling
-  // runs.
-  //
-  //   `stride_properties()` returns the vector of Stride, where it is ordered
-  //   from the fastest to slowest dimensions. i.e. stride_properties()[i] would
-  //   give us the i-th fastest dimension. where:
-  //     1. `Stride::stride_index_` gives the index to the dimension;
-  //     2. `Stride::contiguous_` indicates whether this dimension is
-  //     memory-dense*;
-  //     3. `Stride::stride_` is the actual stride for the given dimension.
-  // * note that memory-dense means different things depending on the order of
-  // the dimension. checkout `TensorType::computeStrideProps` for details
-
-  std::vector<bool> is_stride_zero(*tensor_type->dim(), false);
-  std::vector<bool> is_size_one(*tensor_type->dim(), false);
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    is_size_one.at(i) = tensor_type->sizes()[i].has_value() &&
-        tensor_type->sizes()[i].value() == 1;
-    const auto& stride_property_i = tensor_type->stride_properties()[i];
-    if (stride_property_i.has_value() &&
-        stride_property_i->stride_index_.has_value() &&
-        stride_property_i->stride_.has_value()) {
-      is_stride_zero.at(*stride_property_i->stride_index_) =
-          (stride_property_i->stride_ == 0u);
-    }
-  }
-
-  std::vector<IterDomain*> sizes;
-  sizes.reserve(*tensor_type->dim());
-
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    if (is_stride_zero.at(i) || is_size_one.at(i)) {
-      // If stride is known to be 0, assuem it needs to be broadcasted.
-      auto builder =
-          IterDomainBuilder(
-              passkey.ir_container_->zeroVal(), passkey.ir_container_->oneVal())
-              .iter_type(IterType::Broadcast);
-      if (is_size_one.at(i)) {
-        sizes.push_back(builder.build());
-      } else {
-        // if size is not 1, need to expand
-        sizes.push_back(
-            builder.expanded_extent(IrBuilder::create<Val>(DataType::Index))
-                .build());
-      }
-    } else {
-      sizes.push_back(IterDomainBuilder(
-                          passkey.ir_container_->zeroVal(),
-                          IrBuilder::create<Val>(DataType::Index))
-                          .build());
-    }
-  }
-
-  // default to non_contiguous;
-  auto contig_info = TensorDomain::getContiguityFilledWith(sizes, false);
-
-  int64_t inner_most_non_broadcast = (int64_t)tensor_type->dim().value() - 1;
-  while (inner_most_non_broadcast >= 0) {
-    if (sizes.at(inner_most_non_broadcast)->isBroadcast()) {
-      inner_most_non_broadcast--;
-    } else {
-      break;
-    }
-  }
-  // if all broadcast, then inner_most_non_broadcast == -1
-
-  // we iterate through stride_index_, which goes from fastest changing
-  // dimension to slowest, instead of iterating through sizes. This allows
-  // easier contiguity check;
-  bool found_innermost_non_broadcast = false;
-  for (const auto i : c10::irange(tensor_type->dim().value())) {
-    // if we don't have contiguous dimension at current stride index, don't
-    // bother;
-    const auto& stride_property_i = tensor_type->stride_properties()[i];
-    size_t index = 0;
-    if (stride_property_i.has_value() &&
-        stride_property_i->stride_index_.has_value()) {
-      index = stride_property_i->stride_index_.value();
-    } else {
-      continue;
-    }
-    if (sizes.at(index)->isBroadcast()) {
-      continue;
-    }
-    if (stride_property_i->contiguous_.has_value() &&
-        stride_property_i->contiguous_.value() == true) {
-      if (!found_innermost_non_broadcast) {
-        // mark fastest changing dimension collapsible only when it's
-        // "innermost"
-        contig_info.at(index) = ((int64_t)index == inner_most_non_broadcast);
-      } else {
-        // check the neighboring faster dimension, collapse if it is considered
-        // as inner dimension per stride_index
-        auto inner_index_opt =
-            tensor_type->stride_properties()[static_cast<int>(i) - 1]
-                ->stride_index_;
-        if (inner_index_opt.has_value() &&
-            inner_index_opt.value() == (index + 1)) {
-          // collapse if inner dimension has non-broadcasted strides
-          contig_info.at(index) = !sizes.at(index + 1)->isBroadcast();
-        }
-      }
-    }
-    found_innermost_non_broadcast = true;
-  }
-
-  domain_ = IrBuilder::create<TensorDomain>(sizes, contig_info);
-}
-
-TensorView::TensorView(
-    IrBuilderPasskey passkey,
-    const std::shared_ptr<torch::jit::Value>& jit_value)
-    : TensorView(passkey, jit_value->type()->cast<c10::TensorType>()) {
-  TORCH_INTERNAL_ASSERT(
-      !container()->isA<kir::Kernel>(),
-      "Function invalid for kernel container.");
-}
-
 NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(this);
+  indent(ss, indent_size) << ir_utils::varName(this);
   switch (getMemoryType()) {
     case MemoryType::Global:
       ss << "_g";
@@ -197,10 +59,13 @@ std::string TensorView::toString(int indent_size) const {
     case MemoryType::Local:
       ss << "_l";
       break;
+    case MemoryType::Tensor:
+      ss << "_t";
+      break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "Unknown tensor memory type.");
+      NVF_THROW("Unknown tensor memory type.");
   }
-  ss << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString();
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -233,6 +98,9 @@ std::string TensorView::toString(int indent_size) const {
     ss << getMaybeMaxProducerPosition();
     ss << " )";
   }
+  if (hasDeviceMesh()) {
+    ss << " (" << getDeviceMesh() << ")";
+  }
   return ss.str();
 }
 
@@ -246,14 +114,18 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_at_pos_(src->compute_at_pos_),
       max_producer_pos_(src->max_producer_pos_),
       memory_type_(src->memory_type_),
-      is_double_buffered_(src->is_double_buffered_),
-      is_circular_buffered_(src->is_circular_buffered_),
-      circular_buffer_stage_(src->circular_buffer_stage_),
+      circular_buffer_options_(src->circular_buffer_options_),
       cpu_scalar_(src->cpu_scalar_),
       has_swizzle_op_(src->has_swizzle_op_),
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
-      promote_reuse_(src->promote_reuse_) {}
+      promote_reuse_(src->promote_reuse_),
+      mesh_(src->mesh_),
+      tmem_dim_sep_pos_(src->tmem_dim_sep_pos_) {}
+
+void TensorView::printTransforms() const {
+  IrTransformPrinter(std::cout).printTransforms(this);
+}
 
 // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
 // tensors (i.e. CPU Tensors that only have one value). This is only used if
@@ -262,30 +134,20 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
 // avoid explicit copying of the data, so we want to pass the data value as a
 // standard kernel argument value.
 void TensorView::setCpuScalar(bool is_cpu_scalar) {
-  TORCH_INTERNAL_ASSERT(
-      nDims() == 0, "Only 0-dim tensors can be marked as a cpu scalar.");
+  NVF_ERROR(nDims() == 0, "Only 0-dim tensors can be marked as a cpu scalar.");
   cpu_scalar_ = is_cpu_scalar;
 }
 
-IterDomain* TensorView::axis(int pos) const {
-  TORCH_INTERNAL_ASSERT(
-      nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
-  if (pos < 0)
-    pos += (int)domain()->nDims();
-  TORCH_CHECK(
-      pos >= 0 && (unsigned int)pos < domain()->nDims(),
-      "Tried to access position ",
-      pos,
-      " in domain: ",
-      domain());
-  return domain()->axis(pos);
+IterDomain* TensorView::axis(int64_t pos) const {
+  NVF_ERROR(nDims() > 0, "Tried to access an axis in a 0-dim TensorView");
+  return domain()->axis(wrapDim(pos));
 }
 
 void TensorView::inlineAt(
     int64_t pos,
     bool best_effort,
     MaxPosCalculator* calc) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
@@ -295,30 +157,21 @@ void TensorView::inlineAt(
     calc = calc_owner.get();
   }
 
-  if (pos < 0) {
-    pos += int64_t(nDims()) + 1;
-  }
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
-  TORCH_INTERNAL_ASSERT(
-      pos >= 0 && pos <= (int64_t)nDims(),
-      "Invalid inline position for T",
-      name(),
-      ": ",
-      pos);
-
-  auto max_inline_pos = calc->getMaxPosAll(this, best_effort);
+  int64_t max_inline_pos = (int64_t)calc->getMaxPosAll(this, best_effort);
 
   if (best_effort) {
-    pos = std::min<int64_t>((int64_t)max_inline_pos, pos);
+    pos = std::min<int64_t>(max_inline_pos, pos);
   }
 
   // hoist inner most broadcast
-  while (pos > 0 && axis((int)pos - 1)->isBroadcast()) {
+  while (pos > 0 && axis(pos - 1)->isBroadcast()) {
     pos--;
   }
 
-  TORCH_INTERNAL_ASSERT(
-      pos <= (int64_t)max_inline_pos,
+  NVF_ERROR(
+      pos <= max_inline_pos,
       "Invalid inline position for T",
       name(),
       ": ",
@@ -343,60 +196,21 @@ void TensorView::inlineAt(
   }
 
   for (auto consumer : ir_utils::consumerTvsOf(this)) {
-    consumer->updateMaxProducerPosition();
+    consumer->updateMaxProducerPosition(calc);
   }
 }
 
-namespace {
-
-// Try to find the aligned position on consumer's domain corresponding to a
-//  position of producer domain. No checking on actual
-//  producer-consumer relationship.
-unsigned int getConsumerPosAlignedToProducerCA(
-    TensorView* consumer,
-    TensorView* producer,
-    unsigned int producer_pos) {
-  // Locate consumer's position that aligns with
-  //  the producer's position. We need broadcast axes forwarded so we
-  //  need to replay PasC as CasP will not forward braodcast dims. For example
-  //  if we have:
-  // T2[ iS22{( 3 * 1 )} ] ca_pos( 1 ) = broadcast( T1[ iS1{3} ] ca_pos( 1 )
-  // produce_pos( 1) ) CasP will have the mapping iS1{3} -> iS2{3} and PasC will
-  // have the mapping iS22{( 3 * 1 )} <- iS1{3} We need the latter. Refer to
-  // NVFuserTest.FusionComplexBCast1_CUDA
-
-  auto disjoint_sets =
-      BestEffortReplay::replayPasC(
-          producer, consumer, -1, PairwiseRootDomainMap(producer, consumer))
-          .getIterDomainEquivalence();
-
-  // Find the innermost position of consumer that has
-  //  been mapped within the producer ca axis.
-  unsigned int consumer_pos = consumer->nDims();
-  while (consumer_pos > 0) {
-    auto consumer_id = consumer->axis((int)consumer_pos - 1);
-    auto p_dom = producer->getLeafDomain();
-    if (std::any_of(
-            p_dom.begin(),
-            p_dom.begin() + producer_pos,
-            [&consumer_id, &disjoint_sets](IterDomain* p_id) {
-              return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
-            })) {
-      break;
-    }
-    consumer_pos--;
+void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
+  std::unique_ptr<MaxPosCalculator> calc_owner;
+  if (calc == nullptr) {
+    calc_owner = std::make_unique<MaxPosCalculator>();
+    calc = calc_owner.get();
   }
 
-  return consumer_pos;
-}
-
-} // namespace
-
-void TensorView::updateMaxProducerPosition() {
   for (auto producer : ir_utils::producerTvsOf(this)) {
     max_producer_pos_ = std::max(
         max_producer_pos_,
-        getConsumerPosAlignedToProducerCA(
+        calc->getConsumerPosAlignedToProducerCA(
             this, producer, producer->getComputePosition(this)));
   }
 
@@ -411,7 +225,7 @@ void TensorView::updateMaxProducerPosition() {
     if (producer->hasComputeWith() && !producer->hasResolvedComputeWith()) {
       maybe_max_producer_pos_ = std::max(
           maybe_max_producer_pos_,
-          getConsumerPosAlignedToProducerCA(
+          calc->getConsumerPosAlignedToProducerCA(
               this, producer, producer->getComputeWithPosition()));
     }
   }
@@ -419,29 +233,29 @@ void TensorView::updateMaxProducerPosition() {
 
 TensorView* TensorView::computeAt(
     TensorView* consumer,
-    int position,
+    int64_t position,
     ComputeAtMode mode) {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // Make sure this and consumer are not the same tensor, that's illegal
-  TORCH_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
+  NVF_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
 
   // We support negative axes, so increment it by consumer->nDims() + 1 and make
   // sure the result is within consumer->nDims() + 1. being at consumer->nDims()
   // means producer will be computed inline with consumer, hence the +1.
   if (position < 0) {
-    position += int(consumer->nDims()) + 1;
+    position += int64_t(consumer->nDims()) + 1;
   }
 
-  TORCH_CHECK(
-      (position >= 0 && (unsigned int)position < consumer->nDims() + 1) ||
+  NVF_CHECK(
+      (position >= 0 && position < consumer->nDims() + 1) ||
           mode == ComputeAtMode::BestEffort,
       "Compute at called on an position outside valid range.");
 
   if (mode == ComputeAtMode::BestEffort) {
-    position = std::max(-1, position);
-    position = std::min((int)consumer->nDims(), position);
+    position = std::max(-1L, position);
+    position = std::min(consumer->nDims(), position);
   }
 
   ComputeAt::runAt(this, consumer, (unsigned int)position, mode);
@@ -449,8 +263,8 @@ TensorView* TensorView::computeAt(
   return this;
 }
 
-void TensorView::computeWith(int pos, bool best_effort) {
-  TORCH_INTERNAL_ASSERT(
+void TensorView::computeWith(int64_t pos, bool best_effort) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
@@ -458,27 +272,18 @@ void TensorView::computeWith(int pos, bool best_effort) {
     return;
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       !ir_utils::consumerTvsOf(this).empty(),
       "There must be at least one consumer of this tensor to use computeWith: ",
       toString());
 
-  if (pos < 0) {
-    pos += int(nDims()) + 1;
-  }
+  pos = nvfuser::wrapDim(pos, nDims() + 1);
 
-  TORCH_INTERNAL_ASSERT(
-      pos >= 0 && pos <= (int)nDims(),
-      "Invalid inline position for ",
-      toString(),
-      ": ",
-      pos);
-
-  const auto max_inline_pos =
-      MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
+  const int64_t max_inline_pos =
+      (int64_t)MaxPosCalculator({}, true).getMaxPosAll(this, best_effort);
 
   if (best_effort) {
-    pos = std::min<int>((int)max_inline_pos, pos);
+    pos = std::min(max_inline_pos, pos);
   }
 
   // hoist inner most broadcast
@@ -486,8 +291,8 @@ void TensorView::computeWith(int pos, bool best_effort) {
     pos--;
   }
 
-  TORCH_CHECK(
-      pos <= (int)max_inline_pos,
+  NVF_CHECK(
+      pos <= max_inline_pos,
       "Invalid computeWith position for T",
       name(),
       ": ",
@@ -496,8 +301,8 @@ void TensorView::computeWith(int pos, bool best_effort) {
       max_inline_pos);
 
   // The position must be right of the computeAt position
-  TORCH_CHECK(
-      pos >= (int)getComputeAtPosition(),
+  NVF_CHECK(
+      pos >= getComputeAtPosition(),
       "Position must be right of the computeAt position. Position: ",
       pos,
       ", computeAt position: ",
@@ -505,7 +310,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
 
   // If it's already set to be computed with the consumer and the
   // position is higher, nothing to change
-  if ((int)getComputeWithPosition() >= pos) {
+  if (getComputeWithPosition() >= pos) {
     return;
   }
 
@@ -518,7 +323,7 @@ void TensorView::computeWith(int pos, bool best_effort) {
 
   // If the given position is the same as the computeAt position, this
   // is a no-op
-  if (pos == (int)getComputeAtPosition()) {
+  if (pos == getComputeAtPosition()) {
     return;
   }
 
@@ -537,8 +342,7 @@ bool TensorView::isComputedWith(const TensorView* consumer) const {
   }
 
   // Quering is an error if the compute-with consumer is still unresolved
-  TORCH_INTERNAL_ASSERT(
-      hasResolvedComputeWith(), "Not resolved yet: ", toString());
+  NVF_ERROR(hasResolvedComputeWith(), "Not resolved yet: ", toString());
 
   return std::find(
              getComputeWithConsumers().begin(),
@@ -547,14 +351,14 @@ bool TensorView::isComputedWith(const TensorView* consumer) const {
 }
 
 const std::vector<TensorView*>& TensorView::getComputeWithConsumers() const {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !hasComputeWith() || hasResolvedComputeWith(),
       "computeWith not yet resolved: ",
       toString());
   return compute_with_consumers_;
 }
 
-unsigned int TensorView::getComputePosition(const TensorView* consumer) const {
+int64_t TensorView::getComputePosition(const TensorView* consumer) const {
   if (hasResolvedComputeWith() && isComputedWith(consumer)) {
     return getComputeWithPosition();
   } else {
@@ -563,13 +367,12 @@ unsigned int TensorView::getComputePosition(const TensorView* consumer) const {
 }
 
 bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
-  TORCH_INTERNAL_ASSERT(
-      container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
 
   auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
 
   for (auto sibling : siblings) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         sibling->hasComputeWith(),
         "Invlaid attempt to resolve computeWith: ",
         sibling->toString());
@@ -607,105 +410,93 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
   }
 
   // No expr found
-  TORCH_INTERNAL_ASSERT(
-      false, "No use expr found in the sorted expr list: ", toString());
+  NVF_THROW("No use expr found in the sorted expr list: ", toString());
 }
 
 void TensorView::clearComputeWith() {
   //! This should be only used while in a Fusion container.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
   compute_with_pos_ = getComputeAtPosition();
 
   // compute_with_consumers_ should still be empty
-  TORCH_INTERNAL_ASSERT(compute_with_consumers_.empty());
+  NVF_ERROR(compute_with_consumers_.empty());
 }
 
-TensorView* TensorView::split(
-    int axis_,
-    Val* factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::broadcast(int64_t axis, int64_t extent) {
+  return broadcast(axis, IrBuilder::create<Val>(extent, DataType::Index));
+}
+
+TensorView* TensorView::broadcast(int64_t axis, Val* extent) {
+  domain()->broadcast(axis, extent);
+  return this;
+}
+
+TensorView* TensorView::split(int64_t axis, Val* factor, bool inner_split) {
   // Only check things associated with axis, factor will be validated in
   // IterDomain
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       nDims() > 0,
       "Tried to do split on a 0-dim TensorView. ",
       "Tensor: ",
       toString());
 
-  if (axis_ < 0)
-    axis_ += (int)domain()->nDims();
+  axis = wrapDim(axis);
 
-  TORCH_INTERNAL_ASSERT(
-      axis_ >= 0,
-      "Split axis is less than 0 even after adjusting for nDims: ",
-      axis_,
-      ". Tensor: ",
-      toString());
-
-  TORCH_CHECK(
-      axis_ >= (int)getMaxComputePosition(),
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
       "Cannot split axis within compute at position. Axis = ",
-      axis_,
+      axis,
       " computePosition = ",
       getMaxComputePosition(),
       ". Tensor: ",
       toString());
 
-  TORCH_CHECK(
-      axis_ >= (int)getMaybeMaxProducerPosition(),
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
       "Cannot split axis within max producer position. Axis = ",
-      axis_,
+      axis,
       " maxProducerPosition = ",
       getMaybeMaxProducerPosition(),
       ". Tensor: ",
       toString());
 
-  TORCH_CHECK(
-      axis(axis_)->getParallelType() == ParallelType::Serial,
-      "Splitting an axis of non-Serial parallel type is not supported at this time."
-      " Parallelization strategy must be set after calling split.",
-      ". Tensor: ",
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Splitting an axis (",
+      this->axis(axis)->toString(),
+      ") of non-Serial parallel type is not supported at this time."
+      " Parallelization strategy must be set after calling split: ",
       toString());
 
   if (factor->dtype() != DataType::Index) {
     factor = castOp(DataType::Index, factor);
   }
 
-  domain()->split(axis_, factor, inner_split, trim_out_of_bounds);
+  domain()->split(axis, factor, inner_split);
   return this;
 }
 
-TensorView* TensorView::split(
-    int axis,
-    unsigned int factor,
-    bool inner_split,
-    bool trim_out_of_bounds) {
+TensorView* TensorView::split(int64_t axis, int64_t factor, bool inner_split) {
   // NOTE: safe cast to int64_t, factor (unsigned int) is within int64_t range
-  split(
-      axis,
-      IrBuilder::create<Val>((int64_t)factor, DataType::Index),
-      inner_split,
-      trim_out_of_bounds);
+  NVF_CHECK(
+      factor > 0,
+      "Invalid factor for split. Factor must be greater than 0. Factor = ",
+      factor);
+  split(axis, IrBuilder::create<Val>(factor, DataType::Index), inner_split);
   return this;
 }
 
 // Merge "axis_o" and "axis_i" into 1 dimension
-TensorView* TensorView::merge(int axis_o, int axis_i) {
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
+TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
+  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim TensorView");
+  axis_o = wrapDim(axis_o);
+  axis_i = wrapDim(axis_i);
 
-  if (axis_o < 0)
-    axis_o += (int)domain()->nDims();
-
-  if (axis_i < 0)
-    axis_i += (int)domain()->nDims();
-
-  TORCH_CHECK(
-      axis_o >= (int)getMaxComputePosition() &&
-          axis_i >= (int)getMaxComputePosition(),
+  NVF_CHECK(
+      axis_o >= getMaxComputePosition() && axis_i >= getMaxComputePosition(),
       false,
       "Cannot merge axes within compute at position. Either axis ",
       axis_o,
@@ -714,9 +505,9 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
       " are within computePosition = ",
       getMaxComputePosition());
 
-  TORCH_CHECK(
-      axis_o >= (int)getMaybeMaxProducerPosition() &&
-          axis_i >= (int)getMaybeMaxProducerPosition(),
+  NVF_CHECK(
+      axis_o >= getMaybeMaxProducerPosition() &&
+          axis_i >= getMaybeMaxProducerPosition(),
       "Cannot merge axes within max producer position. Either axis ",
       axis_o,
       " or ",
@@ -724,7 +515,7 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
       " are within maxProducerPosition = ",
       getMaybeMaxProducerPosition());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       axis(axis_o)->getParallelType() == ParallelType::Serial ||
           axis(axis_i)->getParallelType() == ParallelType::Serial,
       "Merging axes of non-Serial parallel type is not supported at this time."
@@ -734,32 +525,89 @@ TensorView* TensorView::merge(int axis_o, int axis_i) {
   return this;
 }
 
-TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
-  TORCH_INTERNAL_ASSERT(
+TensorView* TensorView::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
+  NVF_ERROR(
+      nDims() > 0,
+      "Tried to do resize on a 0-dim TensorView. ",
+      "Tensor: ",
+      toString());
+
+  axis = wrapDim(axis);
+
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
+      "Cannot resize axis within compute at position. Axis = ",
+      axis,
+      " computePosition = ",
+      getMaxComputePosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
+      "Cannot resize axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaybeMaxProducerPosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Resizing an axis of non-Serial parallel type is not supported at this "
+      "time."
+      " Parallelization strategy must be set after calling resize: ",
+      toString());
+
+  domain()->resize(axis, left_expansion, right_expansion, iter_type);
+  return this;
+}
+
+TensorView* TensorView::flatten(int64_t from, int64_t to) {
+  NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
+  from = wrapDim(from);
+  to = wrapDim(to);
+  NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
+  int64_t num_merges = to - from;
+  for (auto _ : arange(num_merges)) {
+    (void)_;
+    merge(from);
+  }
+  return this;
+}
+
+TensorView* TensorView::reorder(
+    const std::unordered_map<int64_t, int64_t>& old2new_) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !(nDims() == 0 && !old2new_.empty()),
       "Tried to reorder a 0-dim TensorView");
 
   for (auto entry : old2new_) {
-    auto old_pos = entry.first < 0 ? entry.first + (int)nDims() : entry.first;
-    auto new_pos =
-        entry.second < 0 ? entry.second + (int)nDims() : entry.second;
+    auto old_pos = entry.first < 0 ? entry.first + nDims() : entry.first;
+    auto new_pos = entry.second < 0 ? entry.second + nDims() : entry.second;
     if (old_pos == new_pos) {
       continue;
     }
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         old_pos >= 0,
-        "Found \"old\" position that's less than 0 even though already adjusted by nDims: ",
+        "Found \"old\" position that's less than 0 even though already "
+        "adjusted by nDims: ",
         old_pos);
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         new_pos >= 0,
-        "Found \"new\" position that's less than 0 even though already adjusted by nDims: ",
+        "Found \"new\" position that's less than 0 even though already "
+        "adjusted by nDims: ",
         new_pos);
-    TORCH_CHECK(
-        old_pos >= (int)getMaxComputePosition() &&
-            new_pos >= (int)getMaxComputePosition(),
+    NVF_CHECK(
+        old_pos >= getMaxComputePosition() &&
+            new_pos >= getMaxComputePosition(),
         "Cannot reorder axes within compute at position. Either axis ",
         old_pos,
         " or ",
@@ -767,9 +615,9 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
         " are within computePosition = ",
         getMaxComputePosition());
 
-    TORCH_CHECK(
-        old_pos >= (int)getMaybeMaxProducerPosition() &&
-            new_pos >= (int)getMaybeMaxProducerPosition(),
+    NVF_CHECK(
+        old_pos >= getMaybeMaxProducerPosition() &&
+            new_pos >= getMaybeMaxProducerPosition(),
         "Cannot reorder axes within max producer position. Either axis ",
         old_pos,
         " or ",
@@ -782,33 +630,86 @@ TensorView* TensorView::reorder(const std::unordered_map<int, int>& old2new_) {
   return this;
 }
 
+TensorView* TensorView::reorder(
+    const std::initializer_list<std::pair<const int64_t, int64_t>>& old2new) {
+  return reorder(std::unordered_map<int64_t, int64_t>(old2new));
+}
+
+// We have to convert the above permutation to a map of old2new.
+TensorView* TensorView::reorder(const std::vector<int64_t>& permutation) {
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  int64_t idx = 0;
+  std::transform(
+      permutation.begin(),
+      permutation.end(),
+      std::inserter(reorder_map, reorder_map.end()),
+      [&idx](const int64_t v) { return std::make_pair(idx++, v); });
+
+  return reorder(reorder_map);
+}
+
+TensorView* TensorView::reorder(
+    const std::initializer_list<int64_t>& permutation) {
+  return reorder(std::vector<int64_t>(permutation));
+}
+
 TensorView* TensorView::swizzle(
-    Swizzle2DType swizzle_type,
-    int x,
-    int y,
-    SwizzleMode swizzle_mode) {
-  has_swizzle_op_ = true;
-  if (x < 0) {
-    x += (int)domain()->nDims();
-  }
-  if (y < 0) {
-    y += (int)domain()->nDims();
+    SwizzleType swizzle_type,
+    int64_t x,
+    int64_t y) {
+  x = wrapDim(x);
+  y = wrapDim(y);
+
+  // Check swizzle specific constraints on the input axes:
+  auto x_id = axis(x);
+  auto y_id = axis(y);
+
+  NVF_ERROR(
+      x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
+      "Only constant iterdomains supported on given swizzle type");
+
+  int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
+  int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
+
+  // Check size constraints based on swizzle type
+  if (swizzle_type == SwizzleType::XOR) {
+    NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
   }
 
-  TORCH_CHECK(
+  if (swizzle_type == SwizzleType::XOR) {
+    // XOR swizzle only support power of 2 swizzle unit sizes:
+    bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
+    NVF_ERROR(is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
+  }
+
+  domain()->swizzle(swizzle_type, x, y);
+
+  return this;
+}
+
+TensorView* TensorView::swizzle(
+    Swizzle2DType swizzle_type,
+    int64_t x,
+    int64_t y,
+    SwizzleMode swizzle_mode) {
+  has_swizzle_op_ = true;
+  x = wrapDim(x);
+  y = wrapDim(y);
+
+  NVF_CHECK(
       !(getMemoryType() == MemoryType::Global &&
         swizzle_mode == SwizzleMode::Data),
       "Data swizzle on global memory is not supported.");
 
-  TORCH_CHECK(
-      x >= (int)getMaxComputePosition(),
+  NVF_CHECK(
+      x >= getMaxComputePosition(),
       "Cannot swizzle axes within compute at position. Axis ",
       x,
       " is within computePosition = ",
       getMaxComputePosition());
 
-  TORCH_CHECK(
-      y >= (int)getMaybeMaxProducerPosition(),
+  NVF_CHECK(
+      y >= getMaybeMaxProducerPosition(),
       "Cannot swizzle axes within max producer position. Axis ",
       y,
       " is within maxProducerPosition = ",
@@ -817,9 +718,9 @@ TensorView* TensorView::swizzle(
   // Disable unsupported use cases at the current step.
   //  Currently do not support reducing or broadcasting
   //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs(fusion(), {axis(x), axis(y)});
+  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
   for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !id->isBroadcast() && !id->isReduction(),
         "Unsupported use case for swizzle.");
   }
@@ -829,7 +730,7 @@ TensorView* TensorView::swizzle(
   auto all_exprs = DependencyCheck::getAllValsBetween(
       {all_inputs.begin(), all_inputs.end()}, {axis(x), axis(y)});
   for (auto expr : all_exprs) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !expr->isA<Swizzle2D>(), "Composing swizzles is not yet supported");
   }
 
@@ -838,24 +739,23 @@ TensorView* TensorView::swizzle(
     auto x_id = axis(x);
     auto y_id = axis(y);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
         "Only constant iterdomains supported on given swizzle type");
 
-    int in_x_size = (int)x_id->extent()->evaluateInt();
-    int in_y_size = (int)y_id->extent()->evaluateInt();
+    int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
+    int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
 
     // Check size constraints based on swizzle type
     if (swizzle_type == Swizzle2DType::XOR ||
         swizzle_type == Swizzle2DType::CyclicShift) {
-      TORCH_INTERNAL_ASSERT(
-          in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
+      NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
     }
 
     if (swizzle_type == Swizzle2DType::XOR) {
       // XOR swizzle only support power of 2 swizzle unit sizes:
       bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
     }
   }
@@ -865,88 +765,141 @@ TensorView* TensorView::swizzle(
   return this;
 }
 
-TensorView* TensorView::rFactor(const std::vector<int>& axes) {
-  TORCH_INTERNAL_ASSERT(
+TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // TODO: I think we should do this but
   // NVFuserTest.FusionSmemBlockGemmCache_CUDA prevents it from going in at the
   // moment.
 
-  // TORCH_INTERNAL_ASSERT(
+  // NVF_ERROR(
   //     !hasComputeAt(), "Cannot rfactor tensors after compute at has been
   //     set.");
-  TORCH_INTERNAL_ASSERT(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  NVF_ERROR(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
-  TORCH_CHECK(
-      definition() != nullptr &&
-          (definition()->isStrictlyOneOf<ReductionOp, MmaOp>()),
+  NVF_CHECK(definition() != nullptr, "Definition is a nullptr");
+  NVF_CHECK(
+      (definition()
+           ->isStrictlyOneOf<
+               ReductionOp,
+               MmaOp,
+               MatmulOp,
+               LinearOp,
+               GroupedMmaOp,
+               ScaledMmaOp>()),
       "Error rfactoring ",
       this,
-      " its definition is either a nullptr or not a reduction.");
-  TORCH_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
-
-  TORCH_CHECK(
+      " because its definition is not a reduction.");
+  NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
-      "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int>& axes, const std::vector<TensorView*>& tvs)");
+      "For GroupedReductionOp, use TensorView::rFactor(const "
+      "std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
 
   // Split tensor view into 2 parts
-  auto domain_pair = domain()->rFactor(axes);
-
-  // Producer in the pair
-  auto producer_domain = domain_pair.first;
-  // Consumer in the pair
-  auto consumer_domain = domain_pair.second;
+  auto [producer_domain, consumer_domain] = domain()->rFactor(axes);
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
       IrBuilder::create<TensorView>(producer_domain, getDataType().value());
 
+  producer->setDeviceMesh(mesh_);
+
   // Set domain of consumer
   setDomain(consumer_domain);
   TensorView* consumer = this;
 
-  if (auto this_reduction = dynamic_cast<ReductionOp*>(definition())) {
+  if (auto reduction = dynamic_cast<ReductionOp*>(definition())) {
     // Setup dependency chain, inserting producer before this op.
     // Expr* producer_definition =
     IrBuilder::create<ReductionOp>(
-        this_reduction->getReductionOpType(),
-        this_reduction->init(),
+        reduction->getReductionOpType(),
+        reduction->init(),
         producer,
-        this_reduction->in());
+        reduction->in());
 
     // Expr* consumer_definition =
     IrBuilder::create<ReductionOp>(
-        this_reduction->getReductionOpType(),
-        this_reduction->init(),
-        consumer,
-        producer);
-  } else if (auto this_mma = dynamic_cast<MmaOp*>(definition())) {
+        reduction->getReductionOpType(), reduction->init(), consumer, producer);
+  } else if (auto mma = dynamic_cast<MmaOp*>(definition())) {
     // Initial reduction that still uses mma to combine
     //  the input.
     IrBuilder::create<MmaOp>(
-        producer,
-        this_mma->inA(),
-        this_mma->inB(),
-        this_mma->init(),
-        this_mma->options(),
-        this_mma->layout());
+        producer, mma->inA(), mma->inB(), mma->init(), mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
     IrBuilder::create<ReductionOp>(
-        BinaryOpType::Add, this_mma->init(), consumer, producer);
+        BinaryOpType::Add, mma->init(), consumer, producer);
+  } else if (auto matmul = dynamic_cast<MatmulOp*>(definition())) {
+    IrBuilder::create<MatmulOp>(producer, matmul->inA(), matmul->inB());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto linear = dynamic_cast<LinearOp*>(definition())) {
+    IrBuilder::create<LinearOp>(
+        producer, linear->inA(), linear->inB(), linear->bias());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto grouped_mma = dynamic_cast<GroupedMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        grouped_mma->outScale() == nullptr &&
+            grouped_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<GroupedMmaOp>(
+        producer,
+        grouped_mma->outScale(),
+        grouped_mma->outGamma(),
+        grouped_mma->matrix1(),
+        grouped_mma->matrix2(),
+        grouped_mma->offsets(),
+        grouped_mma->scale1(),
+        grouped_mma->scale2(),
+        grouped_mma->alpha(),
+        grouped_mma->bias(),
+        grouped_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (auto scaled_mma = dynamic_cast<ScaledMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        scaled_mma->outScale() == nullptr && scaled_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<ScaledMmaOp>(
+        producer,
+        scaled_mma->outScale(),
+        scaled_mma->outGamma(),
+        scaled_mma->matrix1(),
+        scaled_mma->matrix2(),
+        scaled_mma->scale1(),
+        scaled_mma->scale2(),
+        scaled_mma->alpha(),
+        scaled_mma->bias(),
+        scaled_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
-    TORCH_INTERNAL_ASSERT(false, "RFactor: unsupported tensor definition");
+    NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }
   return producer;
 }
 
-TensorView* TensorView::multiOutputRfactorHelper(
+TensorView* TensorView::multiOutputRFactorHelper(
     TensorView* tv,
-    const std::vector<int>& axes) {
-  TORCH_INTERNAL_ASSERT(
+    const std::vector<int64_t>& axes) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // Hack:
@@ -956,22 +909,22 @@ TensorView* TensorView::multiOutputRfactorHelper(
   // output TV that got the rfactor call is force replayed towards the other two
 
   if (this != tv) {
-    auto root = tv->getRootDomain();
-    auto this_root = getRootDomain();
+    auto logical = tv->getLogicalDomain();
+    auto this_logical = getLogicalDomain();
 
-    // construct a trivial root domain map
+    // construct a trivial logical domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(root.size())) {
-      id_map[this_root[i]] = root[i];
+    for (const auto i : arange(logical.size())) {
+      id_map[this_logical[i]] = logical[i];
     }
 
     // replay on the target tv
-    ReplayTransformations replay(getLeafDomain(), id_map);
+    ReplayTransformations replay(getLoopDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_id;
-    for (auto id : getLeafDomain()) {
-      TORCH_INTERNAL_ASSERT(
+    for (auto id : getLoopDomain()) {
+      NVF_ERROR(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
       new_id.push_back(replay.getReplay().at(id));
     }
@@ -979,7 +932,7 @@ TensorView* TensorView::multiOutputRfactorHelper(
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
     // replace tensor domain of target tv
     tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getRootDomain(), new_id, new_contig));
+        tv->getLogicalDomain(), new_id, new_contig));
   }
 
   // Split tensor view into 2 parts
@@ -1000,28 +953,33 @@ TensorView* TensorView::multiOutputRfactorHelper(
 }
 
 std::vector<TensorView*> TensorView::rFactor(
-    const std::vector<int>& axes,
+    const std::vector<int64_t>& axes,
     const std::vector<TensorView*>& tvs) {
-  TORCH_CHECK(
+  NVF_CHECK(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
-  TORCH_CHECK(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
+  NVF_CHECK(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
-  TORCH_CHECK(
+  NVF_CHECK(
       definition() != nullptr && ir_utils::isReductionOp(definition()),
       "Error rfactoring multi-output reduction op ",
       this,
-      " its definition is either a nullptr or not a GroupedReductionOp or a multi-output reduction op.");
+      " its definition is either a nullptr or not a GroupedReductionOp or a "
+      "multi-output reduction op.");
 
-  TORCH_CHECK(
-      !domain()->hasRFactor(), "Cannot call rfactor on the same view twice.");
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. Thus, the original logical domain is moved to
+  // the root domain.
+  NVF_CHECK(
+      definition()->isA<MmaOp>() || !domain()->hasRoot(),
+      "Cannot call rfactor on the same view twice.");
 
-  TORCH_CHECK(
+  NVF_CHECK(
       definition()->outputs().size() == tvs.size(),
       "Rfactor of a multi-output reduction not used correctly");
 
-  for (const auto i : c10::irange(tvs.size())) {
-    TORCH_CHECK(
+  for (const auto i : arange(tvs.size())) {
+    NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
   }
@@ -1030,7 +988,7 @@ std::vector<TensorView*> TensorView::rFactor(
   // ParallelType::Group, so GroupedWelfordOp is only created during
   // the lowering time. As rFactor is done before lowering, there
   // should be no GroupedWelfordOp at this point.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !definition()->isA<GroupedWelfordOp>(),
       "GroupedWelfordOp found: ",
       definition()->toString());
@@ -1039,15 +997,15 @@ std::vector<TensorView*> TensorView::rFactor(
 
   // Make sure this gets rfactored last so everybody gets
   //  replayed correctly
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this != tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this == tvs.at(i)) {
-      rf_tvs.at(i) = multiOutputRfactorHelper(tvs.at(i), axes);
+      rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
@@ -1094,54 +1052,54 @@ std::vector<TensorView*> TensorView::rFactor(
         grouped_rop->outputs(),
         std::vector<Val*>{rf_tvs.begin(), rf_tvs.end()});
   } else {
-    TORCH_INTERNAL_ASSERT(
-        false, "Invalid definition: ", definition()->toString());
+    NVF_THROW("Invalid definition: ", definition()->toString());
   }
 
   return rf_tvs;
 }
 
-TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
-  TORCH_INTERNAL_ASSERT(
+TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
-  TORCH_CHECK(
+  NVF_CHECK(
       definition() != nullptr && !isFusionInput(),
       "Error adding cacheBefore ",
       this,
-      " its definition is a nullptr and we restrict using cacheBefore on an input.");
+      " its definition is a nullptr and we restrict using cacheBefore on an "
+      "input.");
 
   // Previously, caching computed-at tensors was allowed but was never
   // really robust. Make it an error unless it is really needed.
-  TORCH_CHECK(
+  NVF_CHECK(
       !hasComputeAt(),
-      "Caching computed-at tensors is not allowed. Apply caching before computeAt");
+      "Caching computed-at tensors is not allowed. Apply caching before "
+      "computeAt");
 
   // It also did additional transformation when a producer tensor has computeAt.
   // Make sure we no longer rely on that behavior.
-  if (definition() != nullptr) {
-    for (TensorView* producer_of_producer :
-         ir_utils::filterByType<TensorView>(definition()->inputs())) {
-      TORCH_CHECK(
-          !producer_of_producer->hasComputeAt(),
-          "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
-    }
+  for (TensorView* producer_of_producer :
+       ir_utils::filterByType<TensorView>(definition()->inputs())) {
+    NVF_CHECK(
+        !producer_of_producer->hasComputeAt(),
+        "Potentially invalid computeAt and caching detected. Apply caching "
+        "before computeAt.");
   }
 
   // Create Producer Domain
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::create<TensorView>(
+  TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
           getRootDomain(),
-          getRFactorDomain(),
+          getLogicalDomain(),
           getAllocationDomain(),
-          getLeafDomain(),
+          getLoopDomain(),
           getContiguity()),
       getDataType().value());
 
@@ -1149,31 +1107,34 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
   TensorView* consumer = this;
 
   size_t i = 0;
-  auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
-  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-  for (const auto& dom : no_reduction_root_domain) {
-    new_root_domain[i++] = dom->cloneWithoutRFactor();
+  auto no_reduction_logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_logical_domain(
+      no_reduction_logical_domain.size());
+  for (const auto& dom : no_reduction_logical_domain) {
+    new_logical_domain[i++] = dom->cloneWithoutRFactor();
   }
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
   // later.
-  consumer->setDomain(IrBuilder::create<TensorDomain>(
+  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
-      new_root_domain,
-      TensorDomain::getContiguityFilledWith(new_root_domain, true)));
+      new_logical_domain,
+      TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
   // After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
 
-  // Get inputs for origin expression
-  auto expr_inputs = definition()->inputs();
-  // Expr* producer_definition =
-  ir_utils::replaceValInExpr(definition(), this, producer);
+  std::vector<Val*> replaced_siblings;
+  replaced_siblings.reserve(definition()->outputs().size());
+  for (auto outp : definition()->outputs()) {
+    replaced_siblings.push_back(outp == this ? producer : outp);
+  }
+  ir_utils::transferDefinitionToNewOutputs(definition(), replaced_siblings);
 
-  // Expr* producer_uses =
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::createInContainer<LoadStoreOp>(
+      container(), op_type, consumer, producer);
 
   // definition_ is no longer valid
   // setDefinition(nullptr);
@@ -1183,11 +1144,15 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType cache_op) {
 
   consumer->setDomain(replayed_consumer_pair.first);
 
+  if (consumer->hasDeviceMesh()) {
+    producer->setDeviceMesh(consumer->getDeviceMesh());
+  }
+
   return producer;
 }
 
 TensorView* TensorView::cacheFork() {
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
@@ -1196,7 +1161,7 @@ TensorView* TensorView::cacheFork() {
   // After:  [Expr] -> This TV (Local) -> [Usage Expr] > Next TV
   //                            (Fork) -> [Set Expr]   -> New TV (Global Output)
 
-  TORCH_CHECK(
+  NVF_CHECK(
       this->isFusionOutput() && !this->uses().empty(),
       "Error adding cacheFork ",
       this,
@@ -1204,24 +1169,29 @@ TensorView* TensorView::cacheFork() {
 
   // Previously, caching computed-at tensors was allowed but was never
   // really robust. Make it an error unless it is really needed.
-  TORCH_CHECK(
+  NVF_CHECK(
       !hasComputeAt(),
-      "Caching computed-at tensors is not allowed. Apply caching before computeAt");
+      "Caching computed-at tensors is not allowed. Apply caching before "
+      "computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto root_domain = TensorDomain::noReductions(getMaybeRFactorDomain());
+  auto logical_domain = TensorDomain::noReductions(getLogicalDomain());
 
-  TensorView* new_output = IrBuilder::create<TensorView>(
+  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
-          IterDomain::clone(root_domain),
-          TensorDomain::getContiguityFilledWith(root_domain, true)),
+          IterDomain::clone(logical_domain),
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
       getDataType().value());
 
   // Create write operation from this TV to new output
-  IrBuilder::create<LoadStoreOp>(
+  IrBuilder::createInContainer<LoadStoreOp>(
       container(), LoadStoreOpType::Set, new_output, this);
+
+  if (this->hasDeviceMesh()) {
+    new_output->setDeviceMesh(this->getDeviceMesh());
+  }
 
   // The new TV becomes an output.
   // New TV has global memory type.
@@ -1236,39 +1206,71 @@ TensorView* TensorView::cacheFork() {
   return new_output;
 }
 
-TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
-  TORCH_INTERNAL_ASSERT(
+TensorView* TensorView::cacheAfter(
+    LoadStoreOpType op_type,
+    CacheOp cache_op,
+    bool propagate_allocation_domain,
+    std::vector<Expr*> cached_uses) {
+  NVF_ERROR(
       !container()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
+  if (!cached_uses.empty()) {
+    std::unordered_set<Expr*> unique_uses = fusion()->unordered_uses(this);
+    for (auto use : cached_uses) {
+      NVF_ERROR(
+          unique_uses.count(use),
+          "cached_uses is not among the use of the TensorView");
+    }
+  } else {
+    // avoid non-determinism and ensure unique
+    std::unordered_set<Expr*> unique_uses;
+    auto this_uses = uses();
+    cached_uses.reserve(this_uses.size());
+    for (Expr* use : this_uses) {
+      NVF_ERROR(
+          unique_uses.count(use) == 0,
+          "detect duplicated entries in TensorView::uses()");
+      cached_uses.push_back(use);
+      unique_uses.insert(use);
+    }
+  }
+
   // Get all the uses for this Tensorview
-  TORCH_CHECK(
-      !uses().empty(),
+  NVF_CHECK(
+      !cached_uses.empty(),
       "Error adding cacheAfter ",
       this,
       " we restrict using cacheAfter on tensors that have no further uses.");
 
   // Previously, caching computed-at tensors was allowed but was never
   // really robust. Make it an error unless it is really needed.
-  TORCH_CHECK(
+  NVF_CHECK(
       !hasComputeAt(),
-      "Caching computed-at tensors is not allowed. Apply caching before computeAt.");
+      "Caching computed-at tensors is not allowed. Apply caching before "
+      "computeAt.");
 
-  TORCH_CHECK(
-      !ir_utils::isSelectInput(this) && !ir_utils::isIndexSelectLookupTv(this),
-      "Right now, caching tensors that are input to the select op is not allowed as they must be in global memory.")
+  // disallow cache on operation where we require data remain in global memory.
+  for (auto use : cached_uses) {
+    NVF_ERROR(
+        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
+            !(use->isA<IndexSelectOp>() && use->input(0) == this),
+        "Right now, caching tensors that are input to the select/slice/pad ops "
+        "are not allowed as they must be in global memory.");
+  }
 
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
   if (isFusionInput()) {
-    for (const auto& expr : uses()) {
+    for (const auto& expr : cached_uses) {
       for (TensorView* output :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
-        TORCH_CHECK(
+        NVF_CHECK(
             !output->hasComputeAt(),
-            "Potentially invalid computeAt and caching detected. Apply caching before computeAt.");
+            "Potentially invalid computeAt and caching detected. Apply caching "
+            "before computeAt.");
       }
     }
   }
@@ -1277,41 +1279,49 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
   // Keep Broadcast Axis (Permanent)
   // Remove Reduction Axis
   size_t i = 0;
-  auto no_reduction_root_domain =
-      TensorDomain::noReductions(getMaybeRFactorDomain());
-  std::vector<IterDomain*> new_root_domain(no_reduction_root_domain.size());
-  for (const auto& dom : no_reduction_root_domain) {
-    new_root_domain[i++] = dom->cloneWithoutRFactor();
+  auto no_reduction_logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_logical_domain(
+      no_reduction_logical_domain.size());
+  for (const auto& dom : no_reduction_logical_domain) {
+    new_logical_domain[i++] = dom->cloneWithoutRFactor();
   }
 
   // This domain will be the producer, so create the consumer
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::create<TensorDomain>(
+      IrBuilder::createInContainer<TensorDomain>(
           container(),
-          new_root_domain,
-          TensorDomain::getContiguityFilledWith(new_root_domain, true)),
+          new_logical_domain,
+          TensorDomain::getContiguityFilledWith(new_logical_domain, true)),
       getDataType().value());
 
   // Set domain of producer - No Change
   TensorView* producer = this;
+
+  if (producer->hasDeviceMesh()) {
+    consumer->setDeviceMesh(producer->getDeviceMesh());
+  }
 
   // Insert consumer - Cache_After (CA) - after this TV.
   // Before: This TV -> [Use Op] -> Next TV
   // After:  This TV -> [Set Op] -> New CA TV -> [Use Op] -> Next TV
 
   // Expr* consumer_uses =
-  for (auto expr : fusion()->unordered_uses(this)) {
-    ir_utils::replaceValInExpr(expr, this, consumer);
+  for (auto expr : cached_uses) {
+    ir_utils::replaceValInExprInputs(expr, this, consumer);
   }
 
   // Expr* consumer_definition =
-  IrBuilder::create<LoadStoreOp>(container(), cache_op, consumer, producer);
+  IrBuilder::createInContainer<LoadStoreOp>(
+      container(), op_type, consumer, producer, cache_op);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  if (propagate_allocation_domain) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   return consumer;
 }
@@ -1319,101 +1329,190 @@ TensorView* TensorView::cacheAfter(LoadStoreOpType cache_op) {
 void TensorView::setMemoryType(MemoryType mt) {
   memory_type_ = mt;
   if (isFusionInput() || isFusionOutput()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         mt == MemoryType::Global,
-        "Tried to set an input or output to the fusion to a non-global memory type.");
+        "Tried to set an input or output to the fusion to a non-global memory "
+        "type.");
   }
 }
 
 void TensorView::clearReductionIterDomains() {
-  TORCH_INTERNAL_ASSERT(
-      !domain()->hasRFactor(),
+  NVF_ERROR(
+      !domain()->hasRoot(),
       "should not call clearReductionIterDomains on rfactor tv");
 
-  TORCH_INTERNAL_ASSERT(
-      getLeafDomain() == getRootDomain(),
-      "should not call clearReductionIterDomains on already transformed TensorDomains");
+  NVF_ERROR(
+      getLoopDomain() == getLogicalDomain(),
+      "should not call clearReductionIterDomains on already transformed "
+      "TensorDomains");
 
-  std::vector<IterDomain*> new_root;
+  const std::vector<IterDomain*>& logical = getLogicalDomain();
+  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "should not call clearReductionIterDomains on transformed allocation "
+      "domain");
+
+  std::vector<IterDomain*> new_logical;
+  std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(getRootDomain().size())) {
-    auto root_i = getRootDomain().at(i);
+  for (const auto i : arange(logical.size())) {
+    auto root_i = logical.at(i);
     if (!root_i->isReduction()) {
-      new_root.push_back(root_i);
+      new_logical.push_back(root_i);
+    }
+    // contig flag is specified for on allocation domain
+    auto alloc_i = alloc.at(i);
+    if (!alloc_i->isReduction()) {
+      new_alloc.push_back(alloc_i);
       new_contig.push_back(domain()->contiguity().at(i));
     }
   }
 
-  setDomain(IrBuilder::create<TensorDomain>(container(), new_root, new_contig));
-}
-
-void TensorView::doubleBuffer() {
-  // Early correctness checking. May miss eventual errors as the
-  // checks depend on memory types and parallelization, which may not
-  // be finalized until lowering.
-  validateDoubleBufferedTensor(this);
-  is_double_buffered_ = true;
-}
-
-void TensorView::circularBuffer(unsigned int stage) {
-  // Early correctness checking. May miss eventual errors as the
-  // checks depend on memory types and parallelization, which may not
-  // be finalized until lowering.
-  TORCH_INTERNAL_ASSERT(stage > 1, "Unsupported stage number");
-  if (stage == 2) {
-    // Re-direct to double buffer interface if stage is 2;
-    doubleBuffer();
-    return;
+  if (new_alloc == new_logical) {
+    // if new allocation domain is identical to new logical domain, we don't
+    // need to specify allocation domain
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(), new_logical, new_contig));
+  } else {
+    setDomain(IrBuilder::createInContainer<TensorDomain>(
+        container(),
+        std::vector<IterDomain*>(),
+        new_logical,
+        new_alloc,
+        new_logical,
+        new_contig));
   }
-  validateDoubleBufferedTensor(this);
-  is_circular_buffered_ = true;
-  circular_buffer_stage_ = stage;
+}
+
+void TensorView::circularBuffer(
+    int64_t number_of_stages,
+    int64_t prefetch_distance,
+    CircularBufferType type) {
+  // Early correctness checking. May miss eventual errors as the
+  // checks depend on memory types and parallelization, which may not
+  // be finalized until lowering.
+  NVF_CHECK(number_of_stages > 1, "Unsupported stage number");
+  if (prefetch_distance < 0) {
+    prefetch_distance += number_of_stages;
+  }
+  NVF_CHECK(
+      prefetch_distance >= 0 && prefetch_distance < number_of_stages,
+      "Invalid prefetch distance");
+  validateCircularBufferedTensor(this);
+  circular_buffer_options_.stage = number_of_stages;
+  circular_buffer_options_.prefetch = prefetch_distance;
+  circular_buffer_options_.type = type;
 }
 
 bool TensorView::isEmptyTensor() const {
-  auto& root_domain = getMaybeRFactorDomain();
+  auto& logical_domain = getLogicalDomain();
   return std::all_of(
-      root_domain.begin(), root_domain.end(), [](IterDomain* id) {
+      logical_domain.begin(), logical_domain.end(), [](IterDomain* id) {
         return id->extent()->isZeroInt();
       });
 }
 
-void TensorView::applyMmaSwizzle(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::Accumulator:
-      mma_utils::WarpMmaSwizzler::scheduleMmaWarpOutput(this, options);
-      break;
-    case MmaOptions::Operand::A:
-    case MmaOptions::Operand::B:
-      mma_utils::WarpMmaSwizzler::scheduleOperandRead(this, options);
+void TensorView::applyMmaSwizzle(MmaOperand operand) {
+  switch (operand) {
+    case MmaOperand::A:
+    case MmaOperand::B:
+      mma_utils::MmaSwizzler::scheduleOperandRead(this, operand);
+      if (ir_utils::isLdMatrixOp(definition())) {
+        setAllocationDomain(getLoopDomain(), true);
+        mma_utils::MmaSwizzler::scheduleLdMatrix(this, operand);
+      }
       break;
     default:
-      TORCH_INTERNAL_ASSERT(false, "unknown operand flag");
+      NVF_THROW("unknown operand flag");
       break;
   }
 }
 
-void TensorView::commitLeafToRFactor() {
-  TORCH_CHECK(
+void TensorView::applyMmaSwizzle(MmaInputSmemSwizzle swizzle) {
+  NVF_ERROR(
+      getMemoryType() == MemoryType::Shared,
+      "Shared memory swizzle is only supported for shared memory");
+  mma_utils::MmaSwizzler::scheduleOperandRead(this, swizzle);
+}
+
+void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
+  auto dtype = getDataType().value();
+  // Input is on the form:
+  // [...., K (assume is 16), N (16 .. say dtype is half and swizzle
+  // size is 32B]. Here the TMA box is [16,16]. This box could have
+  // been created by tiling [K(16), N(32)] -> [NO(2), K(16), N(16)], but
+  // for the comments below, we'll focus on the inner two dims.
+
+  NVF_ERROR(
+      axis(-1)->extent()->evaluate().as<int64_t>() <=
+          (getBytesFromSwizzle(swizzle) / dataTypeSizeByte(dtype)),
+      "The inner dimension of the box cannot be more than swizzle")
+
+  // [..., K, N(16)] -> [..., KO(2), KI(8), N(16)]
+  //  We use 8 because it's 128 / getBytesFromSwizzle(swizzle)  *
+  //  getBytesFromSwizzle(swizzle) / 16
+  split(-2, 8);
+
+  // [..., KO(2), KI(8), N(16)]  ->
+  // [..., KO(2), KIO(2), KII(4), N(16)]
+  split(-2, (128 / (getBytesFromSwizzle(swizzle))));
+
+  // [..., KO(2), KIO(2), KII(4), N(16)] ->
+  // [..., KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+  split(-1, (core_matrix_width_bytes / dataTypeSizeByte(dtype)));
+
+  this->swizzle(SwizzleType::XOR, -4, -2);
+}
+
+void TensorView::applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle) {
+  NVF_ERROR(
+      getMemoryType() == MemoryType::Shared,
+      "Shared memory swizzle is only supported for shared memory");
+  NVF_ERROR(
+      definition()->as<LoadStoreOp>()->opType() ==
+          LoadStoreOpType::CpAsyncBulkTensorTile,
+      "Operation requires a TMA operation");
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(this, swizzle);
+}
+
+void TensorView::commitLeafToLogical() {
+  NVF_CHECK(
       ir_utils::consumerTvsOf(this).empty(),
-      "Changing the rFactor domain of an intermediate tensor is not supported yet");
-  setDomain(IrBuilder::create<TensorDomain>(
+      "Changing the logical domain of an intermediate tensor is not supported "
+      "yet");
+  setDomain(IrBuilder::createInContainer<TensorDomain>(
       container(),
-      domain_->root(),
-      domain_->leaf(),
+      domain_->maybeRoot(),
+      domain_->loop(),
       domain_->allocation(),
-      domain_->leaf(),
-      // TODO: If needed, we can let commitLeafToRFactor to take a parameter to
-      // allow customizing contiguity. But there is no such need now, so I will
-      // just fill the contiguity with true.
+      domain_->loop(),
+      // TODO: If needed, we can let commitLeafToLogical to take a parameter
+      // to allow customizing contiguity. But there is no such need now, so
+      // I will just fill the contiguity with true.
       TensorDomain::getContiguityFilledWith(
-          (domain_->hasAllocation() ? domain_->allocation() : domain_->leaf()),
+          (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));
 }
 
-TensorViewBuilder& TensorViewBuilder::ndims(size_t ndims) {
-  TORCH_CHECK(shape_.empty() || shape_.size() == ndims);
-  TORCH_CHECK(contiguity_.empty() || contiguity_.size() == ndims);
+void TensorView::setTMemDimSepPos(int64_t pos) {
+  NVF_CHECK(
+      getMemoryType() == MemoryType::Tensor,
+      "TMem dimension separator is only supported for tensor memory");
+  int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
+  pos = nvfuser::wrapDim(pos, ndims + 1);
+  NVF_CHECK(
+      pos >= 0 && pos <= ndims,
+      "Invalid position for tensor memory dimension separator");
+  tmem_dim_sep_pos_ = pos;
+}
+
+TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {
+  NVF_CHECK(ndims >= 0);
+  NVF_CHECK(shape_.empty() || (int64_t)shape_.size() == ndims);
+  NVF_CHECK(contiguity_.empty() || (int64_t)contiguity_.size() == ndims);
   ndims_ = ndims;
   return *this;
 }
@@ -1425,7 +1524,7 @@ TensorViewBuilder& TensorViewBuilder::dtype(DataType dtype) {
 
 TensorViewBuilder& TensorViewBuilder::contiguity(
     std::vector<std::optional<bool>> contiguity) {
-  TORCH_CHECK(
+  NVF_CHECK(
       contiguity_.empty() && !uniform_contiguity_.has_value(),
       "Attempting to reset contiguity");
   contiguity_ = std::move(contiguity);
@@ -1433,7 +1532,7 @@ TensorViewBuilder& TensorViewBuilder::contiguity(
 }
 
 TensorViewBuilder& TensorViewBuilder::contiguity(bool contiguity) {
-  TORCH_CHECK(
+  NVF_CHECK(
       contiguity_.empty() && !uniform_contiguity_.has_value(),
       "Attempting to reset contiguity");
   uniform_contiguity_ = contiguity;
@@ -1441,10 +1540,10 @@ TensorViewBuilder& TensorViewBuilder::contiguity(bool contiguity) {
 }
 
 TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
-  TORCH_CHECK(shape_.empty(), "Attempting to reset shape");
+  NVF_CHECK(shape_.empty(), "Attempting to reset shape");
   if (!shape.empty()) {
-    TORCH_CHECK(ndims_ == 0 || ndims_ == shape.size());
-    ndims_ = shape.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)shape.size());
+    ndims_ = (int64_t)shape.size();
   }
   shape_.clear();
   shape_.reserve(shape.size());
@@ -1456,10 +1555,11 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
     } else if (i == 0) {
       shape_.emplace_back(FusionGuard::getCurFusion()->zeroVal());
     } else {
-      TORCH_CHECK(
+      NVF_CHECK(
           i >= 0,
           "Invalid extent value. ",
-          "For a tensor representing a single scalar use ndims = 0 with no sizes set.");
+          "For a tensor representing a single scalar use ndims = 0 with no "
+          "sizes set.");
       shape_.emplace_back(IrBuilder::create<Val>(i, DataType::Index));
     }
   }
@@ -1467,20 +1567,49 @@ TensorViewBuilder& TensorViewBuilder::shape(const std::vector<int64_t>& shape) {
 }
 
 TensorViewBuilder& TensorViewBuilder::shape(std::vector<Val*> shape) {
-  TORCH_CHECK(shape_.empty(), "Attempting to reset shape");
+  NVF_CHECK(shape_.empty(), "Attempting to reset shape");
   if (!shape.empty()) {
-    TORCH_CHECK(ndims_ == 0 || ndims_ == shape.size());
-    ndims_ = shape.size();
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)shape.size());
+    ndims_ = (int64_t)shape.size();
   }
   shape_ = std::move(shape);
   return *this;
 }
 
+TensorViewBuilder& TensorViewBuilder::strideOrder(
+    std::vector<int64_t> stride_order) {
+  NVF_CHECK(stride_order_.empty(), "Attempting to reset stride_order");
+  if (!stride_order.empty()) {
+    NVF_CHECK(ndims_ == 0 || ndims_ == (int64_t)stride_order.size());
+    ndims_ = (int64_t)stride_order.size();
+  }
+
+  // TODO: this shouldn't be necessary. For details see issue
+  // https://github.com/NVIDIA/Fuser/issues/1399
+  //
+  // skip stride_order if its alloc_domain is in the same order as with rfactor
+  // domain. We don't need this and we should be able to just use stride_order_,
+  // but currently alloc_domain support isn't ideal and could prevent
+  // vectorization. Adding this workaround to restore performance.
+  if (std::adjacent_find(
+          stride_order.begin(), stride_order.end(), [](int64_t l, int64_t r) {
+            return l <= r;
+          }) != stride_order.end()) {
+    // stride_order is not in descending order, we cannot skip it.
+    stride_order_ = std::move(stride_order);
+  }
+  return *this;
+}
+
 TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
-  TORCH_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
+  NVF_CHECK(expanded_.empty(), "Attempting to reset expanded shape");
   if (!expanded.empty()) {
-    TORCH_CHECK(ndims_ == 0 || ndims_ == expanded.size());
-    ndims_ = expanded.size();
+    NVF_CHECK(
+        ndims_ == 0 || ndims_ == (int64_t)expanded.size(),
+        ndims_,
+        " vs ",
+        expanded.size());
+    ndims_ = (int64_t)expanded.size();
   }
   expanded_ = std::move(expanded);
   return *this;
@@ -1489,7 +1618,7 @@ TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
 TensorView* TensorViewBuilder::build() const {
   // Build the domain
   std::vector<IterDomain*> domain(ndims_, nullptr);
-  for (const auto i : c10::irange(ndims_)) {
+  for (const auto i : arange(ndims_)) {
     bool is_expanded = false;
     Val* extent = nullptr;
     Val* expanded_extent = nullptr;
@@ -1516,7 +1645,7 @@ TensorView* TensorViewBuilder::build() const {
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, shape_.at(i));
     }
     IterDomainBuilder builder(FusionGuard::getCurFusion()->zeroVal(), extent);
-    if (extent->isConstScalar() && extent->evaluateInt() == 1) {
+    if (extent->isConstScalar() && extent->evaluate().as<int64_t>() == 1) {
       builder.iter_type(IterType::Broadcast);
     }
     if (expanded_extent != nullptr) {
@@ -1525,32 +1654,28 @@ TensorView* TensorViewBuilder::build() const {
     domain[i] = builder.build();
   }
 
-  TORCH_CHECK(
+  NVF_CHECK(
       contiguity_.empty() || contiguity_.size() == domain.size(),
-      "The size of contiguity must equal to the number of non-broadcasting IterDomains");
-
-  for (auto i : c10::irange(contiguity_.size())) {
-    TORCH_CHECK(
-        domain.at(i)->isBroadcast() != contiguity_.at(i).has_value(),
-        "The contiguity of a broadcast dimension must be None. "
-        "The contiguity of a non-broadcast dimension must be true/false");
-  }
+      "The size of contiguity must equal to the number of non-broadcasting "
+      "IterDomains");
 
   if (uniform_contiguity_.has_value()) {
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         contiguity_.empty(),
         "contiguity_ and uniform_contiguity_ can not be set at the same time");
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             domain,
+            stride_order_,
             TensorDomain::getContiguityFilledWith(
                 domain, *uniform_contiguity_)),
         dtype_);
   } else {
     // Create the final TensorView
     return IrBuilder::create<TensorView>(
-        IrBuilder::create<TensorDomain>(domain, contiguity_), dtype_);
+        IrBuilder::create<TensorDomain>(domain, stride_order_, contiguity_),
+        dtype_);
   }
 }
 

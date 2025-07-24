@@ -10,9 +10,11 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <ir/utils.h>
 #include <type.h>
 
 #include <fstream>
+#include <sstream>
 
 namespace nvfuser {
 
@@ -119,7 +121,7 @@ void IrGraphGenerator::print(
     DetailLevel detail_level,
     ExprColorMap* expr_color_map) {
   std::ofstream dot_file(filename);
-  TORCH_CHECK(dot_file.good(), "Failed to open the IR graph file");
+  NVF_CHECK(dot_file.good(), "Failed to open the IR graph file");
   dot_file << toGraphviz(fusion, detail_level, expr_color_map);
 }
 
@@ -141,11 +143,11 @@ IrGraphGenerator::IrGraphGenerator(
   // setup inputs & outputs
   // (indexes used to quickly check if a value is fusion input or output)
   for (const auto* input : fusion->inputs()) {
-    TORCH_CHECK(inputs_.count(input) == 0);
+    NVF_CHECK(inputs_.count(input) == 0);
     inputs_.insert(input);
   }
   for (const auto* output : fusion->outputs()) {
-    TORCH_CHECK(outputs_.count(output) == 0);
+    NVF_CHECK(outputs_.count(output) == 0);
     outputs_.insert(output);
   }
 }
@@ -196,8 +198,8 @@ void IrGraphGenerator::printValue(const Val* val, const std::string& label) {
 
 std::string IrGraphGenerator::generate() {
   // IrGraphGenerator instances are not reusable
-  TORCH_CHECK(graph_def_.str().empty());
-  TORCH_CHECK(visited_.empty());
+  NVF_CHECK(graph_def_.str().empty());
+  NVF_CHECK(visited_.empty());
 
   // record detail level
   graph_def_ << "// detail level: ";
@@ -215,7 +217,7 @@ std::string IrGraphGenerator::generate() {
       graph_def_ << "verbose\n";
       break;
     default:
-      TORCH_CHECK(!"Unexpected detail level");
+      NVF_CHECK(!"Unexpected detail level");
   }
 
   graph_def_ << "digraph fusion_ir {\n"
@@ -250,7 +252,7 @@ std::string IrGraphGenerator::generate() {
 
   // Make sure that all referenced nodes have been visited
   for (const auto& kv : id_map_) {
-    TORCH_CHECK(visited(kv.first));
+    NVF_CHECK(visited(kv.first));
   }
 
   return graph_def_.str();
@@ -288,14 +290,15 @@ void IrGraphGenerator::generateScheduleGraph() {
       // Maybe not the best way to handle the root domain, but should be okay
       addArc(
           tv,
-          IrBuilder::create<TensorDomain>(tv->getRootDomain()),
+          IrBuilder::create<TensorDomain>(tv->getLogicalDomain()),
           "[style=dashed, color=green, arrowhead=none]");
 
-      if (tv->domain()->hasRFactor())
+      if (tv->domain()->hasRoot()) {
         addArc(
             tv,
-            IrBuilder::create<TensorDomain>(tv->getRFactorDomain()),
+            IrBuilder::create<TensorDomain>(tv->getRootDomain()),
             "[style=dashed, color=green, arrowhead=none]");
+      }
     }
   }
 
@@ -337,7 +340,7 @@ void IrGraphGenerator::handle(const TensorDomain* td) {
   graph_def_ << "    " << getid(td) << " [label=\"TensorDomain\", "
              << "shape=note, color=gray, "
              << "style=filled, fillcolor=gray90, fontsize=10];\n";
-  for (auto iter_domain : td->leaf()) {
+  for (auto iter_domain : td->loop()) {
     addArc(iter_domain, td, "[color=gray]");
   }
 }
@@ -366,7 +369,7 @@ void IrGraphGenerator::handle(const TensorView* tv) {
   label << "{T" << tv->name() << "|";
   label << "{";
   bool first_axis = true;
-  for (auto iter_domain : tv->getLeafDomain()) {
+  for (auto iter_domain : tv->getLoopDomain()) {
     if (first_axis) {
       first_axis = false;
     } else {
@@ -387,6 +390,147 @@ void IrGraphGenerator::handle(const TensorView* tv) {
              << "\", shape=Mrecord, color=brown, " << style << "];\n";
 
   tensor_views_.push_back(tv);
+}
+
+namespace {
+
+class TransformToDot {
+ public:
+  void handle(Fusion*);
+  void handle(TensorView*);
+  void handle(Expr*);
+  void handle(IterDomain*);
+  void markLogical(TensorView* tv);
+
+  // Make sure the root domains are ordered correctly
+  // TODO: ordering of allocation domain
+  void enforceRootOrder(TensorView* tv);
+
+  std::stringstream& indent();
+
+  std::string get() const {
+    return buf_.str();
+  }
+
+ private:
+  std::stringstream buf_;
+  int indent_ = 0;
+  std::unordered_set<Val*> printed_vals_;
+};
+
+void TransformToDot::handle(Fusion* fusion) {
+  indent() << "digraph {\n";
+  ++indent_;
+  indent() << "node [shape=plaintext fontsize=\"20\"];\n";
+
+  // Make sure the loop domains are ordered correctly
+  indent() << "graph [ordering=\"out\"];\n";
+
+  for (const auto tv : fusion->allTvs()) {
+    handle(tv);
+  }
+
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::handle(TensorView* tv) {
+  // Print each tensor as a subgraph cluster to print a bounding box
+  indent() << "subgraph cluster_t" << tv->name() << " {\n";
+  ++indent_;
+  indent() << "label = \"t" << tv->name() << " ca_pos("
+           << tv->getComputeAtPosition() << ")\"\n";
+  indent() << "fontsize = \"20\";\n";
+  indent() << "graph [style=dotted];\n";
+
+  // TODO: Mark allocation domains too?
+  markLogical(tv);
+
+  // Note this won't print allocation domains if not in the path
+  // between the root and loop domains
+  const auto all_exp = DependencyCheck::getAllExprsBetween(
+      {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+
+  for (auto exp : all_exp) {
+    handle(exp);
+  }
+
+  // The ordering of loop domains should be taken care by the
+  // "ordering" attribute.
+  enforceRootOrder(tv);
+
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::markLogical(TensorView* tv) {
+  for (auto id : tv->getLogicalDomain()) {
+    indent() << id->name() << " [shape=circle];\n";
+  }
+}
+
+void TransformToDot::enforceRootOrder(TensorView* tv) {
+  indent() << "{\n";
+  ++indent_;
+  indent() << "rank=same;\n";
+  indent() << "edge [style=invis];\n";
+  bool first = true;
+  std::stringstream ss;
+  for (auto id : tv->getLogicalDomain()) {
+    if (!first) {
+      ss << " -> ";
+    }
+    ss << id->name();
+    first = false;
+  }
+  indent() << ss.str() << ";\n";
+  indent() << "rankdir = LR;\n";
+  --indent_;
+  indent() << "}\n";
+}
+
+void TransformToDot::handle(Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    handle(inp->as<IterDomain>());
+  }
+  for (auto out : expr->outputs()) {
+    handle(out->as<IterDomain>());
+  }
+
+  for (auto inp : expr->inputs()) {
+    for (auto out : expr->outputs()) {
+      indent() << inp->name() << " -> " << out->name() << "\n";
+    }
+  }
+}
+
+void TransformToDot::handle(IterDomain* id) {
+  if (printed_vals_.find(id) != printed_vals_.end()) {
+    return;
+  }
+
+  // Use blue for broadcast domains
+  indent() << id->name()
+           << " [fontcolor=" << (id->isBroadcast() ? "blue" : "black")
+           << "];\n";
+
+  printed_vals_.insert(id);
+}
+
+std::stringstream& TransformToDot::indent() {
+  for (int i = 0; i < indent_; ++i) {
+    buf_ << "  ";
+  }
+  return buf_;
+}
+
+} // namespace
+
+std::string irTransformToDot(Fusion* fusion) {
+  TransformToDot dot;
+  dot.handle(fusion);
+  return dot.get();
 }
 
 } // namespace nvfuser

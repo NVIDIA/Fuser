@@ -48,11 +48,11 @@ std::unordered_map<IterDomain*, IterDomain*> mapAllProducerDomainsToConsumer(
       producer_tv,
       consumer_tv,
       -1,
-      PairwiseRootDomainMap(producer_tv, consumer_tv));
+      PairwiseLogicalDomainMap(producer_tv, consumer_tv));
 
   // Grab consumer domain entries and reverse replay map. TODO: Maybe
   // TransformReplay::replayPasC could return this map
-  for (auto id : consumer_tv->getLeafDomain()) {
+  for (auto id : consumer_tv->getLoopDomain()) {
     const auto& c2p_map = replay_PasC.getReplay();
     auto c2p_it = c2p_map.find(id);
     if (c2p_it != c2p_map.end()) {
@@ -70,7 +70,7 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
   std::unordered_map<IterDomain*, IterDomain*> inverted;
   for (const auto& kv : map) {
     bool inserted = inverted.emplace(kv.second, kv.first).second;
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         inserted,
         "Multiple mappings to the same value detected: ",
         kv.second->toString());
@@ -80,8 +80,8 @@ std::unordered_map<IterDomain*, IterDomain*> invertOneToOneMap(
 
 //! A struct to keep track of necessary parameters used in
 //!  configuring index compute pass.
-//! These parameters are needed to propagate the indexing from the leaf nodes of
-//! the TVs and loop nests to the TVs rfactor domain during
+//! These parameters are needed to propagate the indexing from the loop nodes of
+//! the TVs and loop nests to the TVs logical domain during
 //! index_compute.cpp::IndexCompute passes.
 //! TODO:
 //!   Would expect this list to become shorter over time,
@@ -99,9 +99,6 @@ struct IndexingParameters {
   //!  be propagating contiguously merged indices backward.
   std::unordered_set<IterDomain*> preferred_concrete_ids;
 
-  //! The inferred halo padded extents of the concrete iterdomains.
-  std::unordered_map<IterDomain*, Val*> concrete_id_to_halo_extent;
-
   //! Unswitched concrete domains. Back-traversing through the inner
   //! domain of a merge may need to be replaced with the maximum of
   //! the inner domain.
@@ -111,7 +108,7 @@ struct IndexingParameters {
 // Initial loop index map for global producer or consumer case.
 IndexingParameters getLinearIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     bool index_producer = false) {
   IndexingParameters index_parameters;
 
@@ -119,7 +116,7 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domain[loop_idx], IdMappingMode::EXACT);
@@ -130,41 +127,38 @@ IndexingParameters getLinearIndexParameters(
     }
   }
 
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
-
   protectNonPredicateIndexWithMagicZero(
       loops,
       loop_indexing.loopDomains(),
       index_parameters.initial_concrete_id_index);
 
-  // Setup double buffer increment for producer case:
-  // TODO: could unify these double buffer index calculation
+  // Setup circular buffer increment for producer case:
+  // TODO: could unify these circular buffer index calculation
   //  in follow ups.
   if (index_producer) {
-    auto double_buffer_loop =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             loop_indexing.consumerTv(), loops, true);
 
-    for (auto loop_idx : c10::irange(loops.size())) {
+    for (auto loop_idx : arange(loops.size())) {
       auto loop = loops[loop_idx];
-      if (loop == double_buffer_loop) {
+      if (loop == circular_buffer_loop) {
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
 
         auto concrete_loop_id =
             GpuLower::current()->caMap()->getConcreteMappedID(
                 loop_id, IdMappingMode::EXACT);
 
-        auto stage_depth =
-            (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-                loop->iter_domain());
+        auto prefetch_distance =
+            GpuLower::current()
+                ->circularBufferInfo()
+                .getCircularBufferOptionsFor(loop->iter_domain())
+                .prefetch;
         index_parameters.initial_concrete_id_index[concrete_loop_id] =
             SimplifyingIrBuilder::addExpr(
                 index_parameters.initial_concrete_id_index[concrete_loop_id],
                 SimplifyingIrBuilder::create<Val>(
-                    stage_depth - 1L, DataType::Index));
+                    prefetch_distance, DataType::Index));
       }
     }
   }
@@ -175,7 +169,7 @@ IndexingParameters getLinearIndexParameters(
 // Initial index parameters for shared and local case
 IndexingParameters getNonGlobalInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     bool index_producer = false,
     const TensorView* producer_tv = nullptr,
@@ -194,17 +188,17 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   }
 
   auto alloc_tv = index_producer ? producer_tv : consumer_tv;
-  auto alloc_info = lower_utils::getAllocInformation(
+  auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
-  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
-  std::unordered_set<kir::ForLoop*> zero_loops;
+  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_set<ForLoop*> zero_loops;
 
-  kir::ForLoop* double_buffer_loop = nullptr;
+  ForLoop* circular_buffer_loop = nullptr;
 
   if (index_producer) {
-    double_buffer_loop =
-        GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+    circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
             consumer_tv, loops, true);
   }
 
@@ -214,15 +208,15 @@ IndexingParameters getNonGlobalInitialIndexParameters(
       rotated_loops,
       alloc_info.init_for_loop,
       !index_producer,
-      double_buffer_loop);
+      circular_buffer_loop);
 
   ensureStaticIndexing(alloc_tv, alloc_info.init_for_loop, loops, alloc_id_map);
 
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops[loop_idx];
     auto loop_domain = loop_domains[loop_idx];
 
@@ -243,70 +237,12 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   index_parameters.preferred_concrete_ids = buildLoopIndexingPreferredPath(
       target_tv, loop_indexing, index_producer, p2c_map);
 
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
-
   return index_parameters;
-}
-
-// Return true if it is sufficient to predicate the end of the loop
-// iteration. An aligned vectorized loop is one example where it is
-// guaranteed to be valid by the validation checks. More generally,
-// the divisible split set is used to find such loops. The divisible
-// split set contains splits used in view transformations as well as
-// those whose output domains are vectorized. View transformations
-// guarantee that any split involved is divisible, whereas
-// vectorization only guarantees that the overall root extent is
-// divisible by the split factor. Thus, if a loop IterDomain is
-// an output of a split included in the divisible view splits, we can
-// just predicate the end of the loop iteration. If a loop IterDomain
-// is an output of a divisible split due to vectorization, it is only
-// valid when the loop IterDomain is mapped with the vectorized inner
-// output IterDomain. If it is mapped with an outer IterDomain, since
-// the split input IterDomain may be an output IterDomain of a
-// non-divisible split, we still need to predicate each loop iteration
-// value.
-bool predicateAtEnd(kir::ForLoop* loop) {
-  auto loop_id = loop->iter_domain();
-  auto split = dynamic_cast<Split*>(loop_id->definition());
-  if (split == nullptr) {
-    return false;
-  }
-
-  bool is_divisible = GpuLower::current()->divisibleSplitSet().count(split) > 0;
-
-  if (!is_divisible) {
-    return false;
-  }
-
-  // Find the other output of the split
-  auto other_out_id =
-      split->inner() == loop_id ? split->outer() : split->inner();
-
-  // If the other output is mapped with a vectorized IterDomain,
-  // this IterDomain needs to be predicated at each iteration point.
-  const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
-
-  if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
-          })) {
-    return false;
-  }
-
-  // Now it is either loop_id is mapped with a vectorized IterDomain
-  // or it's an output of view transformations.
-  return true;
 }
 
 // Check if this loop is actually unswitched, meaning an initial index
 // of the maximum value from a non-size-one range is used.
-bool trackUnswitchedDomain(kir::ForLoop* loop) {
+bool trackUnswitchedDomain(ForLoop* loop) {
   // Loop index has only one valid value per thread, which means the
   // loop is not actually unswitched
   if (loop->isTrivial()) {
@@ -340,21 +276,21 @@ bool trackUnswitchedDomain(kir::ForLoop* loop) {
 //! the 3 variants.
 IndexingParameters getPredicateInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    ForLoop* unswitch_or_vec_loop,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   IndexingParameters index_parameters;
   const auto& loops = loop_indexing.loops();
   const auto& loop_domains = loop_indexing.loopDomains();
 
   // This shouldn't be needed.
-  TORCH_INTERNAL_ASSERT(
+  NVF_ERROR(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
 
   // Fill initial index with each forloop's index.
   for (auto fl : loops) {
@@ -382,7 +318,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 
   bool within_unswitch = false;
 
-  for (const auto loop_i : c10::irange(loops.size())) {
+  for (const auto loop_i : arange(loops.size())) {
     auto loop = loops[loop_i];
     auto loop_id = loop->iter_domain();
     auto loop_pt = loop_id->getParallelType();
@@ -392,8 +328,8 @@ IndexingParameters getPredicateInitialIndexParameters(
       within_unswitch = loop == unswitch_or_vec_loop;
     }
 
-    bool predicate_at_end =
-        within_unswitch || loop == unswitch_or_vec_loop || predicateAtEnd(loop);
+    bool predicate_at_end = within_unswitch || loop == unswitch_or_vec_loop ||
+        lower_utils::predicateAtEnd(loop);
 
     if (predicate_at_end) {
       // Rely on the reference to check broadcasting. The for loop could be
@@ -469,21 +405,24 @@ IndexingParameters getPredicateInitialIndexParameters(
     }
   }
 
-  // Increment double buffer loop index
-  if (double_buffer_axis != nullptr) {
-    auto db_loop = GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
-        double_buffer_axis, loops, true);
+  // Increment circular buffer loop index
+  if (circular_buffer_axis != nullptr) {
+    auto db_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            circular_buffer_axis, loops, true);
     if (db_loop != nullptr) {
       auto loop_to_ind_map_it = loop_to_ind_map.find(db_loop);
-      TORCH_INTERNAL_ASSERT(loop_to_ind_map_it != loop_to_ind_map.end());
+      NVF_ERROR(loop_to_ind_map_it != loop_to_ind_map.end());
       auto cur_index = loop_to_ind_map_it->second;
       // if cur_index is not the same as the index of db_loop, it must
       // be true that that index has been modified to support
       // unswitch. In that case, it is not necessary to move ahead the
-      // index for double buffering.
-      auto stage_depth =
-          (int64_t)GpuLower::current()->doubleBufferInfo().getStageDepthFor(
-              db_loop->iter_domain());
+      // index for circular buffering.
+      auto prefetch_distance =
+          (int64_t)GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(db_loop->iter_domain())
+              .prefetch;
       bool is_same =
           (rotated_loops.count(db_loop)
                ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
@@ -493,13 +432,13 @@ IndexingParameters getPredicateInitialIndexParameters(
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index,
             SimplifyingIrBuilder::create<Val>(
-                stage_depth - 1L, DataType::Index));
+                prefetch_distance, DataType::Index));
       }
     }
   }
 
   // Convert loop-to-ind map to concrete-to-ind map
-  for (auto loop_idx : c10::irange(loops.size())) {
+  for (auto loop_idx : arange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
         GpuLower::current()->caMap()->getConcreteMappedID(
@@ -512,18 +451,13 @@ IndexingParameters getPredicateInitialIndexParameters(
   // not done at this point but is done individually for each indexed
   // domain. See Index::getReferenceRootPredicates.
 
-  // Derive the halo extents from the loop indexing result.
-  index_parameters.concrete_id_to_halo_extent =
-      GpuLower::current()->haloInfo()->buildConcreteHaloExtentMap(
-          loop_indexing);
-
   return index_parameters;
 }
 
 } // namespace
 
 LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const TensorView* consumer_tv) {
   LoopIndexingAnalysis analysis(loops, consumer_tv);
   return analysis.getLoopIndexing(loops);
@@ -531,14 +465,14 @@ LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
 
 VectorOfUniqueEntries<IterDomain*> LoopIndexingAnalysis::
     getReplayableConcreteIDs(
-        const std::vector<IterDomain*>& consumer_leaf_ids,
+        const std::vector<IterDomain*>& consumer_loop_ids,
         const TensorView* consumer_tv) {
-  LoopIndexingAnalysis analysis(consumer_leaf_ids, consumer_tv);
+  LoopIndexingAnalysis analysis(consumer_loop_ids, consumer_tv);
   return analysis.replayed_concrete_ids_;
 }
 
 LoopIndexingAnalysis::LoopIndexingAnalysis(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const TensorView* consumer_tv)
     : consumer_tv_(consumer_tv) {
   // Validate consistency in given loop nest
@@ -549,33 +483,33 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
       loops.begin(),
       loops.end(),
       std::back_inserter(initial_loop_domain_ids_),
-      [](kir::ForLoop* fl) { return fl->iter_domain(); });
+      [](ForLoop* fl) { return fl->iter_domain(); });
 
   run();
 }
 
 LoopIndexingAnalysis::LoopIndexingAnalysis(
-    const std::vector<IterDomain*>& consumer_leaf_ids,
+    const std::vector<IterDomain*>& consumer_loop_ids,
     const TensorView* consumer_tv)
     : consumer_tv_(consumer_tv) {
   // Populate initial loop iter domains.
   std::transform(
-      consumer_leaf_ids.begin(),
-      consumer_leaf_ids.end(),
+      consumer_loop_ids.begin(),
+      consumer_loop_ids.end(),
       std::back_inserter(initial_loop_domain_ids_),
-      [&](IterDomain* consumer_leaf_id) {
-        // Make sure consumer_leaf_id is indeed a consumer leaf ID
-        TORCH_INTERNAL_ASSERT(
+      [&](IterDomain* consumer_loop_id) {
+        // Make sure consumer_loop_id is indeed a consumer loop ID
+        NVF_ERROR(
             std::find(
-                consumer_tv->getLeafDomain().begin(),
-                consumer_tv->getLeafDomain().end(),
-                consumer_leaf_id) != consumer_tv->getLeafDomain().end(),
-            "Not a consumer leaf ID: ",
-            consumer_leaf_id->toString(),
+                consumer_tv->getLoopDomain().begin(),
+                consumer_tv->getLoopDomain().end(),
+                consumer_loop_id) != consumer_tv->getLoopDomain().end(),
+            "Not a consumer loop ID: ",
+            consumer_loop_id->toString(),
             ", consumer: ",
             consumer_tv->toString());
         return GpuLower::current()->caMap()->getConcreteMappedID(
-            consumer_leaf_id, IdMappingMode::LOOP);
+            consumer_loop_id, IdMappingMode::LOOP);
       });
 
   run();
@@ -584,10 +518,10 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
 void LoopIndexingAnalysis::run() {
   // Collect consumer id's for view rfactor traversal.
   all_consumer_id_vals_ = DependencyCheck::getAllValsBetween(
-      {consumer_tv_->getRootDomain().begin(),
-       consumer_tv_->getRootDomain().end()},
-      {consumer_tv_->getLeafDomain().begin(),
-       consumer_tv_->getLeafDomain().end()});
+      {consumer_tv_->getMaybeRootDomain().begin(),
+       consumer_tv_->getMaybeRootDomain().end()},
+      {consumer_tv_->getLoopDomain().begin(),
+       consumer_tv_->getLoopDomain().end()});
 
   // Resolve definition of each exact concrete id's involved in the whole loop
   // nest transform history
@@ -614,7 +548,7 @@ void LoopIndexingAnalysis::run() {
 }
 
 void LoopIndexingAnalysis::validateLoopStructure(
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
   // Throw an error when two loops are mapped with each other, which
   // violates an assumption that unique mappings between concrete
   // IterDomains and the IterDomains of the loop structure must be
@@ -635,7 +569,7 @@ void LoopIndexingAnalysis::validateLoopStructure(
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_id, IdMappingMode::EXACT);
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         !concrete_to_loop.count(concrete_loop_id),
         "Unsupported loop structure. Two loops are mapped together.",
         loop_id->toString(),
@@ -665,9 +599,9 @@ void LoopIndexingAnalysis::traverseFromDomainVals() {
     }
     auto expr = out_id->definition();
 
-    if (auto rfactor_id =
-            getRfactorIDToTraverse(out_id, all_consumer_id_vals_)) {
-      to_visit.emplace_front(rfactor_id);
+    if (auto logical_id =
+            getLogicalIDToTraverse(out_id, all_consumer_id_vals_)) {
+      to_visit.emplace_front(logical_id);
     }
 
     // ID's will be copied for the reference as we replay transformations. If
@@ -775,7 +709,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
         replayed_concrete_ids_.vector().end(),
         [&](IterDomain* concrete_id) {
           return
-              // Make sure the replayed_concrete_id is a leaf ID
+              // Make sure the replayed_concrete_id is a loop ID
               !concrete_id_to_consumer_.count(concrete_id) &&
               // Use permissive map so the selected ID indeed represents the
               // loop.
@@ -793,7 +727,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
                   concrete_id, loop_id, IdMappingMode::PERMISSIVE);
         });
 
-    TORCH_INTERNAL_ASSERT(
+    NVF_ERROR(
         ref_id_it != replayed_concrete_ids_.vector().end(),
         "Could not find required iter domain in reference replay: ",
         loop_id->toString());
@@ -833,12 +767,12 @@ void LoopIndexingAnalysis::constructLoopDomains() {
 }
 
 IndexFromIdGraph getTensorIndexFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv,
     bool is_global,
-    std::unordered_map<IterDomain*, IterDomain*> c2p_map) {
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p_map) {
   bool index_producer = producer_tv != nullptr;
   auto target_tv = index_producer ? producer_tv : consumer_tv;
 
@@ -871,22 +805,21 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   IndexCompute indexing(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
-      index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent);
+      index_parameters.preferred_concrete_ids);
 
   // Run first backward traversal to generate
   //  loop nest based indexing math.
   indexing.run(loop_indexing);
 
   // Populate indexing through exact map from initial indexing
-  auto consumer_root = index_producer ? consumer_tv->getRootDomain()
+  auto consumer_root = index_producer ? consumer_tv->getMaybeRootDomain()
                                       : consumer_tv->getMaybeAllocationDomain();
 
   // First collect all iterdomains in consumer transform history.
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_root.begin(), consumer_root.end()},
-      {consumer_tv->getLeafDomain().begin(),
-       consumer_tv->getLeafDomain().end()});
+      {consumer_tv->getLoopDomain().begin(),
+       consumer_tv->getLoopDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -957,14 +890,13 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
   // No contig indexing was done in reference indexing
   ContigIDs contig_finder(
-      target_tv->getLeafDomain(),
+      target_tv->getLoopDomain(),
       target_tv->getMaybeAllocationDomain(),
       target_tv->domain()->contiguity(),
       {},
       indexing.indexMap(),
       GpuLower::current()->divisibleSplitSet(),
       GpuLower::current()->caMap(),
-      GpuLower::current()->haloInfo(),
       GpuLower::current()->concretizedBroadcastDomains(),
       p2c_map);
 
@@ -988,11 +920,11 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 }
 
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    ForLoop* unswitch_or_vec_loop,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   // Run replay pass on the loop nest to generate the deterministic
   //  traversal info from loop structure.
@@ -1006,7 +938,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       rotated_loops,
       consumer_tv,
       unswitch_or_vec_loop,
-      double_buffer_axis,
+      circular_buffer_axis,
       is_start_predicate);
 
   // Run first backward traversal to generate
@@ -1015,7 +947,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
       index_parameters.initial_concrete_id_index,
       index_parameters.zero_domains,
       index_parameters.preferred_concrete_ids,
-      index_parameters.concrete_id_to_halo_extent,
       index_parameters.unswitched_domains);
 
   indexing.run(loop_indexing);
@@ -1024,8 +955,8 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   auto all_consumer_vals = DependencyCheck::getAllValsBetween(
       {consumer_tv->getMaybeAllocationDomain().begin(),
        consumer_tv->getMaybeAllocationDomain().end()},
-      {consumer_tv->getLeafDomain().begin(),
-       consumer_tv->getLeafDomain().end()});
+      {consumer_tv->getLoopDomain().begin(),
+       consumer_tv->getLoopDomain().end()});
 
   // Want update map to be based on almost exact, but indexing is on exact, make
   // a map from one space to the other.
@@ -1155,7 +1086,7 @@ LoopIndexingTraversal::LoopIndexingTraversal(
     for (auto id : next_ids) {
       auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
           id, IdMappingMode::EXACT);
-      TORCH_INTERNAL_ASSERT(
+      NVF_ERROR(
           concrete_id_to_dependency_.insert(std::make_pair(concrete_id, expr))
               .second,
           "Repeated dependency, invalid iterdomain traversal.");
@@ -1174,7 +1105,7 @@ const std::vector<Val*>& LoopIndexingTraversal::nextValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1190,7 +1121,7 @@ const std::vector<Val*>& LoopIndexingTraversal::prevValsInTraversalOrder(
       break;
 
     default:
-      TORCH_INTERNAL_ASSERT(false, "unimplemented traversal order");
+      NVF_THROW("unimplemented traversal order");
   }
   return expr->inputs();
 }
@@ -1229,7 +1160,7 @@ std::vector<Expr*> LoopIndexingTraversal::getExprList() {
         if (!visited.count(prev_expr)) {
           ready = false;
           to_visit.push_front(prev_expr);
-          TORCH_INTERNAL_ASSERT(
+          NVF_ERROR(
               inserted.insert(prev_expr).second,
               "Circular dependency in loop index expressions.");
           break;
@@ -1254,11 +1185,11 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
   //  iterdomains on the left of ca axes.
   std::unordered_set<IterDomain*> out_of_line_ids;
 
-  // Start the set with all the leaf ids.
+  // Start the set with all the loop ids.
   std::transform(
-      consumer_tv_->getLeafDomain().begin() +
+      consumer_tv_->getLoopDomain().begin() +
           consumer_tv_->getComputeAtPosition(),
-      consumer_tv_->getLeafDomain().end(),
+      consumer_tv_->getLoopDomain().end(),
       std::inserter(out_of_line_ids, out_of_line_ids.end()),
       exactConcreteId);
 
@@ -1336,14 +1267,14 @@ bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
     // are compatible. This is important when, for example, a tensor
     // is padded two times differently but to the same shape, and the
     // pad outputs are exactly mapped. In such a case, there're two
-    // paths from the post rfactor ID to the original input ID, and
+    // paths from the post logical ID to the original input ID, and
     // the correct path depends on the path where this producer is
     // used as a producer. See the FusionPad8 test for a concrete
     // example.
     if (auto id_resize = dynamic_cast<Resize*>(id->uses().at(0))) {
       auto mapped_id_resize =
           dynamic_cast<Resize*>(val->as<IterDomain>()->uses().at(0));
-      TORCH_INTERNAL_ASSERT(mapped_id_resize != nullptr);
+      NVF_ERROR(mapped_id_resize != nullptr);
       if (!(id_resize->leftExpand()->sameAs(mapped_id_resize->leftExpand()) &&
             id_resize->rightExpand()->sameAs(
                 mapped_id_resize->rightExpand()))) {
@@ -1369,8 +1300,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
     auto all_original_ids = DependencyCheck::getAllValsBetween(
         {original_tv->getMaybeAllocationDomain().begin(),
          original_tv->getMaybeAllocationDomain().end()},
-        {original_tv->getLeafDomain().begin(),
-         original_tv->getLeafDomain().end()});
+        {original_tv->getLoopDomain().begin(),
+         original_tv->getLoopDomain().end()});
 
     for (auto original_id :
          ir_utils::filterByType<IterDomain>(all_original_ids)) {
@@ -1440,42 +1371,65 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
       original_tv, loop_indexing, use_replay_map, p2c_map);
 }
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
-// the consumer IDs. This is to ensure the path from the leaf
+// the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+// Additionally, when none of the candidate iter domain has all of its
+// inputs mapped with the consumer tensor, prefer one that has at
+// least one mapped. This matters when the consumer tensor only has
+// one of the merge inputs, for example.
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
-  const auto& rfactor_ids =
-      GpuLower::current()->caMap()->getRfactorDomainsOfIdGroup(
+  const auto& logical_ids =
+      GpuLower::current()->caMap()->getLogicalDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
-  if (rfactor_ids.empty()) {
+  if (logical_ids.empty()) {
     return nullptr;
   }
 
-  for (auto rfactor_id : rfactor_ids) {
-    auto def = rfactor_id->definition();
+  // Keep track of an iter domain that has at least one input mapped.
+  IterDomain* fallback_candidate = nullptr;
+
+  for (auto logical_id : logical_ids) {
+    auto def = logical_id->definition();
     if (def == nullptr) {
       continue;
     }
 
-    auto rfactor_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
+    auto logical_id_inputs = ir_utils::filterByType<IterDomain>(def->inputs());
     if (std::all_of(
-            rfactor_id_inputs.begin(),
-            rfactor_id_inputs.end(),
-            [&](IterDomain* rfactor_id_input) {
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
               return isPermissivelyMappedWithAny(
-                  rfactor_id_input, consumer_all_ids);
+                  logical_id_input, consumer_all_ids);
             })) {
-      return rfactor_id;
+      return logical_id;
     }
+
+    if (std::any_of(
+            logical_id_inputs.begin(),
+            logical_id_inputs.end(),
+            [&](IterDomain* logical_id_input) {
+              return isPermissivelyMappedWithAny(
+                  logical_id_input, consumer_all_ids);
+            })) {
+      if (fallback_candidate == nullptr) {
+        fallback_candidate = logical_id;
+      }
+    }
+  }
+
+  if (fallback_candidate != nullptr) {
+    return fallback_candidate;
   }
 
   // No mapped ID found, which means the consumer is a post-view
   // tensor. In that case, it shouldn't matter which view path to
   // traverse, so just return the first one.
-  return rfactor_ids.at(0);
+  return logical_ids.at(0);
 }
 
 } // namespace nvfuser

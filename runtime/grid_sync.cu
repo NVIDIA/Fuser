@@ -29,16 +29,22 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const bool last_block) {
+    const bool last_block,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -78,7 +84,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 template <
@@ -86,12 +92,22 @@ template <
     bool Y_BLOCK,
     bool Z_BLOCK,
     bool PERSISTENT,
-    bool Aligned>
-__device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
+    bool Aligned,
+    typename BlockDimT>
+__device__ void sync(
+    int64_t& semaphore,
+    const uint64_t& segment_size,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT, Aligned>(
       semaphore,
       segment_size,
-      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim));
+      index_utils::maskedIsLast<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim),
+      block_dim,
+      barrier_id);
 }
 
 // Grid sync that can be called multiple times in the same kernel without all
@@ -105,16 +121,26 @@ __device__ void sync(int64_t& semaphore, const uint64_t& segment_size) {
 //
 // Note that this is not currently used by grid and welford reduction
 // as they use a separate sync flag for each each grid sync call.
-template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK, bool Aligned>
+template <
+    bool X_BLOCK,
+    bool Y_BLOCK,
+    bool Z_BLOCK,
+    bool Aligned,
+    typename BlockDimT>
 __device__ void sync(
     int64_t& semaphore,
     const uint64_t& segment_size,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
   // Synchronize all threads in a block before synchronizing blocks
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   // Only allow linear_tid == 0 to participate in the synchronization
   if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
@@ -147,7 +173,103 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+}
+
+// Non-blocking function to read the semaphore value in each calling thread
+__device__ int64_t semaphoreFetch(int64_t* semaphore) {
+  int64_t state;
+  // NOTE: acquire/release operations require sm_70 or higher
+  // https://docs.nvidia.com/cuda/archive/12.3.0/parallel-thread-execution/index.html#scopes-and-applicability
+  asm volatile("ld.global.acquire.gpu.b64 %0, [%1];\n"
+               : "=l"(state)
+               : "l"(semaphore));
+  return state;
+}
+
+// Non-blocking function to set semaphore to new_value
+__device__ void semaphoreRelease(int64_t* semaphore, int64_t new_value) {
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    // NOTE: acquire/release operations require sm_70 or higher
+    // https://docs.nvidia.com/cuda/archive/12.3.0/parallel-thread-execution/index.html#scopes-and-applicability
+    asm volatile("st.global.release.gpu.b64 [%0], %1;\n"
+                 :
+                 : "l"(semaphore), "l"(new_value));
+  }
+}
+
+// First thread waits until fetched semaphore value matches trigger
+__device__ void semaphoreWait(int64_t* semaphore, int64_t trigger_value) {
+  int64_t status = -1;
+  // Cutlass uses a loop like this, and has a facility where any thread can
+  // fetch the semaphore value ahead of waiting. This could reduce the wait
+  // time potentially but requires placement of the early fetch.
+  // https://github.com/NVIDIA/cutlass/blob/main/include/cutlass/semaphore.h
+  // while (__syncthreads_and(status != trigger_value)) {
+  // As soon as any thread in the block observes the trigger then it is
+  // safe to proceed
+  // Instead, we simply use the first thread in the block to do busy waiting.
+  if (threadIdx.x == 0 && threadIdx.y == 0 && threadIdx.z == 0) {
+    while (status != trigger_value) {
+      status = semaphoreFetch(semaphore);
+    }
+  }
+}
+
+// Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
+// This should be called at the beginning of the section to be serialized.
+// Assumes semaphore is initialized to zero. This function always synchronizes
+// the thread block.
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
+__device__ void blockSerializeWait(int64_t* semaphore) {
+  int segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+  int block_idx_in_segment =
+      index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+
+  if (block_idx_in_segment > 0) {
+    semaphoreWait(semaphore, block_idx_in_segment);
+  }
+  __syncthreads();
+}
+
+// Serialize blocks in segments indicated by the [XYZ]_BLOCK template arguments.
+// This should be called at the end of the section to be serialized.
+// This function always cleans up the semaphore; i.e. the last block writes the
+// value 0 to the semaphore when complete. This function always synchronizes
+// the thread block.
+template <bool X_BLOCK, bool Y_BLOCK, bool Z_BLOCK>
+__device__ void blockSerializeRelease(int64_t* semaphore) {
+  int segment_size =
+      index_utils::maskedSize<X_BLOCK, Y_BLOCK, Z_BLOCK>(gridDim);
+  int block_idx_in_segment =
+      index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
+  bool last_block = block_idx_in_segment == segment_size - 1;
+
+  // Block until writes from all threads in this block are visible to all other
+  // blocks before releasing semaphore using thread 0.
+  //
+  // Consider this simple example using two blocks:
+  //
+  //   1. Block 1 acquires lock using blockSerializeWait
+  //   2. Block 1 writes values to tensor T3
+  //   3. Block 1 releases lock using blockSerializeRelease
+  //   4. Block 2 acquires lock using blockSerializeWait
+  //   5. Block 2 uses values in tensor T3 to compute new values and writes them
+  //      back to T3.
+  //   6. Block 2 releases lock using blockSerializeRelease
+  //
+  // Without a global thread fence, the writes to T3 from Block 1 in step 2
+  // might not be visible to Block 2 at step 5, meaning Block 2 would compute
+  // an invalid update.
+  //
+  // We use __syncthreads also, which implies a __threadfence_block but that
+  // only guarantees that all writes are visible to threads _within the same
+  // block_, so the __threadfence is still needed.
+  __threadfence();
+  __syncthreads();
+
+  semaphoreRelease(semaphore, last_block ? 0 : block_idx_in_segment + 1);
 }
 
 } // namespace grid_sync

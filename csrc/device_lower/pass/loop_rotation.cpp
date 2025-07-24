@@ -25,9 +25,9 @@ namespace {
 // Clone an expr, if this expr is a container (ForLoop, IfThenElse), then
 // recursively clone all exprs in its scope.
 Expr* recursivelyClone(Expr* expr) {
-  TORCH_INTERNAL_ASSERT(expr != nullptr);
-  if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
-    auto new_loop = IrBuilder::create<kir::ForLoop>(fl);
+  NVF_ERROR(expr != nullptr);
+  if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+    auto new_loop = IrBuilder::create<ForLoop>(fl);
     for (auto e : fl->body().exprs()) {
       new_loop->body().push_back(recursivelyClone(e));
     }
@@ -39,8 +39,7 @@ Expr* recursivelyClone(Expr* expr) {
     // we only want to rotate the loop in the unswitch path?). We should be
     // definitely revisit how to deal with this ite->predicate() if this is the
     // case.
-    TORCH_INTERNAL_ASSERT(
-        false, "Don't expect to see IfThenElse in loop rotation pass.");
+    NVF_THROW("Don't expect to see IfThenElse in loop rotation pass.");
     auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
     for (auto e : ite->thenBody().exprs()) {
       new_ite->thenBody().push_back(recursivelyClone(e));
@@ -59,12 +58,12 @@ Expr* recursivelyClone(Expr* expr) {
 // Because scheduler does not have access to lowered loop structure, our
 // interface with scheduler is to let scheduler select tensors whose allocation
 // and computation will be rotated, and we expand the selection to
-// kir::Allocate, kir::ForLoop, and kir::IfThenElse. For example, if I have
+// kir::Allocate, ForLoop, and kir::IfThenElse. For example, if I have
 // kernel:
 //   for (int i = 0; i < id1.extent(); i++) {
 //     // kir::Allocate 1
 //     float T1[5];
-//     // kir::ForLoop 1
+//     // ForLoop 1
 //     for (int j = 0; j < 5; j++) {
 //       if (i < T0.size[0]) {
 //         T1[j] = sin(T0[i, j]);
@@ -72,17 +71,17 @@ Expr* recursivelyClone(Expr* expr) {
 //     }
 //     // kir::Allocate 2
 //     float T2[5];
-//     // kir::ForLoop 2
+//     // ForLoop 2
 //     for (int j = 0; j < 5; j++) {
 //       T2[j] = cos(T1[j]);
 //     }
 //     // kir::Allocate 3
 //     float T3[5];
-//     // kir::ForLoop 3
+//     // ForLoop 3
 //     for (int j = 0; j < 5; j++) {
 //       T3[j] = exp(T2[j]);
 //     }
-//     // kir::ForLoop 4
+//     // ForLoop 4
 //     for (int j = 0; j < 5; j++) {
 //       if (i < T4.size[0]) {
 //         T4[i, j] = log(T3[j]);
@@ -91,7 +90,7 @@ Expr* recursivelyClone(Expr* expr) {
 //   }
 // And received a compilation parameter {id1, {T1, T2}}, then the first step
 // should expand the selection from {T1, T2} to:
-// {kir::Allocate 1, kir::ForLoop 1, kir::Allocate 2, kir::ForLoop 2}
+// {kir::Allocate 1, ForLoop 1, kir::Allocate 2, ForLoop 2}
 //
 // RotateLoop is a bottom-up algorithm that does its work during the returning
 // of recursion. By designing like this, when we want to rotate the loop, all
@@ -107,8 +106,7 @@ class RotateLoop : kir::ExprMutator {
     // interacting with each other.
     for (auto item : params) {
       exprs = RotateLoop(
-                  std::get<0>(item)->axis((int)std::get<1>(item)),
-                  std::get<2>(item))
+                  std::get<0>(item)->axis(std::get<1>(item)), std::get<2>(item))
                   .traverseAndInsert(exprs);
     }
     return exprs;
@@ -121,9 +119,7 @@ class RotateLoop : kir::ExprMutator {
   std::unordered_set<Statement*> selection_;
 
   RotateLoop(IterDomain* loop_id, std::unordered_set<Statement*> selection)
-      : loop_concrete_id_(GpuLower::current()->caMap()->getConcreteMappedID(
-            loop_id,
-            IdMappingMode::LOOP)),
+      : loop_concrete_id_(lower_utils::getConcreteLoopID(loop_id)),
         selection_(std::move(selection)) {}
 
   // We use the following strategy on expr selection:
@@ -132,19 +128,19 @@ class RotateLoop : kir::ExprMutator {
   //   then the container is automatically selected.
   // This function modifies selection_ to implement this strategy
   void expandSelection(Expr* expr) {
-    TORCH_INTERNAL_ASSERT(expr != nullptr);
+    NVF_ERROR(expr != nullptr);
     for (auto fl : for_loops_) {
       if (fl->iter_domain() != loop_concrete_id_) {
         continue;
       }
-      auto entireScopeSelected = [this](const kir::Scope& scope) {
+      auto entireScopeSelected = [this](const Scope& scope) {
         return std::all_of(
             scope.exprs().begin(), scope.exprs().end(), [this](Expr* expr) {
               return selection_.count(expr) > 0;
             });
       };
       bool should_select_this = false;
-      if (auto fl = dynamic_cast<kir::ForLoop*>(expr)) {
+      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
         should_select_this = !fl->empty() && entireScopeSelected(fl->body());
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
         should_select_this = !ite->empty() &&
@@ -202,15 +198,15 @@ class RotateLoop : kir::ExprMutator {
   //   }
   // Pattern 2:
   //   for (...) {
-  //     unselected double buffer load
+  //     unselected circular buffer load
   //     selected
   //     selected
   //     unselected
   //     unselected
   //     unselected
   //   }
-  bool validateSelection(kir::ForLoop* fl) {
-    class IsDoubleBufferLoad : public kir::IrVisitor {
+  bool validateSelection(ForLoop* fl) {
+    class IsCircularBufferLoad : public kir::IrVisitor {
      public:
       bool operator()(Expr* expr) {
         result_ = true;
@@ -218,7 +214,7 @@ class RotateLoop : kir::ExprMutator {
         return result_;
       }
 
-      IsDoubleBufferLoad(kir::ForLoop* loop) : loop_(loop) {}
+      IsCircularBufferLoad(ForLoop* loop) : loop_(loop) {}
 
      private:
       using kir::IrVisitor::handle;
@@ -233,7 +229,7 @@ class RotateLoop : kir::ExprMutator {
             result_ = false;
             return;
           }
-          if (GpuLower::current()->doubleBufferInfo().getDoubleBufferLoop(
+          if (GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
                   tv, {loop_}) != loop_) {
             result_ = false;
             return;
@@ -244,8 +240,8 @@ class RotateLoop : kir::ExprMutator {
 
      private:
       bool result_ = true;
-      kir::ForLoop* const loop_ = nullptr;
-    } is_double_buffer_load(fl);
+      ForLoop* const loop_ = nullptr;
+    } is_circular_buffer_load(fl);
 
     bool seen_unselected = false;
     for (auto expr : fl->body().exprs()) {
@@ -255,7 +251,7 @@ class RotateLoop : kir::ExprMutator {
         }
         continue;
       }
-      if (is_double_buffer_load(expr)) {
+      if (is_circular_buffer_load(expr)) {
         continue;
       }
       seen_unselected = true;
@@ -305,7 +301,7 @@ class RotateLoop : kir::ExprMutator {
   //       selected2(i + 1);
   //     }
   //   }
-  void rotate(kir::ForLoop* fl) {
+  void rotate(ForLoop* fl) {
     if (isDebugDumpEnabled(DebugDumpOption::LoopRotation)) {
       debug() << "[Loop rotation] Rotating loop:" << std::endl
               << fl->toString() << std::endl;
@@ -317,8 +313,11 @@ class RotateLoop : kir::ExprMutator {
     // Currently, all existing predicates should be able to cover the condition
     // of start < end, so no predicate here. In the future, if we decide that
     // we need to predicate this, then we should add an kir::IfThenElse here.
-    auto prologue = IrBuilder::create<kir::ForLoop>(
-        fl->iter_domain(), fl->start(), fl->doubleBufferLoopStage());
+    auto prologue = IrBuilder::create<ForLoop>(
+        fl->iter_domain(),
+        fl->start(),
+        fl->circularBufferLoopStage(),
+        fl->circularBufferLoopStageDepth());
     std::vector<Expr*> lifted_alloc;
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {
@@ -351,7 +350,7 @@ class RotateLoop : kir::ExprMutator {
     // main
     auto rotated = IrBuilder::create<kir::IfThenElse>(
         IrBuilder::create<kir::Predicate>(PredicateType::LoopRotation));
-    auto main = IrBuilder::create<kir::ForLoop>(fl);
+    auto main = IrBuilder::create<ForLoop>(fl);
     for (auto expr : fl->body().exprs()) {
       if (selection_.count(expr) == 0) {
         main->body().push_back(expr);
@@ -369,12 +368,12 @@ class RotateLoop : kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     ExprMutator::handle(fl);
     expandSelection(fl);
     auto id = fl->iter_domain();
     if (id == loop_concrete_id_) {
-      TORCH_CHECK(
+      NVF_CHECK(
           validateSelection(fl), "Unable to rotate loop ", fl->toString());
       rotate(fl);
     }
@@ -388,10 +387,13 @@ class RotateLoop : kir::ExprMutator {
 
 } // namespace
 
-std::vector<Expr*> rotateLoops(
-    const std::vector<Expr*>& exprs,
-    const LoopRotationParam& params) {
-  return RotateLoop::run(exprs, params);
+std::vector<Expr*> rotateLoops(const std::vector<Expr*>& exprs) {
+  auto fusion = GpuLower::current()->kernel();
+  if (!fusion->hasManaged("loop_rotation")) {
+    return exprs;
+  }
+  return RotateLoop::run(
+      exprs, fusion->getManaged<LoopRotationParam>("loop_rotation"));
 }
 
 } // namespace nvfuser
