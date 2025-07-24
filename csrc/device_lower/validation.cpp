@@ -1334,4 +1334,76 @@ void validate1dTmaLoad(Fusion* fusion) {
   }
 }
 
+// When we compute a scan we compute something like the following
+//
+//   Array<float, 1, 1> T3;
+//   #pragma unroll
+//   for(nvfuser_index_t i1 = 0; i1 < 32; ++i1) {
+//     T3[0]
+//       = ((i1 > 0) ? (T3[0]) : 0.000000000e+00f)
+//       + (T2[i1]);
+//   }
+//
+// We need to validate that T3 is not inlined past the scan axis (the i1 loop
+// in this case), because its lifetime must persist beyond the scan loop. Note
+// that it is permissible to use `computeWith` as in this example to move the
+// computed position inside the scan loop, alleviating the need to allocate an
+// axis of size 32 in this case.
+//
+//
+// Validate:
+// 1. Outputs are inlined with all their uses past the scan dim
+// 2. Discount factor and input are computed with this expression past the
+//   scan dim
+// 3. Outputs are not inlined past the scan dimension, as this we require
+//   the scan outputs to be allocated outside the scan loop
+void validateScans(Fusion* fusion) {
+  for (auto sop : ir_utils::getOpsOfType<ScanOp>(fusion)) {
+    auto* out = sop->out()->as<TensorView>();
+    TensorView* out_exclusive = sop->outExclusive();
+
+    // Find position of scan dim in loop domain
+    IterDomain* scan_id = out->getLogicalDomain().at((size_t)sop->scanDim());
+    int64_t scan_pos = -1L;
+    for (int64_t pos : arange(out->nDims())) {
+      if (out->axis(pos) == scan_id) {
+        scan_pos = pos;
+        break;
+      }
+    }
+    NVF_ERROR(
+        scan_pos != -1L,
+        "Could not find scan dimension ",
+        scan_id->toString(),
+        " in loop domain. Scan dimensions must not be scheduled with splits or "
+        "merges");
+
+    const auto check_uses = [&](TensorView* output) {
+      for (Expr* use : output->uses()) {
+        for (Val* outp : use->outputs()) {
+          if (auto* out_tv = dynamic_cast<TensorView*>(outp)) {
+            NVF_ERROR(
+                out_tv->getComputeWithPosition() >= scan_pos,
+                "Use of output, ",
+                use->toString(),
+                " must have all outputs inlined or computeWith to or past scan "
+                "position ",
+                scan_pos);
+          }
+        }
+      }
+    };
+
+    check_uses(out);
+
+    if (out_exclusive != nullptr) {
+      NVF_ERROR(out_exclusive->getComputeWithPosition() >= scan_pos);
+      NVF_ERROR(out_exclusive->getComputeAtPosition() <= scan_pos);
+      check_uses(out_exclusive);
+    }
+    // Must have allocated outside scan loop
+    NVF_ERROR(out->getComputeAtPosition() <= scan_pos);
+  }
+}
+
 } // namespace nvfuser

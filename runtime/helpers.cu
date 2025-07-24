@@ -384,6 +384,16 @@ __device__ T gcd(T a, T b) {
   return a;
 }
 
+template <typename T, typename U>
+__device__ T lhs(T a, U b) {
+  return a;
+}
+
+template <typename T, typename U>
+__device__ U rhs(T a, U b) {
+  return b;
+}
+
 template <typename T>
 bool isfinite(T x) {
   return ::isfinite(x);

@@ -513,6 +513,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
+  void handle(ScanOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
   void handle(SliceOp* op) override {
     mapPointwiseLikeOp(op);
   }

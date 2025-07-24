@@ -2333,8 +2333,13 @@ kir::TensorIndex* Index::getConsumerIndex(
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
+    std::unordered_map<IterDomain*, Val*> override_index_ids;
+    for (auto& [pos, idx] : override_index) {
+      override_index_ids.emplace(
+          consumer->getMaybeAllocationDomain().at((size_t)pos), idx);
+    }
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition(), loops);
+        consumer, consumer->definition(), loops, override_index_ids);
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
