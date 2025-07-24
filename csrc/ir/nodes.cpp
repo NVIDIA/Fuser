@@ -6012,20 +6012,47 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
     const int* data_ptr = offsets_cpu.data_ptr<int>();
     const int64_t num_groups = offsets_cpu.numel();
-    std::vector<int64_t> tokens_per_group(data_ptr, data_ptr + num_groups);
+    std::vector<int64_t> group_sizes(data_ptr, data_ptr + num_groups);
     for (int64_t i : arange(1, num_groups) | std::views::reverse) {
-      tokens_per_group[i] -= tokens_per_group[i - 1];
+      group_sizes[i] -= group_sizes[i - 1];
     }
 
-    NVF_ERROR_EQ(mat1.dim(), 2);
-    NVF_ERROR_EQ(mat2.dim(), 3);
+    std::vector<at::Tensor> group_mat1s;
+    std::vector<at::Tensor> group_mat2s;
+    if (mat1.dim() == 2 && mat2.dim() == 2) {
+      // [m, k] @ [k, n] => [g, m, n]
+      group_mat1s = mat1.split(group_sizes, -1);
+      group_mat2s = mat2.split(group_sizes, 0);
+    } else if (mat1.dim() == 3 && mat2.dim() == 2) {
+      // [g, m, k] @ [k, n] => [m, n]
+      group_mat1s = mat1.unbind();
+      group_mat2s = mat2.split(group_sizes, -1);
+    } else if (mat1.dim() == 2 && mat2.dim() == 3) {
+      // [m, k] @ [g, k, n] => [m, n]
+      group_mat1s = mat1.split(group_sizes, 0);
+      group_mat2s = mat2.unbind();
+    } else {
+      NVF_THROW(
+          "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
+          mat1.sizes(),
+          " and mat2 = ",
+          mat2.sizes());
+    }
+
     std::vector<at::Tensor> group_outs;
     group_outs.reserve(num_groups);
-    for (auto [group_mat1, group_mat2] :
-         zip(mat1.split(tokens_per_group, 0), mat2.unbind(0))) {
+    for (auto [group_mat1, group_mat2] : zip(group_mat1s, group_mat2s)) {
       group_outs.push_back(at::matmul(group_mat1, group_mat2));
     }
-    result = at::cat(group_outs, 0);
+
+    if (mat1.dim() == 2 && mat2.dim() == 2) {
+      result = at::stack(group_outs);
+    } else if (mat1.dim() == 3 && mat2.dim() == 2) {
+      result = at::cat(group_outs, -1);
+    } else {
+      NVF_ERROR(mat1.dim() == 2 && mat2.dim() == 3);
+      result = at::cat(group_outs, 0);
+    }
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
