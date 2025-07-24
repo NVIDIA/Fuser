@@ -425,7 +425,7 @@ void unpackInputs(
 
   // Get the current function (main) and its first argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(0);
+  llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
@@ -471,7 +471,7 @@ void packOutputs(
 
   // Get the current function (main) and its second argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(1);
+  llvm::Value* aten_tensor_array = func->getArg(2);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
@@ -561,7 +561,7 @@ void compileFunctionDeclarations(
 
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
-      void_type, {void_array_ptr_type, void_array_ptr_type}, false);
+      void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 }
@@ -571,8 +571,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
       llvm::IRBuilder<>& builder,
-      std::unordered_map<Val*, llvm::Value*>& val_to_value)
-      : builder_(builder), val_to_value_(val_to_value) {}
+      std::unordered_map<Val*, llvm::Value*>& val_to_value,
+      hir::HostIrContainer* container)
+      : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
 
   // NOTE: this is just a simple example of allocate a output tensor and set it
@@ -605,21 +606,21 @@ class HostIrCompileDispatcher : public OptInDispatch {
   }
 
   // Launch Kernel Function LLVM IR Generation
-  void handle(kir::LaunchKernel* launch_kernel) final {
+  void handle(hir::LaunchKernel* launch_kernel) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
-    auto* void_ptr_type = getVoidPtrType(context);
+    auto* void_ptr_type = getInt8PtrType(context);
 
     // Convert input TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> input_tensors;
     for (auto* tv : launch_kernel->inputs()) {
-      input_tensors.push_back(val_to_value_[tv]);
+      input_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
     }
 
     // Convert output TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> output_tensors;
     for (auto* tv : launch_kernel->outputs()) {
-      output_tensors.push_back(val_to_value_[tv]);
+      output_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
     }
 
     // Get the cacheId from the main function's first argument
@@ -645,110 +646,37 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
 
     for (size_t i = 0; i < output_tensors.size(); ++i) {
-      llvm::Value* gep = builder.CreateInBoundsGEP(
-          output_array_type,
-          output_array,
-          {builder.getInt32(0), builder.getInt32(i)});
-      builder.CreateStore(output_tensors[i], gep);
-    }
-
-    llvm::Value* input_array_ptr = builder.CreateBitCast(
-        input_array, llvm::PointerType::getUnqual(void_ptr_type));
-    llvm::Value* output_array_ptr = builder.CreateBitCast(
-        output_array, llvm::PointerType::getUnqual(void_ptr_type));
-
-    llvm::Value* num_inputs_constant = builder.getInt64(input_tensors.size());
-    llvm::Value* num_outputs_constant = builder.getInt64(output_tensors.size());
-
-    uintptr_t launch_kernel_ptr = reinterpret_cast<uintptr_t>(launch_kernel);
-    llvm::Value* launch_kernel_ptr_constant = builder.CreateIntToPtr(
-        builder.getInt64(launch_kernel_ptr), void_ptr_type);
-    
-    uintptr_t container_ptr = reinterpret_cast<uintptr_t>(container_);
-    llvm::Value* container_ptr_constant = builder.CreateIntToPtr(
-        builder.getInt64(container_ptr), void_ptr_type);
-
-    builder.CreateCall(
-        module->getFunction(kLaunchKernelFuncName),
-        {cache_id_arg,
-         input_array_ptr,
-         num_inputs_constant,
-         output_array_ptr,
-         num_outputs_constant,
-         launch_kernel_ptr_constant});
-  }
-
-  // Launch Kernel Function LLVM IR Generation
-  void handle(kir::LaunchKernel* launch_kernel) final {
-    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
-    llvm::LLVMContext& context = builder_.getContext();
-    auto* void_ptr_type = getVoidPtrType(context);
-
-    // Convert input TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> input_tensors;
-    for (auto* tv : launch_kernel->inputs()) {
-      input_tensors.push_back(val_to_value_[tv]);
-    }
-
-    // Convert output TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> output_tensors;
-    for (auto* tv : launch_kernel->outputs()) {
-      output_tensors.push_back(val_to_value_[tv]);
-    }
-
-    llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
-
-    // Create arrays to hold tensor pointers
-    llvm::ArrayType* input_array_type =
-        llvm::ArrayType::get(void_ptr_type, input_tensors.size());
-    llvm::ArrayType* output_array_type =
-        llvm::ArrayType::get(void_ptr_type, output_tensors.size());
-
-    llvm::Value* input_array = builder_.CreateAlloca(
-        input_array_type, nullptr, "launch_kernel_inputs");
-    llvm::Value* output_array = builder_.CreateAlloca(
-        output_array_type, nullptr, "launch_kernel_outputs");
-
-    for (size_t i = 0; i < input_tensors.size(); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          input_array_type,
-          input_array,
-          {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(input_tensors[i], gep);
-    }
-
-    for (size_t i = 0; i < output_tensors.size(); ++i) {
-      llvm::Value* gep = builder.CreateInBoundsGEP(
           output_array_type,
           output_array,
-          {builder.getInt32(0), builder.getInt32(i)});
-      builder.CreateStore(output_tensors[i], gep);
+          {builder_.getInt32(0), builder_.getInt32(i)});
+      builder_.CreateStore(output_tensors[i], gep);
     }
 
-    llvm::Value* input_array_ptr = builder.CreateBitCast(
+    llvm::Value* input_array_ptr = builder_.CreateBitCast(
         input_array, llvm::PointerType::getUnqual(void_ptr_type));
-    llvm::Value* output_array_ptr = builder.CreateBitCast(
+    llvm::Value* output_array_ptr = builder_.CreateBitCast(
         output_array, llvm::PointerType::getUnqual(void_ptr_type));
 
-    llvm::Value* num_inputs_constant = builder.getInt64(input_tensors.size());
-    llvm::Value* num_outputs_constant = builder.getInt64(output_tensors.size());
+    llvm::Value* num_inputs_constant = builder_.getInt64(input_tensors.size());
+    llvm::Value* num_outputs_constant = builder_.getInt64(output_tensors.size());
 
     uintptr_t launch_kernel_ptr = reinterpret_cast<uintptr_t>(launch_kernel);
-    llvm::Value* launch_kernel_ptr_constant = builder.CreateIntToPtr(
-        builder.getInt64(launch_kernel_ptr), void_ptr_type);
+    llvm::Value* launch_kernel_ptr_constant = builder_.CreateIntToPtr(
+        builder_.getInt64(launch_kernel_ptr), void_ptr_type);
     
     uintptr_t container_ptr = reinterpret_cast<uintptr_t>(container_);
-    llvm::Value* container_ptr_constant = builder.CreateIntToPtr(
-        builder.getInt64(container_ptr), void_ptr_type);
+    llvm::Value* container_ptr_constant = builder_.CreateIntToPtr(
+        builder_.getInt64(container_ptr), void_ptr_type);
 
-    builder.CreateCall(
+    builder_.CreateCall(
         module->getFunction(kLaunchKernelFuncName),
         {cache_id_arg,
          input_array_ptr,
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
+         container_ptr_constant,
          launch_kernel_ptr_constant});
   }
 
@@ -851,6 +779,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
+  hir::HostIrContainer* container_;
 };
 
 void HostIrJitImpl::compile() {
@@ -872,7 +801,7 @@ void HostIrJitImpl::compile() {
 
   // compile inputs in llvm ir
   unpackInputs(container_.get(), builder, val_to_value);
-  HostIrCompileDispatcher dispatcher(builder, val_to_value);
+  HostIrCompileDispatcher dispatcher(builder, val_to_value, container_.get());
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     dispatcher.dispatch(expr);
