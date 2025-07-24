@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 from python.utils import create_sdpa_rng_tensors, define_sdpa_rng_state, is_pre_ampere
-from nvfuser.testing.benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns
 
 
 @pytest.mark.mpi
