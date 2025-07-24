@@ -142,7 +142,6 @@ class TransformerForwardFusion(FusionDefinition):
     def definition(self) -> None:
         # Same notations as in test_multidevice_transformer.cpp.
         b, s, h, e = (
-            self._num_devices,
             self._batch,
             self._sequence,
             self._head,
@@ -187,7 +186,7 @@ class TransformerForwardFusion(FusionDefinition):
         T57 = self.ops.reshape(mha_linear0_out, new_shape=[b, s, h, 3*e//h])
         T69 = self.ops.slice(T57, start_indices=[0, 0, 0, 0], end_indices=[b, s, h, e//h])
         T82 = self.ops.slice(T57, start_indices=[0, 0, 0, e//h], end_indices=[b, s, h, 2*e//h])
-        T95 = self.ops.slice(T57, start_indices=[0, 0, h, 2*e//h], end_indices=[b, s, h, 3*e//h])
+        T95 = self.ops.slice(T57, start_indices=[0, 0, 0, 2*e//h], end_indices=[b, s, h, 3*e//h])
         
         T102 = self.ops.permute(T82, dims=[0, 2, 1, 3])
         T109 = self.ops.permute(T69, dims=[0, 2, 1, 3])
@@ -298,14 +297,15 @@ class TransformerForwardFusion(FusionDefinition):
             self.mlp_linear0_weight,
             self.mlp_linear0_bias,
         ]:
+            self.sched.split(tv, 0, self._num_devices, False)
             self.sched.parallelize(tv, 0, nvfuser.ParallelType.mesh_x)
-            self.sched.split(tv, 0, nvfuser.ParallelType.mesh_x, False)
+
 
         for tv in [
             self.mha_linear1_weight,
             self.mlp_linear1_weight,
         ]:
-            self.sched.split(tv, -1, nvfuser.ParallelType.mesh_x, False)
+            self.sched.split(tv, -1, self._num_devices, False)
             self.sched.parallelize(tv, -2, nvfuser.ParallelType.mesh_x)
 
 
@@ -484,7 +484,7 @@ class TransformerBackwardFusion(FusionDefinition):
       T32 = self.ops.mul(S31, T29)
       T33 = self.ops.cast(T30, dtype=DataType.BFloat16)
       T34 = self.ops.add(T23, T32)
-      T38 = self.ops.reshape(T33, new_shape=[2048, 768])
+      T38 = self.ops.reshape(T33, new_shape=[b*s, e])
       S39 = self.define_scalar(0.797885, dtype=DataType.Double)
       T40 = self.ops.mul(S39, T34)
       T41 = self.ops.matmul(T38, self.mlp_linear1_weight)
@@ -515,7 +515,7 @@ class TransformerBackwardFusion(FusionDefinition):
       T70 = self.ops.add(T69, T68)
       T71 = self.ops.add(T70, T68)
       T72 = self.ops.cast(T71, dtype=DataType.BFloat16)
-      T76 = self.ops.reshape(T72, new_shape=[2048, 3072])
+      T76 = self.ops.reshape(T72, new_shape=[b*s, e * 4])
       T77 = self.ops.cast(self.mha_dropout_mask, dtype=DataType.Float)
       T78 = self.ops.cast(self.mha_linear1_out, dtype=DataType.Float)
       T79 = self.ops.matmul(T76, self.mlp_linear0_weight)
@@ -591,7 +591,7 @@ class TransformerBackwardFusion(FusionDefinition):
       T266 = self.ops.permute(T261, dims=[0, 2, 1, 3])
       
       # Cat before reshape to avoid concatenating along sharded dimension
-      T270 = self.ops.cat([T264, T265, T266], dim=2, manual_padding=0)
+      T270 = self.ops.cat([T264, T265, T266], dim=2)
       T271 = self.ops.reshape(T270, new_shape=[b, s, 3 * e])
       T286 = self.ops.reshape(T271, new_shape=[b*s, 3 * e])
       T287 = self.ops.matmul(T286, self.mha_linear0_weight)
@@ -631,7 +631,7 @@ class TransformerBackwardFusion(FusionDefinition):
       T377 = self.ops.broadcast_in_dim(self.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2])
       T378 = self.ops.mul(T108, T120)
       T379 = self.ops.mul(T361, T359)
-      T384 = self.ops.broadcast_in_dim(T366, shape=[16, 128, 768], broadcast_dims=[0, 1, 2])
+      T384 = self.ops.broadcast_in_dim(T366, shape=[b, s, e], broadcast_dims=[0, 1, 2])
       T385 = self.ops.cast(T371, dtype=DataType.Float)
       T386 = self.ops.mul(T372, T304)
       T387 = self.ops.permute(self.sdpa_out, dims=[0, 2, 1, 3])
@@ -670,7 +670,7 @@ class TransformerBackwardFusion(FusionDefinition):
       T433 = self.ops.reshape(T410, new_shape=[b * s, e])
       T434 = self.ops.permute(T76, dims=[1, 0])
       T435 = self.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-      T439 = self.ops.reshape(T411, new_shape=[b * s, 3 * e])
+      T439 = self.ops.reshape(T411, new_shape=[b * s, e * 4])
       T440 = self.ops.permute(T38, dims=[1, 0])
       inp_grad = self.ops.cast(T412, dtype=DataType.BFloat16)
       layernorm0_weight_grad = self.ops.cast(T413, dtype=DataType.BFloat16)
@@ -782,10 +782,10 @@ def test_transformer_backward(multidevice_test, benchmark):
         b, s, e * 3, dtype=torch.bfloat16, device="cpu"
     )
     sdpa_out = torch.testing.make_tensor(
-        b, h, s, e // h, dtype=torch.bfloat16, device="cpu"
-    )
+        b, s, h, e // h, dtype=torch.bfloat16, device="cpu"
+    ).permute(0, 2, 1, 3)
     sdpa_log_sumexp = torch.testing.make_tensor(
-        b, h, s, dtype=torch.float32, device="cpu"
+        b, s, h, dtype=torch.float32, device="cpu"
     )
     mha_linear0_weight = torch.testing.make_tensor(
         e * 3, e, dtype=torch.bfloat16, device="cpu"
@@ -851,4 +851,4 @@ def test_transformer_backward(multidevice_test, benchmark):
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
 
-    benchmark.pedantic(benchmark_fn, rounds=5)
+    # benchmark.pedantic(benchmark_fn, rounds=5)
