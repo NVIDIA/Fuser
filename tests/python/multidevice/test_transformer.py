@@ -532,8 +532,8 @@ def test_transformer_forward(multidevice_test, benchmark):
     _assert_shape_dtype(mlp_dropout_mask, [b, s, e], torch.bool)
     _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
 
-    # # Benchmark and profile. The profile can be collected and displayed using
-    # # `nsys`. See instructions in test_transformer_engine.py.
+    # Benchmark and profile. The profile can be collected and displayed using
+    # `nsys`. See instructions in test_transformer_engine.py.
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
