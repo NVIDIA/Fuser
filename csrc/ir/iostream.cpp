@@ -145,25 +145,8 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   os() << " logical domain : (" << toDelimitedString(logical_domain) << ")\n";
 
-  const auto& all_exprs = tv->domain()->allExprs();
-  std::vector<bool> is_producing_allocation_domain(all_exprs.size(), false);
-
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
-    for (const auto& [idx, expr] : enumerate(all_exprs)) {
-      if (std::all_of(
-              expr->outputs().begin(),
-              expr->outputs().end(),
-              [&alloc_domain](const Val* v) {
-                return std::any_of(
-                    alloc_domain.begin(),
-                    alloc_domain.end(),
-                    [v](const IterDomain* id) { return v == id; });
-              })) {
-        is_producing_allocation_domain[idx] = true;
-        os() << "  " << expr->toString();
-      }
-    }
     os() << " allocation domain : (" << toDelimitedString(alloc_domain)
          << ")\n";
   }
@@ -171,11 +154,12 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
   const auto& loop_domain = tv->getLoopDomain();
-  for (const auto& [idx, expr] : enumerate(all_exprs)) {
-    if (is_producing_allocation_domain[idx]) {
-      continue;
-    }
-    os() << "  " << expr->toString();
+  const auto logical_to_loop = DependencyCheck::getAllExprsBetween(
+      {logical_domain.begin(), logical_domain.end()},
+      {loop_domain.begin(), loop_domain.end()});
+
+  for (const auto exp : logical_to_loop) {
+    os() << "  " << exp->toString();
   }
   os() << " loop domain : (" << toDelimitedString(loop_domain) << ")\n";
 }
