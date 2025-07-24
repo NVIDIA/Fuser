@@ -471,6 +471,18 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
 
+  auto recompute = [](const TensorView* tv, IrCloner& ir_cloner) {
+    for (Expr* e : StmtSort::getExprsTo(
+             {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
+      ir_cloner.clone(e);
+    }
+    for (IterDomain* id : tv->getLoopDomain()) {
+      for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
+        ir_cloner.clone(e);
+      }
+    }
+  };
+
   // add all expressions and compiled kernels to the host ir container
   if (hic != nullptr) {
     IrCloner ir_cloner(hic.get());
@@ -487,14 +499,23 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               group_to_run->exprs().size(),
               1,
               "Communication segments must contain only one Expr.");
-          for (auto* e : convertSingleOpToCommunication(
-                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          Expr* e = ir_cloner.clone(group_to_run->exprs().at(0));
+          for (auto* in : ir_utils::filterByType<TensorView>(
+                   group_to_run->exprs().at(0)->inputs())) {
+            recompute(in, ir_cloner);
+          }
+          for (auto* out : ir_utils::filterByType<TensorView>(
+                   group_to_run->exprs().at(0)->outputs())) {
+            recompute(out, ir_cloner);
+          }
+
+          for (auto* c : convertSingleOpToCommunication(e, deviceid)) {
             NVF_ERROR(
-                e->isA<Communication>(),
+                c->isA<Communication>(),
                 "Exprs in a Communication group should be Communication: ",
-                e);
+                c);
             // Allocate the recv buffers of communications
-            auto* communication = e->as<Communication>();
+            auto* communication = c->as<Communication>();
             TensorView* tv = communication->out();
             if (tv->getDeviceMesh().has(deviceid)) {
               auto* allocate =
@@ -554,9 +575,15 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     for (const Val* in : segmented_fusion_->inputs()) {
       hic->addInput(ir_cloner.clone(in));
+      if (auto* tv = in->as<TensorView>()) {
+        recompute(tv, ir_cloner);
+      }
     }
     for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
+      if (auto* tv = out->as<TensorView>()) {
+        recompute(tv, ir_cloner);
+      }
     }
 
     hir_pass::InsertDeallocations().runPass(hic.get());
