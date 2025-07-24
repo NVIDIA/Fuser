@@ -503,6 +503,7 @@ void compileFunctionDeclarations(
   auto* int64_ptr_type = getInt64PtrType(context);
   auto* int32_type = llvm::Type::getInt32Ty(context);
   auto* tensor_type = getTensorPtrType(context);
+  auto* void_ptr_type = getInt8PtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   auto* tensor_size_type =
@@ -559,11 +560,18 @@ void compileFunctionDeclarations(
       kDeleteTensorFuncName,
       module);
 
+  // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor** input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t num_outputs, void* launchKernel, void* hostIrContainer)
+  auto* launch_kernel_type = llvm::FunctionType::get(
+    void_type, {int64_type, tensor_type->getPointerTo(), int64_type, tensor_type->getPointerTo(), int64_type, void_ptr_type, void_ptr_type}, false);
+llvm::Function::Create(
+    launch_kernel_type, llvm::Function::ExternalLinkage, kLaunchKernelFuncName, module);
+
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
       void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
+
 }
 
 // Not handled instructions automatically trigger an error.
@@ -676,8 +684,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
-         container_ptr_constant,
-         launch_kernel_ptr_constant});
+         launch_kernel_ptr_constant,
+         container_ptr_constant});
   }
 
   // Create Function LLVM IR Generation

@@ -260,6 +260,58 @@ TEST_F(HostIrJitTest, BroadcastTest) {
   EXPECT_EQ(out_expand.strides(), std::vector<int64_t>({0, 0, 1}));
 }
 
+TEST_F(HostIrJitTest, LaunchKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeSymbolicTensor(2);
+  fusion.addInput(in);
+
+  TensorView* out = set(in);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32, 32}, options);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->setGroupId(0);
+  ke->compile(&fusion, {t0});
+
+  auto hic = std::make_unique<HostIrContainer>(1);
+  FusionGuard::setCurFusion(hic.get());
+
+  hic->addKernelExecutor(std::move(ke));
+
+  IrCloner ir_cloner(hic.get());
+  auto hic_in = ir_cloner.clone(in);
+  auto hic_out = ir_cloner.clone(out);
+
+  hic->addInput(hic_in);
+  hic->addOutput(hic_out);
+
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
+  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+  auto launch_kernel = IrBuilder::create<LaunchKernel>(
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out},
+      cache_id);
+
+  hic->pushBackTopLevelExprs(allocate);
+  hic->pushBackTopLevelExprs(launch_kernel);
+
+  HostIrJit jit(std::move(hic));
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+  EXPECT_TRUE(at::equal(output, t0)) << "Tensors are not equal:\n"
+                                  << "in = " << t0 << "\n"
+                                  << "out = " << output;
+}
+
 } // namespace hir
 
 } // namespace nvfuser
