@@ -432,7 +432,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) {
 }
 
 TensorView* PointwiseDomainMap::findReferenceTensor(
-    int64_t minimum_num_axes) const {
+    int64_t minimum_num_axes) {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto output_tv :
@@ -451,7 +451,7 @@ TensorView* PointwiseDomainMap::findReferenceTensor(
 }
 
 TensorView* TransposeDomainMap::findReferenceFor(
-    const std::vector<TensorView*>& group) const {
+    const std::vector<TensorView*>& group) {
   TensorView* result = nullptr;
   int64_t max_dims = -1;
   for (auto tv : group) {

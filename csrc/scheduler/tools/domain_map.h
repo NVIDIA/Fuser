@@ -83,7 +83,7 @@ class PointwiseDomainMap : public scheduler_tools::DomainMap {
 
   // The pointwise scheduler heuristics requires a minimum number of axes.
   // The output reference tensor should respect this requirement.
-  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0) const;
+  TensorView* findReferenceTensor(int64_t minimum_num_axes = 0);
 
  private:
   bool hasMinimumSize(TensorView* tv, int64_t num_axes) const {
@@ -105,7 +105,7 @@ class TransposeDomainMap : public scheduler_tools::DomainMap {
   // be a traversal path to an input. This type of analysis is
   // expected to be possible much more easily with the new indexing
   // graph (#32), so we should revisit once it becomes available.
-  TensorView* findReferenceFor(const std::vector<TensorView*>& group) const;
+  TensorView* findReferenceFor(const std::vector<TensorView*>& group);
 
   IterDomain* getMappedAllocDimIn(TensorView* tv, IterDomain* root_dim) const;
 
