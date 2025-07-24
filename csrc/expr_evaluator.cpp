@@ -204,7 +204,9 @@ void ExpressionEvaluator::bind_(
         toString(concrete_value));
     return;
   }
-  validateValWithConcreteValue(value, concrete_value);
+  if (evaluate_validate) {
+    validateValWithConcreteValue(value, concrete_value);
+  }
   if (evaluate_validate &&
       ir_utils::dependenciesSatisfied(value, known_values_)) {
     auto evaluated_value = evaluate(value);

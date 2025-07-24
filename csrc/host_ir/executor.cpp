@@ -873,19 +873,19 @@ void HostIrEvaluator::handle(NewTensor* new_tensor) {
       !expr_evaluator_.isKnown(tv),
       "Tried to create a new tensor wrapper that is already created",
       tv);
-  GlobalBufferInfo info =
-      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
-  // Get the device from the communicator or use CUDA as default
-  c10::Device device = communicator_ ? communicator_->device() : at::Device("cuda:0");
+  // GlobalBufferInfo info =
+  //     getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  // // Get the device from the communicator or use CUDA as default
+  // c10::Device device = communicator_ ? communicator_->device() : at::Device("cuda:0");
   
-  at::Tensor tensor = at::detail::empty_strided_meta(
-      info.shape_info.logical_sizes,
-      info.shape_info.logical_strides,
-      info.type,
-      c10::nullopt,
-      device,  // Use the same device as other tensors
-      c10::nullopt);
-  expr_evaluator_.bind(tv, tensor);
+  // at::Tensor tensor = at::detail::empty_strided_meta(
+  //     info.shape_info.logical_sizes,
+  //     info.shape_info.logical_strides,
+  //     info.type,
+  //     c10::nullopt,
+  //     device,  // Use the same device as other tensors
+  //     c10::nullopt);
+  expr_evaluator_.bind(tv, at::Tensor(),false);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
