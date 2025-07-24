@@ -618,6 +618,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
     auto* void_ptr_type = getInt8PtrType(context);
+    auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
 
     // Convert input TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> input_tensors;
@@ -635,10 +636,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* cache_id_arg = builder_.GetInsertBlock()->getParent()->getArg(0);
 
     // Create arrays to hold tensor pointers
-    llvm::ArrayType* input_array_type =
-        llvm::ArrayType::get(void_ptr_type, input_tensors.size());
-    llvm::ArrayType* output_array_type =
-        llvm::ArrayType::get(void_ptr_type, output_tensors.size());
+    auto* input_array_type = getInt8PtrStaticArrayType(context, input_tensors.size());
+    auto* output_array_type = getInt8PtrStaticArrayType(context, output_tensors.size());
 
     llvm::Value* input_array = builder_.CreateAlloca(
         input_array_type, nullptr, "launch_kernel_inputs");
@@ -662,20 +661,18 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
 
     llvm::Value* input_array_ptr = builder_.CreateBitCast(
-        input_array, llvm::PointerType::getUnqual(void_ptr_type));
+        input_array, void_array_ptr_type);
     llvm::Value* output_array_ptr = builder_.CreateBitCast(
-        output_array, llvm::PointerType::getUnqual(void_ptr_type));
+        output_array, void_array_ptr_type);
 
     llvm::Value* num_inputs_constant = builder_.getInt64(input_tensors.size());
     llvm::Value* num_outputs_constant = builder_.getInt64(output_tensors.size());
 
-    uintptr_t launch_kernel_ptr = reinterpret_cast<uintptr_t>(launch_kernel);
-    llvm::Value* launch_kernel_ptr_constant = builder_.CreateIntToPtr(
-        builder_.getInt64(launch_kernel_ptr), void_ptr_type);
+    llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)), void_ptr_type);
     
-    uintptr_t container_ptr = reinterpret_cast<uintptr_t>(container_);
-    llvm::Value* container_ptr_constant = builder_.CreateIntToPtr(
-        builder_.getInt64(container_ptr), void_ptr_type);
+    llvm::Value* container_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(container_)), void_ptr_type);
 
     builder_.CreateCall(
         module->getFunction(kLaunchKernelFuncName),
@@ -684,8 +681,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
-         launch_kernel_ptr_constant,
-         container_ptr_constant});
+         launch_kernel_ptr,
+         container_ptr});
   }
 
   // Create Function LLVM IR Generation
