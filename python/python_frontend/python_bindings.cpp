@@ -510,10 +510,9 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
 
   py::class_<MatmulParams::ClusterDims>(nvfuser, "ClusterDims")
-      .def(py::init<int64_t, int64_t, int64_t>())
-      .PARAM(MatmulParams::ClusterDims, x)
-      .PARAM(MatmulParams::ClusterDims, y)
-      .PARAM(MatmulParams::ClusterDims, z)
+      .def(py::init<int64_t, int64_t>())
+      .PARAM(MatmulParams::ClusterDims, m)
+      .PARAM(MatmulParams::ClusterDims, n)
       .TOSTRINGMETHOD(MatmulParams::ClusterDims);
 
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
@@ -663,7 +662,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def("clone", clone);
 
   //! DataTypes supported by nvFuser in the FusionDefinition
-  py::enum_<PrimDataType>(nvfuser, "DataType")
+  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -682,7 +681,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Null", DataType::Null);
 
   //! ParallelType used for scheduling
-  py::enum_<ParallelType>(nvfuser, "ParallelType")
+  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
@@ -732,7 +731,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+  py::enum_<CommunicatorBackend>(
+      nvfuser, "CommunicatorBackend", py::module_local())
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc);
 
@@ -1461,6 +1461,38 @@ void initNvFuserPythonBindings(PyObject* module) {
         return self.getValTolerances(args);
       },
       py::return_value_policy::reference);
+
+  fusion_def.def(
+      "validate_with_auto_inferred_outputs",
+      [](FusionDefinition& self,
+         const py::iterable& fusion_outputs,
+         const py::iterable& inputs) {
+        KernelArgumentHolder fusion_outputs_holder;
+        for (py::handle obj : fusion_outputs) {
+          fusion_outputs_holder.push(
+              torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        KernelArgumentHolder inputs_holder;
+        for (py::handle obj : inputs) {
+          inputs_holder.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+        }
+        return self.validate_with_auto_inferred_outputs(
+            fusion_outputs_holder, inputs_holder);
+      },
+      py::return_value_policy::reference,
+      R"doc(
+    Validates the fusion outputs against the inputs with auto-inferred outputs.
+
+    Parameters
+    ----------
+    fusion_outputs : iterable
+        The outputs of the fusion to validate.
+    inputs : iterable
+        The inputs to the fusion.
+    Example
+    -------
+    >>> fd.validate_with_auto_inferred_outputs(fusion_outputs, inputs)
+    )doc");
 
   //! The Operators class is a nested class of FusionDefinition to allow the
   //! user to query the class for the list of operators.
@@ -3744,7 +3776,7 @@ void initNvFuserPythonBindings(PyObject* module) {
           out_scale = fd->defineTensor(output_dims);
         }
         if (output_gamma) {
-          // out_gamma is a scalar tensor
+          // TODO: would out_gamma should be a vector when both inputs are 2d.
           out_gamma = fd->defineTensor(0);
         }
 
@@ -3823,13 +3855,130 @@ void initNvFuserPythonBindings(PyObject* module) {
               Otherwise, None will be returned.
 
       Returns:
-          Tensor: Result of grouped matrix multiplication
+          Tensor: Result of matrix multiplication
           Tensor: Output block scale tensor [optional]
           Tensor: Output gamma tensor [optional]
       )",
       py::arg("mat1"),
       py::arg("mat2"),
       py::arg("offsets"),
+      py::arg("scale1"),
+      py::arg("scale2"),
+      py::arg("alpha") = std::nullopt,
+      py::arg("bias") = std::nullopt,
+      py::arg("beta") = std::nullopt,
+      py::arg("dtype") = DataType::BFloat16,
+      py::arg("output_block_scale_size") = 0,
+      py::arg("output_block_scale_dtype") = DataType::BFloat16,
+      py::arg("output_gamma") = false,
+      py::return_value_policy::reference);
+
+  nvf_ops.def(
+      "scaled_mm",
+      [](FusionDefinition::Operators& self,
+         Tensor mat1,
+         Tensor mat2,
+         Tensor scale1,
+         Tensor scale2,
+         std::optional<Tensor> alpha,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> beta,
+         PrimDataType dtype,
+         int64_t output_block_scale_size,
+         PrimDataType output_block_scale_dtype,
+         bool output_gamma)
+          -> std::tuple<Tensor, std::optional<Tensor>, std::optional<Tensor>> {
+        FUSER_PERF_SCOPE("Operators.scaled_mm");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+
+        /* Per https://pytorch.org/docs/stable/generated/torch.matmul.html */
+        size_t out_ndims;
+        if (mat1.dims <= 2 && mat2.dims <= 2) {
+          out_ndims = mat1.dims + mat2.dims - 2;
+        } else {
+          /* batch matmul */
+          out_ndims = std::max(mat1.dims, mat2.dims);
+        }
+        Tensor output = fd->defineTensor(out_ndims);
+        //
+        std::optional<Tensor> out_scale = std::nullopt;
+        std::optional<Tensor> out_gamma = std::nullopt;
+        if (output_block_scale_size > 0) {
+          out_scale = fd->defineTensor(out_ndims);
+        }
+        if (output_gamma) {
+          // out_gamma is a scalar tensor
+          out_gamma = fd->defineTensor(0);
+        }
+
+        fd->defineRecord(new ScaledMmaOpRecord(
+            {fd->recordingState(mat1()),
+             fd->recordingState(mat2()),
+             fd->recordingState(scale1()),
+             fd->recordingState(scale2()),
+             alpha.has_value()
+                 ? fd->recordingState(alpha.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             bias.has_value()
+                 ? fd->recordingState(bias.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             beta.has_value()
+                 ? fd->recordingState(beta.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            {fd->recordingState(output()),
+             out_scale.has_value()
+                 ? fd->recordingState(out_scale.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+             out_gamma.has_value()
+                 ? fd->recordingState(out_gamma.value()())
+                 : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+            dtype,
+            output_block_scale_size,
+            output_block_scale_dtype,
+            output_gamma));
+
+        if (output_gamma) {
+          NVF_CHECK(
+              output_block_scale_size > 0,
+              "output_block_scale_size must be greater than 0 when "
+              "output_gamma is "
+              "true");
+          return std::make_tuple(output, out_scale, out_gamma);
+        } else if (output_block_scale_size > 0) {
+          return std::make_tuple(output, out_scale, std::nullopt);
+        }
+        return std::make_tuple(output, std::nullopt, std::nullopt);
+      },
+      R"(
+      Scaled matrix multiplication.
+
+      Args:
+          mat1 (Tensor): First set of matrices
+          mat2 (Tensor): Second set of matrices
+          scale1 (Tensor): Scale tensor for mat1
+          scale2 (Tensor): Scale tensor for mat2
+          alpha (Tensor): Alpha tensor [optional]
+          bias (Tensor): Bias tensor [optional]
+          beta (Tensor): Beta tensor [optional]
+          dtype (ScalarType): Output tensor type [optional]
+          output_block_scale_size (int): Output block scale size [optional, default 0]
+          output_block_scale_dtype (ScalarType): Output block scale dtype [optional]
+          output_gamma (bool): Output gamma [optional, default: False]
+
+      Note 1: The post quantization only applies when output_block_scale_size > 0,
+              which would produce out_scale tensor. Otherwise, None will be returned;
+      Note 2: When output_gamma is set to True, it should produce global scaling factor out_gamma tensor.
+              Otherwise, None will be returned.
+
+      Returns:
+          Tensor: Result of grouped matrix multiplication
+          Tensor: Output block scale tensor [optional]
+          Tensor: Output gamma tensor [optional]
+      )",
+      py::arg("mat1"),
+      py::arg("mat2"),
       py::arg("scale1"),
       py::arg("scale2"),
       py::arg("alpha") = std::nullopt,

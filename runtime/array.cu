@@ -34,6 +34,63 @@ struct alignas(sizeof(scalar_t) * align_size) Array {
   }
 };
 
+template <int size, int align_size>
+struct alignas(align_size / 2) Array<__e2m1, size, align_size> {
+  static_assert(size % 2 == 0, "There must be an even number of fp4 elements");
+  __e2m1 array[size / 2];
+
+  __device__ __e2m1& operator[](const unsigned int i) {
+    // For performance reason, we do not check the index is even, but we assume
+    // it. assert(i % 2 == 0);
+    return array[i / 2];
+  }
+
+  __device__ const __e2m1& operator[](const unsigned int i) const {
+    // For performance reason, we do not check the index is even, but we assume
+    // it. assert(i % 2 == 0);
+    return array[i / 2];
+  }
+
+  Array& operator=(const Array& a) {
+#pragma unroll
+    for (int i = 0; i < size / 2; ++i) {
+      array[i] = a.array[i];
+    }
+    return *this;
+  }
+};
+
+static_assert(
+    sizeof(Array<__e2m1, 2, 2>) == 1,
+    "sizeof(Array<__e2m1, 2, 2>) must be 1");
+static_assert(
+    sizeof(Array<__e2m1, 4, 2>) == 2,
+    "sizeof(Array<__e2m1, 4, 2>) must be 2");
+static_assert(
+    sizeof(Array<__e2m1, 4, 4>) == 2,
+    "sizeof(Array<__e2m1, 4, 4>) must be 2");
+static_assert(
+    sizeof(Array<__e2m1, 8, 2>) == 4,
+    "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(
+    sizeof(Array<__e2m1, 8, 4>) == 4,
+    "sizeof(Array<__e2m1, 8, 4>) must be 4");
+static_assert(
+    sizeof(Array<__e2m1, 8, 8>) == 4,
+    "sizeof(Array<__e2m1, 8, 8>) must be 4");
+static_assert(
+    sizeof(Array<__e2m1, 16, 2>) == 8,
+    "sizeof(Array<__e2m1, 16, 2>) must be 8");
+static_assert(
+    sizeof(Array<__e2m1, 16, 4>) == 8,
+    "sizeof(Array<__e2m1, 16, 4>) must be 8");
+static_assert(
+    sizeof(Array<__e2m1, 16, 8>) == 8,
+    "sizeof(Array<__e2m1, 16, 8>) must be 8");
+static_assert(
+    sizeof(Array<__e2m1, 16, 16>) == 8,
+    "sizeof(Array<__e2m1, 16, 16>) must be 8");
+
 // Used for vectorized allocations that are not in registers
 template <typename scalar_t, int vec_size>
 __device__ void arraySet(scalar_t* buff, scalar_t val) {
@@ -52,6 +109,11 @@ template <>
 constexpr int64_t vecSizeBit<__e2m1>(int64_t vec_size) {
   return vec_size * 4;
 }
+
+// No built-in type of uint8
+struct alignas(32) uint8 {
+  unsigned x, y, z, w, a, b, c, d;
+};
 
 template <typename scalar_t, int vec_size>
 __device__ void loadGeneric(scalar_t* to, scalar_t* from) {
@@ -86,6 +148,9 @@ __device__ void loadGeneric(scalar_t* to, scalar_t* from) {
       break;
     case 128:
       *reinterpret_cast<uint4*>(to) = *reinterpret_cast<uint4*>(from);
+      break;
+    case 256:
+      *reinterpret_cast<uint8*>(to) = *reinterpret_cast<uint8*>(from);
       break;
   }
 }
@@ -183,6 +248,35 @@ __device__ void loadLocalToGlobal(
       }
       break;
     }
+    case 256: {
+      uint8 const& data = *reinterpret_cast<uint8*>(from);
+      if (is_volatile) {
+        asm volatile(
+            "st.volatile.global.v8.s32 [%0], {%1,%2,%3,%4,%5,%6,%7,%8};" ::"l"(
+                (typename MaybeVolatile<uint8, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y),
+            "r"(data.z),
+            "r"(data.w),
+            "r"(data.a),
+            "r"(data.b),
+            "r"(data.c),
+            "r"(data.d));
+      } else {
+        asm volatile(
+            "st.global.cs.v8.s32 [%0], {%1,%2,%3,%4,%5,%6,%7,%8};" ::"l"(
+                (typename MaybeVolatile<uint8, is_volatile>::type*)to),
+            "r"(data.x),
+            "r"(data.y),
+            "r"(data.z),
+            "r"(data.w),
+            "r"(data.a),
+            "r"(data.b),
+            "r"(data.c),
+            "r"(data.d));
+      }
+      break;
+    }
   }
 }
 
@@ -249,6 +343,65 @@ __device__ void loadGlobalToLocal(
       }
       break;
     }
+    case 256: {
+      if (is_volatile) {
+        uint8& data = *reinterpret_cast<uint8*>(to);
+        asm volatile(
+            "ld.volatile.global.v8.s32 {%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+            : "=r"(data.x),
+              "=r"(data.y),
+              "=r"(data.z),
+              "=r"(data.w),
+              "=r"(data.a),
+              "=r"(data.b),
+              "=r"(data.c),
+              "=r"(data.d)
+            : "l"((uint8*)from));
+      } else {
+        // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#load-functions-using-cache-hints
+        // loadGlobalToLocalCached doesn't support 256-bit vectorized
+        uint8& data = *reinterpret_cast<uint8*>(to);
+        switch (cache_op) {
+          case CacheOp::AllLevels:
+            asm volatile("ld.global.ca.v8.s32 {%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+                         : "=r"(data.x),
+                           "=r"(data.y),
+                           "=r"(data.z),
+                           "=r"(data.w),
+                           "=r"(data.a),
+                           "=r"(data.b),
+                           "=r"(data.c),
+                           "=r"(data.d)
+                         : "l"((uint8*)from));
+            break;
+          case CacheOp::Streaming:
+            asm volatile("ld.global.cs.v8.s32 {%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+                         : "=r"(data.x),
+                           "=r"(data.y),
+                           "=r"(data.z),
+                           "=r"(data.w),
+                           "=r"(data.a),
+                           "=r"(data.b),
+                           "=r"(data.c),
+                           "=r"(data.d)
+                         : "l"((uint8*)from));
+            break;
+          case CacheOp::Global:
+            asm volatile("ld.global.cg.v8.s32 {%0,%1,%2,%3,%4,%5,%6,%7}, [%8];"
+                         : "=r"(data.x),
+                           "=r"(data.y),
+                           "=r"(data.z),
+                           "=r"(data.w),
+                           "=r"(data.a),
+                           "=r"(data.b),
+                           "=r"(data.c),
+                           "=r"(data.d)
+                         : "l"((uint8*)from));
+            break;
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -286,6 +439,18 @@ __device__ void loadGlobalToGlobal(
     }
     case 128: {
       uint4 local_intermediate;
+      loadGlobalToLocal<
+          scalar_t,
+          vec_size,
+          is_volatile_from,
+          CacheOp::Streaming>(
+          reinterpret_cast<scalar_t*>(&local_intermediate), from);
+      loadLocalToGlobal<scalar_t, vec_size, is_volatile_to>(
+          to, reinterpret_cast<scalar_t*>(&local_intermediate));
+      break;
+    }
+    case 256: {
+      uint8 local_intermediate;
       loadGlobalToLocal<
           scalar_t,
           vec_size,

@@ -1396,6 +1396,260 @@ TensorView
 )")
 }
 
+void bindCastOps(py::module_& ops) {
+  ops.def(
+      "cast",
+      [](TensorView* arg, PrimDataType dtype) -> TensorView* {
+        return static_cast<TensorView* (*)(DataType, TensorView*)>(castOp)(
+            dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "cast",
+      [](Val* arg, PrimDataType dtype) -> Val* {
+        return static_cast<Val* (*)(DataType, Val*)>(castOp)(dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      R"(
+Cast a scalar value to a different data type.
+
+Parameters
+----------
+arg : Val
+    Input scalar value to cast.
+dtype : PrimDataType
+    Target data type for the cast operation.
+
+Returns
+-------
+Val
+    A new scalar value with the specified data type.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindMatmulOps(py::module_& ops) {
+  ops.def(
+      "matmul",
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul),
+      py::arg("arg1"),
+      py::arg("arg2"),
+      R"(
+The matrix product of two tensors.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+
+Returns
+-------
+TensorView
+    The result of the matrix multiplication.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "linear",
+      [](TensorView* arg1,
+         TensorView* arg2,
+         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+        return static_cast<
+            TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
+            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      R"(
+Applies an affine linear transformation to the incoming data:
+output = arg1 @ transpose(arg2) + bias.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+bias : TensorView, optional
+    The bias vector to add to the output. If not provided, the bias is not added.
+
+Returns
+-------
+TensorView
+    The result of the affine linear transformation.
+)",
+      py::return_value_policy::reference);
+}
+
+template <class ITERABLE>
+std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
+  std::vector<Val*> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      NVF_CHECK(
+          !shape_check || int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
+      args.emplace_back(IrBuilder::create<Val>(int_value, DataType::Int));
+    } else if (py::isinstance<Val>(item)) {
+      args.emplace_back(py::cast<Val*>(item));
+    } else {
+      NVF_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return args;
+}
+
+template <class ShapeType>
+std::vector<Val*> SequenceAsVector(ShapeType shape, bool shape_check = true) {
+  static_assert(
+      std::is_same_v<ShapeType, py::list> ||
+      std::is_same_v<ShapeType, py::tuple>);
+  return define_vector_fn<ShapeType>(shape, /*shape_check=*/shape_check);
+}
+
+template <class ShapeType>
+TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return reshape(arg, SequenceAsVector(generic_new_shape));
+}
+
+void bindMetadataOps(py::module_& ops) {
+  ops.def(
+      "broadcast",
+      [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
+        return broadcast(arg, is_broadcast_dim);
+      },
+      py::arg("arg"),
+      py::arg("is_broadcast_dim"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "reshape",
+      reshape_fn<py::list>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "reshape",
+      reshape_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "permute",
+      [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == (int64_t)dims.size(),
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
+        return permute(arg, dims);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Permute a tensor.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    Permutation order.
+
+Returns
+-------
+TensorView
+    The permuted tensor.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindTensorUtilityOps(py::module_& ops) {
+  ops.def(
+      "size",
+      [](TensorView* arg, int64_t dim) -> Val* { return size(arg, dim); },
+      py::arg("arg"),
+      py::arg("dim"),
+      R"(
+Get the size of a tensor.
+
+Parameters
+----------
+arg : TensorView
+dim : int
+    The dimension to get the size of.
+
+Returns
+-------
+int
+    The size of the dimension.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "shape",
+      [](TensorView* arg) { return shape(arg); },
+      py::return_value_policy::reference,
+      R"(
+Get the shape of a tensor.
+
+Returns
+-------
+list of Val
+    The shape of the tensor.
+)");
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1404,6 +1658,10 @@ void bindOperations(py::module& nvfuser) {
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindCastOps(nvf_ops);
+  bindMatmulOps(nvf_ops);
+  bindMetadataOps(nvf_ops);
+  bindTensorUtilityOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

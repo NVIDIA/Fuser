@@ -56,7 +56,9 @@ def test_embedding_fwd_baseline_benchmark(
         kwargs["nv_enable_embedding"] = True
 
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
-    embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
+    embedding_table = torch.randn(
+        vocab_hidden, device="cuda", dtype=dtype, requires_grad=True
+    )
 
     benchmark_fn = with_executor(executor, embedding, **kwargs)
     run_benchmark(

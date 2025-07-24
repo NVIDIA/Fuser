@@ -17,6 +17,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/multidevice.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser {
 
@@ -45,7 +46,7 @@ struct MultiDeviceExecutorParams {
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
   - resharding "Set" exprs are automatically inserted in the fusion where a
-    network communication is needed. See the function insertReshardings.
+    network communication is needed. See the function DecomposeReshardings.
   - the Fusion is segmented into segments which can be of two types:
       1) compute segments, composed of non-Resharding expressions only,
          that can be purely execute on a single device

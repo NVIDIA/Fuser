@@ -36,16 +36,6 @@
 #include <unordered_map>
 #include <vector>
 
-#define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH > patch))
-
-#define NVF_TORCH_VERSION_NO_LESS(major, minor, patch)                \
-  TORCH_VERSION_MAJOR > major ||                                      \
-      (TORCH_VERSION_MAJOR == major && TORCH_VERSION_MINOR > minor || \
-       (TORCH_VERSION_MINOR == minor && TORCH_VERSION_PATCH >= patch))
-
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
@@ -82,6 +72,9 @@ int8_t NVF_API getCommonDeviceCUDA(
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
+
+// Get the maximum vectorization size in bits for the current CUDA device
+int64_t getMaxVectorizationSizeInBit();
 
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.

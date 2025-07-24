@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser.testing.utils import (
+from opinfo_utils import (
     all_dtypes_except_reduced,
     ArgumentType,
     torch_to_python_dtype_map,
@@ -50,12 +50,12 @@ class SampleInput:
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
     def jax(self):
-        from nvfuser.testing.utils import JAX_AVAILABLE
+        from opinfo_utils import JAX_AVAILABLE
 
         assert JAX_AVAILABLE
 
         import jax.numpy as jnp
-        from nvfuser.testing.utils import torch_to_jax_dtype_map
+        from opinfo_utils import torch_to_jax_dtype_map
 
         def to_jax(t):
             if isinstance(t, torch.Tensor):
@@ -125,3 +125,6 @@ class OpInfo:
     # Enable check_cpp_translation test
     # Tests that translation from CPP Fusion back to Python FusionDefinition is correct.
     is_clonable: bool = False
+
+    # Test operation using direct bindings python API
+    supports_direct_bindings: bool = False

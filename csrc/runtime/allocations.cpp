@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
@@ -241,9 +242,13 @@ void fillTensorWithNan(at::Tensor& t) {
     case at::ScalarType::Float8_e4m3fn:
     case at::ScalarType::Float8_e5m2:
     case at::ScalarType::Float8_e8m0fnu:
-      // case at::ScalarType::Float4_e2m1fn_x2:
       t.fill_(std::nan(""));
       break;
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+    case at::ScalarType::Float4_e2m1fn_x2:
+      t.view(torch::kByte).fill_(0xFF);
+      break;
+#endif
     case at::ScalarType::ComplexHalf:
     case at::ScalarType::ComplexFloat:
     case at::ScalarType::ComplexDouble:
@@ -309,25 +314,24 @@ KernelArgumentHolder allocateOutputs(
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs) {
+    const std::vector<Val*>& tvs) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
-  std::vector<GlobalBufferInfo> output_buffer_infos;
-  output_buffer_infos.reserve(fusion_outputs.size());
-  for (const auto out : fusion_outputs) {
+  std::vector<GlobalBufferInfo> buffer_infos;
+  buffer_infos.reserve(tvs.size());
+  for (Val* v : tvs) {
+    auto* tv = dynamic_cast<TensorView*>(v);
     NVF_ERROR(
-        out->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
+        tv != nullptr, "Cannot allocate outputs that are not tensors: ", v);
 
     GlobalBufferInfo info;
-    info.tv = out->as<TensorView>();
-    info.shape_info = inferTensorShapes(info.tv, expr_eval);
-    auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+    info.tv = tv;
+    info.shape_info = inferTensorShapes(tv, expr_eval);
+    auto dtype = (tv->dtype() == DataType::Index ? index_dtype : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
-    output_buffer_infos.emplace_back(info);
+    buffer_infos.emplace_back(info);
   }
-  return output_buffer_infos;
+  return buffer_infos;
 }
 
 namespace {

@@ -109,7 +109,8 @@ DomainMap::DomainMap(Fusion* fusion) : fusion_(fusion), ca_map_(fusion) {
   tvs_with_rfactor_ = scheduler_utils::getTVsWithNonReductionRFactor(fusion);
 }
 
-const scheduler_utils::CoveredDomainPropagator& DomainMap::getCoveredDomainPropagator(TensorView* reference_tv) {
+const scheduler_utils::CoveredDomainPropagator& DomainMap::
+    getCoveredDomainPropagator(TensorView* reference_tv) {
   auto it = covered_domain_propagators_.find(reference_tv);
   if (it != covered_domain_propagators_.end()) {
     return it->second;
@@ -118,7 +119,8 @@ const scheduler_utils::CoveredDomainPropagator& DomainMap::getCoveredDomainPropa
       reference_tv,
       /*selector=*/nullptr,
       /*propagate_through_resize=*/true);
-  scheduler_utils::CoveredDomainPropagator& prop = covered_domain_propagators_[reference_tv];
+  scheduler_utils::CoveredDomainPropagator& prop =
+      covered_domain_propagators_[reference_tv];
   tree.traverse(&prop);
   return prop;
 }
@@ -142,7 +144,8 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv) {
     }
   }
 
-  const scheduler_utils::CoveredDomainPropagator& prop = getCoveredDomainPropagator(tv);
+  const scheduler_utils::CoveredDomainPropagator& prop =
+      getCoveredDomainPropagator(tv);
   for (IterDomain* id : in_concrete_ids) {
     if (!prop.checkIterDomainIsScheduled(id)) {
       return false;
@@ -152,10 +155,10 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv) {
 
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
-  //eraseifInputMappedThroughRootDomainAndIndexing(
-      //in_concrete_ids, tv->getLogicalDomain());
+  // eraseifInputMappedThroughRootDomainAndIndexing(
+  // in_concrete_ids, tv->getLogicalDomain());
 
-  //return in_concrete_ids.empty();
+  // return in_concrete_ids.empty();
 }
 
 // Note: ideally we would want to check that reference_tv contains all iter

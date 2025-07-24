@@ -41,7 +41,8 @@ class DomainMap {
   // Determine if all IterDomains are mapped between input and the given tvs
   bool areAllInputIdsMappedTo(TensorView* input_tv, TensorView* output_tv);
 
-  const scheduler_utils::CoveredDomainPropagator& getCoveredDomainPropagator(TensorView* reference_tv);
+  const scheduler_utils::CoveredDomainPropagator& getCoveredDomainPropagator(
+      TensorView* reference_tv);
 
   // Determine if all source IterDomains in target_tv are contained by the
   // reference_tv, this ensures transformations from reference_tv can be
@@ -72,7 +73,8 @@ class DomainMap {
   Fusion* fusion_ = nullptr;
   ComputeAtMap ca_map_;
   std::vector<TensorView*> tvs_with_rfactor_;
-  std::unordered_map<TensorView*, scheduler_utils::CoveredDomainPropagator> covered_domain_propagators_;
+  std::unordered_map<TensorView*, scheduler_utils::CoveredDomainPropagator>
+      covered_domain_propagators_;
 };
 
 class PointwiseDomainMap : public scheduler_tools::DomainMap {

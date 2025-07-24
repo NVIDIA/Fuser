@@ -2685,10 +2685,6 @@ TEST_F(NVFuserTest, Fp8CastOps) {
 
       fusion.addInput(tv0);
       fusion.addOutput(out);
-      tv0->computeAt(out, -1);
-
-      out->axis(0)->parallelize(ParallelType::BIDx);
-      out->axis(-1)->parallelize(ParallelType::TIDx);
 
       auto at_src_type = data_type_to_aten(src_type);
       auto at_fp8_type = data_type_to_aten(fp8_type);
@@ -2696,7 +2692,8 @@ TEST_F(NVFuserTest, Fp8CastOps) {
       auto options =
           at::TensorOptions().dtype(at_src_type).device(at::kCUDA, 0);
 
-      at::Tensor t0 = at::randn({1, 4}, options);
+      const int n = std::rand() % (1024 * 1024 * 2) + 1;
+      at::Tensor t0 = at::randn({n, 4}, options);
 
       if (fp8_type == DataType::Float8_e8m0fnu) {
         // e8m0 can only represent positive values
@@ -2726,6 +2723,7 @@ TEST_F(NVFuserTest, Fp8CastOps) {
             testing::ThrowsMessage<nvfuser::nvfError>(
                 testing::HasSubstr("Reason: Fusion contains Float8_")));
       } else {
+        scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
         ke.compile(&fusion, {t0});
         auto outputs = ke.run({t0});
 
@@ -2751,6 +2749,220 @@ TEST_F(NVFuserTest, Fp8CastOps) {
     }
   }
 }
+
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+
+// FP4 reference values
+namespace fp4ref {
+
+// Reference:
+// https://nvidia.glean.com/go/fp4-values
+
+std::array<uint8_t, 8> fp4_values = {
+    0b00000001,
+    0b00100011,
+    0b01000101,
+    0b01100111,
+    0b10001001,
+    0b10101011,
+    0b11001101,
+    0b11101111,
+};
+
+std::array<float, 16> float_values = {
+    0.5,
+    0.0,
+    1.5,
+    1.0,
+    3.0,
+    2.0,
+    6.0,
+    4.0,
+    -0.5,
+    -0.0,
+    -1.5,
+    -1.0,
+    -3.0,
+    -2.0,
+    -6.0,
+    -4.0,
+};
+
+} // namespace fp4ref
+
+// High precision type, vectorization factor of castOp
+using Fp4CastParams = std::tuple<DataType, int64_t>;
+
+class Fp4CastTest : public NVFuserTest,
+                    public ::testing::WithParamInterface<Fp4CastParams> {
+ public:
+  void SetUp() override {
+    std::tie(dtype_highp, vectorization_factor) = GetParam();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  }
+
+ protected:
+  DataType dtype_highp;
+  int64_t vectorization_factor;
+};
+
+TEST_P(Fp4CastTest, Fp4ToHighPrecision) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({16}, DataType::Float4_e2m1fn);
+  TensorView* tv1 = castOp(dtype_highp, tv0);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  TensorView* tv0_cache = tv0->cacheAfter();
+  TensorView* tv1_cache = tv1->cacheBefore();
+
+  tv0_cache->axis(0)->parallelize(ParallelType::Vectorize);
+  tv1_cache->split(0, vectorization_factor);
+  tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
+
+  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte)
+                         .to(at::kCUDA)
+                         .view(torch::kFloat4_e2m1fn_x2);
+  at::Tensor expect =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().to(at::kFloat).equal(expect));
+}
+
+TEST_P(Fp4CastTest, HighPrecisionToFp4) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({16}, dtype_highp);
+  TensorView* tv1 = castOp(DataType::Float4_e2m1fn, tv0);
+
+  fusion.addInput(tv0);
+  fusion.addOutput(tv1);
+
+  tv0->cacheAfter();
+  TensorView* tv1_cache = tv1->cacheBefore();
+
+  tv1->axis(0)->parallelize(ParallelType::Vectorize);
+  tv1_cache->split(0, vectorization_factor);
+  tv1_cache->axis(1)->parallelize(ParallelType::Vectorize);
+
+  at::Tensor input =
+      at::from_blob(fp4ref::float_values.data(), {16}, at::kFloat)
+          .to(at::kCUDA)
+          .to(data_type_to_aten(dtype_highp));
+  at::Tensor expect =
+      at::from_blob(fp4ref::fp4_values.data(), {8}, at::kByte).to(at::kCUDA);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto outputs = ke.run({input});
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(at::kByte).equal(expect));
+}
+
+std::string fp4CastTestName(const testing::TestParamInfo<Fp4CastParams>& info) {
+  const auto& [dtype_highp, vectorization_factor] = info.param;
+  std::stringstream ss;
+  ss << dtype_highp << "_Vectorize_" << vectorization_factor;
+  return ss.str();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Fp4CastTest,
+    testing::Combine(
+        testing::Values(
+            DataType::Float,
+            DataType::Double,
+            DataType::BFloat16,
+            DataType::Half),
+        testing::Values(2, 4, 8, 16)),
+    fp4CastTestName);
+
+TEST_F(NVFuserTest, Fp4CopyKernelFusionExecutorCache) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 256, {1024 * 1024}, options)
+                         .view(torch::kFloat4_e2m1fn_x2);
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
+}
+
+TEST_F(NVFuserTest, Fp4CastToHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float4_e2m1fn);
+  fusion->addInput(tv0);
+  TensorView* tv1 = castOp(DataType::Float, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  at::Tensor input = at::from_blob(fp4ref::fp4_values.data(), {1, 8}, at::kByte)
+                         .to(at::kCUDA)
+                         .expand({1024 * 1024, -1})
+                         .contiguous()
+                         .view(torch::kFloat4_e2m1fn_x2);
+  at::Tensor expect =
+      at::from_blob(fp4ref::float_values.data(), {1, 16}, at::kFloat)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+
+  auto outputs = fec.runFusionWithInputs({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(expect));
+}
+
+TEST_F(NVFuserTest, Fp4CastFromHighPrecisionFusionExecutorCache) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  TensorView* tv1 = castOp(DataType::Float4_e2m1fn, tv0);
+  fusion->addOutput(tv1);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  at::Tensor input =
+      at::from_blob(fp4ref::float_values.data(), {1, 16}, at::kFloat)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+  at::Tensor expect =
+      at::from_blob(fp4ref::fp4_values.data(), {1, 8}, at::kByte)
+          .to(at::kCUDA)
+          .expand({1024 * 1024, -1})
+          .contiguous();
+  auto outputs = fec.runFusionWithInputs({input});
+
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().view(torch::kByte).equal(expect));
+}
+
+#endif
 
 TEST_F(NVFuserTest, BitCeilKernel) {
   Fusion fusion;
@@ -2886,21 +3098,25 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelContiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
-  at::Tensor input = at::randint(0, 256, {1024}, options)
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
+  at::Tensor input =
+      at::randint(0, 256, {1024}, options).view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input = at::randint(0, 256, {1024}, options).view(torch::kByte);
+#endif
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+    auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+    auto input_int8 = input.view(torch::kUInt8);
+    EXPECT_TRUE(output_int8.equal(input_int8));
   }
 }
 
@@ -2934,22 +3150,28 @@ TEST_P(Float4E2m1ManualScheduleTestAllArch, CopyKernelDiscontiguous) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
                          .narrow(1, 0, 1024)
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+                         .view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input = at::randint(0, 256, {2048, 2048}, options)
+                         .narrow(1, 0, 1024)
+                         .view(torch::kByte);
+#endif
 
   KernelExecutor ke;
   if (vectorize_factor == 1) {
     EXPECT_THAT(
         [&]() { ke.compile(&fusion, {input}); },
         testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-            "Tried to vectorize a dim resulting in a word size of 4 bits, "
-            "however, vector sizes starting from and including 8 bits upto and "
-            "including 128 bits are supported.")));
+            "Tried to vectorize a dim resulting in a word size of 4 bits")));
   } else {
     ke.compile(&fusion, {input});
     auto outputs = ke.run({input});
-    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+    auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+    auto input_int8 = input.view(torch::kUInt8);
+    EXPECT_TRUE(output_int8.equal(input_int8));
   }
 }
 
@@ -2967,20 +3189,6 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(1, 2, 4, 8, 16, 32),
         testing::Values(false, true)),
     fp4E2m1ManualScheduleName);
-
-TEST_F(NVFuserTest, BitCeilEval) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
-    uint64_t value = std::rand() % 1000000;
-    Val* v0 =
-        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
-    Val* v1 = bitceil(v0);
-    uint64_t result = (uint64_t)v1->evaluate();
-    EXPECT_EQ(std::bit_ceil(value), result);
-  }
-}
 
 using Float4E2m1Test = NVFuserTest;
 
@@ -3000,16 +3208,39 @@ TEST_F(Float4E2m1Test, CopyKernelDiscontiguousLastDim) {
   inlineMost();
 
   auto options = at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
   at::Tensor input = at::randint(0, 256, {1024, 2}, options)
                          .narrow(1, 0, 1)
                          .squeeze()
-                         .view(torch::/*kFloat4_e2m1fnx2*/ kUInt8);
+                         .view(torch::kFloat4_e2m1fn_x2);
+#else
+  at::Tensor input = at::randint(0, 256, {1024, 2}, options)
+                         .narrow(1, 0, 1)
+                         .squeeze()
+                         .view(torch::kByte);
+#endif
 
   KernelExecutor ke;
 
   ke.compile(&fusion, {input});
   auto outputs = ke.run({input});
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(input));
+  auto output_int8 = outputs[0].as<at::Tensor>().view(torch::kUInt8);
+  auto input_int8 = input.view(torch::kUInt8);
+  EXPECT_TRUE(output_int8.equal(input_int8));
+}
+
+TEST_F(NVFuserTest, BitCeilEval) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
+    uint64_t value = std::rand() % 1000000;
+    Val* v0 =
+        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
+    Val* v1 = bitceil(v0);
+    uint64_t result = (uint64_t)v1->evaluate();
+    EXPECT_EQ(std::bit_ceil(value), result);
+  }
 }
 
 // Start off simple, block on the outer dim

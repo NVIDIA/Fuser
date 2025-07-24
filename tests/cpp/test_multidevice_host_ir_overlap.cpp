@@ -40,7 +40,7 @@ void synchronizeStreams(const std::vector<c10::cuda::CUDAStream>& streams) {
 
 } // namespace
 
-struct OverlapTestParams {
+struct HostIrOverlapTestParams {
   // Tensors sizes
   int64_t M = std::pow(2, 6);
   int64_t K = std::pow(2, 5);
@@ -57,7 +57,9 @@ struct OverlapTestParams {
   int64_t number_of_streams = 3;
 };
 
-std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
+std::ostream& operator<<(
+    std::ostream& out,
+    const HostIrOverlapTestParams& params) {
   std::string indent = "  ";
   out << "params:{\n"
       << indent << "backend_type=" << params.backend_type << "\n"
@@ -71,9 +73,9 @@ std::ostream& operator<<(std::ostream& out, const OverlapTestParams& params) {
   return out;
 }
 
-class OverlapTest : public MultiDeviceTest {
+class HostIrOverlapTest : public MultiDeviceTest {
  protected:
-  OverlapTestParams params;
+  HostIrOverlapTestParams params;
 
   int64_t num_devices_;
   int64_t my_device_index_;
@@ -179,10 +181,10 @@ class OverlapTest : public MultiDeviceTest {
   }
 };
 
-class CollectiveBasedOverlapTest : public OverlapTest {
+class CollectiveBasedOverlapTest : public HostIrOverlapTest {
  protected:
   void SetUp() override {
-    OverlapTest::SetUp();
+    HostIrOverlapTest::SetUp();
     if (!communicator_->is_available()) {
       return;
     }
@@ -196,7 +198,7 @@ class CollectiveBasedOverlapTest : public OverlapTest {
 
   void TearDown() override {
     tc_locally_reduced_.reset();
-    OverlapTest::TearDown();
+    HostIrOverlapTest::TearDown();
   }
 
   at::Tensor getExpectedResult() override {
@@ -418,14 +420,14 @@ TEST_F(
   }
 }
 
-class RingBasedOverlapTest : public OverlapTest {
+class RingBasedOverlapTest : public HostIrOverlapTest {
  protected:
   int64_t number_of_steps_per_ring_, number_of_rings_;
   at::Tensor src_buffer_, dst_buffer_;
   at::Tensor ta_reshaped_, tc_reshaped_;
 
   void SetUp() override {
-    OverlapTest::SetUp();
+    HostIrOverlapTest::SetUp();
     if (!communicator_->is_available()) {
       return;
     }
@@ -668,7 +670,7 @@ TEST_F(
 
 class AllgatherOverlapTest : public MultiDeviceTest {
  protected:
-  OverlapTestParams params;
+  HostIrOverlapTestParams params;
 
   int64_t num_devices_;
   int64_t my_device_index_;
@@ -932,7 +934,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 
 class RingAllgatherOverlapTest : public MultiDeviceTest {
  protected:
-  OverlapTestParams params;
+  HostIrOverlapTestParams params;
 
   int64_t num_devices_;
   int64_t my_device_index_;

@@ -861,8 +861,29 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const UnaryOp* uop) final {
     const auto op_type = uop->getUnaryOpType();
 
+    int64_t vectorize_size = 1;
+    if (uop->out()->isA<kir::TensorIndex>()) {
+      vectorize_size = ir_utils::getVectorizeSize(
+          uop->out()->as<kir::TensorIndex>()->view());
+    }
+
+    std::string vectorize_output;
+    std::string vectorize_input;
+    if (vectorize_size > 1) {
+      std::stringstream output_type;
+      output_type << "Array<" << uop->out()->dtype() << ", " << vectorize_size
+                  << ", " << vectorize_size << ">*";
+      vectorize_output =
+          "*" + genReinterpretCast(output_type.str(), "&" + gen(uop->out()));
+      std::stringstream input_type;
+      input_type << "Array<" << uop->in()->dtype() << ", " << vectorize_size
+                 << ", " << vectorize_size << ">*";
+      vectorize_input =
+          "*" + genReinterpretCast(input_type.str(), "&" + gen(uop->in()));
+    }
+
     if (!print_inline_) {
-      indent() << gen(uop->out());
+      indent() << (vectorize_size > 1 ? vectorize_output : gen(uop->out()));
       if (!uop->out()->isScalar() && !uop->in()->isScalar()) {
         code_ << "\n";
         indent() << kTab;
@@ -895,7 +916,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         }
       }
 
-      code_ << "(" << gen(uop->in()) << ")";
+      code_ << "(" << (vectorize_size > 1 ? vectorize_input : gen(uop->in()))
+            << ")";
       if (op_type == UnaryOpType::RefCast) {
         code_ << "))";
       }
@@ -1416,6 +1438,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
     if (!pdim_map.hasWarpSpecialization()) {
       ss << "DefaultBlockDim()";
+    } else if (
+        kernel_->summary()
+            .circular_buffer_info.hasIndependentComputeWarpGroups() &&
+        is_within_warp_specialized_compute_loop_) {
+      ParallelType wspt =
+          kernel_->summary().circular_buffer_info.getWarpSpecializedOn();
+      const std::string xdim = wspt == ParallelType::TIDx
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx));
+      const std::string ydim = wspt == ParallelType::TIDy
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy));
+      const std::string zdim = wspt == ParallelType::TIDz
+          ? "1"
+          : genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz));
+      ss << "dim3(" << xdim << ", " << ydim << ", " << zdim << ")";
     } else {
       ss << "dim3("
          << genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx)) << ", "
@@ -3498,7 +3536,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << "; " << gen_index << " < " << gen_stop << "; "
              << step_code.str() << ") ";
     startBlock(true);
-    kir::ConstIrVisitor::handle(loop);
+    if (cbls == CircularBufferLoopStage::ComputeWarp) {
+      is_within_warp_specialized_compute_loop_ = true;
+      kir::ConstIrVisitor::handle(loop);
+      is_within_warp_specialized_compute_loop_ = false;
+    } else {
+      kir::ConstIrVisitor::handle(loop);
+    }
     endBlock();
   }
 
@@ -4202,6 +4246,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Track barrier ids used in the kernel
   //! 0 is system reserved, start from 1
   int64_t next_barrier_id_ = 1;
+  //! Track whether we are generating code for warp specialized computation loop
+  bool is_within_warp_specialized_compute_loop_ = false;
 };
 
 } // namespace
