@@ -160,7 +160,7 @@ if torch.cuda.is_available():
     DEVICE_PROPERTIES = get_device_properties()
 
 
-def retry_on_oom_or_skip_test(func):
+def etry_on_oom_or_skip_test(func):
     """Decorator: upon torch.OutOfMemoryError clear the cache and retry test"""
 
     @functools.wraps(func)
