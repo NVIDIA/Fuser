@@ -310,6 +310,52 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   EXPECT_TRUE(at::equal(output, t0));
 }
 
+
+TEST_F(HostIrJitTest, HostIrMatmulOut) {
+  constexpr int64_t H = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(3);
+  TensorView* tv2 = makeContigTensor(3);
+  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
+
+  hic->addInput(tv0);
+  hic->addInput(tv1);
+  hic->addInput(tv2);
+  hic->addOutput(tv2);
+
+  hic->pushBackTopLevelExprs(matmul);
+
+  HostIrJit jit(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  at::Tensor t0 = at::randn({H, M, K}, options);
+  at::Tensor t1 = at::randn({H, K, N}, options);
+  at::Tensor t2 = at::randn({H, M, N}, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {tv0, t0}, {tv1, t1}, {tv2, t2}};
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  in_args.push(t1);
+  in_args.push(t2);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  at::Tensor output = outs[0].as<at::Tensor>();
+
+  // validate
+  auto ref_output = at::matmul(t0, t1);
+
+  EXPECT_TRUE(ref_output.allclose(t2));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
