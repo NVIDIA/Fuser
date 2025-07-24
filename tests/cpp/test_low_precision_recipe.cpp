@@ -17,8 +17,6 @@
 
 namespace nvfuser {
 
-using FP4RecipeTest = NVFuserTest;
-
 // Testing the following function:
 // https://github.com/pytorch/ao/blob/b1163dc63dfa22d403586672fd3648cd661c5003/torchao/prototype/mx_formats/nvfp4_tensor.py#L545-L617
 //
@@ -105,17 +103,17 @@ constexpr double F4_E2M1_MAX = 6.0;
 constexpr double E4M3_EPS = 0.015625;
 constexpr double F8E4M3_MAX = 448.0;
 
-class NVFP4QuantizeTest : public FP4RecipeTest,
+class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
-  fusion.addInput(tv_data_hp);
+  fusion->addInput(tv_data_hp);
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -142,23 +140,32 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       tv_data_scaled,
       IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
       IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
-  fusion.addOutput(tv_block_scale_fp8);
-  fusion.addOutput(tv_data_lp);
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype)));
+  auto outputs = fec.runFusionWithInputs(inputs);
 }
 
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   auto tv_per_tensor_scale = makeContigTensor(0, DataType::Float);
-  fusion.addInput(tv_data_hp);
-  fusion.addInput(tv_per_tensor_scale);
+  fusion->addInput(tv_data_hp);
+  fusion->addInput(tv_per_tensor_scale);
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -199,8 +206,17 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
-  fusion.addOutput(tv_scaled_block_scales_fp8);
-  fusion.addOutput(tv_data_lp);
+  fusion->addOutput(tv_scaled_block_scales_fp8);
+  fusion->addOutput(tv_data_lp);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype)));
+  inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs = fec.runFusionWithInputs(inputs);
 }
 
 INSTANTIATE_TEST_SUITE_P(
