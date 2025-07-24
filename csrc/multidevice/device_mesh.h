@@ -33,9 +33,8 @@ class DeviceMesh final {
   // allow implicit conversion for that. This allows users to write `DeviceMesh
   // mesh = {1, 2};`, which is more concise.
   // When no shape is specified, a 1D DeviceMesh is created by default.
-  explicit DeviceMesh(
-      std::vector<DeviceIdxType> devices = {},
-      std::vector<int64_t> shape = {});
+  DeviceMesh();
+  explicit DeviceMesh(at::Tensor t);
   DeviceMesh(std::initializer_list<DeviceIdxType> devices);
   DeviceMesh(const DeviceMesh&) = default;
   DeviceMesh(DeviceMesh&&) = default;
@@ -132,10 +131,7 @@ class DeviceMesh final {
  private:
   void setDevices(std::vector<DeviceIdxType> devices);
 
-  // stores the flattened list of device indices
-  std::vector<DeviceIdxType> vector_;
-  // shape of the device mesh
-  std::vector<int64_t> shape_;
+  at::Tensor devices_;
 };
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh);
