@@ -6006,7 +6006,26 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
     NVF_ERROR(!bias.defined(), "bias is not supported yet");
-    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
+
+    // Compute numbers of tokens per group from offsets.
+    at::Tensor offsets_cpu = offsets.cpu();
+    NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
+    const int* data_ptr = offsets_cpu.data_ptr<int>();
+    const int64_t num_groups = offsets_cpu.numel();
+    std::vector<int64_t> tokens_per_group(data_ptr, data_ptr + num_groups);
+    for (int64_t i : arange(1, num_groups) | std::views::reverse) {
+      tokens_per_group[i] -= tokens_per_group[i - 1];
+    }
+
+    NVF_ERROR_EQ(mat1.dim(), 2);
+    NVF_ERROR_EQ(mat2.dim(), 3);
+    std::vector<at::Tensor> group_outs;
+    group_outs.reserve(num_groups);
+    for (auto [group_mat1, group_mat2] :
+         zip(mat1.split(tokens_per_group, 0), mat2.unbind(0))) {
+      group_outs.push_back(at::matmul(group_mat1, group_mat2));
+    }
+    result = at::cat(group_outs, 0);
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));
