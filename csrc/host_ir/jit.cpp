@@ -42,7 +42,8 @@
 
 namespace nvfuser {
 
-using main_func_t = void (*)(const void**, void**);
+// cacheId, inputTensors, outputTensors
+using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
@@ -621,8 +622,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
       output_tensors.push_back(val_to_value_[tv]);
     }
 
-    llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+    // Get the cacheId from the main function's first argument
+    llvm::Value* cache_id_arg = builder_.GetInsertBlock()->getParent()->getArg(0);
 
     // Create arrays to hold tensor pointers
     llvm::ArrayType* input_array_type =
@@ -983,7 +984,7 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // launch kernel function
   void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](size_t id,
+      reinterpret_cast<void*>(+[](int64_t cache_id,
                                   at::Tensor** input_tensors,
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
@@ -995,7 +996,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         auto* container =
             reinterpret_cast<hir::HostIrContainer*>(hostIrContainer);
         KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(id);
+        input_args.setCacheId(cache_id);
 
         for (int64_t i = 0; i < num_inputs; i++) {
           input_args.push(
@@ -1064,7 +1065,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
-  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
+  main_func_(args.getCacheId().value(), input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
