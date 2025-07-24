@@ -69,6 +69,26 @@ void DependencyMapper::dispatch(Expr* expr) {
   expr_pos.pos = current_pos_;
   expr_pos.coords = current_coords_;
 
+  auto recurse_to_scope = [&](const Scope& scope) {
+    current_coords_.push_back(-1);
+    handle(scope.exprs());
+    current_pos_++; // increment for close of scope
+    exprs_.push_back(nullptr);
+    expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
+    current_coords_.pop_back();
+  };
+
+  if (auto* ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+    recurse_to_scope(ite->thenBody());
+    recurse_to_scope(ite->elseBody());
+
+    return;
+  } else if (auto* fl = dynamic_cast<ForLoop*>(expr)) {
+    recurse_to_scope(fl->body());
+
+    return;
+  }
+
   std::cout << expr_pos.pos << " (" << expr_pos.coords
             << "): " << expr->toString() << std::endl;
 

@@ -52,6 +52,8 @@ class DependencyMapper : public kir::IrVisitor {
       expr_pos_int_[expr] = pos_int;
       exprs_.push_back(expr);
       expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
+    } else {
+      pos_int = pos_int_it->second;
     }
     const auto& pos_ptr = expr_position_up_.at(pos_int);
     NVF_ERROR(pos_ptr != nullptr);
@@ -87,6 +89,8 @@ class DependencyMapper : public kir::IrVisitor {
       tv_pos_int_[tv] = pos_int;
       tvs_.push_back(tv);
       tv_access_up_.emplace_back(std::make_unique<TensorAccesses>());
+    } else {
+      pos_int = pos_int_it->second;
     }
     const auto& access_ptr = tv_access_up_.at(pos_int);
     NVF_ERROR(access_ptr != nullptr);
