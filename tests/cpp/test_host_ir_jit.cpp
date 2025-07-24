@@ -311,7 +311,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
 }
 
 
-TEST_F(HostIrJitTest, HostIrMatmulOut) {
+TEST_F(HostIrJitTest, Matmul) {
   constexpr int64_t H = 32;
   constexpr int64_t M = 64;
   constexpr int64_t K = 128;
@@ -354,6 +354,55 @@ TEST_F(HostIrJitTest, HostIrMatmulOut) {
   auto ref_output = at::matmul(t0, t1);
 
   EXPECT_TRUE(ref_output.allclose(t2));
+}
+
+TEST_F(HostIrJitTest, Linear) {
+  constexpr int64_t B = 32;
+  constexpr int64_t M = 64;
+  constexpr int64_t K = 128;
+  constexpr int64_t N = 256;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(3);
+  TensorView* weight = makeContigTensor(2);
+  TensorView* bias = makeContigTensor(1);
+  TensorView* out = linear(in, weight, bias);
+
+  hic->addInput(in);
+  hic->addInput(weight);
+  hic->addInput(bias);
+  hic->addOutput(out);
+
+  auto* allocate = IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+  hic->pushBackTopLevelExprs(allocate);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrJit jit(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto in_at = at::randn({B, M, K}, options);
+  auto weight_at = at::randn({N, K}, options);
+  auto bias_at = at::randn({N}, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {jit.inputs().at(0), in_at},
+      {jit.inputs().at(1), weight_at},
+      {jit.inputs().at(2), bias_at}};
+
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(in_at);
+  in_args.push(weight_at);
+  in_args.push(bias_at);
+  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  EXPECT_EQ(outs.size(), 1);
+  auto output = outs[0].as<at::Tensor>();
+
+  // validate
+  auto ref_output = at::linear(in_at, weight_at, bias_at);
+  EXPECT_EQ(output.sizes(), ref_output.sizes());
+  EXPECT_TRUE(ref_output.allclose(output));
 }
 
 } // namespace hir
