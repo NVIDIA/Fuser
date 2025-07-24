@@ -699,16 +699,12 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (expr_evaluator_.isKnown(out_tv)) {
     at::Tensor out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    if(out_tensor.defined()) {
+    if(out_tensor.defined() && out_tensor.device().is_cuda()) {
       out_tensor.copy_(t, /*non_blocking=*/true);
-      std::cout << "out_tensor is defined, copying" << std::endl;
-      std::cout << out_tensor.sizes() << std::endl;
-      std::cout << t.sizes() << std::endl;
     }
     else {
-      std::cout << "out_tensor is not defined, cloning" << std::endl;
-      out_tensor = t.clone();
-      std::cout << out_tensor.sizes() << std::endl;
+      out_tensor = t;
+      expr_evaluator_.bind(out_tv, out_tensor);
     }
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
