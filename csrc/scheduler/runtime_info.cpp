@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-// #include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/registry_utils.h>
@@ -99,7 +99,7 @@ size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
   if (input_ptrs_.find(tv) != input_ptrs_.end()) {
     return input_ptrs_.at(tv);
   }
-  return max_alignment_size_in_bit / 8;
+  return getMaxVectorizationSizeInBit() / 8;
 }
 
 std::unique_ptr<ExpressionEvaluator> SchedulerRuntimeInfo::
@@ -119,8 +119,8 @@ size_t SchedulerRuntimeInfo::computeAlignmentSizeBit(size_t ptr_address) {
   ptr_address *= 8; // Convert to bits
   size_t alignment_size_bit = 1;
   size_t next_alignment_size_bit = 2;
-
-  while (next_alignment_size_bit <= max_alignment_size_in_bit &&
+  size_t max_vec_bits = (size_t)getMaxVectorizationSizeInBit();
+  while (next_alignment_size_bit <= max_vec_bits &&
          ptr_address % next_alignment_size_bit == 0) {
     alignment_size_bit = next_alignment_size_bit;
     next_alignment_size_bit *= 2;
