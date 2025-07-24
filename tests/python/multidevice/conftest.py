@@ -3,34 +3,49 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import os
+from enum import Enum, auto
 from typing import Iterable
 
+import sys
 import pytest
 
 import torch
 import torch.distributed as dist
 
-import nvfuser
+
+class Binding(Enum):
+    LEGACY = auto()
+    DIRECT = auto()
 
 
 class MultideviceTest:
-    def __init__(self):
+    def __init__(self, binding: Binding):
         os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
-        # Reset the cache here to work around a bug in FusionDefintion.execute.
-        # FusionDefinition._finalize_definition maps the same `definition` to the
-        # same FusionSchedules and therefore the same FusionExecutorCache. This was
-        # correct until multiple FusionDefinitions started to have the same
-        # `definition` but different `multidevice_schedule`s. This seems to be a
-        # known issue beacuse a similar workaround for single-GPU schedules is done
-        # here:
-        # https://github.com/NVIDIA/Fuser/blob/f44f1913c26f8325099ab6fe46d678cbea435658/tests/python/test_schedule_ops.py#L115.
-        #
-        # I couldn't think of an easy way to fix this issue properly. Also, that
-        # FusionCache is obsolete makes me less motivated to do so.
-        nvfuser.FusionCache.reset()
+        if binding == Binding.LEGACY:
+            assert (
+                "nvfuser_direct" not in sys.modules
+            ), "nvfuser_direct is already imported"
+            import nvfuser
 
-        self._communicator = nvfuser.Communicator.instance()
+            # Reset the cache here to work around a bug in FusionDefintion.execute.
+            # FusionDefinition._finalize_definition maps the same `definition` to the
+            # same FusionSchedules and therefore the same FusionExecutorCache. This was
+            # correct until multiple FusionDefinitions started to have the same
+            # `definition` but different `multidevice_schedule`s. This seems to be a
+            # known issue beacuse a similar workaround for single-GPU schedules is done
+            # here:
+            # https://github.com/NVIDIA/Fuser/blob/f44f1913c26f8325099ab6fe46d678cbea435658/tests/python/test_schedule_ops.py#L115.
+            #
+            # I couldn't think of an easy way to fix this issue properly. Also, that
+            # FusionCache is obsolete makes me less motivated to do so.
+            nvfuser.FusionCache.reset()
+            self._communicator = nvfuser.Communicator.instance()
+        elif binding == Binding.DIRECT:
+            assert "nvfuser" not in sys.modules, "nvfuser is already imported"
+            import nvfuser_direct as nvfd
+
+            self._communicator = nvfd.multidevice.Communicator.instance()
 
         # This way, when individual tests create unsharded input, each rank
         # receives the same data.
@@ -56,9 +71,7 @@ class MultideviceTest:
     def local_rank(self):
         return self._communicator.local_rank()
 
-    def shard_tensor(
-        self, t: torch.Tensor, dim: int, mesh: nvfuser.DeviceMesh
-    ) -> torch.Tensor:
+    def shard_tensor(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
         assert t.is_cpu, (
             "This is not strictly required but it's a general good practice "
             "for unit tests to create unsharded data on CPU to reduce GPU "
@@ -67,11 +80,19 @@ class MultideviceTest:
         return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
 
 
+# Existing tests that use legacy python bindings use this.
 @pytest.fixture
 def multidevice_test():
-    fixture = MultideviceTest()
+    fixture = MultideviceTest(Binding.LEGACY)
     yield fixture
-    # Sync all ranks after each test for isolation.
+    fixture.communicator.barrier()
+
+
+# Migrated tests to new direct python bindings use this.
+@pytest.fixture
+def multidevice_direct_test():
+    fixture = MultideviceTest(Binding.DIRECT)
+    yield fixture
     fixture.communicator.barrier()
 
 
