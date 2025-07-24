@@ -1595,8 +1595,6 @@ TEST_F(AllocationDomainTest, CpAsyncBulk1d) {
   // }
   // where iS11{3} and iS15{3} are in the same set.
 
-  fusion->print();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   // shape: (x, y, z), alloc: (y, x, z), stride: (z, x * z, 1)
   auto t0 = at::randn({x, y, z}, options).as_strided({x, y, z}, {z, x * z, 1});
