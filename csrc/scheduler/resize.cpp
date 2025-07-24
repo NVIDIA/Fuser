@@ -577,7 +577,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // IDs. When propagating the loop domain of the reference tensor,
   // which has the repeat ID, the full loop domain is propagated only
   // to the tensors that have IDs that are mapped with the repeat
-  // ID. For the rest of the tensros, the repeat ID is dropped and
+  // ID. For the rest of the tensors, the repeat ID is dropped and
   // only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
     const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(
