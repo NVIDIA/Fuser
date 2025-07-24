@@ -181,14 +181,20 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // Process allocation domains
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
+
+    // Convert excluded CA IDs to groups for efficient lookup and create mapping
     NVF_ERROR(GpuLower::current()->hasIdModel());
-    const auto& val_sets = GpuLower::current()
-                               ->idModel()
-                               .idGraph(IdMappingMode::EXACT)
-                               .disjointValSets();
+    const auto& exact_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+    const auto excluded_ca_groups = exact_graph.toGroups(exclude_ca_ids);
+    std::unordered_map<ValGroup, IterDomain*> group_to_exclude_id;
+    for (auto exclude_id : exclude_ca_ids) {
+      group_to_exclude_id[exact_graph.toGroup(exclude_id)] = exclude_id;
+    }
+
     for (auto [idx, id] : enumerate(tv->getAllocationDomain())) {
       // Check if an allocation domain should be excluded based on allocation
-      // position An allocation domain should be excluded if it is not required
+      // position. An allocation domain should be excluded if it is not required
       // to be allocated. For example: T2_s_float[iS6{2}, iS11{3}, iS12{4},
       // iB8{16}] ca_pos( 2 ) logical domain : (iS6{2}, iS7{12}, iB8{16})
       // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
@@ -199,15 +205,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // Based on loop domain and compute pos, we don't need to allocate iS6{2}
       // and iS11{3}. Then the corresponding allocation domains iS6{2} and
       // iS15{3} should be excluded.
-      IterDomain* excluded_id = nullptr;
-      for (auto exclude_id : exclude_ca_ids) {
-        if (val_sets.strictAreMapped(exclude_id, id)) {
-          excluded_id = exclude_id;
-          break;
-        }
-      }
-      if (excluded_id != nullptr) {
-        exclude_ca_ids.erase(excluded_id);
+      auto id_group = exact_graph.toGroup(id);
+      if (excluded_ca_groups.has(id_group)) {
+        exclude_ca_ids.erase(group_to_exclude_id[id_group]);
         continue;
       }
 
