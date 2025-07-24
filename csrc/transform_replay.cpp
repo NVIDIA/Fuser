@@ -131,7 +131,7 @@ class ReplaySelf : public ReplayTransformations {
 
     auto it = id_map_.find(id_in);
     if (it == id_map_.end()) {
-      if (error_on_failure_) {
+      if (!error_on_failure_) {
         return;
       }
       NVF_THROW("Transform traversal failed, dependencies not met.");

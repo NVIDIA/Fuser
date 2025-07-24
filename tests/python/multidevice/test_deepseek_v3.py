@@ -2,6 +2,10 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+
+# Run command:
+# mpirun -np 1 pytest tests/python/multidevice/test_deepseek_v3.py --only-mpi -s
+
 import pytest
 import transformers
 import torch
