@@ -697,9 +697,19 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   }
 
   if (expr_evaluator_.isKnown(out_tv)) {
-    auto out_tensor =
+    at::Tensor out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    out_tensor.copy_(t, /*non_blocking=*/true);
+    if(out_tensor.defined()) {
+      out_tensor.copy_(t, /*non_blocking=*/true);
+      std::cout << "out_tensor is defined, copying" << std::endl;
+      std::cout << out_tensor.sizes() << std::endl;
+      std::cout << t.sizes() << std::endl;
+    }
+    else {
+      std::cout << "out_tensor is not defined, cloning" << std::endl;
+      out_tensor = t.clone();
+      std::cout << out_tensor.sizes() << std::endl;
+    }
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
     // copy data if yes. For example,
@@ -853,7 +863,16 @@ void HostIrEvaluator::handle(NewTensor* new_tensor) {
       !expr_evaluator_.isKnown(tv),
       "Tried to create a new tensor wrapper that is already created",
       tv);
-  expr_evaluator_.bind(tv, at::Tensor());
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  auto tensor = at::detail::empty_strided_meta(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      c10::Device(c10::DeviceType::Meta, 0),
+      c10::nullopt);
+  expr_evaluator_.bind(tv, tensor);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
