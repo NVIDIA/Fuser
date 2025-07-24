@@ -417,7 +417,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // restriction makes it difficult to use more aggressive
     // scheduling like setting the loop domain of a reshape output
     // tensor as its root domain, which is what
-    // cancelReshapeInLoopDomains does.
+    // cancelReshapeInLoopDomains does. See test_reshape_cancellation
+    // for a repro.
     //
     // scheduler_tools::cancelReshapeInLoopDomains(
     // largest_input, /*skip_innermost_id=*/true);
