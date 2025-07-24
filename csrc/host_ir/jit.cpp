@@ -1005,15 +1005,14 @@ void HostIrJitImpl::registerExternalFunctions() {
   // linear_out function with bias
   void* linear_out_func_ptr_with_bias = reinterpret_cast<void*>(
     +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight, at::Tensor* t_bias) {
-      at::linear_out(*t_out, *t_in, *t_weight, *t_bias);
+      at::linear_out(*t_out, *t_in, t_weight->squeeze(), t_bias->squeeze());
     });
 
   // linear_out function without bias
-  // NOTE: original linear_out function used a squeeze version
-  // But it gives us error in testing, so we use the non-squeeze version for now
+  // NOTE: there is a difference between at::linear and at::linear_out in result
   void* linear_out_func_ptr_without_bias = reinterpret_cast<void*>(
     +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight) {
-      at::linear_out(*t_out, *t_in, *t_weight);
+      at::linear_out(*t_out, *t_in, t_weight->squeeze());
     });
 
   // Register wrapper functions in JIT
