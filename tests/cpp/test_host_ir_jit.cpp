@@ -307,9 +307,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 1);
   at::Tensor output = outs[0].as<at::Tensor>();
-  EXPECT_TRUE(at::equal(output, t0)) << "Tensors are not equal:\n"
-                                  << "in = " << t0 << "\n"
-                                  << "out = " << output;
+  EXPECT_TRUE(at::equal(output, t0));
 }
 
 } // namespace hir
