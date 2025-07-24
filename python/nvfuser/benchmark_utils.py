@@ -157,4 +157,5 @@ class FusionProfileTimer(Timer):
             elapsed_host_time = profile.host_time_ms / 1e3
             self._increment_global_time(elapsed_host_time)
         self.execution_start = not self.execution_start
+
         return self.current_time
