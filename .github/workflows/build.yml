@@ -5,12 +5,17 @@ on:
   push:
     branches:
       - main
+# cancels concurrent in-progress runs of a pull request. If it is a push, do not cancel concurrent runs.
+# Pushes will generate a uniq run_id, github.event.pull_request.number will be empty
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  cancel-in-progress: true
 
 env:
   working_directory: .
 
 jobs:
-  clang-build:
+  clang-build-23:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,10 +30,9 @@ jobs:
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
           source tools/setup-env.sh
-          export CC=clang
-          export CXX=clang++
           wait
-          python setup.py build
+          cd python
+          python setup.py build --no-cutlass --cpp=23
 
   dynamic-type-meson:
     runs-on: ubuntu-latest

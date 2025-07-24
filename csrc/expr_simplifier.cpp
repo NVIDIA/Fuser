@@ -28,6 +28,18 @@
 #include <unordered_set>
 #include <vector>
 
+namespace std {
+template <typename X, typename Y>
+struct hash<std::pair<X, Y>> {
+  std::size_t operator()(const std::pair<X, Y>& pair) const {
+    std::size_t h1 = std::hash<X>()(pair.first);
+    std::size_t h2 = std::hash<Y>()(pair.second);
+    nvfuser::hashCombine(h1, h2);
+    return h1;
+  }
+};
+} // namespace std
+
 namespace nvfuser {
 
 namespace debug_print {
@@ -149,8 +161,6 @@ namespace assoc_comm {
 Val* flatten(Val* value);
 } // namespace assoc_comm
 
-namespace {
-
 // An ordered mapping of variable -> VarInfo
 class Context {
  public:
@@ -188,6 +198,45 @@ class Context {
         assumptions.push_back(bop->rhs());
       }
     }
+
+    validateConsistency();
+  }
+
+  void validateConsistency() const {
+    // Check for obvious contradictions. Could have helped debugging #1572.
+    // Let me know if there's a subquadratic way to check this. `Val*` equality
+    // was't sufficient, so I had to call `sameAs` instead.
+    for (const auto& [a, b] : getKnownLessThan()) {
+      for (const auto& [x, y] : getKnownLessThan()) {
+        // a < b && b < a is impossible.
+        NVF_ERROR(
+            !(x->sameAs(b) && y->sameAs(a)),
+            "Found two contradicting assumptions: ",
+            a->toString(),
+            " < ",
+            b->toString(),
+            " and ",
+            x->toString(),
+            " < ",
+            y->toString(),
+            " both exist.");
+      }
+
+      for (const auto& [x, y] : getKnownLessEqual()) {
+        // a < b && b <= a is impossible.
+        NVF_ERROR(
+            !(x->sameAs(b) && y->sameAs(a)),
+            "Found two contradicting assumptions: ",
+            a->toString(),
+            " <= ",
+            b->toString(),
+            " and ",
+            x->toString(),
+            " < ",
+            y->toString(),
+            " both exist.");
+      }
+    }
   }
 
   const std::vector<Val*>& variableOrder() const {
@@ -214,6 +263,9 @@ class Context {
     return less_equal_;
   }
 
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_than_cache_;
+  mutable std::unordered_map<std::pair<Val*, Val*>, bool> less_equal_cache_;
+
  private:
   void assume(Val* a) {
     auto def = a->definition();
@@ -236,7 +288,7 @@ class Context {
               assoc_comm::flatten(bop->rhs()), assoc_comm::flatten(bop->lhs()));
           break;
         default:
-          NVF_ERROR(false, "Unknown operator type ", bop->getBinaryOpType());
+          NVF_THROW("Unknown operator type ", bop->getBinaryOpType());
       }
     }
   }
@@ -249,6 +301,8 @@ class Context {
   std::vector<std::pair<Val*, Val*>> less_than_;
   std::vector<std::pair<Val*, Val*>> less_equal_;
 };
+
+namespace {
 
 bool hasSimilarType(DataType t1, DataType t2) {
   if (t1 == t2) {
@@ -273,19 +327,7 @@ Val* foldConstants(Val* value) {
     return value;
   }
   if (value->isConstScalar()) {
-    if (value->isIntegralScalar()) {
-      return IrBuilder::create<Val>(
-          value->evaluateInt(), *value->getDataType());
-    }
-    if (value->isFloatingPointScalar()) {
-      return IrBuilder::create<Val>(
-          value->evaluateDouble(), *value->getDataType());
-    }
-    if (value->isABool()) {
-      return IrBuilder::create<Val>(
-          value->evaluateBool(), *value->getDataType());
-    }
-    // TODO: support complex double
+    return IrBuilder::create<Val>(value->evaluate(), *value->getDataType());
   }
   return value;
 }
@@ -488,14 +530,14 @@ inline bool isNoOpTerm(Val* v, BinaryOpType type) {
     case BinaryOpType::Mul:
       return v->isOne();
     case BinaryOpType::LogicalAnd:
-      return v->getBool() == true;
+      return v->value() == true;
     case BinaryOpType::LogicalOr:
-      return v->getBool() == false;
+      return v->value() == false;
     case BinaryOpType::BitwiseAnd:
-      return v->getInt() == -1;
+      return v->value() == -1;
     case BinaryOpType::BitwiseOr:
     case BinaryOpType::BitwiseXor:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::Gcd:
       return v->isZeroInt();
     default:
@@ -514,15 +556,15 @@ inline bool isBlackhole(Val* v, BinaryOpType type) {
   }
   switch (type) {
     case BinaryOpType::Mul:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::LogicalAnd:
-      return v->getBool() == false;
+      return v->value() == false;
     case BinaryOpType::LogicalOr:
-      return v->getBool() == true;
+      return v->value() == true;
     case BinaryOpType::BitwiseAnd:
-      return v->getInt() == 0;
+      return v->value() == 0;
     case BinaryOpType::BitwiseOr:
-      return v->getInt() == -1;
+      return v->value() == -1;
     case BinaryOpType::Gcd:
       return v->isOneInt();
     default:
@@ -555,242 +597,223 @@ asInverseOfAssocCommOp(BinaryOpType op, DataType rhs_dtype) {
 //     inputs: [a, b, 3, c, 5]
 //     outputs: [out]
 //   }
-class FlattenedAssocCommOp : public Expr {
- public:
-  using Expr::Expr;
-
-  FlattenedAssocCommOp(
-      IrBuilderPasskey passkey,
-      BinaryOpType op,
-      Val* out,
-      std::vector<Val*> terms)
-      : Expr(passkey) {
+FlattenedAssocCommOp::FlattenedAssocCommOp(
+    IrBuilderPasskey passkey,
+    BinaryOpType op,
+    Val* out,
+    std::vector<Val*> terms)
+    : Expr(passkey) {
+  NVF_CHECK(
+      isAssociativeAndCommutative(op),
+      "Can only flatten associative and commutative ops");
+  addDataAttribute(op);
+  addOutput(out);
+  for (auto v : terms) {
     NVF_CHECK(
-        isAssociativeAndCommutative(op),
-        "Can only flatten associative and commutative ops");
-    addDataAttribute(op);
-    addOutput(out);
-    for (auto v : terms) {
-      NVF_CHECK(
-          hasSimilarType(dtype(), *v->getDataType()),
-          "Input types should be similar, but got: ",
-          dtype(),
-          ", and ",
-          *v->getDataType());
-      addInput(v);
-    }
+        hasSimilarType(dtype(), *v->getDataType()),
+        "Input types should be similar, but got: ",
+        dtype(),
+        ", and ",
+        *v->getDataType());
+    addInput(v);
   }
+}
 
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    switch (getOpType()) {
-      case BinaryOpType::Add:
-        return "FlattenedAdd";
-      case BinaryOpType::Mul:
-        return "FlattenedMul";
-      case BinaryOpType::LogicalAnd:
-        return "FlattenedLogicalAnd";
-      case BinaryOpType::LogicalOr:
-        return "FlattenedLogicalOr";
-      case BinaryOpType::BitwiseAnd:
-        return "FlattenedBitwiseAnd";
-      case BinaryOpType::BitwiseOr:
-        return "FlattenedBitwiseOr";
-      case BinaryOpType::BitwiseXor:
-        return "FlattenedBitwiseXor";
-      case BinaryOpType::Max:
-        return "FlattenedMax";
-      case BinaryOpType::Min:
-        return "FlattenedMin";
-      default:
-        NVF_ERROR(false, "Unknown operator type ", getOpType());
-    }
+const char* FlattenedAssocCommOp::getOpString() const {
+  switch (getOpType()) {
+    case BinaryOpType::Add:
+      return "FlattenedAdd";
+    case BinaryOpType::Mul:
+      return "FlattenedMul";
+    case BinaryOpType::LogicalAnd:
+      return "FlattenedLogicalAnd";
+    case BinaryOpType::LogicalOr:
+      return "FlattenedLogicalOr";
+    case BinaryOpType::BitwiseAnd:
+      return "FlattenedBitwiseAnd";
+    case BinaryOpType::BitwiseOr:
+      return "FlattenedBitwiseOr";
+    case BinaryOpType::BitwiseXor:
+      return "FlattenedBitwiseXor";
+    case BinaryOpType::Max:
+      return "FlattenedMax";
+    case BinaryOpType::Min:
+      return "FlattenedMin";
+    default:
+      NVF_THROW("Unknown operator type ", getOpType());
   }
+}
 
-  // FlattenedAssocCommOp is unordered, so we should have
-  // FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
-  bool sameAs(const Statement* other) const override {
-    if (this == other) {
+// FlattenedAssocCommOp is unordered, so we should have
+// FlattenedAdd(a, b)->sameAs(FlattenedAdd(b, a))
+bool FlattenedAssocCommOp::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (!other->isA<FlattenedAssocCommOp>()) {
+    return false;
+  }
+  auto other_fop = other->as<FlattenedAssocCommOp>();
+  if (getOpType() != other_fop->getOpType()) {
+    return false;
+  }
+  // check if we can establish a 1:1 mapping between inputs() and
+  // other_fop->inputs()
+  std::list<Val*> other_inputs(
+      other_fop->inputs().begin(), other_fop->inputs().end());
+  for (const auto inp : inputs()) {
+    auto it =
+        std::find_if(other_inputs.begin(), other_inputs.end(), [inp](Val* v) {
+          return v->sameAs(inp);
+        });
+    if (it == other_inputs.end()) {
+      return false;
+    }
+    other_inputs.erase(it);
+  }
+  return other_inputs.empty();
+}
+
+std::string FlattenedAssocCommOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << getOpString() << "(";
+  bool needs_comma = false;
+  for (auto v : inputs()) {
+    if (needs_comma) {
+      ss << ", ";
+    }
+    ss << v->toString();
+    needs_comma = true;
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string FlattenedAssocCommOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getOpString() << "(";
+  bool needs_comma = false;
+  for (auto v : inputs()) {
+    if (needs_comma) {
+      ss << ", ";
+    }
+    ss << v->toInlineString();
+    needs_comma = true;
+  }
+  ss << ")";
+  return ss.str();
+}
+
+// Get a vector of inputs, sorted as the order given by `variables`. Note that
+// the sorting key is the rightmost variable that an input depends on. For
+// example, if I have two inputs.
+// v1 = a * c
+// v2 = b
+// and variables is [a, b, c], then v2 < v1 because the rightmost depending
+// variable of v2 is b, and the rightmost depending variable of v1 is c,
+// and b < c. So in this example, this function will return [v2, v1].
+// Tensors are always considered as variables and they are always considered
+// as the rightmost.
+std::vector<Val*> FlattenedAssocCommOp::sortedInputs(const Context& context) {
+  std::vector<Val*> sorted_inputs(inputs().begin(), inputs().end());
+  std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
+  dependency.reserve(sorted_inputs.size());
+  for (auto v : sorted_inputs) {
+    dependency[v] = getSubexprDependency(v, context.variableSet());
+  }
+  auto compare = [&](Val* v1, Val* v2) {
+    // Find all variables in context that v1 and v2 depends on. The input (v1
+    // or v2) that exclusively has the right most variable in context.order()
+    // will be to the right of the other input.
+    bool v1_is_left_of_v2 = false;
+    auto deps1 = dependency.at(v1);
+    auto deps2 = dependency.at(v2);
+    auto hasTensorIndex = [](const auto& deps) {
+      return std::any_of(deps.begin(), deps.end(), [](auto val) {
+        return val->template isA<kir::TensorIndex>();
+      });
+    };
+    if (hasTensorIndex(deps2)) {
       return true;
     }
-    if (!other->isA<FlattenedAssocCommOp>()) {
+    if (hasTensorIndex(deps1)) {
       return false;
     }
-    auto other_fop = other->as<FlattenedAssocCommOp>();
-    if (getOpType() != other_fop->getOpType()) {
-      return false;
-    }
-    // check if we can establish a 1:1 mapping between inputs() and
-    // other_fop->inputs()
-    std::list<Val*> other_inputs(
-        other_fop->inputs().begin(), other_fop->inputs().end());
-    for (const auto inp : inputs()) {
-      auto it =
-          std::find_if(other_inputs.begin(), other_inputs.end(), [inp](Val* v) {
-            return v->sameAs(inp);
-          });
-      if (it == other_inputs.end()) {
-        return false;
+    for (auto v : context.variableOrder()) {
+      if (deps1.count(v) > 0 && deps2.count(v) == 0) {
+        v1_is_left_of_v2 = false;
+      } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
+        v1_is_left_of_v2 = true;
       }
-      other_inputs.erase(it);
     }
-    return other_inputs.empty();
-  }
+    return v1_is_left_of_v2;
+  };
+  std::sort(sorted_inputs.begin(), sorted_inputs.end(), compare);
+  return sorted_inputs;
+}
 
-  std::string toString(int indent_size = 0) const override {
-    std::stringstream ss;
-    indent(ss, indent_size) << getOpString() << "(";
-    bool needs_comma = false;
-    for (auto v : inputs()) {
-      if (needs_comma) {
-        ss << ", ";
+std::vector<PolymorphicValue> FlattenedAssocCommOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
+  std::vector<PolymorphicValue> inputs_ = inputs;
+  PolymorphicValue result;
+  result = inputs_.back();
+  inputs_.pop_back();
+  switch (getOpType()) {
+    case BinaryOpType::Add:
+      for (const auto& i : inputs_) {
+        result += i;
       }
-      ss << v->toString();
-      needs_comma = true;
-    }
-    ss << ")\n";
-    return ss.str();
-  }
-
-  std::string toInlineString(int = 0) const override {
-    std::stringstream ss;
-    ss << getOpString() << "(";
-    bool needs_comma = false;
-    for (auto v : inputs()) {
-      if (needs_comma) {
-        ss << ", ";
+      break;
+    case BinaryOpType::Mul:
+      for (const auto& i : inputs_) {
+        result *= i;
       }
-      ss << v->toInlineString();
-      needs_comma = true;
-    }
-    ss << ")";
-    return ss.str();
-  }
-
-  DataType dtype() const {
-    return *output(0)->getDataType();
-  }
-
-  BinaryOpType getOpType() const {
-    return attribute<BinaryOpType>(0);
-  }
-
-  // Get a vector of inputs, sorted as the order given by `variables`. Note that
-  // the sorting key is the rightmost variable that an input depends on. For
-  // example, if I have two inputs.
-  // v1 = a * c
-  // v2 = b
-  // and variables is [a, b, c], then v2 < v1 because the rightmost depending
-  // variable of v2 is b, and the rightmost depending variable of v1 is c,
-  // and b < c. So in this example, this function will return [v2, v1].
-  // Tensors are always considered as variables and they are always considered
-  // as the rightmost.
-  std::vector<Val*> sortedInputs(const Context& context) {
-    std::vector<Val*> sorted_inputs(inputs().begin(), inputs().end());
-    std::unordered_map<Val*, std::unordered_set<Val*>> dependency;
-    dependency.reserve(sorted_inputs.size());
-    for (auto v : sorted_inputs) {
-      dependency[v] = getSubexprDependency(v, context.variableSet());
-    }
-    auto compare = [&](Val* v1, Val* v2) {
-      // Find all variables in context that v1 and v2 depends on. The input (v1
-      // or v2) that exclusively has the right most variable in context.order()
-      // will be to the right of the other input.
-      bool v1_is_left_of_v2 = false;
-      auto deps1 = dependency.at(v1);
-      auto deps2 = dependency.at(v2);
-      auto hasTensorIndex = [](const auto& deps) {
-        return std::any_of(deps.begin(), deps.end(), [](auto val) {
-          return val->template isA<kir::TensorIndex>();
-        });
-      };
-      if (hasTensorIndex(deps2)) {
-        return true;
+      break;
+    case BinaryOpType::LogicalAnd:
+      for (const auto& i : inputs_) {
+        result = result && i;
       }
-      if (hasTensorIndex(deps1)) {
-        return false;
+      break;
+    case BinaryOpType::LogicalOr:
+      for (const auto& i : inputs_) {
+        result = result || i;
       }
-      for (auto v : context.variableOrder()) {
-        if (deps1.count(v) > 0 && deps2.count(v) == 0) {
-          v1_is_left_of_v2 = false;
-        } else if (deps2.count(v) > 0 && deps1.count(v) == 0) {
-          v1_is_left_of_v2 = true;
-        }
+      break;
+    case BinaryOpType::BitwiseAnd:
+      for (const auto& i : inputs_) {
+        result = result & i;
       }
-      return v1_is_left_of_v2;
-    };
-    std::sort(sorted_inputs.begin(), sorted_inputs.end(), compare);
-    return sorted_inputs;
+      break;
+    case BinaryOpType::BitwiseOr:
+      for (const auto& i : inputs_) {
+        result = result | i;
+      }
+      break;
+    case BinaryOpType::BitwiseXor:
+      for (const auto& i : inputs_) {
+        result = result ^ i;
+      }
+      break;
+    case BinaryOpType::Min:
+      for (const auto& i : inputs_) {
+        result = min(result, i);
+      }
+      break;
+    case BinaryOpType::Max:
+      for (const auto& i : inputs_) {
+        result = max(result, i);
+      }
+      break;
+    default:
+      NVF_ERROR(
+          "Unexpected operator type encountered"
+          "in PolymorphicValue::evaluate: ",
+          getOpType());
   }
-
-  bool isTrivial() const {
-    return inputs().size() == 1;
-  }
-
-  std::vector<PolymorphicValue> evaluate(
-      const ExpressionEvaluator& ee,
-      const std::vector<PolymorphicValue>& inputs) const override {
-    using namespace PolymorphicValue_functions;
-    std::vector<PolymorphicValue> inputs_ = inputs;
-    PolymorphicValue result;
-    result = inputs_.back();
-    inputs_.pop_back();
-    switch (getOpType()) {
-      case BinaryOpType::Add:
-        for (const auto& i : inputs_) {
-          result += i;
-        }
-        break;
-      case BinaryOpType::Mul:
-        for (const auto& i : inputs_) {
-          result *= i;
-        }
-        break;
-      case BinaryOpType::LogicalAnd:
-        for (const auto& i : inputs_) {
-          result = result && i;
-        }
-        break;
-      case BinaryOpType::LogicalOr:
-        for (const auto& i : inputs_) {
-          result = result || i;
-        }
-        break;
-      case BinaryOpType::BitwiseAnd:
-        for (const auto& i : inputs_) {
-          result = result & i;
-        }
-        break;
-      case BinaryOpType::BitwiseOr:
-        for (const auto& i : inputs_) {
-          result = result | i;
-        }
-        break;
-      case BinaryOpType::BitwiseXor:
-        for (const auto& i : inputs_) {
-          result = result ^ i;
-        }
-        break;
-      case BinaryOpType::Min:
-        for (const auto& i : inputs_) {
-          result = min(result, i);
-        }
-        break;
-      case BinaryOpType::Max:
-        for (const auto& i : inputs_) {
-          result = max(result, i);
-        }
-        break;
-      default:
-        NVF_ERROR(
-            "Unexpected operator type encountered"
-            "in PolymorphicValue::evaluate: ",
-            getOpType());
-    }
-    return {result};
-  }
-};
+  return {result};
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(FlattenedAssocCommOp)
 
@@ -1011,9 +1034,9 @@ inline DataType dataTypeOrNull(Val* x) {
   return x == nullptr ? DataType::Null : x->dtype();
 }
 
-// If x is nullptr, return 1. Otherwise, return x->getInt().
+// If x is nullptr, return 1. Otherwise, return x->value().as<int64_t>.
 inline int64_t getIntOrOne(Val* x) {
-  return x == nullptr ? 1 : *x->getInt();
+  return x == nullptr ? 1 : x->value().as<int64_t>();
 }
 
 // If the data type is unknown, return nullptr. Otherwise, return a constant
@@ -1103,9 +1126,9 @@ std::pair<Val*, std::list<Val*>> getConstAndSymbolicFactors(Val* x) {
   std::list<Val*> symbolic_factors;
   for (auto f : factors) {
     f = foldConstants(f);
-    if (f->getInt().has_value()) {
+    if (f->value().hasValue() && f->value().is<int64_t>()) {
       const_dtype = promoteTypeWithNull(const_dtype, f->dtype());
-      const_factor *= *f->getInt();
+      const_factor *= f->value().as<int64_t>();
     } else {
       symbolic_factors.emplace_back(f);
     }
@@ -1131,7 +1154,7 @@ Val* productOfFactors(
     return assoc_comm::maybeFlattenedOpOf(
         BinaryOpType::Mul, std::move(symbolic_factors));
   }
-  if (*const_factor->getInt() != 1 || symbolic_factors.empty()) {
+  if (const_factor->value() != 1 || symbolic_factors.empty()) {
     symbolic_factors.emplace_back(const_factor);
   }
   return maybeFlattenedOpOf(BinaryOpType::Mul, std::move(symbolic_factors));
@@ -1391,7 +1414,7 @@ namespace prove {
 // - x can be either zero or non-zero, it is just a symbolic number that depends
 // - x is zero
 
-bool lessThan(Val* x, Val* y, const Context& context);
+bool lessThan(Val* x, Val* y, const Context& context, int depth = 0);
 bool lessEqual(Val* x, Val* y, const Context& context);
 
 bool greaterThan(Val* x, Val* y, const Context& context) {
@@ -1436,12 +1459,12 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
@@ -1490,10 +1513,7 @@ bool isPositiveHelper(Val* value, const Context& context) {
 
 bool isNonZero(Val* value, const Context& context) {
   value = foldConstants(value);
-  if (value->getInt().has_value() && *value->getInt() != 0) {
-    return true;
-  }
-  if (value->getDouble().has_value() && *value->getDouble() != 0.0) {
+  if (value->value().hasValue() && (bool)(value->value() != 0)) {
     return true;
   }
   if (isPositive(value, context)) {
@@ -1522,19 +1542,45 @@ bool hasCompatibleSign(Val* x, Val* y, const Context& context) {
   return isNonNegative(x, context) && isNonNegative(y, context);
 }
 
-bool lessThan(Val* x, Val* y, const Context& context) {
+#define CACHE_AND_RETURN_LT(value)                               \
+  context.less_than_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
+bool lessThan(Val* x, Val* y, const Context& context, int depth) {
+  auto cache_it = context.less_than_cache_.find({x, y});
+  if (cache_it != context.less_than_cache_.end()) {
+    return cache_it->second;
+  }
+  // Max recursion depth of 2 levels was tested to be sufficient transitivity
+  // to address the test case in https://github.com/NVIDIA/Fuser/pull/1827. For
+  // that test, I observed the following test CPU runtimes (average of ten
+  // spaced runs) on a typical workstation:
+  //   recursion depth  time (sec)  Simplified?
+  //        0              1.5         no
+  //        1              1.5         no
+  //        2              1.9         yes
+  //        3              9.3         yes
+  //        4            133           yes
+  // This reflects the combinatorial explosion of brute-forcing the lessThan
+  // transitive closure. For now, we are setting this value to 2 since it
+  // appears to have a relatively minor impact on compile time while still
+  // providing the desired speedup for HSH matmul.
+  const int max_recursion_depth = 2;
+  if (depth >= 0) {
+    // This is used to track recursion depth. Passing depth=-1 disables
+    // incrementing, allowing infinite recursion.
+    depth++;
+  }
   x = foldConstants(x);
   y = foldConstants(y);
-  if (x->getInt().has_value() && y->getInt().has_value()) {
-    return *x->getInt() < *y->getInt();
-  }
-  if (x->getDouble().has_value() && y->getDouble().has_value()) {
-    return *x->getDouble() < *y->getDouble();
+  if (x->value().hasValue() && y->value().hasValue()) {
+    bool result = x->value() < y->value();
+    CACHE_AND_RETURN_LT(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   if (x->isZero() && isPositiveHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LT(true);
   }
   // i1 % i2 < i2
   if (auto bop = dynamic_cast<BinaryOp*>(x->definition());
@@ -1542,63 +1588,92 @@ bool lessThan(Val* x, Val* y, const Context& context) {
     auto denominator = bop->rhs();
     if (denominator->sameAs(y) && isValidDenominator(denominator, context) &&
         isNonNegative(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LT(true);
     }
   }
   // x <= a & a < b & b <= y  -->  x < y
   for (const auto& [a, b] : context.getKnownLessThan()) {
     if (lessEqual(x, a, context) && lessEqual(b, y, context)) {
+      CACHE_AND_RETURN_LT(true);
+    }
+  }
+  if (depth >= max_recursion_depth) {
+    // Limit the recursion depth to avoid infinite recursion
+    // In practice only a few levels are usually enough transitivity to prove
+    // what is needed for index expressions.
+    return false;
+  }
+  for (const auto& [a, b] : context.getKnownLessEqual()) {
+    bool lta = lessThan(x, a, context, depth);
+    bool ltb = lessThan(b, y, context, depth);
+    // x < a implies x <= b
+    bool lea = lta ? true : lessEqual(x, a, context);
+    bool leb = ltb ? true : lessEqual(b, y, context);
+    if (
+        // x < a & a <= b & b <= y  -->  x < y
+        (lta && leb) ||
+        // x <= a & a <= b & b < y  -->  x < y
+        (lea && ltb)) {
       return true;
     }
   }
-  return false;
+  CACHE_AND_RETURN_LT(false);
 }
 
+#undef CACHE_AND_RETURN_LT
+
+#define CACHE_AND_RETURN_LE(value)                                \
+  context.less_equal_cache_.emplace(std::make_pair(x, y), value); \
+  return value
+
 bool lessEqual(Val* x, Val* y, const Context& context) {
+  auto cache_it = context.less_equal_cache_.find({x, y});
+  if (cache_it != context.less_equal_cache_.end()) {
+    return cache_it->second;
+  }
+
   x = foldConstants(x);
   y = foldConstants(y);
-  if (x->getInt().has_value() && y->getInt().has_value()) {
-    return *x->getInt() <= *y->getInt();
-  }
-  if (x->getDouble().has_value() && y->getDouble().has_value()) {
-    return *x->getDouble() <= *y->getDouble();
+  if (x->value().hasValue() && y->value().hasValue()) {
+    bool result = x->value() <= y->value();
+    CACHE_AND_RETURN_LE(result);
   }
   x = maybeUnwrapMagicZero(x);
   y = maybeUnwrapMagicZero(y);
   // x == y -> x <= y
   if (x->sameAs(y)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   if (x->isZero() && isNonNegativeHelper(y, context)) {
-    return true;
+    CACHE_AND_RETURN_LE(true);
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < y  -->  x <= y
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     if (a->sameAs(x) && b->sameAs(y)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
     // x < b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
     // x <= b & b <= y  -->  x <= y
     if (a->sameAs(x) && lessEqual(b, y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if i is an integer, i > 0, then i >= 1
   if (x->isOneInt() && y->isIntegralScalar()) {
     if (isPositiveHelper(y, context)) {
-      return true;
+      CACHE_AND_RETURN_LE(true);
     }
   }
   // if a >= 0, b >= 1, then a <= a * b
@@ -1620,7 +1695,7 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
@@ -1644,13 +1719,15 @@ bool lessEqual(Val* x, Val* y, const Context& context) {
             maybeFlattenedOpOf(BinaryOpType::Mul, std::move(remaining_inputs));
         auto one = IrBuilder::create<Val>(1L, *remaining->getDataType());
         if (lessEqual(one, remaining, context)) {
-          return true;
+          CACHE_AND_RETURN_LE(true);
         }
       }
     }
   }
-  return false;
+  CACHE_AND_RETURN_LE(false);
 }
+
+#undef CACHE_AND_RETURN_LE
 
 } // namespace prove
 
@@ -1746,7 +1823,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
     }
     if (op == BinaryOpType::Add) { // a + (-a) -> 0
       std::vector<std::tuple<Val*, Val*, size_t>> inv_inputs;
-      for (size_t idx : c10::irange(fop->inputs().size())) {
+      for (size_t idx : arange(fop->inputs().size())) {
         auto inp = fop->input(idx);
         auto def = inp->definition();
         if (auto inv = dynamic_cast<UnaryOp*>(def)) {
@@ -1757,7 +1834,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       std::unordered_set<size_t> remove;
       for (auto [orig, inv, idx] : inv_inputs) {
-        for (size_t idx2 : c10::irange(fop->inputs().size())) {
+        for (size_t idx2 : arange(fop->inputs().size())) {
           auto inp = fop->input(idx2);
           if (remove.count(idx) || remove.count(idx2)) {
             continue;
@@ -1770,7 +1847,7 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       }
       if (!remove.empty()) {
         std::vector<Val*> new_inputs;
-        for (size_t idx : c10::irange(fop->inputs().size())) {
+        for (size_t idx : arange(fop->inputs().size())) {
           if (!remove.count(idx)) {
             new_inputs.emplace_back(fop->input(idx));
           }
@@ -1881,13 +1958,34 @@ Val* eliminateTrivialComputation(Val* value, const Context& context) {
       if (rhs->isOneInt()) {
         return IrBuilder::create<Val>(0L, *value->getDataType());
       }
-    } else if (
-        bop->getBinaryOpType() == BinaryOpType::Div ||
-        bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
+      // a % b -> a  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return lhs;
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::Div) {
+      // a / b -> 0  if -|b| < a < |b|
+      Val* absrhs = foldConstants(IrBuilder::absExpr(rhs));
+      Val* negabsrhs = foldConstants(IrBuilder::negExpr(absrhs));
+      if (prove::lessThan(lhs, absrhs, context) &&
+          prove::lessThan(negabsrhs, lhs, context)) {
+        return IrBuilder::create<Val>(0L, *value->getDataType());
+      }
       // a / 1 -> a
       // 0 / a -> 0
       if (rhs->isOne() ||
-          (isValidDenominator(rhs, context) && lhs->getInt() == 0)) {
+          (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
+        return lhs;
+      }
+    } else if (bop->getBinaryOpType() == BinaryOpType::CeilDiv) {
+      // a / 1 -> a
+      // 0 / a -> 0
+      if (rhs->isOne() ||
+          (isValidDenominator(rhs, context) && lhs->value().hasValue() &&
+           lhs->value().is<int64_t>() && lhs->value().as<int64_t>() == 0)) {
         return lhs;
       }
     }
@@ -1988,7 +2086,7 @@ Val* eliminateTrivialPredicate(Val* value, const Context& context) {
   return value;
 }
 
-// Apply rule 1 in [Simplification of boolean predicates] to convert
+// Apply Theorem 4.16 in doc/math/integer-division.md to convert
 // i / d < D into i < d * D
 Val* convertDivToMulInPredicate(Val* value, const Context& context) {
   auto bop = dynamic_cast<BinaryOp*>(value->definition());
@@ -2063,12 +2161,28 @@ Val* cancelDivMod(Val* value, const Context& context) {
   if (!divmod) {
     return value;
   }
+
   auto op = divmod->getBinaryOpType();
   if (op != BinaryOpType::Div && op != BinaryOpType::Mod) {
     return value;
   }
+
   auto lhs = sym_algebra::factorize(divmod->lhs());
   auto rhs = sym_algebra::factorize(divmod->rhs());
+
+  if (op == BinaryOpType::Div) {
+    if (BinaryOp* lhs_def = toDivModOp(lhs->definition())) {
+      if (lhs_def->getBinaryOpType() == BinaryOpType::Div) {
+        Val* lhs_lhs = lhs_def->lhs();
+        Val* lhs_rhs = lhs_def->rhs();
+        if (lhs_rhs->isConst() && rhs->isConst()) {
+          return IrBuilder::divExpr(
+              lhs_lhs, SimplifyingIrBuilder::mulExpr(lhs_rhs, rhs));
+        }
+      }
+    }
+  }
+
   auto gcd = sym_algebra::greatestCommonDivisor({lhs, rhs});
   if (gcd->isOne() || !isValidDenominator(gcd, context)) {
     return value;
@@ -2084,15 +2198,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   }
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// If compatible_sign(a, b), and a is a multiple of c, then:
-//  (a + b) / c = a/c + b/c
-//  (a + b) % c = b % c
+// Rule J.1, Q.1
 Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2108,14 +2214,14 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   if (!fop) {
     return value;
   }
-  for (auto i : c10::irange(fop->inputs().size())) {
+  for (auto i : arange(fop->inputs().size())) {
     Val* divisible_term = fop->input(i);
     if (!prove::isMultipleOf(divisible_term, rhs)) {
       continue;
     }
     std::vector<Val*> other_terms;
     other_terms.reserve(fop->inputs().size() - 1);
-    for (auto j : c10::irange(fop->inputs().size())) {
+    for (auto j : arange(fop->inputs().size())) {
       if (j == i) {
         continue;
       }
@@ -2142,29 +2248,7 @@ Val* distributeDivisibleDivMod(Val* value, const Context& context) {
   return value;
 }
 
-// Use the following rule to simplify div and mod:
-// J) Distributivity of % over +:
-//    If compatible_sign(a, b), then (a + b) % c = (a % c + b % c) % c
-// Q) If compatible_sign(a, b) and -|c| < a % c + b % c < |c|, then
-//    (a + b) / c = a/c + b/c
-// In this pass we distribute div and mod for a special case:
-// Let g = gcd(a, c). If compatible_sign(a, b), and -|g| < b < |g|, then:
-//  (a + b) / c = a/c
-//  (a + b) % c = a % c + b
-// Proof:
-//  Because -|g| < b < |g|, and |g| <= |c|, we know -|c| < b < |c|, according to
-//  Theorem 6.5, we have b % c = b.
-//  According to rule O, we have a % c = ((a/g) % (c/g)) * g.
-//  So, a % c + b % c = ((a/g) % (c/g)) * g + b
-//  Because -|c/g| < (a/g) % (c/g) < |c/g|, for integers, we have
-//  -|c/g| + 1 <= (a/g) % (c/g) <= |c/g| - 1
-//  So, -(|c/g| - 1) * |g| <= a % c <= (|c/g| - 1) * |g|
-//  Therefore, we have
-//  -(|c/g| - 1) * |g| - |g| < a % c + b % c < (|c/g| - 1) * |g| + |g|
-// That is: -|c| < a % c + b % c < |c|
-// Therefore:
-// (a + b) % c = (a % c + b % c) % c = a % c + b % c = a % c + b
-// (a + b) / c = a/c + b/c = a / c
+// Rule J.2, Q.2
 Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
   auto divmod = toDivModOp(value->definition());
   if (!divmod) {
@@ -2269,6 +2353,12 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           }
         }
       }
+      if (combo_xs.empty() || combo_other.empty()) {
+        // This can happen when combo_id = 2^k - 1 for some k >= xs.size(). In
+        // that case, ((combo_id >> i) & 1) == 1 for i = 0, ... , k - 1, and we
+        // will place all elements into combo_xs.
+        continue;
+      }
       // compute sum of combo_xs and sum of combo_other
       Val* sum_xs = maybeFlattenedOpOf(BinaryOpType::Add, std::move(combo_xs));
       Val* sum_other =
@@ -2309,7 +2399,7 @@ Val* distributeGcdRemainderDivMod(Val* value, const Context& context) {
           return assoc_comm::flatten(result);
         }
         default:
-          NVF_ERROR(false);
+          NVF_THROW();
       }
     }
   }
@@ -2491,7 +2581,7 @@ Val* fundamentalDivisionWithRemainderProperty(
     if (fmul == nullptr) {
       return result;
     }
-    for (auto j : c10::irange(fmul->inputs().size())) {
+    for (auto j : arange(fmul->inputs().size())) {
       auto vmul = fmul->input(j);
       if (!isIntegralType(*vmul->getDataType())) {
         continue;
@@ -2504,7 +2594,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         auto a = bop->lhs();
         auto b = bop->rhs();
         std::vector<Val*> other_terms;
-        for (auto k : c10::irange(fmul->inputs().size())) {
+        for (auto k : arange(fmul->inputs().size())) {
           if (j == k) {
             continue;
           }
@@ -2528,7 +2618,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   };
   // Find a / b * b or a / b * (b*c)
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> divmuls;
-  for (auto i : c10::irange(fadd->inputs().size())) {
+  for (auto i : arange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2539,7 +2629,7 @@ Val* fundamentalDivisionWithRemainderProperty(
   }
   // Find a % b or a % b * c
   std::vector<std::tuple<size_t, Val*, Val*, Val*>> modmuls;
-  for (auto i : c10::irange(fadd->inputs().size())) {
+  for (auto i : arange(fadd->inputs().size())) {
     auto vadd = fadd->input(i);
     if (!isIntegralType(*vadd->getDataType())) {
       continue;
@@ -2583,7 +2673,7 @@ Val* fundamentalDivisionWithRemainderProperty(
         // As: [1] + [2] + a * c ... + ...  + ...
         Val* ac = maybeFlattenedOpOf(BinaryOpType::Mul, {a1, c});
         std::vector<Val*> terms{ac};
-        for (auto k : c10::irange(fadd->inputs().size())) {
+        for (auto k : arange(fadd->inputs().size())) {
           if (k == i || k == j) {
             continue;
           }
@@ -2629,8 +2719,8 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
 
   std::vector<bool> common_lhs_terms(lhs_terms.size(), false);
   std::vector<bool> common_rhs_terms(rhs_terms.size(), false);
-  for (const auto lhs_i : c10::irange(lhs_terms.size())) {
-    for (const auto rhs_i : c10::irange(rhs_terms.size())) {
+  for (const auto lhs_i : arange(lhs_terms.size())) {
+    for (const auto rhs_i : arange(rhs_terms.size())) {
       // Make sure no multiple LHS terms are removed for the same RHS term
       if (common_rhs_terms.at(rhs_i)) {
         continue;
@@ -2651,14 +2741,14 @@ Val* cancelTermsInPredicate(Val* value, const Context& context) {
   }
 
   std::vector<Val*> new_lhs_terms;
-  for (const auto i : c10::irange(lhs_terms.size())) {
+  for (const auto i : arange(lhs_terms.size())) {
     if (!common_lhs_terms.at(i)) {
       new_lhs_terms.push_back(lhs_terms[i]);
     }
   }
 
   std::vector<Val*> new_rhs_terms;
-  for (const auto i : c10::irange(rhs_terms.size())) {
+  for (const auto i : arange(rhs_terms.size())) {
     if (!common_rhs_terms.at(i)) {
       new_rhs_terms.push_back(rhs_terms[i]);
     }
@@ -2708,7 +2798,7 @@ Val* simplifyExpr(
     std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, assumptions, preserve_error);
+  const Context context(variables, std::move(assumptions), preserve_error);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
@@ -2717,6 +2807,9 @@ Val* simplifyExpr(
   std::unique_ptr<std::unordered_set<std::string>> disabled_passes = nullptr;
   if (isOptionDisabled(DisableOption::ExprSimplify)) {
     const auto& v = getDisableOptionArguments(DisableOption::ExprSimplify);
+    if (v.empty()) {
+      return value;
+    }
     disabled_passes =
         std::make_unique<std::unordered_set<std::string>>(v.begin(), v.end());
   }

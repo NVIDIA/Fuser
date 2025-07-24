@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 # Introduction
 
 **dynamic_type** is a header-only C++ template library that defines `DynamicType`.
@@ -124,13 +130,15 @@ extra work. All the behaviors mentioned in this note are tested in
 `test/examples.cpp`, so if you want to change anything in this doc, please make
 sure to update the test as well.
 
+## Containers
+
 `DynamicType` also supports recursive types, that is, the type list can
 contain `DynamicType`. For example, something like:
 
 ```C++
 // Warning: this code does not compile!
 using IntFloatVecList = DynamicType<
-    NoContainers,
+    ??,
     int,
     float,
     std::vector<IntFloatVecList>,
@@ -198,6 +206,8 @@ x[0] // gets IntFloatVec(1)
 x[1] // gets IntFloatVec(2.3f)
 ```
 
+## Class member access
+
 If one of the candidate type of `DynamicType` is a struct or class, then we can use
 operator `->*&` to access their members. For example:
 
@@ -237,6 +247,99 @@ get different hash, which does not make sense.
 
 Operations on `DynamicType` are as `constexpr` as possible. So most tests in
 `DynamicTypeTest` are `static_assert` tests.
+
+## Dispatching
+
+`DynamicType` has a static member function `dispatch`, which is a general tool to dispatch on function calls.
+For example, if you want to know the size of the actual data held in a `DynamicType`, you can do the following:
+
+```C++
+using IntDoubleVec = DynamicType<Containers<std::vector>, int, double>;
+auto get_size = [](auto x) { return sizeof(x); };
+IntDoubleVec mydata1 = 3.0;
+IntDoubleVec::dispatch(get_size, mydata1); // returns 8
+IntDoubleVec mydata2 = 123;
+IntDoubleVec::dispatch(get_size, mydata2); // returns 4
+```
+
+The above dispatch is equivalent to the following pseudocode:
+
+```C++
+for (T : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+  if (mydata.is<T>()) {
+    return get_size(mydata.as<T>());
+  }
+}
+```
+
+The function being dispatched can have multiple arguments, each argument can be either a `DynamicType` or a regular type.
+For each `DynamicType` argument, `dispatch` will do a loop on all types to find the actual type and call the function with that type.
+For example:
+
+```C++
+auto get_total_size = [](auto x, size_t num_x, auto y, size_t num_y) {
+  return sizeof(x) * num_x + sizeof(y) * num_y;
+};
+IntDoubleVec::dispatch(get_total_size, mydata1, 3, mydata2, 5); // returns 44
+```
+
+where the above dispatch is equivalent to the following pseudocode:
+
+```C++
+for (T1 : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+  for (T2 : {int, double, std::monostate, std::vector<IntDoubleVec>}) {
+    if (mydata1.is<T1>() && mydata2.is<T2>()) {
+      return get_total_size(mydata1.as<T1>(), 3, mydata2.as<T2>(), 5);
+    }
+  }
+}
+```
+
+If the output type of the callback function is different for different input types,
+then we promote the output type to `DynamicType`. For example:
+
+```C++
+auto my_pow = [](auto x, auto exp) {
+  if constexpr (
+      std::is_arithmetic_v<decltype(x)> &&
+      std::is_arithmetic_v<decltype(exp)>) {
+    if constexpr (std::is_integral_v<decltype(exp)>) {
+      decltype(x) result = 1;
+      while (exp-- > 0) {
+        result *= x;
+      }
+      return result;
+    } else {
+      return std::pow(x, exp);
+    }
+  } else {
+    throw std::runtime_error("Unsupported type");
+    return;
+  }
+};
+IntDoubleVec::dispatch(my_pow, mydata1, mydata1); //IntDoubleVec(double, 27.0)
+IntDoubleVec::dispatch(my_pow, mydata1, mydata2); //IntDoubleVec(double, 9.0)
+IntDoubleVec::dispatch(my_pow, mydata2, mydata1); //IntDoubleVec(double, 8.0)
+IntDoubleVec::dispatch(my_pow, mydata2, mydata2); //IntDoubleVec(int, 4)
+```
+
+The arguments and return types of the callback function are perfectly forwarded.
+So we can use references as arguments or return values, and it will be correctly handled.
+For example:
+
+```C++
+std::vector<float> vec = {0.0, 1.0, 2.0, 3.0};
+auto get_item = [](auto& v, auto index) -> decltype(auto) {
+  if constexpr (std::is_integral_v<decltype(index)>) {
+    return v[index];
+  } else {
+    throw std::runtime_error("Illegal index type");
+    return;
+  }
+};
+IntDoubleVec::dispatch(get_item, vec, mydata2) = 100.0;
+// vec is now {0.0, 1.0, 100.0, 3.0}
+```
 
 # Benchmarks
 
@@ -279,3 +382,9 @@ In file included from ../src/dynamic_type/dynamic_type.h:19:
 ../src/dynamic_type/type_traits.h:577:16: note: in instantiation of function template specialization 'dynamic_type::any<bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool>' requested here
         return any(std::apply(f, candidates)...);
 ```
+
+# Binary size
+
+The binary size of the program in `compilation-time/` is shown below:
+
+![Binary Size](resources/binary-size.png)

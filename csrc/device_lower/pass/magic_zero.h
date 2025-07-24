@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <vector>
 
@@ -24,7 +25,7 @@ struct IndexFromIdGraph;
 std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs);
 
 //! Check if val is a reference to the magic zero variable
-bool isMagicZero(const Val* val);
+NVF_API bool isMagicZero(const Val* val);
 
 //! Check if val is protected with magic zero.
 //!
@@ -44,7 +45,7 @@ Val* maybeUnwrapMagicZero(Val* val);
 // We should avoid use on registers. Shared memory does not require it, but
 // likely wouldn't hurt.
 bool needsMagicZero(
-    kir::ForLoop* loop,
+    ForLoop* loop,
     IterDomain* reference_domain = nullptr,
     Val* ind = nullptr);
 
@@ -69,7 +70,7 @@ struct IndexMagicZeroInfo {
 IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     Val* index,
     const IndexFromIdGraph& id_graph,
-    const std::vector<kir::ForLoop*>& loops);
+    const std::vector<ForLoop*>& loops);
 
 //! Protect an index val of a tensor with magic zero
 //!
@@ -78,7 +79,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
 //! No protection is done if none of the loops is determined to require
 //! protection by needsMagicZero.
 void protectNonPredicateIndexWithMagicZero(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const std::vector<IterDomain*>& loop_domains,
     std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map);
 

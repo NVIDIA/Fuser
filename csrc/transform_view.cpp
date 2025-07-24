@@ -43,7 +43,7 @@ namespace nvfuser {
 //!
 //! Post-view Domain:
 //!   This domain is the original domain after the squeeze and all
-//!   transformations. This domain holds the rfactor domains determined by
+//!   transformations. This domain holds the logical domains determined by
 //!   merge/split operations of the find transformations pass. It is the final
 //!   domain without all the broadcast operations (can have some that were
 //!   preserved through the transformations).
@@ -78,7 +78,7 @@ namespace nvfuser {
 //!        Gets forwarded to transformView(TensorDomain, view_analysis)
 //!        Gets forwarded to createViewDomain(TensorDomain, view_analysis)
 //!        createViewDomain creates the new root domain, and calls
-//!        createRfactorDomain on view_analysis.transforms().
+//!        createLogicalDomain on view_analysis.transforms().
 //!   5) brooadcast will be called with view_analysis.broadcast_axes
 //!
 //! TODO: Caching assumes that all size-1 inputs are correctly marked as a
@@ -117,8 +117,8 @@ class ViewTransform : public Transform {
   // Function to apply the transformation. Transformation is applied on
   // current_transformed_domain. root_domain is required here to replace
   // IterDomains so we can flip the rfactor flag on the root domain if it's
-  // involved in merge/split trasnforms to produce the rfactor domain.
-  virtual void createRfactorDomain(
+  // involved in merge/split trasnforms to produce the logical domain.
+  virtual void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) = 0;
 
@@ -133,7 +133,8 @@ class ViewTransform : public Transform {
         root_domain_it != root_domain.end(),
         "Wanted to replace ",
         id->toString(),
-        " in root with an rfactor dimension, but IterDomain was not found in root.");
+        " in root with an rfactor dimension, but IterDomain was not found in "
+        "root.");
 
     auto root_domain_pos = std::distance(root_domain.begin(), root_domain_it);
 
@@ -185,7 +186,7 @@ class MergeTransform final : public ViewTransform {
     return ss.str();
   }
 
-  void createRfactorDomain(
+  void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
     NVF_ERROR(
@@ -211,14 +212,8 @@ class MergeTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    auto merged_extent = mul(outer_id->extent(), inner_id->extent());
-
     auto new_merged_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), merged_extent)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Merge>(new_merged_id, outer_id, inner_id);
+        IterDomain::merge(outer_id, inner_id, /*logical_domain*/ true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
@@ -255,7 +250,7 @@ class SplitTransform final : public ViewTransform {
     return ss.str();
   }
 
-  void createRfactorDomain(
+  void createLogicalDomain(
       std::vector<IterDomain*>& root_domain,
       std::vector<IterDomain*>& current_transformed_domain) override {
     NVF_ERROR(
@@ -277,23 +272,11 @@ class SplitTransform final : public ViewTransform {
         "Didn't expect to apply view transformations on an iter domain",
         " starting at a non-zero position.");
 
-    Val* remainder = ceilDiv(id->extent(), factor);
-
-    // outer loop IterDomain
-    IterDomain* factor_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), factor)
-            .parallel_type(id->getParallelType())
-            .iter_type(id->getIterType())
-            .is_rfactor_domain(true)
-            .build();
-
-    // inner loop IterDomain
-    IterDomain* remainder_id =
-        IterDomainBuilder(FusionGuard::getCurFusion()->zeroVal(), remainder)
-            .is_rfactor_domain(true)
-            .build();
-
-    IrBuilder::create<Split>(factor_id, remainder_id, id, factor, false);
+    auto [factor_id, remainder_id] = IterDomain::split(
+        id,
+        factor,
+        /*inner_split=*/false,
+        /*rfactor_domain=*/true);
 
     current_transformed_domain.erase(
         current_transformed_domain.begin() + index_);
@@ -383,7 +366,7 @@ class AnalyzeViewTransformation {
     AnalyzeViewConstraint constraint;
     constraint.original_constraint =
         std::vector<int64_t>(original_view_.begin(), original_view_.end());
-    for (auto i : c10::irange(constraint.original_constraint.size())) {
+    for (auto i : arange(constraint.original_constraint.size())) {
       if (constraint.original_constraint[i] != 1) {
         constraint.original_constraint[i] = 0;
       }
@@ -391,7 +374,7 @@ class AnalyzeViewTransformation {
 
     constraint.new_constraint =
         std::vector<int64_t>(new_view_.begin(), new_view_.end());
-    for (auto i : c10::irange(constraint.new_constraint.size())) {
+    for (auto i : arange(constraint.new_constraint.size())) {
       if (constraint.new_constraint[i] != 1) {
         constraint.new_constraint[i] = 0;
       }
@@ -532,7 +515,8 @@ class AnalyzeViewTransformation {
 
     NVF_ERROR(
         view_transforms_.empty(),
-        "Already ran find transformation pass for View op, cannot run a second time.");
+        "Already ran find transformation pass for View op, cannot run a second "
+        "time.");
 
     // Iterate until original view is completely consumed and new view is
     // completely generated.
@@ -541,7 +525,8 @@ class AnalyzeViewTransformation {
       NVF_ERROR(
           !(prev_new_view_index == new_view_index &&
             prev_original_view_index == original_view_index),
-          "Infinite loop detected in AnalyzeViewTransformation::findTransformation(). Bailing.");
+          "Infinite loop detected in "
+          "AnalyzeViewTransformation::findTransformation(). Bailing.");
 
       prev_new_view_index = new_view_index;
       prev_original_view_index = original_view_index;
@@ -639,7 +624,8 @@ class AnalyzeViewTransformation {
       // dimension, there must be an activew new_view.
       NVF_ERROR(
           new_view_index < (int64_t)new_view_.size(),
-          "Expecting to still have new dimensions to work on in view, but none left.");
+          "Expecting to still have new dimensions to work on in view, but none "
+          "left.");
 
       if (new_view_index < (int64_t)new_view_.size() &&
           current_size % new_view_.at(new_view_index) == 0) {
@@ -659,7 +645,8 @@ class AnalyzeViewTransformation {
       // dimension, merge the next dimension in.
       NVF_ERROR(
           original_view_index + 1 < (int64_t)original_view_.size(),
-          "Expecting to still have original dimensions to work on in view, but none left.",
+          "Expecting to still have original dimensions to work on in view, but "
+          "none left.",
           " Original view index: ",
           original_view_index,
           ". Original view size: ",
@@ -688,7 +675,7 @@ class AnalyzeViewTransformation {
   const std::vector<int64_t>& new_view_;
 };
 
-//! Create new TensorDomain with a new root domain and modified rfactor domains
+//! Create new TensorDomain with a new root domain and modified logical domains
 //! using the specified view transformations. Original domain should already be
 //! without reduction axes.
 TensorDomain* createViewDomain(
@@ -698,31 +685,31 @@ TensorDomain* createViewDomain(
   NVF_ERROR(!view_analysis.transforms.empty());
 
   std::vector<IterDomain*> new_root_domain;
-  auto orig_root_domain =
-      TensorDomain::noReductions(original_domain->maybeRFactor());
+  auto orig_logical_domain =
+      TensorDomain::noReductions(original_domain->logical());
 
   // Apply squeeze.
-  for (auto id_i : c10::irange(orig_root_domain.size())) {
+  for (auto id_i : arange(orig_logical_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
-      auto id = orig_root_domain.at(id_i);
+      auto id = orig_logical_domain.at(id_i);
       new_root_domain.push_back(id->cloneWithoutRFactor());
       continue;
     }
   }
 
-  std::vector<IterDomain*> new_rfactor_domain(
+  std::vector<IterDomain*> new_logical_domain(
       new_root_domain.begin(), new_root_domain.end());
 
-  // Apply rfactor transformations.
+  // Apply root to logical transformations.
   for (auto& t : view_analysis.transforms) {
-    t->createRfactorDomain(new_root_domain, new_rfactor_domain);
+    t->createLogicalDomain(new_root_domain, new_logical_domain);
   }
 
   return IrBuilder::create<TensorDomain>(
       new_root_domain,
-      new_rfactor_domain,
-      new_rfactor_domain,
-      TensorDomain::getContiguityFilledWith(new_rfactor_domain, true));
+      new_logical_domain,
+      new_logical_domain,
+      TensorDomain::getContiguityFilledWith(new_logical_domain, true));
 }
 
 } // namespace
@@ -732,7 +719,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
     const std::vector<int64_t>& new_sizes) {
   bool valid_original_sizes = std::all_of(
       original_sizes.begin(), original_sizes.end(), [](int64_t dim) {
-        return dim > 0;
+        return dim >= 0;
       });
   NVF_ERROR(valid_original_sizes);
 
@@ -748,7 +735,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
       NVF_ERROR(dynamic_index == -1, "Only one dimension can by inferred.")
       dynamic_index = idx;
     } else {
-      NVF_ERROR(new_sizes.at(idx) > 0);
+      NVF_ERROR(new_sizes.at(idx) >= 0);
       new_size_num_elements *= new_sizes.at(idx);
       new_view.at(idx) = new_sizes.at(idx);
     }
@@ -758,13 +745,16 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferViewShapes(
       original_view.begin(), original_view.end(), 1, std::multiplies<>());
   if (dynamic_index != -1) {
     NVF_ERROR(
-        kNumElements % new_size_num_elements == 0,
-        "Cannot infer the actual size of -1 output domain as the number of input elements is not divisible by the number of the output elements computed from the other output domains. ",
+        kNumElements == 0 || kNumElements % new_size_num_elements == 0,
+        "Cannot infer the actual size of -1 output domain as the number of "
+        "input elements is not divisible by the number of the output elements "
+        "computed from the other output domains. ",
         "Number of input elements: ",
         kNumElements,
         ". Number of output elements: ",
         new_size_num_elements);
-    new_view.at(dynamic_index) = kNumElements / new_size_num_elements;
+    new_view.at(dynamic_index) =
+        kNumElements == 0 ? 0 : (kNumElements / new_size_num_elements);
   }
 
   return {original_view, new_view};
@@ -776,20 +766,20 @@ AnalyzeViewResult analyzeView(
     const TensorView* original_view_tv,
     const std::vector<int64_t>& original_sizes,
     const std::vector<int64_t>& new_sizes) {
-  FUSER_PERF_SCOPE("analyzeView");
   if (original_sizes.empty()) {
     NVF_ERROR(
         std::all_of(
             new_sizes.begin(),
             new_sizes.end(),
             [](int64_t s) { return s == 1; }),
-        "Zero-dim tensors may only be reshaped to tensors with a single element (no expansion).");
+        "Zero-dim tensors may only be reshaped to tensors with a single "
+        "element (no expansion).");
     return {std::vector<bool>(new_sizes.size(), true), {}, {}};
   }
 
   NVF_ERROR(
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain())
-          .size() == original_sizes.size());
+      TensorDomain::noReductions(original_view_tv->getLogicalDomain()).size() ==
+      original_sizes.size());
 
   // Fill -1 dimension in new_std::vector<int64_t> with size infered from all
   // other values
@@ -800,7 +790,7 @@ AnalyzeViewResult analyzeView(
   AnalyzeViewTransformation analyzer(
       sizes.first /* original_view */,
       sizes.second /* new_view */,
-      TensorDomain::noReductions(original_view_tv->getMaybeRFactorDomain()));
+      TensorDomain::noReductions(original_view_tv->getLogicalDomain()));
   return analyzer.run();
 }
 
@@ -814,7 +804,7 @@ AnalyzeViewConstraint analyzeViewConstraint(
   return analyzer.constraint();
 }
 
-//! Create new TensorDomain with a modified rfactor domain using the specified
+//! Create new TensorDomain with a modified logical domain using the specified
 //! view transformations
 TensorDomain* transformView(
     TensorDomain* original_domain,
@@ -854,7 +844,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
     return false;
   }
 
-  for (const auto i : c10::irange(transforms.size())) {
+  for (const auto i : arange(transforms.size())) {
     auto transform = transforms.at(i);
     auto other_transform = other.transforms.at(i);
     if (transform->isA<SplitTransform>()) {
@@ -881,7 +871,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
 size_t AnalyzeViewResult::hash() const {
   auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
     size_t hash = 0;
-    for (const auto i : c10::irange(vec.size())) {
+    for (const auto i : arange(vec.size())) {
       hash = (hash << 1) + static_cast<size_t>(vec.at(i));
     }
     return hash;
@@ -948,18 +938,20 @@ TensorView* applyViewTransforms(
   NVF_ERROR(post_reduce_tv != nullptr, "Input is invalid.");
   NVF_ERROR(
       !post_reduce_tv->hasComputeAt(),
-      "Cannot modify rfactor domain after compute at has been set.");
+      "Cannot modify logical domain after compute at has been set.");
 
   NVF_ERROR(post_reduce_tv->nDims() > 0, "Tried to view a 0-dim TensorView");
 
   NVF_ERROR(!view_analysis.transforms.empty());
 
-  TensorView* consumer = IrBuilder::create<TensorView>(
+  TensorView* consumer = IrBuilder::createInContainer<TensorView>(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
       orig_tv->getDataType().value());
+  consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
-  IrBuilder::create<ViewOp>(orig_tv->container(), consumer, post_reduce_tv);
+  IrBuilder::createInContainer<ViewOp>(
+      orig_tv->container(), consumer, post_reduce_tv);
 
   return consumer;
 }

@@ -10,16 +10,17 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <ir/base_nodes.h>
+#include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
 #include <utils.h>
-
-#include <c10/macros/Export.h>
+#include <visibility.h>
 
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace nvfuser {
@@ -35,20 +36,26 @@ class TensorIndex;
 
 // Expressions
 class Allocate;
+class Asm;
 class BlockSync;
 class GridSync;
+class FenceAsyncProxy;
+class WgMmaFence;
+class SetMaxNReg;
+class Continue;
+class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
-class CpAsyncWait;
-class CpAsyncCommit;
-class CpAsyncBulkS2GWait;
-class CpAsyncBulkS2GCommit;
+class MBarrierWaitParity;
+class BlockSerializeWait;
+class BlockSerializeRelease;
+class AsyncWait;
+class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class ForLoop;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -56,9 +63,9 @@ class GridBroadcast;
 class GridWelford;
 class GroupedGridWelford;
 class AllocateFusedReduction;
+class RNGOp;
 
 // Expr container
-class Scope;
 
 class Predicate final : public Val {
  public:
@@ -67,6 +74,12 @@ class Predicate final : public Val {
       PredicateType ptype,
       const Expr* expr = nullptr,
       Val* thread_pred = nullptr);
+
+  explicit Predicate(
+      IrBuilderPasskey passkey,
+      PredicateType ptype,
+      const Expr* tma_1d_load_expr,
+      std::vector<ForLoop*> tma_1d_load_loops_);
 
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
@@ -90,15 +103,22 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned || ptype_ == PredicateType::Shift ||
-        ptype_ == PredicateType::Padding ||
-        ptype_ == PredicateType::ReductionWrite);
+            ptype_ == PredicateType::Misaligned ||
+            ptype_ == PredicateType::ReductionWrite ||
+            ptype_ == PredicateType::ElectSync,
+        "Wrong predicate type. ",
+        toString());
     return thread_pred_;
   }
 
   ForLoop* unrolled_loop() const {
     NVF_ERROR(ptype_ == PredicateType::Unswitch);
     return unrolled_loop_;
+  }
+
+  const std::vector<ForLoop*>& tma1dLoadLoops() const {
+    NVF_ERROR(ptype_ == PredicateType::OneDimTmaLoadExpectArrive);
+    return tma_1d_load_loops_;
   }
 
   bool hasValue() const {
@@ -122,7 +142,8 @@ class Predicate final : public Val {
   }
 
   bool isTrivial() const {
-    return isConst() && value_->getBool() == true;
+    return isConst() && value_->value().is<bool>() &&
+        value_->value().as<bool>();
   }
 
  private:
@@ -138,6 +159,9 @@ class Predicate final : public Val {
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
 
+  // For PredicateCompute::OneDimTmaLoadExpectArrive
+  std::vector<ForLoop*> tma_1d_load_loops_;
+
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass
   Val* value_ = nullptr;
@@ -145,7 +169,11 @@ class Predicate final : public Val {
 
 class TensorIndex final : public Val {
  public:
-  TensorIndex(IrBuilderPasskey, const TensorView* view, Val* index);
+  TensorIndex(
+      IrBuilderPasskey,
+      const TensorView* view,
+      Val* index,
+      DataType dtype = DataType::Null);
 
   Val* index() const {
     return index_;
@@ -165,6 +193,92 @@ class TensorIndex final : public Val {
   Val* index_ = nullptr;
 };
 
+// In theory, we should just put this struct into class Asm, but unfortunately,
+// due to compiler bug, we can not do that:
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88165
+struct AsmOptions {
+  bool volatile_ = false;
+  bool memory = false;
+  std::unordered_set<int64_t> readable_outputs = {};
+  std::unordered_set<int64_t> immediate_inputs = {};
+};
+
+class Asm final : public Expr {
+ public:
+  using Options = AsmOptions;
+
+  using Expr::Expr;
+
+  explicit Asm(
+      IrBuilderPasskey passkey,
+      const std::string& code,
+      const std::vector<Val*>& outputs,
+      const std::vector<Val*>& inputs,
+      const Options& options = Options());
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Asm";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const std::string& code() const {
+    return attribute<std::string>(0);
+  }
+
+  // The name of the utility function that we want to wrap the inline PTX code
+  // in. If this is empty, then the inline PTX code will be emitted directly
+  // into the kernel.
+  std::string utility() const;
+
+  // The signature of the utility function that we want to wrap the inline PTX
+  // code in. Something like "void my_utility(int*, int*, int*)". This is
+  // used to determine if the utility function has already been generated when
+  // we convert Kernel IR to CUDA C++ code.
+  std::string signature() const;
+
+  const Options& options() const {
+    return attribute<Options>(1);
+  }
+
+  Options& options() {
+    return attribute<Options>(1);
+  }
+
+  bool volatile_() const {
+    return options().volatile_;
+  }
+
+  bool& volatile_() {
+    return options().volatile_;
+  }
+
+  bool memory() const {
+    return options().memory;
+  }
+
+  bool& memory() {
+    return options().memory;
+  }
+
+  bool hasBooleanInput() const {
+    for (auto input : inputs()) {
+      if (input->dtype() == DataType::Bool) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  std::vector<std::pair<std::string, Val*>> constraintsAndOutputs() const;
+  std::vector<std::pair<std::string, Val*>> constraintsAndInputs() const;
+
+  std::string parameters() const;
+};
+
 //! Allocate is a lower level Node that describes a buffer of memory that
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
@@ -176,12 +290,17 @@ class Allocate final : public Expr {
   //! Allocation of a multi-dimensional buffer
   //!
   //! param shape Size of each dimension
+  //! param zero_init Should this memory be zero-initialized?
+  //! param resets_to_zero Will this memory be set to zero upon completion of
+  //!   this kernel?
+  //! param alias Is this an alias of previously-allocated memory
   explicit Allocate(
       IrBuilderPasskey passkey,
       Val* buffer,
       MemoryType memory_type,
       std::vector<Val*> shape = {},
       bool zero_init = false,
+      bool resets_to_zero = false,
       Allocate* alias = nullptr);
 
   //! Allocation of a non-dimensional buffer
@@ -192,7 +311,8 @@ class Allocate final : public Expr {
       Val* buffer,
       MemoryType memory_type,
       Val* size,
-      bool zero_init = false);
+      bool zero_init = false,
+      bool resets_to_zero = false);
 
   const char* getOpString() const override {
     return "Allocate";
@@ -219,43 +339,167 @@ class Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 5);
-    for (auto i = attributes().begin() + 5; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 8);
+    for (auto i = attributes().begin() + 8; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
   }
 
+  //! Does this allocation require its memory to be initialized to zero before
+  //! this kernel is launched? If this is true, then an additional memset
+  //! kernel might be launched before the current Fusion kernel is launched in
+  //! order to guarantee that this buffer is filled with zeroes (see
+  //! resetsToZero() below).
   bool zeroInit() const {
     return attribute<bool>(2);
+  }
+
+  //! Is this buffer guaranteed to be reset to all zero values at the end of
+  //! this kernel? This is used to avoid an additional memset kernel launch for
+  //! buffers that require zeroed memory (see zeroInit() above).
+  //!
+  //! A common use case for zeroInit() allocations is semaphore buffers that
+  //! hold counters starting at zero. Typically, each participating thread would
+  //! increment the counter and the last thread would leave the counter in a
+  //! non-zeroed state. The next time that kernel is run, it can no longer
+  //! re-use the non-zero semaphore buffer, so KernelExecutor will launch
+  //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
+  //!
+  //! Instead, if the last thread resets the counter to zero, then the buffer
+  //! can be re-used, and at::zeroes need only be run at the first kernel
+  //! launch. If resetsToZero() is true, then KernelExecutor will use
+  //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
+  //! reuse zeroed memory avoiding the additional kernel launch.
+  //!
+  //! Whenever possible, we should try to guarantee that resetsToZero() is true
+  //! if zeroInit() is true by modifying our code to clean up global counters,
+  //! because the latency penalty of an additional kernel launch should be
+  //! greater than that required to reset this memory at the end of the fusion.
+  //! The exception is when a kernel is launched only a single time, in which
+  //! case resetting the memory is unnecessary, but we expect that kernels will
+  //! instead be launched many times.
+  bool resetsToZero() const {
+    return attribute<bool>(3);
   }
 
   // This alias tracks the next Allocate node in a linked chain of aliases
   // If the alias is nullptr, then the Allocate node uses memory in the kernel
   const Allocate* alias() const {
-    return dynamic_cast<const Allocate*>(attribute(3));
+    return dynamic_cast<const Allocate*>(attribute(4));
   }
 
-  // Set the address of a shared memory allocation within the dynamic shared
-  // memory array. The addr argument should be a scalar expression describing an
-  // aligned address in bytes.
+  // This function can only be used for shared memory or tensor memory.
+  //
+  // For shared memory, this function sets the address of a shared memory
+  // allocation within the dynamic shared memory array. The addr argument should
+  // be a scalar expression describing an aligned address in bytes.
+  //
+  // For tensor memory, this function sets the address of a tensor memory
+  // "region" in the tensor memory. Each tensor memory "region" is a piece of
+  // tensor memory allocated by a single tcgen05.alloc, see note [Tensor Memory
+  // Allocation] for detailed description. Note that this address may not be the
+  // address of a TensorView, because each region may contain multiple
+  // TensorViews. This address must be a uint32 scalar, as described in the PTX
+  // documentation:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-addressing
   void setAddress(Val* addr) {
     NVF_CHECK(
-        memoryType() == MemoryType::Shared,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared/tensor memory "
+        "allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
         "Attempted to set address twice for allocation ",
         toString());
-    attributes_[4] = addr;
+    attributes_[5] = addr;
+  }
+
+  // Set the lane offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setLaneOffset(Val* lane_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
+        memoryType());
+    NVF_CHECK(
+        laneOffset() == nullptr,
+        "Attempted to set lane offset twice for allocation ",
+        toString());
+    attributes_[6] = lane_offset;
+  }
+
+  // Set the column offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setColOffset(Val* col_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
+        memoryType());
+    NVF_CHECK(
+        colOffset() == nullptr,
+        "Attempted to set column offset twice for allocation ",
+        toString());
+    attributes_[7] = col_offset;
   }
 
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
-    return attributeVal(4);
+    NVF_CHECK(
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared memory allocations. "
+        "Memory type is ",
+        memoryType());
+    return attributeVal(5);
+  }
+
+  Val* laneOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory "
+        "type is ",
+        memoryType());
+    return attributeVal(6);
+  }
+
+  Val* colOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory "
+        "type is ",
+        memoryType());
+    return attributeVal(7);
+  }
+};
+
+// Allocate tensor memory tcgen05.alloc
+class AllocTMem final : public Expr {
+ public:
+  using Expr::Expr;
+  AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns);
+
+  const char* getOpString() const override {
+    return "AllocTMem";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* address() const {
+    return output(0);
+  }
+
+  Val* numColumns() const {
+    return input(0);
   }
 };
 
@@ -267,7 +511,10 @@ class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
+  explicit BlockSync(
+      IrBuilderPasskey passkey,
+      bool war_sync = false,
+      std::optional<bool> optional_compute_or_load_sync = std::nullopt);
 
   const char* getOpString() const override {
     return "BlockSync";
@@ -281,6 +528,20 @@ class BlockSync final : public Expr {
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
     return attribute<bool>(0);
+  }
+
+  std::optional<bool> warpSpecializedState() const {
+    return attribute<std::optional<bool>>(1);
+  }
+
+  bool isComputeWarpSync() const {
+    return attribute<std::optional<bool>>(1).value_or(false);
+  }
+
+  bool isAsyncWarpSync() const {
+    auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
+    return optional_compute_or_load_sync.has_value() &&
+        !optional_compute_or_load_sync.value();
   }
 };
 
@@ -311,6 +572,100 @@ class GridSync final : public Expr {
   Val* syncBuffer() const {
     return attributeVal(1);
   }
+};
+
+// PTX: fence.proxy.async
+class FenceAsyncProxy final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit FenceAsyncProxy(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FenceAsyncProxy";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: wgmma.fence.sync.aligned
+class WgMmaFence final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit WgMmaFence(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "WgMmaFence";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: setmaxnreg.inc.sync.aligned.u32 and setmaxnreg.dec.sync.aligned.u32
+class SetMaxNReg final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit SetMaxNReg(
+      IrBuilderPasskey passkey,
+      Val* number_of_registers,
+      bool increase_registers);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return (increaseRegisters()) ? "IncSetMaxNReg" : "DecSetMaxNReg";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  bool increaseRegisters() const {
+    return attribute<bool>(0);
+  }
+
+  Val* numberOfRegisters() const {
+    return input(0);
+  }
+};
+
+class Continue final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Continue(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Continue";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class Return final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Return(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Return";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class MBarrierInit final : public Expr {
@@ -373,7 +728,10 @@ class MBarrierArrive final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -404,7 +762,10 @@ class MBarrierArriveExpectTx final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -439,84 +800,156 @@ class MBarrierWait final : public Expr {
   }
 };
 
-// CpAsyncWait represents wait intrinsics for cp.async
-class CpAsyncWait final : public Expr {
+class MBarrierWaitParity final : public Expr {
  public:
   using Expr::Expr;
-
-  explicit CpAsyncWait(IrBuilderPasskey passkey, int64_t keep_stages = 0);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncWait";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  //! Returns the remaining number of stages that are not synchronized
-  //!  after this op.
-  int64_t keepStages() const {
-    return attribute<int64_t>(0);
-  }
-};
-
-// CpAsyncCommit represents commit intrinsics for cp.async
-//  A commit intrinsic communicates delimiter of transaction groups
-// to the async load hardware. Example usage see [Cicular buffer].
-class CpAsyncCommit final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncCommit(IrBuilderPasskey passkey);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "CpAsyncCommit";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-};
-
-class CpAsyncBulkS2GWait final : public Expr {
- public:
-  using Expr::Expr;
-
-  explicit CpAsyncBulkS2GWait(
+  explicit MBarrierWaitParity(
       IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* parity);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWaitParity";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* parity() const {
+    return input(1);
+  }
+};
+
+// For all but first block in each reduction segment, first thread waits for
+// sync flag to indicate it is our turn to proceed (sync flag is incremented by
+// BlockSerializeRelease). Then block sync. This has the effect of
+// serializing blocks in each reduction segment. This is a block syncing
+// operation.
+class BlockSerializeWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeWait(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeWait";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// This first performs a block sync. For all but last block in the reduction
+// segment, first thread then writes the next segment ID to the sync flag. When
+// used with BlockSerializeWait, this has the effect of serializing blocks in
+// order each reduction segment.
+class BlockSerializeRelease final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit BlockSerializeRelease(
+      IrBuilderPasskey passkey,
+      ParallelTypeBitmap sync_dims,
+      Val* sync_buffer);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "BlockSerializeRelease";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  ParallelTypeBitmap syncDims() const {
+    return attribute<ParallelTypeBitmap>(0);
+  }
+
+  Val* syncBuffer() const {
+    return attributeVal(1);
+  }
+};
+
+// AsyncWait represents wait intrinsics for cp.async, cp.async.bulk and
+// wgmma.mma_async
+class AsyncWait final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit AsyncWait(
+      IrBuilderPasskey passkey,
+      AsyncOpType async_op_type,
       int64_t keep_stages = 0);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GWait";
+    return "AsyncWait";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  const char* ptx() const;
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
+
+  //! Returns the remaining number of stages that are not synchronized
+  //!  after this op.
   int64_t keepStages() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
   }
 };
 
-class CpAsyncBulkS2GCommit final : public Expr {
+// AsyncCommit represents commit intrinsics for cp.async
+//  A commit intrinsic communicates delimiter of transaction groups
+// to the async load hardware. Example usage see [Cicular buffer].
+class AsyncCommit final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit CpAsyncBulkS2GCommit(IrBuilderPasskey passkey);
+  explicit AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "CpAsyncBulkS2GCommit";
+    return "AsyncCommit";
   }
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
+
+  const char* ptx() const;
+
+  //! Returns if the corresponding PTX needs a `:memory` in the end, this value
+  //! will be used to set AsmOptions::memory when lowering to inline PTX.
+  bool memory() const;
+
+  AsyncOpType asyncOpType() const {
+    return attribute<AsyncOpType>(0);
+  }
 };
 
 // Simply prints "DEFINE_MAGIC_ZERO" in the code in accordance with magic_zero
@@ -553,217 +986,6 @@ class UpdateMagicZero final : public Expr {
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
-};
-
-// TODO(kir): promote to IR node
-class Scope {
- public:
-  explicit Scope(Expr* owner) : owner_(owner) {}
-
-  std::string toString(int indent_size = 0) const;
-
-  const std::vector<Expr*>& exprs() const {
-    return exprs_;
-  }
-
-  bool empty() const {
-    return exprs_.empty();
-  }
-
-  auto size() const {
-    return exprs_.size();
-  }
-
-  auto& at(size_t i) {
-    return exprs_.at(i);
-  }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
-  // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
-
-  // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
-
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
-  }
-
-  // Erase expr at pos
-  void erase(size_t pos);
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
-
-  void clear();
-
-  Expr* owner() const {
-    return owner_;
-  }
-
-  bool operator==(const Scope&) const {
-    NVF_ERROR(false, "Should not reach here");
-  }
-
-  // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
-
- private:
-  // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
-
- private:
-  std::vector<Expr*> exprs_;
-
-  //! Owner exprssion of this scope, e.g., IfThenElse
-  Expr* owner_ = nullptr;
-};
-
-//! ForLoop provides scoping around an int iterator from 0 to range. Exprs
-//! placed in its body are considered inside the scope of the for loop. In the
-//! future the implementation should look quite different so that we can do
-//! proper dependency annalysis like in Fusion.
-//!
-//! TODO(kir): this is not a real expression
-//!
-//! ForLoop may represent a part of an iteration domain representend
-//! by iter_domain_. In that case, the loop extent field, extent_, may
-//! be smaller than the extent of iter_domain_.
-class ForLoop final : public Expr {
- public:
-  using Expr::Expr;
-
-  //! By default, start and stop are the same as those of iter_domain.
-  //! Step is one by default.
-  //!
-  //! TODO: cleaner way to set options?
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      Val* start,
-      Val* stop,
-      Val* step,
-      bool vectorize,
-      Val* vectorize_shift,
-      bool unroll_required,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(
-      IrBuilderPasskey passkey,
-      IterDomain* iter_domain,
-      Val* index,
-      DoubleBufferLoopStage double_buffer_loop_stage);
-
-  ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
-
-  ForLoop(IrBuilderPasskey passkey, const ForLoop* other);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "ForLoop";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* index() const {
-    return input(0);
-  }
-
-  Val* indexOrStartIfTrivial() const {
-    return isTrivial() ? start() : index();
-  }
-
-  Val* start() const;
-
-  Val* stop() const;
-
-  Val* step() const;
-
-  Val* simplifiedStop() const;
-
-  // [pre | vectorize | post] <= inner-most, merged root domain
-  // shift_ is applied to vectorize and post sections.
-  Val* vectorize_shift() const {
-    return attributeVal(4);
-  }
-
-  IterDomain* iter_domain() const {
-    return input(1)->as<IterDomain>();
-  }
-
-  // TODO: Return pointer instead of reference to be more consistent
-  Scope& body() {
-    return attribute<Scope>(7);
-  }
-
-  const Scope& body() const {
-    return attribute<Scope>(7);
-  }
-
-  bool empty() const {
-    return body().empty();
-  }
-
-  // vectorize is true when the for-loop contains a vectorize set
-  // the flag is used to omit the for-loop from the kernel
-  bool vectorize() const {
-    return attribute<bool>(3);
-  }
-
-  //! True if unrolled (i.e., "#pragma unroll" is attached)
-  bool isUnrolled() const;
-
-  //! True if unroll is required for avoiding stack allocation
-  bool isUnrollRequired() const {
-    return attribute<bool>(5);
-  }
-
-  //! Set unrolling required
-  void requireUnroll() {
-    attribute<bool>(5) = true;
-  }
-
-  //! True if no actual for-loop is materialized
-  bool isTrivial() const;
-
-  //! True if loop is grouped reduction/welford
-  bool isGroup() const;
-
-  //! Returns the stage of a double buffered iterdomain
-  //!  that this for loop materializes.
-  auto doubleBufferLoopStage() const {
-    return attribute<DoubleBufferLoopStage>(6);
-  }
-
- private:
-  //! Returns if a loop could be unrolled.
-  bool isUnrollable() const;
-
-  //! Not storing this as an attribute because this is only a cache for
-  //! simplifiedStop. We are not interested in keeping this across clone/serde,
-  //! etc.
-  mutable Val* simplified_stop_ = nullptr;
 };
 
 //! IfThenElse provides scoping for an boolean operator. Exprs placed in its
@@ -817,10 +1039,10 @@ class IfThenElse final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 class GridReduction final : public ReductionOp {
-  static constexpr int num_reduction_op_attr = 3;
+  static constexpr int num_reduction_op_attr = 4;
 
  public:
   using ReductionOp::ReductionOp;
@@ -835,7 +1057,8 @@ class GridReduction final : public ReductionOp {
       Allocate* sync_buffer,
       Val* entrance_index,
       Val* entrances,
-      bool is_allreduce = false);
+      bool is_allreduce = false,
+      TensorIndex* serial_reduction_tensor = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -873,6 +1096,14 @@ class GridReduction final : public ReductionOp {
 
   ParallelTypeBitmap& threadPredicate() {
     return attribute<ParallelTypeBitmap>(num_reduction_op_attr + 4);
+  }
+
+  TensorIndex* serialReductionTensor() const {
+    return dynamic_cast<TensorIndex*>(attributeVal(num_reduction_op_attr + 5));
+  }
+
+  bool isSerial() const {
+    return serialReductionTensor() != nullptr;
   }
 
   GridReduction* withThreadPredicate(
@@ -919,7 +1150,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
     auto size = outputs().size();
     std::vector<Allocate*> result;
     result.reserve(size);
-    for (auto i : c10::irange(offset, offset + size)) {
+    for (auto i : arange(offset, offset + size)) {
       result.emplace_back(attribute(i)->as<Allocate>());
     }
     return result;
@@ -972,7 +1203,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! broadcast and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
 class GridBroadcast final : public Expr {
  public:
@@ -1011,7 +1242,7 @@ class GridBroadcast final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 //!
 //! TODO: Make this a subclass of WelfordOp
@@ -1123,7 +1354,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
     result[0].reserve(size);
     result[1].reserve(size);
     result[2].reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result[0].emplace_back(attribute(offset + i * 3)->as<Allocate>());
       result[1].emplace_back(attribute(offset + i * 3 + 1)->as<Allocate>());
       result[2].emplace_back(attribute(offset + i * 3 + 2)->as<Allocate>());
@@ -1174,7 +1405,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
   }
 
   //! Return the required smem buffer size
-  int getSmemBufferSize(int bdimx, int bdimy, int bdimz) const;
+  int64_t getSmemBufferSize(int64_t bdimx, int64_t bdimy, int64_t bdimz) const;
 };
 
 //! Represents a WelfordOp with the division by count is hoisted out
@@ -1313,7 +1544,7 @@ class EncodeTensorMapTiled : public Expr {
       Val* box_dim,
       Val* element_strides,
       tma::TensorMapInterleave interleave,
-      tma::TensorMapSwizzle swizzle,
+      MmaInputSmemSwizzle swizzle,
       tma::TensorMapL2Promotion l2_promotion,
       tma::TensorMapFloatOOBFill oob_fill);
 
@@ -1358,8 +1589,8 @@ class EncodeTensorMapTiled : public Expr {
     return attribute<tma::TensorMapInterleave>(2);
   }
 
-  const tma::TensorMapSwizzle& swizzle() const {
-    return attribute<tma::TensorMapSwizzle>(3);
+  const MmaInputSmemSwizzle& swizzle() const {
+    return attribute<MmaInputSmemSwizzle>(3);
   }
 
   const tma::TensorMapL2Promotion& l2Promotion() const {
@@ -1373,6 +1604,38 @@ class EncodeTensorMapTiled : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class RNGOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  RNGOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* rng_result,
+      Val* rng_component,
+      DataType dtype,
+      RNGOpType rng_type,
+      // range high and low, or avg and std dev
+      std::vector<Val*> parameters = {});
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "RNGOp";
+  }
+
+  RNGOpType getRNGOpType() const {
+    return attribute<RNGOpType>(0);
+  }
+
+  DataType dtype() const {
+    return attribute<DataType>(1);
+  }
 };
 
 } // namespace kir

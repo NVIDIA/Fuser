@@ -66,11 +66,11 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto out_tv = ir_utils::getTvOutput(wop);
     const auto out_domain = out_tv->domain();
 
-    // Only consider the innermost leaf ID to vectorize. Should be
+    // Only consider the innermost loop ID to vectorize. Should be
     // possible to consider non-innermost IDs as well
-    auto innermost_leaf_id = out_tv->axis(-1);
+    auto innermost_loop_id = out_tv->axis(-1);
 
-    if (innermost_leaf_id->isReduction() || innermost_leaf_id->isBroadcast()) {
+    if (innermost_loop_id->isReduction() || innermost_loop_id->isBroadcast()) {
       return false;
     }
 
@@ -89,7 +89,7 @@ class WelfordVectorizer : public kir::ExprMutator {
 
     if (!GpuLower::current()->caMap()->areMapped(
             innermost_loop->iter_domain(),
-            innermost_leaf_id,
+            innermost_loop_id,
             IdMappingMode::EXACT)) {
       return false;
     }
@@ -101,7 +101,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     const auto& exact_set = GpuLower::current()
                                 ->caMap()
                                 ->getIdSets(IdMappingMode::EXACT)
-                                .getDisjointSetOf(innermost_leaf_id);
+                                .getDisjointSetOf(innermost_loop_id);
     // If none of IterDomains is vectorized, don't vectorize the WelfordOp
     if (std::none_of(exact_set.begin(), exact_set.end(), [&](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
@@ -474,7 +474,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     // Check all the exprs in the same scope
     for (auto expr : innermost_loop->body().exprs()) {
       // Bail out if a loop is found
-      if (expr->isA<kir::ForLoop>()) {
+      if (expr->isA<ForLoop>()) {
         return false;
       }
 
@@ -536,13 +536,13 @@ class WelfordVectorizer : public kir::ExprMutator {
       // mean the expr predicate is different, but likely not
       // worthwhile to consider.
       auto wop_out = ir_utils::getTvOutput(wop);
-      for (auto tv_leaf_id : tv->getLeafDomain()) {
+      for (auto tv_loop_id : tv->getLoopDomain()) {
         if (std::none_of(
-                wop_out->getLeafDomain().begin(),
-                wop_out->getLeafDomain().end(),
-                [&](auto wop_leaf_id) {
+                wop_out->getLoopDomain().begin(),
+                wop_out->getLoopDomain().end(),
+                [&](auto wop_loop_id) {
                   return GpuLower::current()->caMap()->areMapped(
-                      tv_leaf_id, wop_leaf_id, IdMappingMode::LOOP);
+                      tv_loop_id, wop_loop_id, IdMappingMode::LOOP);
                 })) {
           return false;
         }
@@ -557,14 +557,17 @@ class WelfordVectorizer : public kir::ExprMutator {
   }
 
  private:
-  kir::ForLoop* innermost_loop_ = nullptr;
-  kir::Scope* scope_of_innermost_loop_ = nullptr;
+  ForLoop* innermost_loop_ = nullptr;
+  Scope* scope_of_innermost_loop_ = nullptr;
 };
 
 } // namespace
 
 std::vector<Expr*> vectorizeWelford(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::vectorizeWelford");
+  if (isOptionDisabled(DisableOption::WelfordVectorization)) {
+    return exprs;
+  }
   return WelfordVectorizer::vectorize(exprs);
 }
 

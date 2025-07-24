@@ -36,8 +36,8 @@ struct IndexFromIdGraph {
 //! indexed. If is_global global indexing will be done, else shared memory or
 //! local indexing will be performed.
 IndexFromIdGraph getTensorIndexFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv = nullptr,
     bool is_global = true,
@@ -48,11 +48,11 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 //! indexing If is_start_predicate, will produce indexing math for the start
 //! predicates.
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    kir::ForLoop* unswitch_or_vec_loop,
-    IterDomain* double_buffer_axis,
+    ForLoop* unswitch_or_vec_loop,
+    IterDomain* circular_buffer_axis,
     bool is_start_predicate);
 
 //! getTensorIndexFromIdGraph is the function that index_compute will call very
@@ -67,8 +67,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 //! LoopIndexingAnalysis. LoopIndexingAnalysis though has to communicate to:
 //!   1) index_compute.cpp::IndexCompute to tell IndexCompute which expressions
 //!   it needs to traverse to compute the indexing math.
-//!   2) lower_shift.cpp::HaloInfo::buildConcreteHaloExtentMap to build the halo
-//!   extent map used in indexing.
 //!
 //! LoopIndexing is nothing but a mechanism for this communication.
 //!
@@ -101,7 +99,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
 //! with their exact concrete mapped id's.
 //!
 //!   Here an invariant in a graph of iterdomain expressions is that
-//! each iterdomain is produced exactly once and is either a leaf domain
+//! each iterdomain is produced exactly once and is either a loop domain
 //! or has been consumed exactly once by another expression. This makes sure
 //! that a well defined indexing can be generated for each of the concrete ids
 //! whenever we either forward or backward traverse the graph.
@@ -152,7 +150,7 @@ class LoopIndexing {
   friend class LoopIndexingAnalysis;
 
   //! The loop nest that this loop indexing is derived from.
-  std::vector<kir::ForLoop*> loops_;
+  std::vector<ForLoop*> loops_;
 
   //! Consumer tv, where the view related info was derived from.
   const TensorView* consumer_tv_ = nullptr;
@@ -161,7 +159,7 @@ class LoopIndexing {
   //!   in this loop nest originated from.
   std::vector<IterDomain*> loop_root_;
 
-  //! The leaf iterdomains that the original loop nests correspond
+  //! The loop iterdomains that the original loop nests correspond
   //!  to. May be longer than loops_ with the dangling iterdomains
   //!  appended towards the end.
   std::vector<IterDomain*> loop_domains_;
@@ -180,30 +178,30 @@ class LoopIndexing {
 class LoopIndexingAnalysis {
  public:
   static LoopIndexing fromLoopAndConsumer(
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const TensorView* consumer_tv);
 
   //! Return all concrete IDs that can be reachable from a given list
-  //! of consumer leaf IDs. Reachability is defined as the existence
-  //! an indexing path from the the leaf IDs
+  //! of consumer loop IDs. Reachability is defined as the existence
+  //! an indexing path from the the loop IDs
   static VectorOfUniqueEntries<IterDomain*> getReplayableConcreteIDs(
-      const std::vector<IterDomain*>& consumer_leaf_ids,
+      const std::vector<IterDomain*>& consumer_loop_ids,
       const TensorView* consumer_tv);
 
  private:
   explicit LoopIndexingAnalysis(
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const TensorView* consumer_tv);
 
   explicit LoopIndexingAnalysis(
-      const std::vector<IterDomain*>& consumer_leaf_ids,
+      const std::vector<IterDomain*>& consumer_loop_ids,
       const TensorView* consumer_tv);
 
   void run();
 
   //! Populate derived information into a LoopIndexing
   //!  data structure.
-  LoopIndexing getLoopIndexing(const std::vector<kir::ForLoop*>& loops) {
+  LoopIndexing getLoopIndexing(const std::vector<ForLoop*>& loops) {
     LoopIndexing indexing;
     indexing.loops_ = loops;
     indexing.consumer_tv_ = consumer_tv_;
@@ -216,7 +214,7 @@ class LoopIndexingAnalysis {
 
   //! Validates that the current loop structure is well formed, in the sense
   //! that ca_map would not map any two loops in the loop nest together.
-  void validateLoopStructure(const std::vector<kir::ForLoop*>& loops);
+  void validateLoopStructure(const std::vector<ForLoop*>& loops);
 
   //! Start at the loop iter domains, and traverse back into history on the
   //! concrete IDs in the exact map calling "visitExpr" expressions through the
@@ -256,7 +254,7 @@ class LoopIndexingAnalysis {
 
   //! Fills out_of_line_exprs_ by traversing the selected list of
   //!  expressions in reverse topological order and collect iterdomains
-  //!  on the indexing paths that only involves leaf id's on the right
+  //!  on the indexing paths that only involves loop id's on the right
   //!  of consumer's ca axis.
   void collectOutOfLineExprs();
 
@@ -313,11 +311,11 @@ std::unordered_set<IterDomain*> buildLoopIndexingPreferredPath(
     bool use_replay_map = false,
     std::unordered_map<IterDomain*, IterDomain*> p2c_map = {});
 
-// Get an rfactor IterDomain that is mapped with an IterDomain. If
+// Get an logical IterDomain that is mapped with an IterDomain. If
 // multiple such IDs exist, select one whose input IDs are mapped with
-// the consumer IDs. This is to ensure the path from the leaf
+// the consumer IDs. This is to ensure the path from the loop
 // IterDomains to the root matches with the consumer tensor.
-IterDomain* getRfactorIDToTraverse(
+IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids);
 

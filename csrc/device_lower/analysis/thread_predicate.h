@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <device_lower/utils.h>
 #include <ir/all_nodes.h>
@@ -23,7 +23,7 @@ namespace nvfuser {
 
 //! Maps TensorViews to a { ParallelTypeBitmap, SourceMap } pair
 //!
-//! Map from TensorView to bit set represnting <BIDx, BIDy, BIDz, TIDx, TIDy,
+//! Map from TensorView to bit set representing <BIDx, BIDy, BIDz, TIDx, TIDy,
 //! TIDz> If any dependency of TV had a parallelized reduction, we will track
 //! it here. This will be used for predicate generation to prevent
 //! parallelization on that axis. This is important if we have a reduction on
@@ -52,14 +52,14 @@ class ThreadPredicateMap {
     // Parallel types where only one thread/block is enough.
     ParallelTypeBitmap redundant_types;
 
-    // when a leaf domain of a Tensor stored in global memory
-    // is merged from concretized broadcast root domain, the broadcasted
-    // root domains should be skipped when writing to global memory.
-    // broadcast_rd_indices_map maps a parallel type to a list of indices
-    // of the broadcasted root domains. The write to global memory is needed
+    // when a loop domain of a Tensor stored in global memory
+    // is merged from concretized broadcast logical domain, the broadcasted
+    // logical domains should be skipped when writing to global memory.
+    // broadcast_ld_indices_map maps a parallel type to a list of indices
+    // of the broadcasted logical domains. The write to global memory is needed
     // only when the index equals to 0.
     std::unordered_map<ParallelType, std::vector<Val*>>
-        broadcast_rd_indices_map;
+        broadcast_ld_indices_map;
 
     // Tracking use chain of redundant writes:
     //  [Redundant use chain]
@@ -94,7 +94,7 @@ class ThreadPredicateMap {
   //! corresponding parallel type since it must join the broadcast
   //! operation although the valid input is only available at one of
   //! the threads/blocks.
-  PredicateInfo getPredicateInfo(const TensorView* tv) const;
+  NVF_API PredicateInfo getPredicateInfo(const TensorView* tv) const;
 
   //! Returns a flag set that indicates which parallel types should be
   //! predicated.

@@ -8,21 +8,32 @@
 #pragma once
 
 #include <ATen/ATen.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <torch/csrc/jit/ir/ir.h>
+#include <torch/torch.h>
+#include <visibility.h>
 
 #include <debug.h>
+#include <mma_type.h>
+#include <options.h>
+#include <tma.h>
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
+
+#include <concepts>
+#include <coroutine>
 #include <deque>
-#include <fstream>
+#include <iterator>
+#include <memory>
 #include <optional>
+#include <ranges>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
 
 //! IR header hierarchy
@@ -34,16 +45,19 @@
 
 namespace nvfuser {
 
+//! Warp specialization padded threads count
+constexpr int64_t kWarpSpecializationPaddedThreads = 128;
+
+class KernelArgumentHolder;
+
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
-void debugPrint(const c10::TensorTypePtr& type);
-
-bool is_zero_dim_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
-bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type);
+std::string debug_str(const at::Tensor& tensor);
 
 bool is_cpu_scalar(const at::Tensor& tensor);
-bool is_cpu_scalar(const c10::TensorType& tensor_type);
+
+bool is_meta_scalar(const at::Tensor& tensor);
 
 //! Find common device among tensor inputs. If no tensor inputs are found and
 //! the selected_device argument is omitted, a default value of 0 is returned.
@@ -51,8 +65,8 @@ bool is_cpu_scalar(const c10::TensorType& tensor_type);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+int8_t NVF_API getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
@@ -64,8 +78,12 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 bool useFallback();
 
 //! Ceil integer division
-constexpr int64_t ceilDiv(int64_t a, int64_t b) {
-  return (a + b - 1) / b;
+constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
+  return (dividend + divisor - 1) / divisor;
+}
+
+constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
+  return ceilDiv(dividend, divisor) * divisor;
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -94,23 +112,23 @@ class PolymorphicBase {
   // (checked in DEBUG builds)
   template <class T>
   T* as() {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
   const T* as() const {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
@@ -262,18 +280,30 @@ SPECIALIZE_PRINTER(int);
 SPECIALIZE_PRINTER(std::string);
 using ConstCharStar = const char*;
 SPECIALIZE_PRINTER(ConstCharStar);
+using VoidStar = void*;
+SPECIALIZE_PRINTER(VoidStar);
+SPECIALIZE_PRINTER(uint32_t);
 SPECIALIZE_PRINTER(int64_t);
+SPECIALIZE_PRINTER(uint64_t);
 SPECIALIZE_PRINTER(DataType);
 SPECIALIZE_PRINTER(MemoryType);
 SPECIALIZE_PRINTER(UnaryOpType);
 SPECIALIZE_PRINTER(BinaryOpType);
 SPECIALIZE_PRINTER(TernaryOpType);
 SPECIALIZE_PRINTER(LoadStoreOpType);
-SPECIALIZE_PRINTER(DoubleBufferLoopStage);
+SPECIALIZE_PRINTER(CircularBufferLoopStage);
+SPECIALIZE_PRINTER(tma::TensorMapInterleave);
+SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
+SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
+SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
+SPECIALIZE_PRINTER(SwizzleType);
 SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
+SPECIALIZE_PRINTER(std::vector<uint32_t>);
 SPECIALIZE_PRINTER(std::vector<int64_t>);
+SPECIALIZE_PRINTER(std::vector<uint64_t>);
+SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
 
@@ -302,6 +332,15 @@ std::string toDelimitedString(
     const std::vector<Printable>& vec,
     std::string delim = ", ") {
   return toDelimitedString(vec.begin(), vec.end(), delim);
+}
+
+template <typename Printable>
+std::string toDelimitedString(
+    std::initializer_list<Printable> list,
+    std::string delim = ", ") {
+  // toDelimitedString(list.begin(), list.end(), delim) doesn't work out of the
+  // box, because list.begin() returns a Printable* not an iterator.
+  return toDelimitedString(std::vector<Printable>(list), delim);
 }
 
 template <typename Printable>
@@ -369,28 +408,85 @@ std::string toDelimitedInlineString(
   return ss.str();
 }
 
-template <typename... Args>
 class DebugPrintScope {
  public:
+  template <typename... Args>
   DebugPrintScope(std::string name, Args... args) : name_(std::move(name)) {
     debug() << "Entering " << name_ << "("
             << toDelimitedString(std::forward_as_tuple(args...)) << ")"
             << std::endl;
   }
+
   ~DebugPrintScope() {
-    debug() << "Leaving " << name_ << std::endl;
+    debug() << "Leaving " << name_;
+    if (!return_.empty()) {
+      debug() << " returning " << return_;
+    }
+    if (!file_.empty()) {
+      debug() << " at " << file_;
+    }
+    if (line_ >= 0) {
+      debug() << ":" << line_;
+    }
+    debug() << std::endl;
+  }
+
+  template <typename T>
+  void setReturn(const T& ret, std::string file = "", int64_t line = -1) {
+    return_ = Printer<std::decay_t<T>>::toString(ret);
+    file_ = std::move(file);
+    line_ = line;
   }
 
  private:
+  // The name of the scope, as specified as the first argument of
+  // DEBUG_PRINT_SCOPE_NAME. If using DEBUG_PRINT_SCOPE, then this is __func__.
   std::string name_;
+
+  // Return value and location of the return statement.
+  // Note that the recording of the return value is not automatic. The function
+  // needs to be manually instrumented to replace `return XXX;` with
+  // `RECORD_AND_RETURN(XXX)` to record the return value.
+  std::string return_;
+  std::string file_;
+  int64_t line_ = -1;
 };
 
+// Debug printing the entering and leaving of a function. The given arguments
+// will be printed when entering the function.
+//
 // Note: ##__VA_ARGS__ is not C++ stardard, but it should work on gcc and clang.
 // Compared to __VA_ARGS__, ##__VA_ARGS__ automatically remove the preceding
 // comma when empty, allowing empty variadic parameters. If using other
 // compiler, please use DebugPrintScope directly without this macro.
-#define DEBUG_PRINT_SCOPE(...) \
-  DebugPrintScope _debug_print_scope(__func__, ##__VA_ARGS__)
+#define DEBUG_PRINT_SCOPE_NAME(name, ...)                                 \
+  std::unique_ptr<DebugPrintScope> _debug_print_scope;                    \
+  if (isDebugDumpEnabled(DebugDumpOption::FunctionTrace)) {               \
+    auto enabled = getDebugDumpArguments(DebugDumpOption::FunctionTrace); \
+    for (auto pattern : enabled) {                                        \
+      std::regex re(pattern);                                             \
+      if (std::regex_match(name, re)) {                                   \
+        _debug_print_scope =                                              \
+            std::make_unique<DebugPrintScope>(name, ##__VA_ARGS__);       \
+        break;                                                            \
+      }                                                                   \
+    }                                                                     \
+  }
+
+#define DEBUG_PRINT_SCOPE(...) DEBUG_PRINT_SCOPE_NAME(__func__, ##__VA_ARGS__)
+
+#define DEBUG_LOG(...)                                    \
+  if (_debug_print_scope) {                               \
+    debug() << "[" << __FILE__ << ":" << __LINE__ << "] " \
+            << to_str("", ##__VA_ARGS__) << std::endl;    \
+  }
+
+// Record the return value and return it.
+#define RECORD_AND_RETURN(ret)                              \
+  if (_debug_print_scope) {                                 \
+    _debug_print_scope->setReturn(ret, __FILE__, __LINE__); \
+  }                                                         \
+  return ret
 
 // Computes the index type required.
 // Made into a class w/ state to allow reuse with
@@ -443,6 +539,435 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-char* getNvFuserEnv(const char* env_name);
+NVF_API const char* getNvFuserEnv(
+    const char* env_name,
+    const char* default_value = nullptr);
+
+// Returns the mapped value or the default.
+template <typename K, typename V>
+V getOrDefault(
+    const std::unordered_map<K, V>& map,
+    const K& key,
+    const V& default_value = V()) {
+  const auto i = map.find(key);
+  return i == map.end() ? default_value : i->second;
+}
+
+size_t deviceAvailableSharedMemoryBytes();
+
+inline int64_t wrapDim(int64_t dim, int64_t ndim) {
+  if (dim < 0) {
+    dim += ndim;
+  }
+  NVF_CHECK(
+      dim >= 0 && dim < ndim,
+      "Tried to access out of boundary index ",
+      dim,
+      ". total index: ",
+      ndim);
+  return dim;
+}
+
+// This is the same as the pow utility included in runtime/helpers.cu. It is
+// included here to facilitate matching host-side computation.
+template <typename T>
+T pow(T a, T b) {
+  if (b < 0) {
+    if (a == 1) {
+      return 1;
+    } else if (a == -1) {
+      auto negative = (-b) % static_cast<T>(2);
+      return negative ? -1 : 1;
+    } else {
+      return 0;
+    }
+  } else {
+    T result = 1;
+    while (b) {
+      if (b & 1) {
+        result *= a;
+      }
+      b /= 2;
+      a *= a;
+    }
+    return result;
+  }
+}
+
+// Returns a range of integers [start, end)
+auto arange(auto start, auto end) {
+  static_assert(std::is_integral<decltype(start)>());
+  static_assert(std::is_integral<decltype(end)>());
+  // If start and end are the same type, use the range directly
+  if constexpr (std::is_same_v<decltype(start), decltype(end)>) {
+    return std::ranges::iota_view(start, end);
+  }
+  return std::ranges::iota_view(decltype(end)(start), end);
+}
+
+// Returns a range of integers [0, end)
+auto arange(auto end) {
+  static_assert(std::is_integral<decltype(end)>());
+  return std::ranges::iota_view(decltype(end)(0), end);
+}
+
+// Returns true if given number is power of 2
+constexpr bool isPowOf2(int64_t x) {
+  return x > 1 && (x & (x - 1)) == 0;
+}
+
+template <typename T>
+using MaybeUniqueOwningPtr = dynamic_type::
+    DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
+
+template <typename T>
+void checkAllEqual(std::initializer_list<T> elements) {
+  for (const auto& element : elements) {
+    NVF_CHECK(
+        element == *elements.begin(),
+        "Expected all elements to be equal, but found ",
+        element,
+        " and ",
+        *elements.begin(),
+        " in [",
+        toDelimitedString(elements),
+        "]");
+  }
+}
+
+#if __cplusplus >= 202302L
+
+using std::views::enumerate;
+using std::views::zip;
+
+#else
+
+namespace views {
+template <std::ranges::view... Rs>
+class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+ private:
+  std::tuple<Rs...> bases;
+
+  static constexpr bool is_bidirectional =
+      (std::ranges::bidirectional_range<Rs> && ...);
+
+  struct iterator {
+    std::tuple<std::ranges::iterator_t<Rs>...> iterators;
+
+    using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
+    using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::conditional_t<
+        is_bidirectional,
+        std::bidirectional_iterator_tag,
+        std::input_iterator_tag>;
+
+    iterator& operator++() {
+      std::apply([](auto&... it) { ((++it), ...); }, iterators);
+      return *this;
+    }
+
+    iterator operator++(int) {
+      iterator temp = *this;
+      ++(*this);
+      return temp;
+    }
+
+    // Enable bidirectional iteration only if `is_bidirectional` is true
+    iterator& operator--() requires is_bidirectional {
+      std::apply([](auto&... it) { ((--it), ...); }, iterators);
+      return *this;
+    }
+
+    iterator operator--(int) requires is_bidirectional {
+      iterator temp = *this;
+      --(*this);
+      return temp;
+    }
+
+    reference operator*() const {
+      return std::apply(
+          [](auto&... it) -> reference { return {*it...}; }, iterators);
+    }
+
+    bool operator==(const iterator& other) const = default;
+  };
+
+  struct sentinel {
+    std::tuple<std::ranges::sentinel_t<Rs>...> sentinels;
+
+    bool operator==(const iterator& it) const {
+      return compare(it, std::make_index_sequence<sizeof...(Rs)>{});
+    }
+
+   private:
+    template <std::size_t... I>
+    bool compare(const iterator& it, std::index_sequence<I...>) const {
+      return ((std::get<I>(it.iterators) == std::get<I>(sentinels)) || ...);
+    }
+  };
+
+ public:
+  zip_view() = default;
+  explicit zip_view(Rs... ranges) : bases{std::move(ranges)...} {}
+
+  auto begin() {
+    return iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
+        bases)};
+  }
+
+  auto end() {
+    return sentinel{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
+  }
+};
+
+// Deduction guide
+template <std::ranges::viewable_range... Rs>
+zip_view(Rs&&...) -> zip_view<std::views::all_t<Rs>...>;
+
+// Helper function
+template <std::ranges::viewable_range... Rs>
+auto zip(Rs&&... rs) {
+  return zip_view{std::forward<Rs>(rs)...};
+}
+
+template <std::ranges::view V>
+class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
+ private:
+  V base_;
+
+  // Base iterator
+  template <typename BaseIterator, bool IsBidirectional>
+  struct iterator_base {
+    using base_iterator = BaseIterator;
+    using value_type =
+        std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+    using reference = std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+    using difference_type = std::ranges::range_difference_t<V>;
+    using iterator_category = std::conditional_t<
+        IsBidirectional,
+        std::bidirectional_iterator_tag,
+        std::forward_iterator_tag>;
+
+    base_iterator current_;
+    int64_t index_;
+
+    iterator_base() = default;
+    iterator_base(base_iterator current, std::size_t index)
+        : current_(current), index_(index) {}
+
+    reference operator*() const {
+      return {index_, *current_};
+    }
+
+    iterator_base& operator++() {
+      ++current_;
+      ++index_;
+      return *this;
+    }
+
+    iterator_base operator++(int) {
+      iterator_base tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    // Enable bidirectional iteration only if IsBidirectional == true
+    iterator_base& operator--() requires IsBidirectional {
+      --current_;
+      --index_;
+      return *this;
+    }
+
+    iterator_base operator--(int) requires IsBidirectional {
+      iterator_base tmp = *this;
+      --(*this);
+      return tmp;
+    }
+
+    bool operator==(const iterator_base& other) const = default;
+  };
+
+  struct sentinel {
+    std::ranges::sentinel_t<V> end_;
+
+    bool operator==(const auto& it) const {
+      return it.current_ == end_;
+    }
+  };
+
+  using base_iterator = std::ranges::iterator_t<V>;
+  static constexpr bool is_bidirectional = std::ranges::bidirectional_range<V>;
+
+  using iterator_type = iterator_base<base_iterator, is_bidirectional>;
+
+ public:
+  enumerate_view() = default;
+  explicit enumerate_view(V base) : base_(std::move(base)) {}
+
+  auto begin() {
+    return iterator_type{std::ranges::begin(base_), 0};
+  }
+  auto end() {
+    return sentinel{std::ranges::end(base_)};
+  } // Use sentinel for forward iterators
+
+  V base() const& {
+    return base_;
+  }
+  V base() && {
+    return std::move(base_);
+  }
+};
+
+// Deduction guide
+template <std::ranges::viewable_range R>
+enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
+
+// Helper function
+auto enumerate(std::ranges::viewable_range auto&& r) {
+  return enumerate_view{std::forward<decltype(r)>(r)};
+};
+
+} // namespace views
+
+using views::enumerate;
+using views::zip;
+
+#endif // C++23
+
+// Helper: turn T into reference_wrapper<U> if T is reference
+template <typename T>
+using Yielded = std::conditional_t<
+    std::is_reference_v<T>,
+    std::reference_wrapper<std::remove_reference_t<T>>,
+    T>;
+
+// Writing yield in C++20 just like Python:
+// See NVFuserTest.Generator[1-5] for usage examples
+template <typename T>
+class Generator : public std::ranges::view_interface<Generator<T>> {
+ public:
+  struct promise_type;
+  using handle_type = std::coroutine_handle<promise_type>;
+  using stored_type = Yielded<T>;
+
+  Generator(handle_type h) : coroutine_(h) {}
+  Generator(Generator&& other) noexcept : coroutine_(other.coroutine_) {
+    other.coroutine_ = nullptr;
+  }
+  Generator& operator=(Generator&& other) noexcept {
+    if (this != &other) {
+      if (coroutine_) {
+        coroutine_.destroy();
+      }
+      coroutine_ = other.coroutine_;
+      other.coroutine_ = nullptr;
+    }
+    return *this;
+  }
+  ~Generator() {
+    if (coroutine_) {
+      coroutine_.destroy();
+    }
+  }
+  Generator(const Generator&) = delete;
+  Generator& operator=(const Generator&) = delete;
+
+  struct iterator {
+    using value_type = std::remove_reference_t<T>;
+    using reference = T;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::input_iterator_tag;
+
+    iterator() = default;
+    explicit iterator(handle_type h) : coroutine(h) {
+      ++(*this);
+    }
+
+    reference operator*() const {
+      if constexpr (std::is_reference_v<T>) {
+        return value->get(); // unwrap reference_wrapper<T>
+      } else {
+        return *value;
+      }
+    }
+
+    iterator& operator++() {
+      coroutine.resume();
+      if (coroutine.done()) {
+        if (coroutine.promise().exception) {
+          std::rethrow_exception(coroutine.promise().exception);
+        }
+        value.reset();
+      } else {
+        value = std::ref(coroutine.promise().current_value);
+      }
+      return *this;
+    }
+
+    iterator operator++(int) {
+      auto tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    bool operator==(std::default_sentinel_t) const {
+      return !value.has_value();
+    }
+    bool operator!=(std::default_sentinel_t) const {
+      return value.has_value();
+    }
+    friend bool operator==(std::default_sentinel_t s, const iterator& it) {
+      return it == s;
+    }
+    friend bool operator!=(std::default_sentinel_t s, const iterator& it) {
+      return it != s;
+    }
+
+    handle_type coroutine = nullptr;
+    std::optional<stored_type> value;
+  };
+
+  iterator begin() const {
+    return iterator{coroutine_};
+  }
+  std::default_sentinel_t end() const {
+    return {};
+  }
+
+ private:
+  handle_type coroutine_;
+
+ public:
+  struct promise_type {
+    std::optional<stored_type> current_value;
+    std::exception_ptr exception;
+
+    auto get_return_object() {
+      return Generator{handle_type::from_promise(*this)};
+    }
+    std::suspend_always initial_suspend() {
+      return {};
+    }
+    std::suspend_always final_suspend() noexcept {
+      return {};
+    }
+    std::suspend_always yield_value(T value) {
+      if constexpr (std::is_reference_v<T>) {
+        current_value = std::ref(value); // wraps T& as reference_wrapper
+      } else {
+        current_value = std::move(value);
+      }
+      return {};
+    }
+
+    void return_void() {}
+    void unhandled_exception() {
+      exception = std::current_exception();
+    }
+  };
+};
 
 } // namespace nvfuser

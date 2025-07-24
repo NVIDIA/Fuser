@@ -5,48 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <driver_api.h>
-
-#include <cuda.h>
-#include <dlfcn.h>
-
 #include <iostream>
 
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <exceptions.h>
-
-namespace {
-
-class CUDADriverAPIDynamicLoader {
-  void* handle_ = nullptr;
-
- public:
-  constexpr static const char* filename = "libcuda.so";
-
-  ~CUDADriverAPIDynamicLoader() {
-    if (handle_) {
-      dlclose(handle_);
-    }
-  }
-
-  void* sym(const char* symbolName) {
-    if (!handle_) {
-      handle_ = dlopen(filename, RTLD_LAZY);
-    }
-    NVF_CHECK(
-        handle_, "Dynamic library not loaded. Please check CUDA installation");
-    void* symbol = dlsym(handle_, symbolName);
-    NVF_CHECK(
-        symbol,
-        "Failed to load symbol: ",
-        symbolName,
-        " ",
-        dlerror(),
-        "Please check CUDA installation");
-    return symbol;
-  }
-} loader;
-
-} // namespace
+#include <sys_utils.h>
+#include <utils.h>
 
 // How does the magic work?
 //
@@ -90,13 +58,48 @@ class CUDADriverAPIDynamicLoader {
 //
 // Doc for CTAD:
 // https://en.cppreference.com/w/cpp/language/class_template_argument_deduction
-#define DEFINE_DRIVER_API_WRAPPER(funcName)                     \
+//
+// Driver APIs are loaded using cudaGetDriverEntryPoint as recommended by
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
+namespace {
+void getDriverEntryPoint(
+    const char* symbol,
+    unsigned int version,
+    void** entry_point,
+    cudaDriverEntryPointQueryResult* query_result) {
+#if (CUDA_VERSION >= 12050)
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPointByVersion(
+      symbol, entry_point, version, cudaEnableDefault, query_result));
+#else
+  (void)version;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(
+      symbol, entry_point, cudaEnableDefault, query_result));
+#endif
+}
+} // namespace
+
+#define DEFINE_DRIVER_API_WRAPPER(funcName, version)            \
   namespace {                                                   \
   template <typename ReturnType, typename... Args>              \
   struct funcName##Loader {                                     \
     static ReturnType lazilyLoadAndInvoke(Args... args) {       \
-      funcName = (decltype(funcName))loader.sym(#funcName);     \
-      return funcName(args...);                                 \
+      static auto* entry_point = [&]() {                        \
+        decltype(::funcName)* entry_point;                      \
+        cudaDriverEntryPointQueryResult query_result;           \
+        getDriverEntryPoint(                                    \
+            #funcName,                                          \
+            version,                                            \
+            reinterpret_cast<void**>(&entry_point),             \
+            &query_result);                                     \
+        NVF_CHECK(                                              \
+            query_result == cudaDriverEntryPointSuccess,        \
+            "Failed to get the entry point for ",               \
+            #funcName,                                          \
+            ": ",                                               \
+            query_result);                                      \
+        return entry_point;                                     \
+      }();                                                      \
+      return entry_point(args...);                              \
     }                                                           \
     /* This ctor is just a CTAD helper, it is only used in a */ \
     /* non-evaluated environment*/                              \
@@ -107,7 +110,7 @@ class CUDADriverAPIDynamicLoader {
   template <typename ReturnType, typename... Args>              \
   funcName##Loader(ReturnType(Args...))                         \
       ->funcName##Loader<ReturnType, Args...>;                  \
-  }                                                             \
+  } /* namespace */                                             \
                                                                 \
   decltype(::funcName)* funcName =                              \
       decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke

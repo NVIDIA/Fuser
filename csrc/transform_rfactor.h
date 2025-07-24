@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <ir/all_nodes.h>
@@ -28,7 +27,7 @@ class TransformRFactor {
   // reducing them in the consumer domain.
   static std::pair<TensorDomain*, TensorDomain*> runReplay(
       TensorDomain*,
-      std::vector<int> axes);
+      std::vector<int64_t> axes);
 };
 
 } // namespace nvfuser

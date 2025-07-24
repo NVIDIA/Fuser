@@ -7,17 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
+#include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
+#include <type.h>
 #include <utils.h>
 #include <vectorization_info.h>
+#include <visibility.h>
 
 #include <memory>
 #include <unordered_map>
@@ -31,7 +33,7 @@ namespace kir {
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 struct KernelSummary {
   //! Count of WAR (write-after-read) hazard barriers
-  int war_hazard_syncs_count = 0;
+  int64_t war_hazard_syncs_count = 0;
 
   //! List of global buffers
   std::vector<const kir::Allocate*> global_allocations;
@@ -42,11 +44,11 @@ struct KernelSummary {
   //! List of static shared memory buffers
   std::vector<const kir::Allocate*> static_smem_allocations;
 
-  //! Indicate the need to generate random numbers
-  bool has_philox_op = false;
-
   //! Do we have any block reductions?
   bool has_block_reductions = false;
+
+  //! Are all block reduction warp reductions?
+  bool all_block_reductions_are_warp_reduction = true;
 
   //! Number of static grid reductions
   bool has_grid_reductions = false;
@@ -70,24 +72,28 @@ struct KernelSummary {
   //! Do we have any welford op?
   bool has_grid_welford = false;
 
+  //! Do we have any iter grouped outer block reduction op?
+  bool has_iter_grouped_reductions = false;
+
+  //! number of grouped iters for grouped outer block reduction
+  int64_t num_grouped_iterations = 1;
+
   //! Do we have any outer grouped grid welford op?
   bool has_outer_grouped_grid_welford = false;
 
   //! Largest shared memory buffer size of outer grouped grid welford
-  int outer_grouped_grid_welford_largest_smem_size = 0;
+  int64_t outer_grouped_grid_welford_largest_smem_size = 0;
 
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
 
-  //! Do we have allocations of dynamic local memory?
-  bool has_dynamic_local_memory_allocations = false;
-
   //! List of dynamic local memory buffers.
-  //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
-  //! ceilDiv extents that must be divisible
-  std::vector<std::pair<const Val*, const Val*>> splits_to_validate;
+  //! Validations needed and information about them. For example, a pair of
+  //! "extent mod split_factor == 0" and an error message for divisibility check
+  //! for vectorization.
+  std::vector<std::pair<const Val*, std::string>> validations;
 
   //! Effective ParallelTypes of broadcast ops
   std::unordered_map<const BroadcastOp*, ParallelTypeBitmap>
@@ -95,7 +101,7 @@ struct KernelSummary {
 
   //! Track which tensor views are inputs or outputs of a vectorized operation
   //! and their maximum vectorized access size
-  std::unordered_map<TensorView*, int> vectorized_accesses;
+  std::unordered_map<TensorView*, int64_t> vectorized_accesses;
 
   // Sync map is needed to figure out if global memory buffers need to be marked
   // as volatile because they're used for communication.
@@ -103,10 +109,40 @@ struct KernelSummary {
 
   // Parallel dimension map needed to set the correct properties of grid buffers
   // (is a dim inactive)
-  ParallelDimensionMap parallel_dimension_map_;
+  ParallelDimensionMap parallel_dimension_map;
 
   //! Track information on vectorized set operations for runtime validation
   std::vector<VectorizedSetInfo> vectorized_set_info;
+
+  //! Minimum compute capability of device that can execute this kernel
+  std::pair<int64_t, int64_t> min_device_version;
+
+  //! Plain text description of why min_device_version_ is required
+  std::string min_device_version_reason;
+
+  //! Track Circular Buffer TensorViews
+  CircularBufferInfo circular_buffer_info;
+
+  //! Track if there are ElectSync predicates in this Kernel.
+  //! Reason: At runtime, we check that at least a single warp along TIDx axis
+  //! exists.
+  bool has_elect_sync_predicate = false;
+
+  //! Do we have any possibly narrowing casts from DataType::Index variables?
+  //! These need to be validated to prevent overflow.
+  bool has_narrowing_index_casts = false;
+
+  //! adjusted register usage for tma load and computation warp groups
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
+
+  //! has mma op in fusion
+  bool has_mma_op = false;
+
+  //! Do we have any argsort op?
+  bool has_argsort = false;
+
+  //! Do we have any topk op?
+  bool has_topk = false;
 };
 
 class KernelPerformanceProfile {
@@ -118,7 +154,7 @@ class KernelPerformanceProfile {
   bool isProfiled(const Expr* expr) const;
 
   //! Get the number of profiled expressions
-  int getNumberOfProfileEntries() const {
+  int64_t getNumberOfProfileEntries() const {
     return num_profile_entries_;
   }
 
@@ -133,19 +169,19 @@ class KernelPerformanceProfile {
   }
 
   //! Get the indices of the profile of an expression in the backing buffer
-  std::array<int, 2> getIndicesInProfileBuffer(const Expr* expr) const;
+  std::array<int64_t, 2> getIndicesInProfileBuffer(const Expr* expr) const;
 
   std::string toString(const at::Tensor& buffer) const;
 
  private:
   //! Get the new profile index
-  int getNewIndex();
+  int64_t getNewIndex();
 
   //! Get the profile index
-  std::optional<int> getIndex(const Expr* expr) const;
+  std::optional<int64_t> getIndex(const Expr* expr) const;
 
  private:
-  int num_profile_entries_ = 0;
+  int64_t num_profile_entries_ = 0;
 
   //! Backing buffer of Nx2 integer tensor, where N is the number of profiled
   //! regions. Each region has two integer values, one representing
@@ -153,11 +189,11 @@ class KernelPerformanceProfile {
   TensorView* buffer_ = nullptr;
 
   //! Map profiled expressions to profile entry offsets
-  std::unordered_map<const Expr*, int> expr_entry_map_;
+  std::unordered_map<const Expr*, int64_t> expr_entry_map_;
 
   // TODO: Allow profiling of ForLoops
   //! Map profiled ForLoop to profile entry offsets
-  // std::unordered_map<const kir::ForLoop*, int> loop_entry_map_;
+  // std::unordered_map<const ForLoop*, int64_t> loop_entry_map_;
 };
 
 class KernelInternalProxy;
@@ -165,7 +201,7 @@ class KernelInternalProxy;
 //! Container for a lowered Kernel IR
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class Kernel final : public Fusion {
+class NVF_API Kernel final : public Fusion {
   friend KernelInternalProxy;
 
  public:
@@ -175,16 +211,7 @@ class Kernel final : public Fusion {
   // we do something like generate an initialization statement for a reduction
   // TV, we may want to continue to do fusion like analysis on the original
   // expression.
-  // TODO: Assert index type is int or int32
-  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int)
-      : Fusion(*fusion), index_type_(index_type) {
-    // Index type must be resolved to either int32 or int64
-    NVF_ERROR(
-        index_type_ == PrimDataType::Int ||
-            index_type_ == PrimDataType::Int32 || "Invalid index type: ",
-        index_type_);
-  }
-
+  Kernel(Fusion* fusion, PrimDataType index_type = PrimDataType::Int);
   Kernel() = delete;
 
   // No move or copy semantics
@@ -207,6 +234,10 @@ class Kernel final : public Fusion {
 
   PrimDataType indexType() const {
     return index_type_;
+  }
+
+  void setIndexType(PrimDataType new_index_type) {
+    index_type_ = new_index_type;
   }
 
   //! Checks if parallel type is padded
@@ -271,7 +302,7 @@ class Kernel final : public Fusion {
 //! A special debugging proxy for Kernel.
 //!
 //! Should not be used for other than testing and debugging.
-class KernelInternalProxy {
+class NVF_API KernelInternalProxy {
  public:
   KernelInternalProxy(Kernel* kernel) : kernel_(kernel) {}
 

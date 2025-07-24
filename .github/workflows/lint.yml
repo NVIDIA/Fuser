@@ -7,13 +7,26 @@ on:
       - main
 # the most recent commit in the PR would cancel older commit's in-progress workflows
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}-${{ github.ref_type == 'branch' && github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
   cancel-in-progress: true
 
 env:
   working_directory: .
 
 jobs:
+  check-license:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Look for missing license headers
+        working-directory: ${{ env.working_directory }}
+        run: |
+          find . -regextype posix-extended -regex '.*\.(cpp|h|py|md|svg)' | egrep -v '^./(\.|third_party|bin|build|nvfuser/include|nvfuser/version.py|tools/linter/adapters|csrc/serde/fusion_cache_generated.h)' | xargs grep -L SPDX-FileCopyrightText | tee missing-header-files.txt
+          # test that file is empty
+          test ! -s missing-header-files.txt
+
   clang-tidy:
     runs-on: ubuntu-latest
     steps:
@@ -38,12 +51,18 @@ jobs:
 
           wait
 
+          # Go to python folder to build cmake files
+          cd python
+
           # Run cmake build
           python setup.py --cmake-only
 
           # Generate csrc/serde/fusion_cache_generated.h
           # NOTE: this might cause a compile of flatbuffers if it is missing
           ninja -C build build_flatbuffer_config
+
+          # Return to root to run clang-tidy
+          cd ..
 
           # Run lintrunner on all csrc files exclude benchmark and test folders
           this_commit=$(git rev-parse HEAD)
@@ -75,7 +94,10 @@ jobs:
           pip install lintrunner
 
           # Initialize lintrunner
-          lintrunner init
+          lintrunner init 2> /dev/null
+
+          # Install dependencies
+          sudo apt install -y libtinfo6
 
           # Run lintrunner except clang-tidy
           lintrunner --config .lintrunner.toml --skip CLANGTIDY --all-files --verbose

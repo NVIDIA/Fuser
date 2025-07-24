@@ -66,21 +66,20 @@
         (3L op 2L));                                                           \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
     EXPECT_THAT(                                                               \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
   }
 
 TEST_BINARY_OP_ALLTYPE(Add, +);
@@ -150,21 +149,20 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)), (3L op 2L));                     \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
     EXPECT_THAT(                                                               \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
   }
 
 TEST_COMPARE_OP(Eq, ==);
@@ -173,6 +171,79 @@ TEST_COMPARE_OP(Lt, <);
 TEST_COMPARE_OP(Gt, >);
 TEST_COMPARE_OP(Le, <=);
 TEST_COMPARE_OP(Ge, >=);
+
+#define TEST_NAMED_COMPARE_OP(name, op, func)                                \
+  TEST_F(DynamicTypeTest, name) {                                            \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64Bool(2.0)) == (2L op 2.0));     \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64BoolTwo{}) == (2L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(1L), DoubleInt64BoolTwo{}) == (1L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(3L), DoubleInt64BoolTwo{}) == (3L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(2L)) == (2L op 2L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(1L)) == (2L op 1L));      \
+    static_assert(                                                           \
+        func(DoubleInt64BoolTwo{}, DoubleInt64Bool(3L)) == (2L op 3L));      \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVec(2.0)), (2L op 2.0)); \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVecTwo{}), (2L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(1L), DoubleInt64BoolVecTwo{}), (1L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(3L), DoubleInt64BoolVecTwo{}), (3L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(2L)), (2L op 2L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(1L)), (2L op 1L));  \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVecTwo{}, DoubleInt64BoolVec(3L)), (2L op 3L));  \
+    EXPECT_EQ(                                                               \
+        func(                                                                \
+            DoubleInt64BoolVec(std::vector<int64_t>{2}),                     \
+            DoubleInt64BoolVec(std::vector<double>{2.0})),                   \
+        (2L op 2.0));                                                        \
+    static_assert(                                                           \
+        func(DoubleInt64Bool(2L), DoubleInt64Bool(2.5)) == (2L op 2.5));     \
+    EXPECT_EQ(                                                               \
+        func(DoubleInt64BoolVec(2L), DoubleInt64BoolVec(2.5)), (2L op 2.5)); \
+    EXPECT_EQ(                                                               \
+        func(                                                                \
+            DoubleInt64BoolVec(std::vector<int64_t>{2L}),                    \
+            DoubleInt64BoolVec(std::vector<double>{2.5})),                   \
+        (2L op 2.5));                                                        \
+    static_assert(func(DoubleInt64Bool(3L), 2L) == (3L op 2L));              \
+    EXPECT_EQ(func(DoubleInt64BoolVec(3L), 2L), (3L op 2L));                 \
+    static_assert(func(3L, DoubleInt64Bool(2L)) == (3L op 2L));              \
+    EXPECT_EQ(func(3L, DoubleInt64BoolVec(2L)), (3L op 2L));                 \
+    EXPECT_THAT(                                                             \
+        [&]() { func(DoubleInt64Bool(), DoubleInt64Bool(2L)); },             \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
+    EXPECT_THAT(                                                             \
+        [&]() {                                                              \
+          func(                                                              \
+              DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}),         \
+              DoubleInt64BoolVec(2L));                                       \
+        },                                                                   \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
+    EXPECT_THAT(                                                             \
+        [&]() { func(IntSomeType(SomeType{}), IntSomeType(SomeType{})); },   \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
+  }
+
+TEST_NAMED_COMPARE_OP(NamedEq, ==, eq);
+TEST_NAMED_COMPARE_OP(NamedNe, !=, ne);
+TEST_NAMED_COMPARE_OP(NamedLt, <, lt);
+TEST_NAMED_COMPARE_OP(NamedGt, >, gt);
+TEST_NAMED_COMPARE_OP(NamedLe, <=, le);
+TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
 
 #define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
@@ -214,21 +285,20 @@ TEST_COMPARE_OP(Ge, >=);
     EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
     EXPECT_THAT(                                                               \
         [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
     EXPECT_THAT(                                                               \
         [&]() {                                                                \
           DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
               op DoubleInt64BoolVec(2L);                                       \
         },                                                                     \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
     static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
-    static_assert(!(opcheck<SomeTypes> + opcheck<SomeTypes>));                 \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
-        ::testing::ThrowsMessage<std::runtime_error>(                          \
-            ::testing::HasSubstr("Cannot compute ")));                         \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
   }
 
 TEST_BINARY_OP_INT_ONLY(Mod, %);
@@ -263,8 +333,7 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
       !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
   static_assert(
       !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
-  // defined compile time because Type2+Type2 and +Type2 is constructible to
-  // Type3
+  // defined compile time because Type2+Type2 is constructible to Type3
   using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
   static_assert(opcheck<Type2Type3> + opcheck<Type2Type3>);
   static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
@@ -272,8 +341,6 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
   static_assert(opcheck<Type2> + opcheck<Type2Type3>);
   static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
-  static_assert(+opcheck<Type2Type3>);
-  static_assert(+Type2Type3(Type2{}) == Type3{});
   // defined compile time because int+int is in type list
   static_assert(
       opcheck<DynamicType<NoContainers, Type2, int>> +
@@ -285,8 +352,8 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   };
   EXPECT_THAT(
       bad,
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
   // test bool to int conversion
   using Int = DynamicType<NoContainers, int>;
   static_assert((Int(2) && Int(0)) == 0);

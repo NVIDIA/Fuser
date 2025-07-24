@@ -8,6 +8,7 @@
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -19,13 +20,8 @@
 
 #include <torch/csrc/jit/ir/ir.h>
 
-#include <c10/util/Exception.h>
-#include <c10/util/irange.h>
-
 #include <iostream>
-#include <stdexcept>
 #include <string>
-#include <typeinfo>
 #include <unordered_map>
 
 namespace nvfuser {
@@ -63,16 +59,12 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
 }
 
 std::string Statement::toString(int indent_size) const {
-  NVF_ERROR(
-      false, "toString for IR node ", typeid(*this).name(), " is not defined");
+  NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 std::string Statement::toInlineString(int indent_size) const {
-  NVF_ERROR(
-      false,
-      "toInlineString for IR node ",
-      typeid(*this).name(),
-      " is not defined");
+  NVF_THROW(
+      "toInlineString for IR node ", typeid(*this).name(), " is not defined");
 }
 
 Fusion* Statement::fusion() const {
@@ -113,7 +105,7 @@ bool Val::removeUse(Expr* expr) {
     uses_.erase(it);
     if (this->isA<TensorView>()) {
       // Call for a rebuild of uses_ vector
-      fusion()->invalidateTvUses();
+      fusion()->invalidateTvsAndUses();
     }
     return true;
   }
@@ -147,6 +139,12 @@ bool Val::sameAs(const Statement* other) const {
         return false;
       }
     }
+    // non-deterministic operation returns value that wouldn't be the same even
+    // if the inputs are the same.
+    if (!definition_->isDeterministic() ||
+        !other_val->definition_->isDeterministic()) {
+      return false;
+    }
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
     }
@@ -156,7 +154,7 @@ bool Val::sameAs(const Statement* other) const {
     }
     // For definition with multiple outputs, only outputs at the same position
     // could be the same
-    for (auto i : c10::irange(definition_->outputs().size())) {
+    for (auto i : arange(definition_->outputs().size())) {
       if ((definition_->output(i) == this) !=
           (other_val->definition_->output(i) == other_val)) {
         return false;
@@ -196,7 +194,7 @@ std::string Val::toInlineString(int indent_size) const {
 }
 
 bool Val::isConstScalar() const {
-  if (!isScalar()) {
+  if (!isScalar() || !ir_utils::isFunctional(this)) {
     return false;
   }
   return ir_utils::dependenciesSatisfied(this);
@@ -206,137 +204,49 @@ bool Val::isConstInt() const {
   return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
-int64_t Val::evaluateInt() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Int of not const values through IR nodes, must use runtime ExpressionEvaluator.");
-
+PolymorphicValue Val::evaluate() {
   if (this->value().hasValue()) {
-    return this->value().as<int64_t>();
+    return this->value();
   }
 
   ExpressionEvaluator ee;
   auto evaluated_val = ee.evaluate(this);
   NVF_ERROR(
       evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value: ",
+      "Detected a const value but failed to infer its value: ",
       toInlineString());
-  return evaluated_val.as<int64_t>();
-}
-
-double Val::evaluateDouble() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Double of not const doubles through IR nodes, must use runtime ExpressionEvaluator.");
-
-  if (this->value().hasValue()) {
-    return this->value().as<double>();
-  }
-
-  ExpressionEvaluator ee;
-  auto evaluated_val = ee.evaluate(this);
-  NVF_ERROR(
-      evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value.");
-  return evaluated_val.as<double>();
-}
-
-bool Val::evaluateBool() {
-  NVF_ERROR(
-      ir_utils::dependenciesSatisfied(this),
-      "Cannot get Bool of not const bools through IR nodes, must use runtime ExpressionEvaluator.");
-
-  if (this->value().hasValue()) {
-    return this->value().as<bool>();
-  }
-
-  ExpressionEvaluator ee;
-  auto evaluated_val = ee.evaluate(this);
-  NVF_ERROR(
-      evaluated_val.hasValue(),
-      "Detected a const integer but failed to infer its value.");
-  return evaluated_val.as<bool>();
-}
-
-std::optional<int64_t> Val::getInt() const {
-  if (isConstScalar() && isIntegralScalar()) {
-    auto val = this->value();
-    if (val.is<int64_t>()) {
-      return val.as<int64_t>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-std::optional<double> Val::getDouble() const {
-  if (isConstScalar() && isFloatingPointScalar()) {
-    auto val = this->value();
-    if (val.is<double>()) {
-      return val.as<double>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
-}
-
-std::optional<bool> Val::getBool() const {
-  if (isConstScalar() && isABool()) {
-    auto val = this->value();
-    if (val.is<bool>()) {
-      return val.as<bool>();
-    }
-    return std::nullopt;
-  }
-  return std::nullopt;
+  return evaluated_val;
 }
 
 bool Val::isZero() const {
-  return getInt() == 0 || getDouble() == 0.0;
+  return value().hasValue() && (bool)(value() == 0.0);
 }
 
 bool Val::isZeroInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 0;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 0;
 }
 
 bool Val::isOne() const {
-  return getInt() == 1 || getDouble() == 1.0;
+  return value().hasValue() && (bool)(value() == 1.0);
 }
 
 bool Val::isOneInt() const {
-  auto int_val = getInt();
-  return int_val.has_value() && int_val.value() == 1;
+  return value().hasValue() && value().is<int64_t>() &&
+      value().as<int64_t>() == 1;
 }
 
 bool Val::isTrue() const {
-  return getBool() == true;
+  return value().hasValue() && value().is<bool>() && value().as<bool>();
 }
 
 bool Val::isFalse() const {
-  return getBool() == false;
+  return value().hasValue() && value().is<bool>() && !value().as<bool>();
 }
 
 std::optional<DataType> Val::getDataType() const {
   NVF_ERROR(dtype_ != DataType::Null, "Value does not have a data type.");
   return dtype_;
-}
-
-bool Val::isProducerOf(const Val* other) const {
-  NVF_ERROR(other != nullptr);
-  NVF_ERROR(container() == other->container());
-
-  if (definition() == nullptr) {
-    return false;
-  }
-  return std::any_of(
-      definition()->inputs().begin(),
-      definition()->inputs().end(),
-      [other](const Val* input) { return input == other; });
-}
-
-bool Val::isConsumerOf(const Val* other) const {
-  return other->isProducerOf(this);
 }
 
 // We don't register with the active fusion in Expr as this needs to be done
@@ -392,6 +302,29 @@ void Expr::checkConcretization(Val* old_val, Val* new_val) const {
       "Concretization must not change ValType");
 }
 
+bool Expr::sameOp(const Expr* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (other == nullptr) {
+    return false;
+  }
+  if (typeid(*this) != typeid(*other)) {
+    return false;
+  }
+  if (inputs().size() != other->inputs().size() ||
+      outputs().size() != other->outputs().size() ||
+      attributes().size() != other->attributes().size()) {
+    return false;
+  }
+  for (const auto i : arange(attributes().size())) {
+    if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool Expr::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
@@ -400,21 +333,14 @@ bool Expr::sameAs(const Statement* other) const {
     return false;
   }
   const Expr* other_expr = other->as<Expr>();
-  if (typeid(*this) != typeid(*other_expr)) {
+  if (!sameOp(other_expr)) {
     return false;
   }
-  if (inputs().size() != other_expr->inputs().size() ||
-      outputs().size() != other_expr->outputs().size() ||
-      attributes().size() != other_expr->attributes().size()) {
+  if (isDeterministic() != other_expr->isDeterministic()) {
     return false;
   }
-  for (const auto i : c10::irange(inputs().size())) {
+  for (const auto i : arange(inputs().size())) {
     if (!input(i)->sameAs(other_expr->input(i))) {
-      return false;
-    }
-  }
-  for (const auto i : c10::irange(attributes().size())) {
-    if (!attribute(i)->sameAs(other_expr->attribute(i))) {
       return false;
     }
   }
@@ -422,12 +348,16 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   predicate_ = predicate;
 }
 
@@ -456,16 +386,30 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
 std::vector<PolymorphicValue> Expr::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  NVF_ERROR(
-      false,
+  NVF_THROW(
       "`evaluate` method for expression ",
       getOpString(),
       " is not defined. ",
       "Please override the evaluate method");
 }
 
+std::vector<PolymorphicValue> Expr::evaluate(
+    const ExpressionEvaluator& ee,
+    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  std::vector<PolymorphicValue> expr_inputs;
+  expr_inputs.reserve(inputs().size());
+  for (auto inp : inputs()) {
+    const auto& eval_i = ee.evaluate(inp, known_values);
+    if (!eval_i.hasValue()) {
+      return {std::monostate{}};
+    }
+    expr_inputs.emplace_back(eval_i);
+  }
+  return this->evaluate(ee, expr_inputs);
+}
+
 void Expr::addDataAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::create<Val>(container(), std::move(attr)));
+  addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

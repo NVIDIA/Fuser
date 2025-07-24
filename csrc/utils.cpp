@@ -8,14 +8,15 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+
 #include <debug.h>
 #include <options.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 
 #include <cstdlib>
 #include <iostream>
 #include <optional>
-#include <unordered_map>
 
 namespace nvfuser {
 
@@ -38,88 +39,30 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wunused-function")
-void debugPrint(const c10::TensorTypePtr& type) {
-  std::stringstream sizes_s;
-  if (auto sizes = type->symbolic_sizes().sizes()) {
-    for (const auto& shape_symbol : *sizes) {
-      if (shape_symbol.is_static()) {
-        sizes_s << shape_symbol.static_size() << ", ";
-      } else {
-        sizes_s << "s(" << *reinterpret_cast<const int64_t*>(&shape_symbol)
-                << "), ";
-      }
-    }
-  } else {
-    sizes_s << "no size available";
-  }
-  debug() << "sizes:" << sizes_s.str() << std::endl;
-  if (const auto& stride_properties = type->stride_properties().sizes()) {
-    std::stringstream stride_s;
-    std::stringstream index_s;
-    std::stringstream contig_s;
+std::string debug_str(const at::Tensor& tensor) {
+  std::stringstream ss;
+  ss << "Tensor:";
+  ss << " shape: " << tensor.sizes();
+  ss << ", dtype: " << tensor.dtype();
+  ss << ", device: " << tensor.device();
+  ss << ", pointer: " << reinterpret_cast<size_t>(tensor.data_ptr());
 
-    for (const auto& stride_property : *stride_properties) {
-      if (stride_property.has_value() && stride_property->stride_.has_value()) {
-        stride_s << *stride_property->stride_ << ", ";
-      } else {
-        stride_s << "?, ";
-      }
-      if (stride_property.has_value() &&
-          stride_property->stride_index_.has_value()) {
-        index_s << *stride_property->stride_index_ << ", ";
-      } else {
-        index_s << "?, ";
-      }
-      if (stride_property.has_value() &&
-          stride_property->contiguous_.has_value()) {
-        contig_s << *stride_property->contiguous_ << ", ";
-      } else {
-        contig_s << "?, ";
-      }
-    }
-    debug() << "stride: " << stride_s.str() << std::endl;
-    debug() << "stride index: " << index_s.str() << std::endl;
-    debug() << "contiguous: " << contig_s.str() << std::endl;
-  } else {
-    debug() << "no stride properties available" << std::endl;
+  if (!tensor.is_contiguous()) {
+    ss << ", strides: " << tensor.strides();
   }
-}
-C10_DIAGNOSTIC_POP()
-
-bool is_zero_dim_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
-  return tensor_type && tensor_type->dim().has_value() &&
-      tensor_type->dim().value() == 0;
-}
-
-bool is_zero_sized_tensor(const std::shared_ptr<c10::TensorType>& tensor_type) {
-  auto opt_sizes = tensor_type->sizes().concrete_sizes();
-  if (opt_sizes.has_value()) {
-    auto sizes = opt_sizes.value();
-    for (const auto& size : sizes) {
-      if (size == 0) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return ss.str();
 }
 
 bool is_cpu_scalar(const at::Tensor& tensor) {
   return tensor.device().is_cpu() && tensor.numel() == 1 && tensor.dim() == 0;
 }
 
-bool is_cpu_scalar(const c10::TensorType& tensor_type) {
-  auto opt_device = tensor_type.device();
-  auto opt_dim = tensor_type.dim();
-  auto opt_numel = tensor_type.numel();
-  return opt_device.has_value() && opt_device->is_cpu() &&
-      opt_dim.has_value() && opt_numel.has_value() && opt_dim.value() == 0 &&
-      opt_numel.value() == 1;
+bool is_meta_scalar(const at::Tensor& tensor) {
+  return tensor.device().is_meta() && tensor.numel() == 1 && tensor.dim() == 0;
 }
 
 int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device) {
   int8_t index = 0;
   // have we found or selected at least one device yet?
@@ -129,15 +72,18 @@ int8_t getCommonDeviceCUDA(
     found_device = true;
   }
   for (const auto& input : inputs) {
-    if (!input.isTensor()) {
+    if (!input.is<at::Tensor>() || !input.as<at::Tensor>().defined()) {
       continue;
     }
-    const auto& device = input.toTensor().device();
+    const auto& device = input.as<at::Tensor>().device();
     // skip cpu scalar tensor as they'll be promoted to scalar later
-    if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
+    if (device.is_cpu() && is_cpu_scalar(input.as<at::Tensor>())) {
       continue;
     }
-    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    NVF_CHECK(
+        device.is_cuda() || device.is_meta(),
+        "nvfuser only supports cuda or meta device, found: ",
+        device);
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;
@@ -174,19 +120,20 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm) {
   cudaOccDeviceProp occ_prop(*prop);
   cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
   cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
-  int warp_size = prop->warpSize;
-  int num_warps = (int)ceilDiv(threads_per_sm, warp_size);
+  int64_t warp_size = prop->warpSize;
+  int64_t num_warps = ceilDiv(threads_per_sm, warp_size);
 
   // warps could be distributed unevenly across partition
-  int max_warps_per_sm_partition = (int)ceilDiv(num_warps, num_partition);
+  int64_t max_warps_per_sm_partition = ceilDiv(num_warps, num_partition);
   // registers are evenly distributed across partitions, partition with most
   // wraps determins the maximum register available per warp
-  int max_reg_per_warp =
+  int64_t max_reg_per_warp =
       prop->regsPerBlock / num_partition / max_warps_per_sm_partition;
   // clamp down to register allocation granularity at warp level
-  int effective_max_reg_per_warp = max_reg_per_warp /
+  int64_t effective_max_reg_per_warp = max_reg_per_warp /
       reg_allocation_granularity * reg_allocation_granularity;
-  return effective_max_reg_per_warp / warp_size;
+  constexpr int64_t max_reg_count = 255;
+  return std::min(max_reg_count, effective_max_reg_per_warp / warp_size);
 }
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
@@ -196,18 +143,18 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   cudaOccDeviceProp occ_prop(*prop);
   cudaOccSubPartitionsPerMultiprocessor(&num_partition, &occ_prop);
   cudaOccRegAllocationGranularity(&reg_allocation_granularity, &occ_prop);
-  int warp_size = prop->warpSize;
+  int64_t warp_size = prop->warpSize;
 
-  int reg_per_warp =
-      (int)ceilDiv(reg_per_thread * warp_size, reg_allocation_granularity) *
+  int64_t reg_per_warp =
+      ceilDiv(reg_per_thread * warp_size, reg_allocation_granularity) *
       reg_allocation_granularity;
-  int warps_per_sm_partition =
+  int64_t warps_per_sm_partition =
       prop->regsPerBlock / reg_per_warp / num_partition;
-  int num_warps = warps_per_sm_partition * num_partition;
-  return num_warps * static_cast<int64_t>(warp_size);
+  int64_t num_warps = warps_per_sm_partition * num_partition;
+  return num_warps * warp_size;
 }
 
-char* getNvFuserEnv(const char* env_name) {
+const char* getNvFuserEnv(const char* env_name, const char* default_value) {
   // Prepend the default prefix and try if the variable is defined.
   const std::string prefix = "NVFUSER_";
   auto prefixed_name = prefix + env_name;
@@ -231,7 +178,13 @@ char* getNvFuserEnv(const char* env_name) {
     return pyt_env;
   }
 
-  return nullptr;
+  return default_value;
+}
+
+size_t deviceAvailableSharedMemoryBytes() {
+  const auto properties = at::cuda::getCurrentDeviceProperties();
+  const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
+  return device_smem_limit;
 }
 
 } // namespace nvfuser

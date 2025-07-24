@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <dispatch.h>
 #include <exceptions.h>
 
@@ -56,7 +55,7 @@ class IrGraphGenerator : private OptInConstDispatch {
       DetailLevel detail_level = DetailLevel::Basic,
       ExprColorMap* expr_color_map = nullptr);
 
-  static std::string toGraphviz(
+  NVF_API static std::string toGraphviz(
       const Fusion* fusion,
       DetailLevel detail_level,
       ExprColorMap* expr_color_map = nullptr);
@@ -113,5 +112,8 @@ class IrGraphGenerator : private OptInConstDispatch {
   int next_id_ = 1;
   ExprColorMap* expr_color_map_ = nullptr;
 };
+
+// Generates a DOT graph representation of fusion transform
+std::string irTransformToDot(Fusion* fusion);
 
 } // namespace nvfuser

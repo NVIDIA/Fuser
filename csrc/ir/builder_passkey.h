@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 namespace nvfuser {
 
 class IrContainer;

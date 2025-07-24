@@ -9,6 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/all_nodes.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -39,7 +40,7 @@ namespace nvfuser {
 //! \param reduction_outputs Tensors produced by ReductionOp
 //! \param error_on_failure Throw an exception if an error is detected
 //! \return True if successfully grouped
-bool groupReductions(
+NVF_API bool groupReductions(
     const std::vector<TensorView*>& reduction_outputs,
     bool error_on_failure = true);
 

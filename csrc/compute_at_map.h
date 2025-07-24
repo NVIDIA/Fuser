@@ -12,11 +12,14 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <visibility.h>
 
 #include <deque>
 #include <unordered_map>
 
 namespace nvfuser {
+
+class IdModelValidator;
 
 // There's four modes of these iter domain mappings all uniquely important in
 // the lowering process.
@@ -75,7 +78,7 @@ namespace nvfuser {
 //
 class IterDomainGraph {
  public:
-  IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
+  NVF_API IterDomainGraph(Fusion* fusion, bool allow_self_mapping = false);
 
   const DisjointSets<IterDomain*>& permissiveNodes() const {
     return permissive_nodes_;
@@ -138,7 +141,7 @@ class IterDomainGraph {
  private:
   void build(Fusion* fusion);
 
-  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_leaf_id);
+  void initializeId(IterDomain* id, bool is_rfactor_id, bool is_loop_id);
 
   // Checks if exprsMap then if forward will map outputs else inputs in exact
   // and permissive map.
@@ -169,9 +172,12 @@ class IterDomainGraph {
 
   std::optional<std::tuple<TensorView*, IterDomain*, IterDomain*, std::string>>
       self_mapping_info_ = std::nullopt;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
-using DoubleBufferIndices = std::unordered_map<DoubleBufferLoopStage, Val*>;
+using CircularBufferIndices = std::unordered_map<CircularBufferLoopStage, Val*>;
 
 class ComputeAtMap {
  public:
@@ -180,7 +186,7 @@ class ComputeAtMap {
   ComputeAtMap& operator=(const ComputeAtMap&) = delete;
   ComputeAtMap(ComputeAtMap&&) = default;
   ComputeAtMap& operator=(ComputeAtMap&&) = default;
-  ComputeAtMap(Fusion* fusion);
+  NVF_API ComputeAtMap(Fusion* fusion, bool allow_self_mapping = false);
 
   //! Run through disjoint sets in the LOOP map, make sure there's only one
   //! non-serial parallel type in each disjoint set, set the parallel type of
@@ -208,13 +214,15 @@ class ComputeAtMap {
 
   //! Returns if id0 and id1 are mapped to each other with provided
   //! IdMappingMode
-  bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode) const;
+  NVF_API bool areMapped(IterDomain* id0, IterDomain* id1, IdMappingMode mode)
+      const;
 
   //! Returns an iter domain that is the maximum expanded size of all iter
   //! domains the one provided maps to. Useful for opening loops to the correct
   //! iteration size. Not guarenteed to return the same ID every call, but is
   //! guarenteed to return iter domains in the same disjoint set.
-  IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode) const;
+  NVF_API IterDomain* getConcreteMappedID(IterDomain* id, IdMappingMode mode)
+      const;
 
   //! Returns a list of expressions that produce the iter domains of all exact
   //! mapped id's to 'id'. Expressions that are the same exact transformations
@@ -247,10 +255,10 @@ class ComputeAtMap {
   // Returns if the provided ID is an rfactor id
   bool isRfactor(IterDomain* ref_id) const;
 
-  // Returns all rfactor domains in rfactor_concrete_count_reset_domains_ that
+  // Returns all logical domains in rfactor_concrete_count_reset_domains_ that
   // are in the disjoint set of the provided IterDomain. This will be every
   // rfactor ID the provided ID "depends" on in the map.
-  std::vector<IterDomain*> getRfactorDomainsOfIdGroup(
+  std::vector<IterDomain*> getLogicalDomainsOfIdGroup(
       IterDomain* ref_id,
       IdMappingMode mode) const;
 
@@ -263,17 +271,18 @@ class ComputeAtMap {
 
   // Returns if the ID actually has a disjoint set meaning it has been processed
   // in the creation of the compute at map.
-  bool idExistsInMap(IterDomain* id) const;
+  bool idExistsInMap(IterDomain* id, IdMappingMode mode = IdMappingMode::EXACT)
+      const;
 
   //! Returns the pre-allocated index variable integer used in
-  //!  the kir::ForLoop corresponding to the given IterDomain.
+  //!  the ForLoop corresponding to the given IterDomain.
   //!  this interface is only valid if the ID has a loop mapping,
   //!  ca_map will throw exceptions if given iterdomain doesn't
   //!  have a loop map entry.
   Val* getIndexVariable(
       IterDomain* id,
-      DoubleBufferLoopStage double_buffer_loop_stage =
-          DoubleBufferLoopStage::NotApplicable) const;
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
 
   // Returns if expr_1 and expr_2 have exact mapped IterDomains in
   // inputs/outputs (order matters) and if the expressions have matching
@@ -365,18 +374,21 @@ class ComputeAtMap {
   std::unordered_map<const VectorOfUniqueEntries<IterDomain*>*, Val*>
       loop_index_variable_map_;
 
-  //! Allocated loop indices for double buffer loop.
+  //! Allocated loop indices for circular buffer loop.
   //!  only valid for disjoint sets on the loop ca map
-  //!  that have double buffer-ed iterdomains.
-  using DoubleBufferIndicesPtr = std::unique_ptr<DoubleBufferIndices>;
+  //!  that have circular buffer-ed iterdomains.
+  using CircularBufferIndicesPtr = std::unique_ptr<CircularBufferIndices>;
   std::unordered_map<
       const VectorOfUniqueEntries<IterDomain*>*,
-      DoubleBufferIndicesPtr>
-      double_buffered_loop_index_variable_map_;
+      CircularBufferIndicesPtr>
+      circular_buffered_loop_index_variable_map_;
 
   // Shortcut to access the fusion this computeAt map was
   //  built from.
   Fusion* fusion_;
+
+  // Temporary interface exposure for validating IdModel
+  friend class IdModelValidator;
 };
 
 } // namespace nvfuser

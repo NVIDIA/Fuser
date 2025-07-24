@@ -48,14 +48,14 @@ class CommonScalarMap {
   //! reuse oppportunity is found, then this function will modify the definition
   //! of `value` to use the existing subexpression. This function returns the
   //! modified value whose definition reuses other expressions in the list.
-  Val* hoistScalar(Val* value, const std::vector<kir::ForLoop*>& loops);
+  Val* hoistScalar(Val* value, const std::vector<ForLoop*>& loops);
 
   //! common_scalar_map_ stores all seen indices in a given loop, however, we
   //! don't want to create separate allocation for all of them. We are only
   //! interested in allocating for the indices that is actually hoisted, or used
   //! more than once. This method returns the Vals that will get its separate
   //! allocation.
-  std::vector<Val*> getHoistedScalars(kir::ForLoop* loop) const;
+  std::vector<Val*> getHoistedScalars(ForLoop* loop) const;
 
   //! Initialize the common_scalar_map_ with lowered exprs. If some scalar is
   //! already computed in these lowered exprs and is recomputed in indexing or
@@ -68,7 +68,7 @@ class CommonScalarMap {
   //! Returns (hoisted value, has tensor index dependency)
   std::pair<Val*, bool> hoistScalarImpl(
       Val* value,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       std::vector<Val*>&
           seen_subexprs, // Stores the subexpressions that has already been seen
                          // during the recursion. This is used to detect
@@ -94,12 +94,12 @@ class CommonScalarMap {
   //! subexpression will be split out as a separate item in the mapped list, and
   //! that subexpression will be returned. If nothing sameAs `value`, then
   //! return nullptr.
-  Val* reuseScalarIfAlreadyComputed(Val* value, kir::ForLoop* loop);
+  Val* reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop);
 
  private:
   //! Map to hold hoisted common indices. The order matters and indicates data
   //! dependency. For example, my list might have [i1*4, i1*4+2, i1*4/16]
-  std::unordered_map<kir::ForLoop*, std::list<Val*>> common_scalar_map_;
+  std::unordered_map<ForLoop*, std::list<Val*>> common_scalar_map_;
 
   //! A set to identify that if a val is hoisted (an expression used in the
   //! inner loop, but its value only depend on outer loop variables, so the

@@ -9,10 +9,11 @@
 
 #include <debug.h>
 #include <device_lower/lower2device.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
+#include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
 
 #include <optional>
@@ -21,8 +22,7 @@ namespace nvfuser {
 
 namespace {
 
-template <typename VALTYPE>
-std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
+std::vector<Val*> getImmediateProducers(Val* val) {
   if (val->definition()) {
     auto expr = val->definition();
     return expr->inputs();
@@ -34,11 +34,10 @@ std::vector<VALTYPE*> getImmediateProducers(VALTYPE* val) {
 //! IR-Generic utility, collects all the producers required for the
 //!  given list of IR values and returns them along with the original
 //!  list in topological order.
-template <typename VALTYPE>
-std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
+std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
   // Deduplicate
-  std::vector<VALTYPE*> to_sort;
-  std::unordered_set<VALTYPE*> visited;
+  std::vector<Val*> to_sort;
+  std::unordered_set<Val*> visited;
   for (auto val : input) {
     if (!visited.count(val)) {
       to_sort.push_back(val);
@@ -46,7 +45,7 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
     }
   }
 
-  std::vector<VALTYPE*> sorted;
+  std::vector<Val*> sorted;
   visited.clear();
 
   // Topological Sort
@@ -58,10 +57,16 @@ std::vector<VALTYPE*> makeSortedEvaluationList(std::vector<VALTYPE*> input) {
       to_sort.pop_back();
     } else {
       bool ready_to_pop = true;
-      for (auto producer : getImmediateProducers(top_val)) {
-        if (!visited.count(producer)) {
-          ready_to_pop = false;
-          to_sort.push_back(producer);
+      // Struct types must be bound directly. This is because it would
+      // otherwise require us to compute T0 just to compute GetMetaData(T0),
+      // for example. We skip computing producers of Structs here in order to
+      // avoid computing the TensorViews themselves.
+      if (!isStructType(top_val->dtype())) {
+        for (auto producer : getImmediateProducers(top_val)) {
+          if (!visited.count(producer)) {
+            ready_to_pop = false;
+            to_sort.push_back(producer);
+          }
         }
       }
       if (ready_to_pop) {
@@ -83,7 +88,7 @@ void collectBufferSizes(
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -94,20 +99,25 @@ void collectBufferSizes(
 
 std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
   std::vector<Val*> ret;
-  auto all_tvs = ir_utils::allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   // Collect extent and inputs
   for (auto tv : all_tvs) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       ret.push_back(id->extent());
     }
-    for (auto id : tv->getMaybeRFactorDomain()) {
+    for (auto id : tv->getLogicalDomain()) {
       if (id->hasExpandedExtent()) {
         ret.push_back(id->expandedExtent());
       }
     }
   }
   for (auto inp : fusion->inputs()) {
-    if (!inp->isA<TensorView>()) {
+    if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+      // For TensorView inputs, do not bind the TV itself. Only bind its
+      // TensorMetaData
+      Val* metadata = fusion->metadataOf(tv);
+      ret.push_back(metadata);
+    } else {
       ret.push_back(inp);
     }
   }
@@ -121,10 +131,19 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 } // namespace
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
+  FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
   initializeValueList(symbols());
   initializeNamedScalars();
   initializeIntegerMachine();
+}
+
+PrecomputedValues::~PrecomputedValues() {
+  // Reset evaluator index to -1
+  // so we can create other PrecomputedValues objects.
+  for (Val* v : symbols()) {
+    v->setEvaluatorIndex(-1);
+  }
 }
 
 void PrecomputedValues::bindParallelExtents(
@@ -155,24 +174,31 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
 }
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
   if (hasValidValues()) {
     invalidate();
   }
+  bindValues(fusion_->inputs(), args);
+}
 
-  const auto& inputs = fusion_->inputs();
-  NVF_ERROR(
-      args.size() == inputs.size(), "kernel inputs size does not match args");
+void PrecomputedValues::bindValues(
+    const std::vector<Val*>& inputs,
+    const KernelArgumentHolder& args) {
+  NVF_ERROR_EQ(
+      args.size(),
+      std::ssize(inputs),
+      "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange((int64_t)inputs.size())) {
+  for (const auto i : arange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
-    if (auto tensor_input = dynamic_cast<TensorView*>(input)) {
-      const auto& tensor = args[i]->as<at::Tensor>();
+    if (auto* tv = dynamic_cast<TensorView*>(input)) {
+      const auto& tensor = args[i].as<at::Tensor>();
       if (!tensor.is_cpu()) {
-        bindTensorMetaData(tensor_input, tensor);
+        bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), *args[i]);
+      bindValue(input->evaluatorIndex(), args[i]);
     }
   }
 }
@@ -186,19 +212,13 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
+  for (const auto i : arange(num_of_values_)) {
     // Use an expression evaluator to test if value is const
-    if (sorted_value_list[i]->isConstScalar()) {
+    // Structs must be bound directly
+    if (!isStructType(sorted_value_list[i]->dtype()) &&
+        sorted_value_list[i]->isConstScalar()) {
       is_constant_[i] = true;
-      if (sorted_value_list[i]->isIntegralScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateInt());
-      }
-      if (sorted_value_list[i]->isFloatingPointScalar()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateDouble());
-      }
-      if (sorted_value_list[i]->isABool()) {
-        values_[i] = PolymorphicValue(sorted_value_list[i]->evaluateBool());
-      }
+      values_[i] = sorted_value_list[i]->evaluate();
     }
     sorted_value_list[i]->setEvaluatorIndex(i);
   }
@@ -218,10 +238,10 @@ const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
 
 void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
-  for (auto i : c10::irange(symbols_.size())) {
+  for (auto i : arange(symbols_.size())) {
     if (defined_[i]) {
-      debug() << symbols_[i]->toInlineString() << " = " << values_[i]
-              << std::endl;
+      debug() << symbols_[i]->toInlineString() << " = "
+              << PolymorphicValue_functions::toString(values_[i]) << std::endl;
     }
   }
 }
@@ -264,7 +284,7 @@ PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
       pv.binding_log_.end(), binding_log_.begin(), binding_log_.end());
 
   pv.symbols_.resize(symbols_.size());
-  for (const auto i : c10::irange(symbols_.size())) {
+  for (const auto i : arange(symbols_.size())) {
     pv.symbols_[i] = ir_cloner.clone(symbols_[i]);
   }
 
@@ -314,7 +334,8 @@ void PrecomputedValues::validate() {
     NVF_ERROR(
         isSame(values_[it.first], it.second),
         "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and execution.\n",
+        "\nSomething unexpected changed between the compilation and "
+        "execution.\n",
         values_[it.first],
         " != ",
         it.second);
@@ -325,22 +346,39 @@ void PrecomputedValues::validate() {
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
     const at::Tensor& tensor) {
-  const auto root_domain =
-      TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  const auto logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
-      tensor.dim() == static_cast<int64_t>(root_domain.size()),
+      tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
-  for (const auto dim : c10::irange(root_domain.size())) {
-    auto value = tensor.size((int64_t)dim);
-    if (root_domain[dim]->hasExpandedExtent()) {
-      auto extent = root_domain[dim]->extent();
-      auto expanded_extent = root_domain[dim]->expandedExtent();
-      bindValue(extent->evaluatorIndex(), 1L);
-      bindValue(expanded_extent->evaluatorIndex(), value);
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+
+  // Adjust the last dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (!logical_sizes.empty()) {
+    auto& last_dim = logical_sizes.back();
+    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
+  } else {
+    NVF_ERROR(
+        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
+        "DataType not supported");
+  }
+
+  for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
+    IterDomain* id = logical_domain[dim];
+    const auto dim_size = logical_sizes.at(dim);
+    if (id->isBroadcast()) {
+      // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
+      // and .ExpandedBroadcast.
+      bindValue(id->extent()->evaluatorIndex(), 1L);
+      if (id->hasExpandedExtent()) {
+        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+      }
     } else {
-      auto extent = root_domain[dim]->extent();
-      bindValue(extent->evaluatorIndex(), value);
+      bindValue(id->extent()->evaluatorIndex(), dim_size);
     }
   }
 
@@ -357,7 +395,7 @@ void PrecomputedValues::bindTensorMetaData(
   auto metadata_val = IrBuilder::metadataExpr(tv);
   auto metadata = ee.evaluate(metadata_val);
   // NOTE: In some cases we may not be able to evaluate metadata. For example,
-  // if there exists a split expression between the root and rfactor domains
+  // if there exists a split expression between the root and logical domains
   // of tv whose split factor is not able to be evaluated. For that reason,
   // calling code should ensure that all inputs required to propagate strides
   // from root to allocation domains are already bound to "this" before binding
@@ -420,7 +458,7 @@ void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
 }
 
 void NaiveValueMachine::run() {
-  for (const auto i : c10::irange(num_of_instructions_)) {
+  for (const auto i : arange(num_of_instructions_)) {
     // Skip this instruction if the dest location
     //  has already been computed or is constant.
     if (precomputed_values_.defined_[dest_[i]] ||
@@ -542,8 +580,7 @@ void NaiveValueMachine::runUnaryOp(int index) {
       } else if (data_type_[index] == DataType::Bool) {
         dest = PolymorphicValue((bool)src);
       } else {
-        NVF_ERROR(
-            false, "dtype not supported in evaluator: ", data_type_[index]);
+        NVF_THROW("dtype not supported in evaluator: ", data_type_[index]);
       }
       break;
     case UnaryOpType::Abs:
@@ -554,6 +591,12 @@ void NaiveValueMachine::runUnaryOp(int index) {
       break;
     case UnaryOpType::BitwiseNot:
       dest = ~src;
+      break;
+    case UnaryOpType::Reciprocal:
+      dest = 1.0 / src;
+      break;
+    case UnaryOpType::Signbit:
+      dest = signbit(src);
       break;
     default:
       NVF_CHECK(!"Unexpected operator type ", uop_type_[index]);
@@ -645,6 +688,12 @@ void NaiveValueMachine::runBinaryOp(int index) {
       break;
     case BinaryOpType::GT:
       dest = lhs > rhs;
+      break;
+    case BinaryOpType::Fmod:
+      dest = fmod(lhs, rhs);
+      break;
+    case BinaryOpType::Pow:
+      dest = pow(lhs, rhs);
       break;
     default:
       NVF_CHECK(false, "Unexpected operator type ", bop_type_[index]);

@@ -13,13 +13,13 @@
 namespace nvfuser {
 
 class Expr;
+class ForLoop;
+class Scope;
 
 namespace kir {
 class Predicate;
 class TensorIndex;
-class ForLoop;
 class IfThenElse;
-class Scope;
 
 // Base visitor class that visits all nodes in provided vector<Expr*>.
 //
@@ -33,7 +33,7 @@ class Scope;
 //
 // Provides a simple base class to inherit from for typical lowering passes on
 // Expr list
-class IrVisitor : public OptOutDispatch {
+class NVF_API IrVisitor : public OptOutDispatch {
  public:
   std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
 
@@ -92,11 +92,12 @@ class ConstIrVisitor : public OptOutConstDispatch {
 // an empty scope, and then use that inserted scope as a reference for
 // subsequent mutations.
 class ExprMutator : public IrVisitor {
- protected:
+ public:
   std::vector<Expr*> traverseAndInsert(
       const std::vector<Expr*>& exprs,
       bool reverse_order = false);
 
+ protected:
   std::vector<Expr*> mutate(bool reverse_order = false);
 
   using IrVisitor::handle;

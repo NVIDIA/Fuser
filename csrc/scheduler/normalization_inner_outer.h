@@ -22,43 +22,30 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 class InnerOuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit InnerOuterPersistentKernelScheduler(
+  constexpr static int64_t threads_per_block_min = 128l;
+  constexpr static int64_t threads_per_block_max = 512l;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  void schedule(Fusion* fusion) override;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::InnerOuterPersistent;
+  }
 
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 };
-
-std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
-
-std::shared_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
-
-void scheduleInnerOuterPersistentKernel(
-    Fusion* fusion,
-    const ReductionParams& rparams);
 
 } // namespace nvfuser

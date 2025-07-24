@@ -45,12 +45,12 @@ TEST_F(Examples, Example2) {
   static_assert(f + f == 5.0f);
   EXPECT_THAT(
       [&]() { i + null; },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
   EXPECT_THAT(
       [&]() { i + c; },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 namespace example_3 {
@@ -80,8 +80,8 @@ TEST_F(Examples, Example4) {
         BFloatOrHalfZeroOrInt(half_zero{}) +
             BFloatOrHalfZeroOrInt(bfloat16_zero{});
       },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("Cannot compute ")));
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Result is dynamic but not convertible to result type")));
 }
 
 namespace example_5 {
@@ -186,4 +186,66 @@ TEST_F(Examples, Example10) {
   AB b = B{2.5};
   EXPECT_EQ(b->*&B::y, 2.5);
   EXPECT_EQ((b->*&B::name)(), "B");
+}
+
+TEST_F(Examples, Example11) {
+  using IntDoubleVec = DynamicType<Containers<std::vector>, int, double>;
+  auto get_size = [](auto x) { return sizeof(x); };
+  IntDoubleVec mydata1 = 3.0;
+  EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata1), 8);
+  IntDoubleVec mydata2 = 2;
+  EXPECT_EQ(IntDoubleVec::dispatch(get_size, mydata2), 4);
+
+  auto get_total_size = [](auto x, size_t num_x, auto y, size_t num_y) {
+    return sizeof(x) * num_x + sizeof(y) * num_y;
+  };
+  EXPECT_EQ(IntDoubleVec::dispatch(get_total_size, mydata1, 3, mydata2, 5), 44);
+
+  auto my_pow = [](auto x, auto exp) {
+    if constexpr (
+        std::is_arithmetic_v<decltype(x)> &&
+        std::is_arithmetic_v<decltype(exp)>) {
+      if constexpr (std::is_integral_v<decltype(exp)>) {
+        decltype(x) result = 1;
+        while (exp-- > 0) {
+          result *= x;
+        }
+        return result;
+      } else {
+        return std::pow(x, exp);
+      }
+    } else {
+      throw std::runtime_error("Unsupported type");
+      return;
+    }
+  };
+  auto r11 = IntDoubleVec::dispatch(my_pow, mydata1, mydata1);
+  static_assert(std::is_same_v<decltype(r11), IntDoubleVec>);
+  EXPECT_TRUE(r11.is<double>());
+  EXPECT_EQ(r11, 27.0);
+  auto r12 = IntDoubleVec::dispatch(my_pow, mydata1, mydata2);
+  static_assert(std::is_same_v<decltype(r12), IntDoubleVec>);
+  EXPECT_TRUE(r12.is<double>());
+  EXPECT_EQ(r12, 9.0);
+  auto r21 = IntDoubleVec::dispatch(my_pow, mydata2, mydata1);
+  static_assert(std::is_same_v<decltype(r21), IntDoubleVec>);
+  EXPECT_TRUE(r21.is<double>());
+  EXPECT_EQ(r21, 8.0);
+  auto r22 = IntDoubleVec::dispatch(my_pow, mydata2, mydata2);
+  static_assert(std::is_same_v<decltype(r22), IntDoubleVec>);
+  EXPECT_TRUE(r22.is<int>());
+  EXPECT_EQ(r22, 4);
+
+  std::vector<float> vec = {0.0, 1.0, 2.0, 3.0};
+  auto get_item = [](auto& v, auto index) -> decltype(auto) {
+    if constexpr (std::is_integral_v<decltype(index)>) {
+      return v[index];
+    } else {
+      throw std::runtime_error("Illegal index type");
+      return;
+    }
+  };
+  IntDoubleVec::dispatch(get_item, vec, mydata2) = 100.0;
+  std::vector<float> expect{0.0, 1.0, 100.0, 3.0};
+  EXPECT_EQ(vec, expect);
 }

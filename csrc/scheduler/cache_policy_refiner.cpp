@@ -10,13 +10,18 @@
 #include <ir/base_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 
 namespace nvfuser {
 
 namespace {
+
+template <typename... Args>
+void vlog(const Args&... args) {
+  scheduler_debug_utils::log("[cache_policy_refiner] ", args...);
+}
 
 // Returns whether a pointwise expression `expr` expands its input operand
 // `in_tv`.
@@ -32,16 +37,16 @@ bool pointwiseExpands(const Expr* expr, const TensorView* in_tv) {
   }
   const auto* out_tv = out->as<TensorView>();
 
-  auto root_domain_map = PairwiseRootDomainMap(in_tv, out_tv)
-                             .mapBroadcast(true)
-                             .mapProducerToConsumer();
+  auto logical_domain_map = PairwiseLogicalDomainMap(in_tv, out_tv)
+                                .mapBroadcast(true)
+                                .mapProducerToConsumer();
   return std::find_if(
-             root_domain_map.begin(),
-             root_domain_map.end(),
+             logical_domain_map.begin(),
+             logical_domain_map.end(),
              [](const auto& mapping) {
                return mapping.first->isBroadcast() &&
                    !mapping.second->isBroadcast();
-             }) != root_domain_map.end();
+             }) != logical_domain_map.end();
 }
 
 bool isLoadGlobalToLocal(const Expr* expr) {
@@ -51,6 +56,12 @@ bool isLoadGlobalToLocal(const Expr* expr) {
   const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
 
   if (ldst->opType() != LoadStoreOpType::Set) {
+    return false;
+  }
+  // It should not be necessary to check the output since it should be
+  // always a TensorView as long as the input is a TensorView, but
+  // just in case.
+  if (!ldst->in()->isA<TensorView>() || !ldst->out()->isA<TensorView>()) {
     return false;
   }
   if (ldst->in()->as<TensorView>()->getMemoryType() != MemoryType::Global) {
@@ -115,11 +126,11 @@ const Expr* findExpand(const LoadStoreOp* ldst) {
 
 // Returns true if the cache policy is changed.
 bool refineCachePolicy(LoadStoreOp* ldst) {
-  scheduler_debug_utils::log("Processing ", ldst->toString());
+  vlog("Processing ", ldst->toString());
 
   const Expr* expand = findExpand(ldst);
   if (expand == nullptr) {
-    scheduler_debug_utils::log(
+    vlog(
         "Skipped ",
         ldst->toString(),
         " because we cannot find the using expand.");
@@ -127,7 +138,7 @@ bool refineCachePolicy(LoadStoreOp* ldst) {
   }
 
   auto target_cache_op = CacheOp::AllLevels;
-  scheduler_debug_utils::log(
+  vlog(
       "Changed the cache op of ",
       ldst->toString(),
       " from ",

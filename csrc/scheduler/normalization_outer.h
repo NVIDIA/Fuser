@@ -13,6 +13,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/registry.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 // TODO: If caching inputs would require persistence we are sending it to the
 // persistent kerenl scheduler. This isn't necessary if the only persistent
@@ -22,43 +23,26 @@
 namespace nvfuser {
 
 class SchedulerRuntimeInfo;
-class HeuristicSummary;
+class HeuristicDataCache;
 
 class OuterPersistentKernelScheduler : public SchedulerEntry {
  public:
-  explicit OuterPersistentKernelScheduler(
+  bool canScheduleCompileTime(Fusion* fusion) override;
+
+  bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache = nullptr) override;
 
-  void schedule(Fusion* fusion) override;
-
-  static bool canScheduleCompileTime(Fusion* fusion);
-
-  static bool canScheduleRunTime(
+  std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+      HeuristicDataCache* data_cache) override;
 
- private:
-  void computeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::OuterPersistent;
+  }
 };
-
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
-    Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
-    HeuristicSummary* data_cache = nullptr);
-
-std::shared_ptr<ReductionParams> getOuterPersistentHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicSummary* data_cache = nullptr);
-
-void scheduleOuterPersistentKernel(
-    Fusion* fusion,
-    const ReductionParams& rparams);
-
 } // namespace nvfuser

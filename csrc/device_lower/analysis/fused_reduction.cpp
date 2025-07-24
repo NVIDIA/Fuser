@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <device_lower/lower2device.h>
+#include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
@@ -57,24 +58,64 @@ class FusionInspector : private IterVisitor {
   }
 
  private:
-  FusionInspector(Fusion* fusion) {
+  FusionInspector(Fusion* fusion)
+      : has_warp_specialization_(checkWarpSpecialization(fusion)) {
     traverse(fusion);
+  }
+
+  static bool checkWarpSpecialization(Fusion* fusion) {
+    auto all_tvs = fusion->allTvs();
+    return std::any_of(all_tvs.begin(), all_tvs.end(), [](TensorView* tv) {
+      return tv->isCircularBuffered() &&
+          std::holds_alternative<WarpSpecialized>(
+                 tv->circularBufferOptions().type);
+    });
   }
 
   using IterVisitor::handle;
 
   void handle(ReductionOp* rop) final {
-    // If it's a grid reduction, keep track of tensors that depend on
-    // this reduction.
-    // Only consider when out is on register as that is assumed in the
-    // fused reduction kernel.
+    // If it's a grid reduction or has grouped Id, keep track of tensors that
+    // depend on this reduction. Only consider when out is on register as that
+    // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
+    // Check if this reduction can use staticWarpAllReduceTIDX optimization.
+    // Ensure there is only one reduction domain and it is parallelized with
+    // TIDx and its size is a multiple of warp size (32).
+    auto is_static_warp_reduction = [](TensorView* out,
+                                       bool has_warp_specialization) {
+      if (!has_warp_specialization) {
+        return false;
+      }
+
+      constexpr int64_t kThreadsPerWarp = 32L;
+      int reduction_count = 0;
+      bool has_valid_tidx_reduction = false;
+      for (auto ld : out->getLoopDomain()) {
+        if (ld->isReduction()) {
+          reduction_count++;
+          if (ld->getParallelType() == ParallelType::TIDx &&
+              ld->extent()->isConst() &&
+              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+            has_valid_tidx_reduction = true;
+          }
+        }
+      }
+
+      return reduction_count == 1 && has_valid_tidx_reduction;
+    };
     if (out->getMemoryType() == MemoryType::Local &&
-        out->domain()->hasGridReduction()) {
+        (is_static_warp_reduction(out, has_warp_specialization_) ||
+         out->domain()->hasGridReduction() ||
+         std::any_of(
+             out->getLoopDomain().begin(),
+             out->getLoopDomain().end(),
+             [](IterDomain* id) {
+               return id->getParallelType() == ParallelType::Group;
+             }))) {
       reduction_dep_[out].insert(rop);
     }
   }
-
   void handle(WelfordOp* wop) final {
     // If it's a grid welford, keep track of tensors that depend on
     // this reduction.
@@ -161,8 +202,7 @@ class FusionInspector : private IterVisitor {
       } else if (preceding_expr->isA<WelfordOp>()) {
         fusion_list_.emplace_back(preceding_expr->as<WelfordOp>(), true);
       } else {
-        NVF_ERROR(
-            false, "Invalid preceding expr: ", preceding_expr->toString());
+        NVF_THROW("Invalid preceding expr: ", preceding_expr->toString());
       }
 
       fused_exprs_.insert(preceding_expr);
@@ -172,7 +212,7 @@ class FusionInspector : private IterVisitor {
   ParallelTypeBitmap getReductionParallelTypeStates(Expr* expr) {
     ParallelTypeBitmap parallel_reduction_axes;
 
-    for (auto id : ir_utils::getTvOutput(expr)->getLeafDomain()) {
+    for (auto id : ir_utils::getTvOutput(expr)->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (id->isReduction() && isParallelTypeThread(pt)) {
         parallel_reduction_axes.set(pt);
@@ -182,8 +222,8 @@ class FusionInspector : private IterVisitor {
     return parallel_reduction_axes;
   }
 
-  // Requires reduction parallel dimensions to exactly match parallel broadcast
-  // dimensions
+  // Requires reduction parallel dimensions to exactly match parallel
+  // broadcast dimensions
   bool isBroadcastFuseable(
       TensorView* broadcast_out,
       const ParallelTypeBitmap& parallel_reduction_axes) {
@@ -198,7 +238,7 @@ class FusionInspector : private IterVisitor {
 
     // Make sure the broadcast parallel types are the types reduced by
     // the preceding reduction op
-    for (auto id : broadcast_out->getLeafDomain()) {
+    for (auto id : broadcast_out->getLoopDomain()) {
       auto pt = id->getParallelType();
       if (!isParallelTypeThread(pt)) {
         continue;
@@ -222,6 +262,8 @@ class FusionInspector : private IterVisitor {
   //! Keep track of ReductionOp/WelfordOp expressions that are
   //! (indirectly) input to a tensor
   std::unordered_map<TensorView*, std::unordered_set<Expr*>> reduction_dep_;
+  //! Whether this fusion has warp specialization enabled
+  const bool has_warp_specialization_;
 };
 
 //! Transform a fusion to use the fused reduction kernel.
@@ -256,7 +298,7 @@ class FusionTransformer {
     NVF_ERROR(
         info.reductions().size() == 1, "Horizontal fusion not supported yet");
 
-    for (const auto i : c10::irange(info.reductions().size())) {
+    for (const auto i : arange(info.reductions().size())) {
       const auto expr = info.reductions().at(i);
       const auto with_broadcast = info.withBroadcast().at(i);
       Expr* fused_expr = nullptr;
@@ -307,7 +349,7 @@ class FusionTransformer {
             op_types, init_vals, outputs, inputs, true);
       } else {
         NVF_ERROR(expr != nullptr);
-        NVF_ERROR(false, "Invalid expr: ", expr->toString());
+        NVF_THROW("Invalid expr: ", expr->toString());
       }
 
       NVF_ERROR(fused_expr != nullptr);
@@ -323,7 +365,7 @@ class FusionTransformer {
         // broadcast output tensor without a broadcast expression.
         for (auto reduction_out :
              ir_utils::filterByType<TensorView>(fused_expr->outputs())) {
-          for (auto id : reduction_out->getLeafDomain()) {
+          for (auto id : reduction_out->getLoopDomain()) {
             if (id->isReduction()) {
               GpuLower::current()->fusedReductionInfo().markAsAllreduce(id);
               GpuLower::current()->threadPredMap().markAsUpdated(reduction_out);

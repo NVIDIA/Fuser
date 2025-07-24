@@ -7,29 +7,31 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <dispatch.h>
-
-#include <c10/util/irange.h>
 
 #include <iostream>
 
 namespace nvfuser {
 
 class Fusion;
+class Scope;
 namespace kir {
 class Kernel;
-class Scope;
 } // namespace kir
+
+namespace hir {
+class HostIrContainer;
+} // namespace hir
 
 void checkInlineable(const Expr* expr);
 static constexpr char const* kTab = "  ";
 
 // Indent the generated code
 inline std::ostream& indent(std::ostream& os, int indent_size) {
-  for (const auto _ : c10::irange(indent_size)) {
+  for (const auto _ : arange(indent_size)) {
     (void)_; // Suppress unused variable warning
     os << "  ";
   }
@@ -72,6 +74,9 @@ class IrPrinter {
   virtual void handle(const kir::Kernel* kernel);
   virtual void handle(kir::Kernel& kernel);
 
+  virtual void handle(const hir::HostIrContainer* host_ir_container);
+  virtual void handle(hir::HostIrContainer& host_ir_container);
+
  protected:
   std::ostream& os() {
     return os_;
@@ -83,9 +88,9 @@ class IrPrinter {
   int indent_size_ = 0;
 };
 
-std::ostream& operator<<(std::ostream& os, const Statement* stmt);
+NVF_API std::ostream& operator<<(std::ostream& os, const Statement* stmt);
 
 std::ostream& operator<<(std::ostream& os, Fusion* f);
-std::ostream& operator<<(std::ostream& os, Fusion& f);
+NVF_API std::ostream& operator<<(std::ostream& os, Fusion& f);
 
 } // namespace nvfuser

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <visibility.h>
 #include <functional>
 #include <memory>
 #include <string>
@@ -23,11 +24,11 @@ namespace nvfuser {
 //   using Struct = std::unordered_map<std::string, T>;
 //   using PolymorphicValue = DynamicType<Containers<Struct>, ...>;
 // However, the performance of this approach is not ideal. So instead of making
-// the struct support truely dynamic fields by using a map, we decide to make it
+// the struct support truly dynamic fields by using a map, we decide to make it
 // semi-dynamic: each struct type in nvFuser must be backed by a real struct in
 // C++, which mean, the fields have static storage types. But, on the other
 // hand, struct fields can also be accessed dynamically, that is, you can get or
-// set a struct field without knowning the actual C++ struct and the type of the
+// set a struct field without knowing the actual C++ struct and the type of the
 // field. Instead, by using solely the string name of the field, you shall be
 // able to access fields as a PolymorphicValue. For example, if your struct is
 // defined as:
@@ -109,17 +110,17 @@ inline Accessor StructHandle::operator->*(const std::string& key) const {
 // If a struct type is only used in kernel and we will never create an instance
 // on the host, we can just use this dummy struct as a placeholder for the
 // convenience
-struct NotImplementedStruct : public Struct {
+struct NVF_API NotImplementedStruct : public Struct {
   StructType type() const override;
 
   std::function<PolymorphicValue()> getter(
       const std::string& key) const override {
-    NVF_ERROR(false, "Not implemented");
+    NVF_THROW("Not implemented");
   }
 
   std::function<void(const PolymorphicValue&)> setter(
       const std::string& key) override {
-    NVF_ERROR(false, "Not implemented");
+    NVF_THROW("Not implemented");
   }
 };
 

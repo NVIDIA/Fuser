@@ -45,6 +45,16 @@ __device__ inline uint64_t arriveExpectTX(
                : "r"(smem_barrier_ptr), "r"(tx_count));
   return state;
 }
+
+__device__ inline void arrive(uint32_t smem_barrier_ptr, uint32_t cta_id) {
+  asm volatile(
+      "{.reg .b32 remaddr32;\n"
+      "mapa.shared::cluster.u32  remaddr32, %0, %1;\n"
+      "mbarrier.arrive.shared::cluster.b64  _, [remaddr32];\n"
+      "}"
+      :
+      : "r"(smem_barrier_ptr), "r"(cta_id));
+}
 #endif
 
 __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
@@ -69,6 +79,31 @@ __device__ inline void wait(uint32_t smem_barrier_ptr, uint64_t state) {
       "DONE:\n"
       "}\n" ::"r"(smem_barrier_ptr),
       "l"(state));
+#endif
+}
+
+__device__ inline void waitParity(uint32_t smem_barrier_ptr, uint32_t parity) {
+#if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+  asm volatile(
+      "{\n"
+      ".reg .pred                complete;\n"
+      "waitLoop:\n"
+      "mbarrier.try_wait.parity.shared.b64 complete, [%0], %1;\n"
+      "@!complete bra waitLoop;\n"
+      "}\n" ::"r"(smem_barrier_ptr),
+      "r"(parity));
+#else
+  asm volatile(
+      "{\n"
+      ".reg .pred                P1;\n"
+      "LAB_WAIT:\n"
+      "mbarrier.test_wait.parity.shared.b64 P1, [%0], %1;\n"
+      "@P1                       bra.uni DONE;\n"
+      "nanosleep.u32 20;\n"
+      "bra.uni                   LAB_WAIT;\n"
+      "DONE:\n"
+      "}\n" ::"r"(smem_barrier_ptr),
+      "r"(parity));
 #endif
 }
 

@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
+#include <visibility.h>
 
 #include <algorithm>
 #include <unordered_map>
@@ -128,7 +127,7 @@ namespace nvfuser {
 
 class TensorDomain;
 class TensorView;
-class RootDomainMap;
+class LogicalDomainMap;
 
 struct TransformReplayOptions {
   // In theory, it makes more sense to have skip_target_swizzle = true by
@@ -195,32 +194,32 @@ class TransformReplay {
   // should preserve producer's current allocation domain, and if that
   // allocation domain is inconsistent with the replay, an error will be raised.
   // This option is used in cacheBefore, cacheAfter, and cacheFork
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayPasC(
+  static std::pair<TensorDomain*, int64_t> replayPasC(
       const TensorView* producer,
       const TensorView* consumer,
       int64_t consumer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Replay producer as consumer, returns {replayed_consumer_domain,
   // consumer_compute_at_axis}.
   //
   // Unlike replayPasC, it always ignores resize.
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
       TransformReplayOptions opt = {});
-  static std::pair<TensorDomain*, size_t> replayCasP(
+  static std::pair<TensorDomain*, int64_t> replayCasP(
       const TensorView* consumer,
       const TensorView* producer,
       int64_t producer_compute_at_axis,
-      const RootDomainMap& root_map,
+      const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
   // Self replay.
@@ -228,7 +227,32 @@ class TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // Returns the leaf position in producer that matches with `consumer_pos` in
+  // Self replay the transformation on `self` from logical to loop and
+  // allocation onto `new_self`.
+  //
+  // This method is often used to propagate transforms from one TV to another
+  // that's not necessarily a producer/consumer. It assumes enough similarity
+  // between `self` and `new_self`. By default, the logical domains of the two
+  // TVs have to match exactly, e.g., same length, same extents, same IterTypes,
+  // and same ParallelTypes. For convenience, we allow the reduction IDs to
+  // mismatch and thus the `ignore_reductions` flag. For example,
+  // ```
+  // in: logical=[i{n}, r{m}], loop=[iDIDy{d}, i{n/d}, rDIDx{d}, r{m/d}]
+  // out = in + 1.0: logical=[i{n}]
+  // ```
+  // `out` and `in` are similar enough to selfReplay so `out` gets a loop domain
+  // of [iDIDy{d}, i{n/d}]. However, to achieve that, we'll have to ignore
+  // `in`'s reduction dimensions.
+  //
+  // In practice, `ignore_reductions=true` is used more often than `false`. I
+  // made `false` default merely because a true "self" replay needn't and
+  // shouldn't ignore anything.
+  static void selfReplay(
+      const TensorDomain* self,
+      TensorDomain* new_self,
+      bool ignore_reductions = false);
+
+  // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
   // to test if replay is needed for getting matching outer dims. This function
   // should be consistent with `replayPasC`: if you pass the tensors just
@@ -248,7 +272,7 @@ class TransformReplay {
       int64_t consumer_pos,
       bool skip_resize = false);
 
-  // Returns the leaf position in consumer that matches with `producer_pos` in
+  // Returns the loop position in consumer that matches with `producer_pos` in
   // producer. Behavior similar to getMatchedLeafPosWithoutReplayPasC, except
   // that we are also ignoring reductions in the producer.
   //
@@ -269,7 +293,8 @@ class TransformReplay {
       const TensorView* target);
 };
 
-class TransformPropagator : public MaxRootDomainInfoSpanningTree::Propagator {
+class TransformPropagator
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
  protected:
   std::unordered_map<TensorView*, int64_t> replayed_pos_;
 
@@ -281,10 +306,17 @@ class TransformPropagator : public MaxRootDomainInfoSpanningTree::Propagator {
 };
 
 struct MostInlinedTransformPropagator
-    : public MaxRootDomainInfoSpanningTree::Propagator {
+    : public MaxLogicalDomainInfoSpanningTree::Propagator {
   void propagateC2P(TensorView* from, TensorView* to) override;
   void propagateP2C(TensorView* from, TensorView* to) override;
   void propagateSibling(TensorView* from, TensorView* to) override;
 };
+
+// Replays an `Expr` with the new input, `new_in`. This function currently has
+// the following limitations:
+// 1. It requires `e` to be a unary op, and therefore takes a single new input.
+// 2. It requires `e` to be a TensorView op, which takes and produces only
+// TensorViews.
+Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 
 } // namespace nvfuser

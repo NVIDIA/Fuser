@@ -9,22 +9,25 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
+#include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
-#include <device_lower/analysis/shift.h>
+#include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
-#include <device_lower/pass/double_buffer.h>
+#include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/expr_sort.h>
 #include <device_lower/pass/fusion_simplifier.h>
+#include <device_lower/pass/grid_serialization.h>
 #include <device_lower/pass/index.h>
+#include <device_lower/pass/inline_ptx.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
 #include <device_lower/pass/loop_rotation.h>
 #include <device_lower/pass/loops.h>
 #include <device_lower/pass/magic_zero.h>
-#include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/rng.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/pass/vectorize_welford.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -32,6 +35,7 @@
 #include <device_lower/validation.h>
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -64,7 +68,7 @@ class KIRCleaner : public OptOutDispatch {
  private:
   using OptOutDispatch::handle;
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       OptOutDispatch::dispatch(expr);
     } else {
       // Any non-scoping expr is not considered nop
@@ -72,7 +76,7 @@ class KIRCleaner : public OptOutDispatch {
     }
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     auto exprs = fl->body().exprs();
     fl->body().clear();
     for (auto expr : exprs) {
@@ -148,7 +152,7 @@ void GpuLower::collectPaddedParallelDims() {
 
   auto used_vals = fusion_->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    for (auto id : tv->getLeafDomain()) {
+    for (auto id : tv->getLoopDomain()) {
       if (tv->definition()) {
         // TODO: Support GroupedReductionOp
         if (auto reduction = dynamic_cast<ReductionOp*>(tv->definition())) {
@@ -176,7 +180,7 @@ void GpuLower::collectPaddedParallelDims() {
             size_after_padding.value() == warp_size;
 
         if (id->extent()->isConstInt() &&
-            id->extent()->evaluateInt() > warp_size &&
+            id->extent()->evaluate().as<int64_t>() > warp_size &&
             !padding_to_single_warp) {
           // If we see any other TIDx binding that's larger than
           //  a warp or unknown, we shouldn't lower warp reduce
@@ -186,7 +190,7 @@ void GpuLower::collectPaddedParallelDims() {
         } else if (can_be_single_warp) {
           if (padding_to_single_warp ||
               (id->extent()->isConstInt() &&
-               id->extent()->evaluateInt() == warp_size)) {
+               id->extent()->evaluate().as<int64_t>() == warp_size)) {
             warp_pad_info_.is_tidx_single_warp = true;
           }
         }
@@ -249,25 +253,212 @@ void dumpExprsIfEnabled(
   if (force_enable || enabled_by_env()) {
     debug() << "After " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
-      debug() << exp->toString() << std::endl;
+      // `Expr::toString()` already ends with a new line.
+      debug() << exp->toString();
     }
   }
 }
 
-void GpuLower::lower(Fusion* fusion) {
+GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
+    : passes_(
+          // Passes will be executed in the order they are added here
+          // Each pass is a pair of (name, function), where the name will be
+          // printed in verbose mode of lowering. The function must take a
+          // const std::vector<Expr*>& and return a std::vector<Expr*>.
+          {{"removeTensorProducerAliases", removeTensorProducerAliases},
+           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+           {"loadStoreOpInserter", loadStoreOpInserter},
+           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
+           {"insertAllocations", insertAllocations},
+           {"reuseMemoryAllocations", reuseMemoryAllocations},
+           {"CircularBufferPass", CircularBufferPass::run},
+           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
+           {"insertWarAsyncWait", insertWarAsyncWait},
+           {"rotateLoops", rotateLoops},
+           {"UnrollPass", UnrollPass::runPass},
+           {"IndexLowering", IndexLowering::getIndexedExprs},
+           {"fuseWarpReduce", fuseWarpReduce},
+           {"generateConditionalFromPredicate",
+            generateConditionalFromPredicate},
+           {"vectorizeWelford", vectorizeWelford},
+           {"addRNG", addRNG},
+           {"allocateCommonScalars", allocateCommonScalars},
+           {"insertMagicZero", insertMagicZero},
+           {"KIRCleaner", KIRCleaner::cleanUp},
+           {"instrumentKernel", instrumentKernel},
+           {"lowerToInlinePtx", lowerToInlinePtx}}),
+      cparams_(cparams) {
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
+    fusion->printMath();
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
+    fusion->print();
+  }
+
+  analysis(fusion);
+}
+
+namespace {
+struct LowerGuard {
+  LowerGuard(GpuLower* gpu_lower) {
+    active_gpu_lower = gpu_lower;
+  }
+  ~LowerGuard() {
+    active_gpu_lower = nullptr;
+  }
+};
+
+} // namespace
+
+kir::Kernel* GpuLower::run() {
+  FusionGuard fg(fusion_);
+  LowerGuard lower_guard(this);
+  // Reorder expressions for loop-nest generation respecting computeAt
+  // relationships
+  auto exprs_lowered = reorderExprsForComputeAt();
+  dumpExprsIfEnabled(exprs_lowered, "reorderExprsForComputeAt");
+
+  commonScalarMap().initialize(exprs_lowered);
+
+  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
+  // from the host and assign them to the ops.
+  // This must be after expr sort, because we do not want the generated
+  // computation of offset and seed to be considered as part of fusion
+  // definition
+  assignRNGOffset(fusion_);
+
+  for (auto [name, pass] : passes()) {
+    exprs_lowered = pass(exprs_lowered);
+    dumpExprsIfEnabled(exprs_lowered, name);
+  }
+
+  // We now have the lowered expressions, finalize the kernel IR. This function
+  // will also copy over some relevant information for code generation from
+  // GpuLower.
+  kernel_->finalize(exprs_lowered);
+
+  return kernel_.get();
+}
+
+namespace {
+
+// Get IdModelOptions set through NVFUSER_ENABLE and overwritten for the
+// given Fusion
+IdModelOptions getIdModelOptions(Fusion* fusion) {
+  IdModelOptions options;
+
+  for (auto expr : fusion->exprs()) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
+          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+        options.setBuildTensorIndexer(true);
+        if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+          options.setInlinePredicate(true);
+        }
+        continue;
+      }
+    } else if (expr->isA<MmaOp>()) {
+      options.setBuildTensorIndexer(true);
+      continue;
+    } else if (expr->isOneOf<SliceOp, PadOp>()) {
+      options.setProducerIndex(true);
+      options.setConsumerIndex(true);
+      options.setInlinePredicate(true);
+      options.setUnswitchPredicate(true);
+      options.setLoop(true);
+      continue;
+    } else if (auto reshape = dynamic_cast<ViewOp*>(expr)) {
+      // The legacy indexer has an issue when an expand broadcast is
+      // involved in reshape transformations. Enable both tensor and
+      // predicate indexing if found
+
+      auto producer_tv = reshape->in();
+      auto consumer_tv = reshape->out();
+
+      // Find expanded producer IDs. Note that corresponding consumer IDs do
+      // not inherit the iteration type and are no longer expanded IDs, so the
+      // producer domain needs to be checked to find expanded IDs.
+      std::unordered_set<IterDomain*> expanded_ids;
+      std::copy_if(
+          producer_tv->getLogicalDomain().begin(),
+          producer_tv->getLogicalDomain().end(),
+          std::inserter(expanded_ids, expanded_ids.end()),
+          [](IterDomain* logical_id) {
+            return logical_id->isBroadcast() && logical_id->hasExpandedExtent();
+          });
+
+      if (expanded_ids.empty()) {
+        continue;
+      }
+
+      // Find corresponding consumer root IDs
+      auto c2p = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
+                     .mapConsumerToProducer();
+      std::unordered_set<Val*> consumer_expanded_root_ids;
+      for (auto consumer_root_id : consumer_tv->getRootDomain()) {
+        auto producer_logical_id = c2p.at(consumer_root_id);
+        if (expanded_ids.count(producer_logical_id)) {
+          consumer_expanded_root_ids.insert(consumer_root_id);
+        }
+      }
+
+      auto reshape_exprs = DependencyCheck::getAllExprsBetween(
+          {consumer_tv->getRootDomain().begin(),
+           consumer_tv->getRootDomain().end()},
+          {consumer_tv->getLogicalDomain().begin(),
+           consumer_tv->getLogicalDomain().end()});
+
+      if (std::any_of(
+              reshape_exprs.begin(),
+              reshape_exprs.end(),
+              [&consumer_expanded_root_ids](Expr* expr) {
+                return std::any_of(
+                    expr->inputs().begin(),
+                    expr->inputs().end(),
+                    [&](Val* input) {
+                      return consumer_expanded_root_ids.count(input);
+                    });
+              })) {
+        options.setProducerIndex(true);
+        options.setConsumerIndex(true);
+        options.setInlinePredicate(true);
+        options.setUnswitchPredicate(true);
+      }
+    }
+  }
+
+  // If a tensor does not have a nice root->logical/allocation->loop
+  // linear transformation history, use TensorIndexer
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Tensor ||
+        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
+      options.setBuildTensorIndexer(true);
+    }
+  }
+
+  // If not supported, disable use of TensorIndexer by default. It is
+  // still used if explicitly opted-in (see, for example,
+  // Index::getConsumerIndex)
+  if (!TensorIndexer::isSupported(fusion)) {
+    // Do not disable building of TensorIndexer as it may be still used
+    options.setIndex(false);
+    options.setPredicate(false);
+    options.setLoop(false);
+  }
+
+  return options;
+}
+
+} // namespace
+
+void GpuLower::analysis(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::lower");
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(
       active_gpu_lower == nullptr, "Nested lowering passes are not supported");
 
-  struct LowerGuard {
-    LowerGuard(GpuLower* gpu_lower) {
-      active_gpu_lower = gpu_lower;
-    }
-    ~LowerGuard() {
-      active_gpu_lower = nullptr;
-    }
-  } lower_guard(this);
+  LowerGuard lower_guard(this);
 
   // Use int64 by default as the kernel index type
   if (!cparams_.index_type.has_value()) {
@@ -279,10 +470,13 @@ void GpuLower::lower(Fusion* fusion) {
   // Alias the fusion kernel caries around as a view of itself.
   fusion_ = kernel_.get();
 
+  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+
   segmenterHintCleanup(fusion_);
   FusionGuard fg(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "segmenterHintCleanup");
 
-  dumpExprsIfEnabled(fusion_->exprs(), "initialize lowering");
+  id_model_options_ = getIdModelOptions(fusion_);
 
   // Temporarily set allKnownVals to inputs. In the future, we will have a real
   // pass to determine how to set allKnownVals.
@@ -296,6 +490,11 @@ void GpuLower::lower(Fusion* fusion) {
   validateIr(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateIr");
 
+  // Determines minimum device version necessary to compile and run this fusion.
+  std::tie(min_device_version_, min_device_version_reason_) =
+      MinimumDeviceVersion::compute(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "MinimumDeviceVersion");
+
   // Checks if any TIDx dim is marked as padded to a warp. Also checks if we can
   // determine the padding is explicitly a single warp.
   collectPaddedParallelDims();
@@ -305,12 +504,26 @@ void GpuLower::lower(Fusion* fusion) {
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
+  // New IterDomains may be created, so it is expected that generated
+  // code may use diffrent variable names
+  if (idModelOptions().buildIdModel()) {
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
+  }
+
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
   // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
   // information.
+  //
+  // Depends on IdModel
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
+  // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
@@ -336,6 +549,9 @@ void GpuLower::lower(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
+  validate1dTmaLoad(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validate1dTmaLoad");
+
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateMma");
@@ -344,8 +560,8 @@ void GpuLower::lower(Fusion* fusion) {
   validateSwizzle(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
 
-  validateResize(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateResize");
+  validateReductions(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
   // Compute thread predicates. Depends on parallel_dimension_map_
   thread_pred_map_.build(fusion_);
@@ -357,17 +573,7 @@ void GpuLower::lower(Fusion* fusion) {
   fuseReductionsAndBroadcasts(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
-  // Scan the whole fusion and build mappings about halo extensions of
-  // all IterDomains
-  halo_info_ = std::make_shared<HaloInfo>(fusion_, compute_at_map_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build HaloInfo");
-
-  // Want to run this after parallel map and halo info map are
-  // created. vectorized_accesses_ and vectorized_set_info_ are filled.
-  validateAndCollectVectorizeInfo(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
-
-  // Depends on ComputeAtMap and HaloInfo.
+  // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
 
@@ -377,9 +583,20 @@ void GpuLower::lower(Fusion* fusion) {
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
 
+  // Want to run this after parallel map is created.
+  // Needs info about grouped reductions.
+  // vectorized_accesses_ and vectorized_set_info_ are filled.
+  validateAndCollectVectorizeInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectVectorizeInfo");
+
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
+
+  // Find trivial global to global broadcast, squeeze, and set operations and
+  // mark their outputs as aliases of their inputs.
+  findTensorProducerAliases(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "findTensorProducerAliases");
 
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs
@@ -389,138 +606,36 @@ void GpuLower::lower(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 
-  partialSplitMap().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build partialSplitMap");
-
-  validatePartialSplit(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validatePartialSplit");
-
-  nonDivisibleSplitInfo().build(fusion_);
+  non_divisible_split_info_ = std::make_unique<NonDivisibleSplitInfo>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
+
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
+
+  compute_at_map_->allocateIndexVariables();
+  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
+  if (idModelOptions().loop()) {
+    // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
+    id_model_->allocateLoopIndexVariables();
+  }
+
+  if (idModelOptions().buildTensorIndexer()) {
+    tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
+    non_divisible_predicate_info_ =
+        std::make_unique<NonDivisiblePredicateInfo>(fusion_);
+  }
 
   // Detects all exprssions that don't need predicates. Depends on
   // nonDivisibleSplitInfo.
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
 
-  doubleBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build doubleBufferInfo");
+  consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
 
-  compute_at_map_->allocateIndexVariables();
-  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
-  // Run our passes keeping the lowered expressions and forwarding
-  // them
-
-  // Reorder expressions for loop-nest generation respecting computeAt
-  // relationships
-  const auto exprs_sorted = reorderExprsForComputeAt();
-  dumpExprsIfEnabled(exprs_sorted, "reorderExprsForComputeAt");
-
-  commonScalarMap().initialize(exprs_sorted);
-
-  // For RNG ops whose seed and offset are not yet set, grab the seed and offset
-  // from the host and assign them to the ops.
-  // This must be after expr sort, because we do not want the generated
-  // computation of offset and seed to be considered as part of fusion
-  // definition
-  assignRNGOffset(fusion_);
-
-  // Generate loop-nests and place each expression at its
-  // corresponding loop
-  const auto exprs_lowered = LoopNestGenerator::loweredExprs(exprs_sorted);
-  dumpExprsIfEnabled(exprs_lowered, "LoopNestGenerator");
-
-  // Replace squeezes, Transpose, Shift, Gather, and View ops with
-  // unary ops since they're not separately processed in lowering.
-  const auto exprs_unary_replaced = unarySetOpInserter(exprs_lowered);
-  dumpExprsIfEnabled(exprs_unary_replaced, "unarySetOpInserter");
-
-  // Insert allocations
-  const auto exprs_alloced = insertAllocations(exprs_unary_replaced);
-  dumpExprsIfEnabled(exprs_alloced, "insertAllocations");
-
-  // Insert read after write smem syncs
-  const auto exprs_raw_sync = insertRawThreadSynchronization(exprs_alloced);
-  dumpExprsIfEnabled(exprs_raw_sync, "insertRawThreadSynchronization");
-
-  // Reuse memory locations
-  const auto exprs_reuse_mem = reuseMemoryAllocations(exprs_raw_sync);
-  dumpExprsIfEnabled(exprs_reuse_mem, "reuseMemoryAllocations");
-
-  // Insert SyncThreads at end of for-loop to avoid WAR race condition
-  const auto exprs_war_sync = insertWarThreadSynchronization(exprs_reuse_mem);
-  dumpExprsIfEnabled(exprs_war_sync, "insertWarThreadSynchronization");
-
-  const auto exprs_double_buffered = DoubleBufferPass::run(exprs_war_sync);
-  dumpExprsIfEnabled(exprs_double_buffered, "DoubleBufferPass");
-
-  const auto exprs_loop_rotated = fusion_->hasManaged("loop_rotation")
-      ? rotateLoops(
-            exprs_double_buffered,
-            fusion_->getManaged<LoopRotationParam>("loop_rotation"))
-      : exprs_double_buffered;
-  dumpExprsIfEnabled(exprs_loop_rotated, "rotateLoops");
-
-  // This pass inserts predicates as well as branches in the code. Up until now
-  // the code is explicitly single shot for loop based. Need to be careful in
-  // later passes when doing any kind of insertions in loop nest structure as
-  // insertions could be on if then or else instead of directly on a for loop.
-  const auto exprs_unrolled_loops =
-      UnrollPass::runPass(fusion_, exprs_loop_rotated);
-  dumpExprsIfEnabled(exprs_unrolled_loops, "UnrollPass");
-
-  const auto exprs_unrolled_mv_loops =
-      processMisalignedVectorization(exprs_unrolled_loops);
-  dumpExprsIfEnabled(exprs_unrolled_mv_loops, "processMisalignedVectorization");
-
-  const auto exprs_indexed_loops =
-      IndexLowering::getIndexedExprs(exprs_unrolled_mv_loops);
-  dumpExprsIfEnabled(exprs_indexed_loops, "IndexLowering");
-
-  // TODO: It seems this type of optimization would be far easier to implement
-  // on fusion ir than kernel ir. We should likely refactor this to at least run
-  // before allocation insertion.
-  const auto exprs_with_fused_broadcast = fuseWarpReduce(exprs_indexed_loops);
-  dumpExprsIfEnabled(exprs_with_fused_broadcast, "fuseWarpReduce");
-
-  const auto exprs_conditional_loops =
-      generateConditionalFromPredicate(exprs_with_fused_broadcast);
-  dumpExprsIfEnabled(
-      exprs_conditional_loops, "generateConditionalFromPredicate");
-
-  std::vector<Expr*> exprs_welford_vectorized;
-  if (!isOptionDisabled(DisableOption::WelfordVectorization)) {
-    exprs_welford_vectorized = vectorizeWelford(exprs_conditional_loops);
-    dumpExprsIfEnabled(exprs_welford_vectorized, "vectorizeWelford");
-  } else {
-    exprs_welford_vectorized = exprs_conditional_loops;
-  }
-
-  const auto exprs_common_index_allocated =
-      allocateCommonScalars(exprs_welford_vectorized);
-  dumpExprsIfEnabled(exprs_common_index_allocated, "allocateCommonScalars");
-
-  std::vector<Expr*> exprs_register_adjusted;
-  if (isNvFuserZeroEnabled()) {
-    // Insert fake zero updates to make sure nvrtc doesn't blow out register use
-    // on index and predicate reuse
-    exprs_register_adjusted = insertMagicZero(exprs_common_index_allocated);
-    dumpExprsIfEnabled(exprs_register_adjusted, "insertMagicZero");
-  } else {
-    exprs_register_adjusted = exprs_common_index_allocated;
-  }
-
-  const auto exprs_cleaned_up_loops =
-      KIRCleaner::cleanUp(exprs_register_adjusted);
-  dumpExprsIfEnabled(exprs_cleaned_up_loops, "KIRCleaner");
-
-  const auto exprs_instrumented = instrumentKernel(exprs_cleaned_up_loops);
-  dumpExprsIfEnabled(exprs_instrumented, "instrumentKernel");
-
-  // We now have the lowered expressions, finalize the kernel IR. This function
-  // will also copy over some relevant information for code generation from
-  // GpuLower.
-  kernel_->finalize(exprs_instrumented);
+  tmemInfo() = computeTMemInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {
@@ -571,7 +686,58 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
     }
   }
 
+  // The Loop graph needs to be updated as the compute positions of
+  // the updated tensors differ
+  if (updated && hasIdModel()) {
+    id_model_->removeGraph(IdMappingMode::LOOP);
+    id_model_->buildGraph(IdMappingMode::LOOP);
+    id_model_->validateAndPropagatePType();
+  }
+
   return updated;
+}
+
+Val* GpuLower::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage stage) const {
+  if (idModelOptions().loop()) {
+    return idModel().getLoopIndexVariable(id, stage);
+  } else {
+    return caMap()->getIndexVariable(id, stage);
+  }
+}
+
+void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
+  if (TensorView* producer_alias = getTensorProducerAlias(producer)) {
+    // Chase reference. If producer itself is an alias, then get the tensor it
+    // is aliased to.
+    NVF_ERROR(
+        getTensorProducerAlias(producer_alias) == nullptr,
+        "Found unsimplified alias from ",
+        producer->toString(),
+        " to ",
+        producer_alias->toString(),
+        " which is then aliased to ",
+        getTensorProducerAlias(producer_alias)->toString());
+    producer = producer_alias;
+  }
+  tensor_producer_alias_map_[consumer] = producer;
+  for (auto& [c, p] : tensor_producer_alias_map_) {
+    // If anything was previously aliased _to_ consumer, update those links to
+    // point to producer
+    if (p == consumer) {
+      p = producer;
+    }
+  }
+}
+
+const AllocationDomainInfo& GpuLower::getAllocationInfo(TensorView* tv) const {
+  auto it = allocationInfo().find(tv);
+  NVF_ERROR(
+      it != allocationInfo().end(),
+      "Allocation info not found for ",
+      tv->toString());
+  return it->second;
 }
 
 } // namespace nvfuser

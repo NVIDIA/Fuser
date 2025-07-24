@@ -8,7 +8,6 @@
 #pragma once
 
 #include <exceptions.h>
-#include <executor_params.h>
 #include <ir/all_nodes.h>
 
 namespace nvfuser {
@@ -146,8 +145,6 @@ namespace nvfuser {
 using LoopRotationParam = std::vector<
     std::tuple<TensorView*, int64_t, std::unordered_set<Statement*>>>;
 
-std::vector<Expr*> rotateLoops(
-    const std::vector<Expr*>& exprs,
-    const LoopRotationParam& params);
+std::vector<Expr*> rotateLoops(const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser

@@ -9,11 +9,13 @@
 #include <fusion.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <C++20/compare>
 
 #include <ir/all_nodes.h>
 #include <ir/container.h>
+#include <type_promotion.h>
 
 #include <complex>
 #include <cstdint>
@@ -91,6 +93,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
+  return result;
+}
+
 Val* IrBuilder::derefExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = create<Val>(*(std::get<PointerType>(val->dtype().type).type));
@@ -119,6 +127,16 @@ Val* IrBuilder::maybeCastExpr(DataType dtype, Val* val) {
   }
   auto result = create<Val>(dtype);
   IrBuilder::create<UnaryOp>(UnaryOpType::Cast, result, val);
+  return result;
+}
+
+Val* IrBuilder::maybeRefCastExpr(DataType dtype, Val* val) {
+  NVF_CHECK(val != nullptr, "val is a nullptr in bitCastExpr.");
+  if (val->dtype() == dtype) {
+    return val;
+  }
+  auto result = create<Val>(dtype);
+  IrBuilder::create<UnaryOp>(UnaryOpType::RefCast, result, val);
   return result;
 }
 
@@ -160,6 +178,18 @@ Val* IrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
 
 Val* IrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::BitwiseOr, lhs, rhs);
+}
+
+Val* IrBuilder::bitwiseXorExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::BitwiseXor, lhs, rhs);
+}
+
+Val* IrBuilder::lShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Lshift, lhs, rhs);
+}
+
+Val* IrBuilder::rShiftExpr(Val* lhs, Val* rhs) {
+  return newArithmeticExpr(BinaryOpType::Rshift, lhs, rhs);
 }
 
 Val* IrBuilder::eqExpr(Val* lhs, Val* rhs) {
@@ -222,17 +252,21 @@ Val* IrBuilder::gcdExpr(Val* lhs, Val* rhs) {
   return newArithmeticExpr(BinaryOpType::Gcd, lhs, rhs);
 }
 
+Val* IrBuilder::isDivisibleExpr(Val* dividend, Val* divisor) {
+  return eqExpr(modExpr(dividend, divisor), dividend->fusion()->zeroVal());
+}
+
 Val* IrBuilder::getItemExpr(Val* array, Val* index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(array->container(), out, array, index);
+  createInContainer<GetItem>(array->container(), out, array, index);
   return out;
 }
 
 Val* IrBuilder::getItemExpr(Val* array, PolymorphicValue index) {
   auto item_dtype = std::get<ArrayType>(array->dtype().type).type;
   auto out = create<Val>(*item_dtype);
-  create<GetItem>(
+  createInContainer<GetItem>(
       array->container(), out, array, create<Val>(index, DataType::Int));
   return out;
 }
@@ -241,7 +275,8 @@ Val* IrBuilder::getAttrExpr(Val* struct_, std::string attr) {
   auto struct_type = std::get<StructType>(struct_->dtype().type);
   const auto& item_type = struct_type.fieldDataType(attr);
   auto out = create<Val>(item_type);
-  create<GetAttr>(struct_->container(), out, struct_, std::move(attr));
+  createInContainer<GetAttr>(
+      struct_->container(), out, struct_, std::move(attr));
   return out;
 }
 
@@ -253,6 +288,21 @@ Val* IrBuilder::reverseArrayExpr(Val* array) {
 
 Val* IrBuilder::metadataExpr(TensorView* tv) {
   return tv->fusion()->metadataOf(tv);
+}
+
+Val* IrBuilder::baseAddressExpr(TensorView* tv) {
+  auto metadata = metadataExpr(tv);
+  switch (auto memtype = tv->getMemoryType()) {
+    case MemoryType::Global:
+      return getAttrExpr(metadata, "data");
+    case MemoryType::Shared: {
+      auto output = create<Val>(DataType::SMemAddress);
+      create<UnaryOp>(UnaryOpType::ToUnsignedSmemAddr, output, metadata);
+      return output;
+    }
+    default:
+      NVF_CHECK(false, "Unsupported memory type ", memtype);
+  }
 }
 
 Val* SimplifyingIrBuilder::negExpr(Val* val) {
@@ -297,19 +347,33 @@ Val* SimplifyingIrBuilder::addExpr(
     rhs_dtype = getDataType(rhs);
   }
   if (lhs == nullptr) {
-    return IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype);
+    return IrBuilder::create<Val>(rhs, rhs_dtype);
+  }
+  // simplify x + y - y as x
+  if (lhs->definition() != nullptr && lhs->definition()->isA<BinaryOp>()) {
+    auto binary_op = lhs->definition()->as<BinaryOp>();
+    if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
+      if (binary_op->rhs()->isConst() &&
+          (bool)(binary_op->rhs()->value() == -rhs)) {
+        return binary_op->lhs();
+      }
+    }
   }
   auto target_dtype = promoteType(lhs->dtype(), rhs_dtype);
   if (rhs == 0) {
     return maybeCastExpr(target_dtype, lhs);
   } else if (lhs->isConst()) {
-    return IrBuilder::IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
+    auto result = lhs->value() + rhs;
+    if (result == 0) {
+      return lhs->container()->zeroVal(target_dtype);
+    } else if (result == 1) {
+      return lhs->container()->oneVal(target_dtype);
+    }
+    return IrBuilder::create<Val>(lhs->value() + rhs, target_dtype);
   } else if (rhs > 0) {
-    return IrBuilder::addExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(rhs, rhs_dtype));
+    return IrBuilder::addExpr(lhs, IrBuilder::create<Val>(rhs, rhs_dtype));
   } else {
-    return IrBuilder::subExpr(
-        lhs, IrBuilder::IrBuilder::create<Val>(-rhs, rhs_dtype));
+    return IrBuilder::subExpr(lhs, IrBuilder::create<Val>(-rhs, rhs_dtype));
   }
 }
 
@@ -319,10 +383,21 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return addExpr(rhs, lhs->value());
+    return addExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
+    // Simplify (-x) + x to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(lhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(rhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+    // Simplify x + (-x) to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(rhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+
     return IrBuilder::addExpr(lhs, rhs);
   }
 }
@@ -362,9 +437,9 @@ Val* SimplifyingIrBuilder::mulExpr(Val* lhs, Val* rhs) {
   } else if (lhs == nullptr) {
     return rhs;
   } else if (lhs->isConst()) {
-    return mulExpr(rhs, lhs->value());
+    return mulExpr(rhs, lhs->value(), lhs->dtype());
   } else if (rhs->isConst()) {
-    return mulExpr(lhs, rhs->value());
+    return mulExpr(lhs, rhs->value(), rhs->dtype());
   } else {
     return IrBuilder::mulExpr(lhs, rhs);
   }
@@ -374,6 +449,7 @@ Val* SimplifyingIrBuilder::divExpr(Val* lhs, Val* rhs) {
   if (rhs->isOneInt()) {
     return lhs;
   }
+
   return IrBuilder::divExpr(lhs, rhs);
 }
 
@@ -490,7 +566,10 @@ Val* SimplifyingIrBuilder::bitwiseAndExpr(Val* lhs, Val* rhs) {
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
     if (rhs_scalar && rhs_scalar->isConst()) {
-      return IrBuilder::create<Val>(lhs_scalar->value() & rhs_scalar->value());
+      DataType out_dtype =
+          computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+      return IrBuilder::create<Val>(
+          lhs_scalar->value() & rhs_scalar->value(), out_dtype);
     }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
@@ -531,7 +610,10 @@ Val* SimplifyingIrBuilder::bitwiseOrExpr(Val* lhs, Val* rhs) {
   bool lhs_all_ones = false;
   if (lhs_scalar && lhs_scalar->isConst()) {
     if (rhs_scalar && rhs_scalar->isConst()) {
-      return IrBuilder::create<Val>(lhs_scalar->value() | rhs_scalar->value());
+      DataType out_dtype =
+          computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+      return IrBuilder::create<Val>(
+          lhs_scalar->value() | rhs_scalar->value(), out_dtype);
     }
     lhs_zero = lhs_scalar->value().as<int64_t>() == 0;
     lhs_all_ones = lhs_scalar->value().as<int64_t>() == -1;
@@ -570,7 +652,9 @@ Val* minOrMaxExpr(
   } else if (lhs == nullptr || lhs->sameAs(rhs)) {
     return rhs;
   } else if (lhs->isConst() && rhs->isConst()) {
-    return IrBuilder::create<Val>(func(lhs->value(), rhs->value()));
+    DataType out_dtype =
+        computeTypes(TypePromotion::default_op_config, {lhs, rhs});
+    return IrBuilder::create<Val>(func(lhs->value(), rhs->value()), out_dtype);
   } else {
     return ir_builder_func(lhs, rhs);
   }
@@ -618,6 +702,9 @@ namespace {
 
 //! Compares a to b if they are both const scalars convertible to double
 std::partial_ordering compareScalars(Val* a, Val* b) {
+  if (!ir_utils::isFunctional(a) || !ir_utils::isFunctional(b)) {
+    return std::partial_ordering::unordered;
+  }
   ExpressionEvaluator ee;
   auto a_val = ee.evaluate(a);
   if (!a_val.hasValue()) {
@@ -711,7 +798,7 @@ Val* SimplifyingIrBuilder::whereExpr(Val* pred, Val* lhs, Val* rhs) {
     return lhs; // return value is independent of predicate
   }
   if (pred->isConstScalar() && pred->isABool()) {
-    if (pred->evaluateBool()) {
+    if (pred->evaluate()) {
       return lhs;
     } else {
       return rhs;

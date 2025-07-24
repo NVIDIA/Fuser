@@ -6,50 +6,58 @@
  */
 // clang-format on
 #pragma once
-#ifdef USE_DISTRIBUTED
+
+#include <ATen/core/TensorBody.h>
+#include <ATen/core/ivalue.h>
+#include <c10/util/intrusive_ptr.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
-#include <torch/csrc/distributed/c10d/ProcessGroup.hpp>
-#include <torch/csrc/distributed/c10d/Store.hpp>
+#ifdef NVFUSER_DISTRIBUTED
+#include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
+#include <torch/csrc/distributed/c10d/Work.hpp>
+#else
+#include <multidevice/c10d_mock.h>
+#endif
+#include <visibility.h>
 
 namespace nvfuser {
 
-/*
-   This file implements the class Communicator which sets up the inter-process
-   Backend. This class contains inter-process information, such as the rank, the
-   world size, as well as the Process Group that can be called to perform
-   inter-process communications.
-
-   Each process is associated with a unique deviceId and device. The actual MPI
-   rank remains private to the class and should not be used by the user. The
-   communicator class holds privately the mappings ranks <-> device IDs <->
-   device.
-
-*/
+// This file implements the class Communicator which sets up the inter-process
+// Backend. This class contains inter-process information, such as the rank, the
+// world size, as well as the Process Group that can be called to perform
+// inter-process communications.
+//
+// Each process is associated with a unique deviceId and device. The actual MPI
+// rank remains private to the class and should not be used by the user. The
+// communicator class holds privately the mappings ranks <-> device IDs <->
+// device.
 
 using RankType = DeviceIdxType;
 
-// Supported backends. TODO: only tested with nccl for now
-enum class CommunicatorBackend { nccl, ucc, gloo };
+std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
 
-constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+#ifdef USE_C10D_NCCL
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kNccl;
+#else
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kUcc;
+#endif
 constexpr int comm_server_local_rank_default = 0;
-constexpr int comm_master_port_default =
-    c10d::TCPStoreOptions::kDefaultPort; // 29500
 
 class Communicator {
  public:
-  Communicator(
-      CommunicatorBackend backend = comm_backend_default,
-      RankType server_local_rank = comm_server_local_rank_default);
+  static Communicator& getInstance();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
+  ~Communicator() = delete;
+  // As said in `getInstance`, the user of this class is supposed to call this
+  // method to clean up the singleton. This obviously can only be called once.
+  void cleanup();
 
   // returns if distributed config is available
-  auto is_available() const {
+  bool is_available() const {
     return is_available_;
   }
 
@@ -63,20 +71,22 @@ class Communicator {
     return local_size_;
   }
 
-  // performs a send/receive p2p data transfer
-  c10::intrusive_ptr<c10d::Work> sendRecv(
-      DeviceIdxType receiver,
-      DeviceIdxType sender,
-      std::vector<at::Tensor>& tensor,
-      int tag = 0);
-
-  // performs a blocking barrier in the communicator
-  void barrier() const {
-    world_->barrier()->wait();
+  // sets the communicator's default backend
+  void setDefaultBackend(CommunicatorBackend backend) {
+    default_backend_ = backend;
   }
 
+  // performs a blocking barrier in the communicator
+  void barrier(std::optional<CommunicatorBackend> backend = std::nullopt);
+
   // returns the backend associated with a team
-  c10::intrusive_ptr<c10d::Backend> getBackendForTeam(const Team& team);
+  // the argument "prefix" is prepended to the key used to retrieve preexisting
+  // backends. Prefix is used to distinguish between different backends with the
+  // same team
+  c10d::Backend* getBackendForTeam(
+      const Team& team,
+      std::optional<CommunicatorBackend> backend,
+      const std::string& prefix = "");
 
   // returns the device associated with the current process
   auto device() const {
@@ -88,7 +98,37 @@ class Communicator {
     return rankToDiD(rank_);
   }
 
+  // returns local rank associted with the current process,
+  // i.e. the rank within a machine/node as opposed to the rank within the
+  // world.
+  RankType local_rank() const {
+    return local_rank_;
+  }
+
+  // returns world backend for communicator backend or default backend if not
+  // specified.
+  c10d::Backend* getWorld(
+      std::optional<CommunicatorBackend> backend = std::nullopt);
+
+  // returns if a backend is available for creation
+  bool isBackendAvailable(CommunicatorBackend backend) const {
+    if (backend == CommunicatorBackend::kUcc) {
+      return ucc_available_;
+    } else if (backend == CommunicatorBackend::kNccl) {
+      return nccl_available_;
+    }
+    return false;
+  }
+
+  c10d::TCPStore* getTcpStore() {
+    return store_.get();
+  }
+
  private:
+  Communicator(
+      CommunicatorBackend backend = comm_backend_default,
+      RankType server_local_rank = comm_server_local_rank_default);
+
   // returns the rank corresponding to a device index
   RankType dIdToRank(DeviceIdxType d_id) const {
     return static_cast<RankType>(d_id);
@@ -99,22 +139,24 @@ class Communicator {
     return static_cast<DeviceIdxType>(rank);
   }
 
+  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
+    return backend.value_or(default_backend_);
+  }
+
   bool is_available_;
-  CommunicatorBackend backend_type_;
+  CommunicatorBackend default_backend_;
   RankType rank_;
   int64_t size_;
   RankType local_rank_;
   int64_t local_size_;
   std::string master_addr_;
   int master_port_;
+  bool ucc_available_;
+  bool nccl_available_;
   // stores the world's store used for the backend init
   c10::intrusive_ptr<c10d::TCPStore> store_;
-  // stores the world's backend
-  c10::intrusive_ptr<c10d::Backend> world_;
   // cache for the created backends. The keys are strings generated from Teams
   std::unordered_map<std::string, c10::intrusive_ptr<c10d::Backend>> backends_;
 };
 
 } // namespace nvfuser
-
-#endif

@@ -27,8 +27,8 @@ class MagicZeroInserter : public kir::ExprMutator {
 
  private:
   struct InsertionInfo {
-    kir::Scope* scope = nullptr;
-    kir::ForLoop* fl = nullptr;
+    Scope* scope = nullptr;
+    ForLoop* fl = nullptr;
   };
 
   MagicZeroInserter(const std::vector<Expr*>& exprs) {
@@ -38,7 +38,7 @@ class MagicZeroInserter : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
   }
 
-  void handle(kir::ForLoop* fl) final {
+  void handle(ForLoop* fl) final {
     if (fl->isUnrolled()) {
       if (scope_.empty()) {
         kir::ExprMutator::registerInsertAfter(
@@ -61,6 +61,9 @@ class MagicZeroInserter : public kir::ExprMutator {
 
 std::vector<Expr*> insertMagicZero(const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::insertMagicZero");
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    return exprs;
+  }
   // Check if magic zero was even used, if not we don't have to define it or
   // update it.
   const auto gpu_lower = GpuLower::current();
@@ -102,35 +105,38 @@ Val* maybeUnwrapMagicZero(Val* val) {
   }
 }
 
-bool needsMagicZero(
-    kir::ForLoop* loop,
-    IterDomain* reference_domain,
-    Val* ind) {
-  if (ind->isConstScalar()) {
-    return false;
-  }
-
+bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     return false;
   }
 
-  bool ref_dom_simple =
-      reference_domain == nullptr || reference_domain->definition() != nullptr;
-  bool ind_simple =
-      ind == nullptr || (ind->definition() != nullptr && !ind->isZeroInt());
+  NVF_ERROR(ind != nullptr);
+  NVF_ERROR(reference_domain != nullptr);
+
+  if (ind->isConstScalar()) {
+    return false;
+  }
+
+  bool ref_dom_simple = reference_domain->definition() != nullptr;
+  bool ind_simple = ind->definition() != nullptr && !ind->isZeroInt();
+
   return loop->isUnrolled() && (!ref_dom_simple || !ind_simple);
 }
 
 void protectNonPredicateIndexWithMagicZero(
-    const std::vector<kir::ForLoop*>& loops,
+    const std::vector<ForLoop*>& loops,
     const std::vector<IterDomain*>& loop_domains,
     std::unordered_map<IterDomain*, Val*>& concrete_loop_idx_map) {
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    return;
+  }
+
   // Find magic zero insertion point
   IterDomain* magic_zero_loop = nullptr;
 
   // Search for proper magic zero insertion point,
   //  prefer innermost.
-  for (auto idx : c10::irange(loops.size())) {
+  for (auto idx : arange(loops.size())) {
     auto loop = loops[idx];
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domains[idx], IdMappingMode::EXACT);
@@ -181,7 +187,13 @@ IndexMagicZeroInfo protectIndexByReplacingLoopIndex(
 IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
     Val* index,
     const IndexFromIdGraph& id_graph,
-    const std::vector<kir::ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops) {
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    IndexMagicZeroInfo not_proteced;
+    not_proteced.index = index;
+    return not_proteced;
+  }
+
   // Gather the loop indices
   std::unordered_set<Val*> loop_indices;
   for (auto loop_id : id_graph.resolved_loop_domains) {
@@ -201,7 +213,7 @@ IndexMagicZeroInfo protectPredicateIndexWithMagicZero(
 
   // Traverser from the inner-most loop and apply the magic-zero
   // prorection if needed
-  for (int i = static_cast<int>(loops.size()) - 1; i >= 0; --i) {
+  for (int64_t i = static_cast<int64_t>(loops.size()) - 1; i >= 0; --i) {
     auto loop = loops.at(i);
     auto loop_id = id_graph.resolved_loop_domains.at(i);
     NVF_ERROR(GpuLower::current()->caMap()->areMapped(

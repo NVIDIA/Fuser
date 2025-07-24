@@ -59,7 +59,9 @@ ResultTypeState updateResultTypeState(
     const ResultTypeState& in_state) {
   ResultTypeState new_state = in_state;
   DataType current = scalar;
-  if (scalar == DataType::Half || scalar == DataType::BFloat16) {
+  if (scalar == DataType::Half || scalar == DataType::BFloat16 ||
+      scalar == DataType::Float8_e4m3fn || scalar == DataType::Float8_e5m2 ||
+      scalar == DataType::Float8_e8m0fnu || scalar == DataType::Float4_e2m1fn) {
     current = DataType::Float;
   }
   new_state.wrappedResult =
@@ -175,7 +177,7 @@ OperandType getValueType(Val* type) {
     return {
         ValueType::Tensor,
         tensor_view->getDataType().value(),
-        tensor_view->getMaybeRFactorDomain().size()};
+        tensor_view->getLogicalDomain().size()};
   } else if (type->getDataType().has_value()) {
     return {ValueType::Scalar, type->getDataType().value()};
   } else {
@@ -196,9 +198,13 @@ DataType computeTypes(
   }
 
   auto common_type = computeTypes(config, vt_operands);
-  // Cast FP16 / BFloat16 to Float
+  // Cast FP16 / BFloat16 / FP8 to Float
   if (cast_half_to_float &&
-      (common_type == DataType::Half || common_type == DataType::BFloat16)) {
+      (common_type == DataType::Half || common_type == DataType::BFloat16 ||
+       common_type == DataType::Float8_e4m3fn ||
+       common_type == DataType::Float8_e5m2 ||
+       common_type == DataType::Float8_e8m0fnu ||
+       common_type == DataType::Float4_e2m1fn)) {
     common_type = DataType::Float;
   }
 

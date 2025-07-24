@@ -10,13 +10,13 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <kernel.h>
 #include <utils.h>
-
-#include <c10/util/irange.h>
 
 namespace nvfuser {
 
@@ -27,14 +27,16 @@ void checkInlineable(const Expr* expr) {
         input->isScalar() || input->isA<kir::TensorIndex>() ||
             (expr->isA<UnaryOp>() &&
              expr->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Address),
-        "Printing inline computations involving values other than scalars is not currently supported.");
+        "Printing inline computations involving values other than scalars is "
+        "not currently supported.");
   }
   NVF_CHECK(
       expr->outputs().size() == 1,
       "Cannot print inline computations if there's more than one output.");
   NVF_CHECK(
       expr->output(0)->isScalar() || expr->output(0)->isA<NamedScalar>(),
-      "Printing inline computations involving values other than scalars is not currently supported.");
+      "Printing inline computations involving values other than scalars is not "
+      "currently supported.");
 }
 
 void IrPrinter::handle(Fusion* fusion) {
@@ -49,7 +51,7 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
   NVF_CHECK(kernel != nullptr);
 
   // kernel declaration
-  os_ << "\nKERNEL (";
+  os_ << "\n%Kernel { (";
   for (auto in : kernel->inputs()) {
     os_ << in->toString();
     if (in != kernel->inputs().back()) {
@@ -71,11 +73,49 @@ void IrPrinter::handle(const kir::Kernel* kernel) {
     os_ << expr->toString();
   }
   indent_size_--;
-  os_ << "END.\n\n";
+  os_ << "\n} // %Kernel.\n\n";
 }
 
 void IrPrinter::handle(kir::Kernel& kernel) {
   handle(&kernel);
+}
+
+void IrPrinter::handle(const hir::HostIrContainer* host_ir_container) {
+  NVF_CHECK(host_ir_container != nullptr);
+
+  // host_ir_container declaration
+  os() << "\n%HostIrContainer { (";
+  for (auto in : host_ir_container->inputs()) {
+    os() << in->toString(indent_size_);
+    if (in != host_ir_container->inputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") -> (";
+  for (auto out : host_ir_container->outputs()) {
+    os() << out->toString(indent_size_);
+    if (out != host_ir_container->outputs().back()) {
+      os() << ", ";
+    }
+  }
+  os() << ") :\n";
+
+  // host_ir_container body
+  indent_size_++;
+  for (auto expr : host_ir_container->topLevelExprs()) {
+    os() << expr->toString(indent_size_);
+  }
+  indent_size_--;
+  for (auto* host_unit : ir_utils::filterByType<hir::HostUnit>(
+           host_ir_container->unordered_exprs())) {
+    os() << std::endl;
+    os() << host_unit->toString(indent_size_);
+  }
+  os() << "} // %HostIrContainer\n\n";
+}
+
+void IrPrinter::handle(hir::HostIrContainer& host_ir_container) {
+  handle(&host_ir_container);
 }
 
 void IrTransformPrinter::handle(Fusion* f) {
@@ -88,9 +128,22 @@ void IrTransformPrinter::handle(Fusion* f) {
   }
 }
 
-void IrTransformPrinter::printTransforms(TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
-  os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
+void IrTransformPrinter::printTransforms(const TensorView* tv) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  if (tv->hasRoot()) {
+    const auto& root_domain = tv->getRootDomain();
+    os() << " root domain : (" << toDelimitedString(root_domain) << ")\n";
+
+    const auto all_exp = DependencyCheck::getAllExprsBetween(
+        {root_domain.begin(), root_domain.end()},
+        {logical_domain.begin(), logical_domain.end()});
+
+    for (const auto exp : all_exp) {
+      os() << "  " << exp->toString();
+    }
+  }
+
+  os() << " logical domain : (" << toDelimitedString(logical_domain) << ")\n";
 
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
@@ -99,35 +152,20 @@ void IrTransformPrinter::printTransforms(TensorView* tv) {
          << ")\n";
   }
 
-  if (tv->hasRFactor()) {
-    const auto& rfactor_domain = tv->getRFactorDomain();
-
-    const auto all_exp = DependencyCheck::getAllExprsBetween(
-        {root_domain.begin(), root_domain.end()},
-        {rfactor_domain.begin(), rfactor_domain.end()});
-
-    for (const auto exp : all_exp) {
-      os() << "  " << exp->toString();
-    }
-
-    os() << " rfactor domain : (" << toDelimitedString(rfactor_domain) << ")\n";
-  }
-
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& from = tv->getMaybeRFactorDomain();
-  const auto& leaf = tv->getLeafDomain();
-  const auto all_exp = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {leaf.begin(), leaf.end()});
-
-  for (const auto exp : all_exp) {
+  for (const auto exp : tv->domain()->allExprs()) {
     os() << "  " << exp->toString();
   }
-  os() << " leaf domain : (" << toDelimitedString(leaf) << ")\n";
+  os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {
-  return os << stmt->toString();
+  if (stmt == nullptr) {
+    return os << "<null>";
+  } else {
+    return os << stmt->toString();
+  }
 }
 
 std::ostream& operator<<(std::ostream& os, Fusion* f) {

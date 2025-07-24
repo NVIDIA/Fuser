@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 # cpp-repro-gen.py
 
 ## Usage
@@ -23,3 +29,7 @@ Example:
 ```
 python cpp-repro-gen.py --symbolic_sizes 768 768 1024 768 < examples/repro.py > examples/repro.cpp
 ```
+
+# codegen diff tools
+
+See the `codediff` [subdirectory](codediff/README.md).

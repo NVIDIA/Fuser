@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
+#include <visibility.h>
 
 #include <ir/interface_nodes.h>
 #include <type.h>
@@ -128,67 +128,73 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TensorView* mean(TensorView* x, const std::vector<int>& dims, bool keepdim);
+TensorView* mean(TensorView* x, const std::vector<int64_t>& dims, bool keepdim);
 
-TensorView* variance(
+NVF_API TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim);
 
-TensorView* variance(
+NVF_API TensorView* variance(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim);
 
-VarMeanResult variance_mean(
+NVF_API VarMeanResult variance_mean(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     int64_t correction,
     bool keepdim);
 
-TensorView* standard_deviation(
+NVF_API TensorView* standard_deviation(
     TensorView* x,
-    const std::vector<int>& dims,
+    const std::vector<int64_t>& dims,
     bool unbiased,
     bool keepdim);
 
-TensorView* softmax(TensorView* x, int dim);
+NVF_API TensorView* softmax(TensorView* x, int64_t dim);
 
-TensorView* softmax_backward(TensorView* dy, TensorView* y, const int dim);
+NVF_API TensorView* softmax_backward(
+    TensorView* dy,
+    TensorView* y,
+    const int64_t dim);
 
-TensorView* log_softmax(TensorView* x, int dim);
+NVF_API TensorView* log_softmax(TensorView* x, int64_t dim);
 
-TensorView* log_softmax_backward(TensorView* dy, TensorView* y, const int dim);
+NVF_API TensorView* log_softmax_backward(
+    TensorView* dy,
+    TensorView* y,
+    const int64_t dim);
 
-ForwardNormResult layer_norm(
+NVF_API ForwardNormResult layer_norm(
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     TensorView* bias,
     Val* eps);
 
-ForwardNormResult layer_norm(
+NVF_API ForwardNormResult layer_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     TensorView* bias,
     Val* eps);
 
-ForwardRMSNormResult rms_norm(
+NVF_API ForwardRMSNormResult rms_norm(
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
     TensorView* weight,
     Val* eps);
 
-ForwardRMSNormResult rms_norm(
+NVF_API ForwardRMSNormResult rms_norm(
     TensorView* x,
-    const size_t kNormShapeNumDims,
+    const int64_t kNormShapeNumDims,
     TensorView* weight,
     Val* eps);
 
-BackwardNormResult layer_norm_backward(
+NVF_API BackwardNormResult layer_norm_backward(
     TensorView* dy,
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
@@ -198,7 +204,7 @@ BackwardNormResult layer_norm_backward(
     TensorView* bias,
     const std::vector<bool>& output_mask);
 
-BackwardRMSNormResult rms_norm_backward(
+NVF_API BackwardRMSNormResult rms_norm_backward(
     TensorView* dy,
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
@@ -206,7 +212,18 @@ BackwardRMSNormResult rms_norm_backward(
     TensorView* weight,
     const std::vector<bool>& output_mask);
 
-ForwardNormResult batch_norm(
+// From thunder generated python definiton
+// root-mean-square is saved instead of reciprocal rms.
+// Only quires one inner reduction instead of two.
+NVF_API BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
+    TensorView* weight,
+    const std::vector<bool>& output_mask);
+
+NVF_API ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
     TensorView* bias,
@@ -217,7 +234,7 @@ ForwardNormResult batch_norm(
     Val* eps,
     bool channels_last = false);
 
-BackwardNormResult batch_norm_backward(
+NVF_API BackwardNormResult batch_norm_backward(
     TensorView* x,
     TensorView* dy,
     TensorView* weight,
@@ -230,7 +247,7 @@ BackwardNormResult batch_norm_backward(
     const std::vector<bool>& output_mask,
     bool channels_last = false);
 
-ForwardNormResult instance_norm(
+NVF_API ForwardNormResult instance_norm(
     TensorView* x,
     TensorView* weight,
     TensorView* bias,
@@ -241,7 +258,7 @@ ForwardNormResult instance_norm(
     Val* eps,
     bool channels_last = false);
 
-BackwardNormResult instance_norm_backward(
+NVF_API BackwardNormResult instance_norm_backward(
     TensorView* x,
     TensorView* dy,
     TensorView* weight,

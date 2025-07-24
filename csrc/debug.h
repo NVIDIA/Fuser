@@ -7,8 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-#include <c10/util/Exception.h>
+#include <visibility.h>
 
 #include <string>
 #include <unordered_map>
@@ -32,9 +31,9 @@ namespace nvfuser {
 //!   // stream, which defaults to std::cout.
 class DebugStreamGuard {
  public:
-  DebugStreamGuard(std::ostream& stream);
+  NVF_API DebugStreamGuard(std::ostream& stream);
 
-  ~DebugStreamGuard();
+  NVF_API ~DebugStreamGuard();
 
   static std::ostream& getCurStream();
 
@@ -46,6 +45,6 @@ class DebugStreamGuard {
 
 //! This is just a short alias to avoid having to type
 //! DebugStreamGuard::getCurStream() for each line we want to debug-print.
-std::ostream& debug();
+NVF_API std::ostream& debug();
 
 } // namespace nvfuser

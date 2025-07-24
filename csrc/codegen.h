@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 #include <kernel.h>
+#include <visibility.h>
 
 #include <string>
 
@@ -17,9 +17,10 @@ namespace nvfuser {
 namespace codegen {
 
 //! Generates a CUDA kernel definition for the given kernel
-std::string generateCudaKernel(
+NVF_API std::string generateCudaKernel(
     const kir::Kernel* kernel,
-    const std::string& kernel_name = "CUDAGeneratedKernel");
+    const std::string& kernel_name = "CUDAGeneratedKernel",
+    const LaunchParams& lparams = LaunchParams());
 
 } // namespace codegen
 } // namespace nvfuser

@@ -7,8 +7,11 @@
 // clang-format on
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
+#include <id_model/indexing.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <transform_iter.h>
 
 #include <device_lower/analysis/sync_information.h>
 
@@ -20,8 +23,8 @@ namespace {
 void validateParallelizationOfTensor(TensorView* tv) {
   // Each ParallelType can be used only once.
   ParallelTypeBitmap pt_map;
-  for (auto i : c10::irange(tv->nDims())) {
-    auto axis = tv->axis((int)i);
+  for (auto i : arange(tv->nDims())) {
+    auto axis = tv->axis(i);
     auto ptype = axis->getParallelType();
     if (!isParallelTypeThread(ptype)) {
       continue;
@@ -60,373 +63,32 @@ void validateParallelizationOfTensor(TensorView* tv) {
       tv->name(),
       ". The tensor is parallelized with ",
       predicated_parallel_types.toString(),
-      ", but it's invalid to use the types as the tensor is also predicated with them.",
+      ", but it's invalid to use the types as the tensor is also predicated "
+      "with them.",
       ", thread pred: ",
       thread_pred.limited_types.toString());
 }
 
-//! Properties used in useSameIndex that only depends on the producer and
-//! consumer tensors and can be reused for validating different pairs
-//! of their leaf IDs. Works as caching as some properties can be
-//! expensive to compute.
-struct ProducerConsumerIndexingInfoCache {
- public:
-  ProducerConsumerIndexingInfoCache(
-      TensorView* producer_tv,
-      TensorView* consumer_tv)
-      : producer_tv_(producer_tv), consumer_tv_(consumer_tv) {}
-
-  const std::vector<IterDomain*>& getConsumerLeafIDsSharedWithProducer() {
-    if (!consumer_leaf_ids_shared_with_producer_.has_value()) {
-      const auto& ca_map = *(GpuLower::current()->caMap());
-      std::vector<IterDomain*> consumer_leaf_ids_shared_with_producer;
-      std::copy_if(
-          consumer_tv_->getLeafDomain().begin(),
-          consumer_tv_->getLeafDomain().end(),
-          std::back_inserter(consumer_leaf_ids_shared_with_producer),
-          [&](auto consumer_leaf_id) {
-            return std::find_if(
-                       producer_tv_->getLeafDomain().begin(),
-                       producer_tv_->getLeafDomain().end(),
-                       [&](auto producer_leaf_id) {
-                         return ca_map.areMapped(
-                             producer_leaf_id,
-                             consumer_leaf_id,
-                             IdMappingMode::LOOP);
-                       }) != producer_tv_->getLeafDomain().end();
-          });
-      consumer_leaf_ids_shared_with_producer_ =
-          std::move(consumer_leaf_ids_shared_with_producer);
-    }
-    return *consumer_leaf_ids_shared_with_producer_;
-  }
-
-  const std::vector<Val*>& getConsumerRootIDsSharedWithProducer() {
-    if (!consumer_root_ids_shared_with_producer_.has_value()) {
-      const auto& consumer_leaf_ids_shared_with_producer =
-          getConsumerLeafIDsSharedWithProducer();
-      consumer_root_ids_shared_with_producer_ = InputsOf::outputs(
-          producer_tv_->fusion(),
-          {consumer_leaf_ids_shared_with_producer.begin(),
-           consumer_leaf_ids_shared_with_producer.end()});
-    }
-    return *consumer_root_ids_shared_with_producer_;
-  }
-
-  const std::vector<IterDomain*>& getConsumerOnlyPermissiveLeafIds() {
-    // When a given ID is the factor of 1 of a split, return the other
-    // output. Return nullptr otherwise.
-    auto get_split1_other_out = [](IterDomain* id) -> IterDomain* {
-      if (id->extent()->isOneInt() && id->definition() != nullptr &&
-          id->definition()->isA<Split>()) {
-        auto split = id->definition()->as<Split>();
-        if (split->innerSplit() && split->inner() == id) {
-          return split->outer();
-        } else if (!split->innerSplit() && split->outer() == id) {
-          return split->inner();
-        }
-      }
-      return nullptr;
-    };
-
-    if (!consumer_only_permissive_leaf_ids_.has_value()) {
-      // consumer_only_permissive_leaf_ids_ = {};
-      std::vector<IterDomain*> consumer_only_permissive_leaf_ids;
-      const auto& ca_map = *(GpuLower::current()->caMap());
-      std::copy_if(
-          consumer_tv_->getLeafDomain().begin(),
-          consumer_tv_->getLeafDomain().end(),
-          std::back_inserter(consumer_only_permissive_leaf_ids),
-          [&](IterDomain* consumer_leaf_id) {
-            const auto& consumer_leaf_ids_shared_with_producer =
-                getConsumerLeafIDsSharedWithProducer();
-            if (std::find(
-                    consumer_leaf_ids_shared_with_producer.begin(),
-                    consumer_leaf_ids_shared_with_producer.end(),
-                    consumer_leaf_id) !=
-                consumer_leaf_ids_shared_with_producer.end()) {
-              return false;
-            }
-
-            auto loop_concrete_id = ca_map.getConcreteMappedID(
-                consumer_leaf_id, IdMappingMode::LOOP);
-
-            // If the loop concrete ID has the same info as the
-            // consumer leaf ID, indexing shouldn't be affected by the
-            // loop concrete ID
-            if (ca_map.areMapped(
-                    consumer_leaf_id,
-                    loop_concrete_id,
-                    IdMappingMode::ALMOSTEXACT)) {
-              return false;
-            }
-
-            // Note that the factor output domain of split-by-one is
-            // not mapped in the almost exact map. As long as the
-            // other domains are almost-exactly mapped, this shouldn't
-            // affect the indexing neither.
-            auto consumer_split1_other = get_split1_other_out(consumer_leaf_id);
-            auto loop_concrete_split1_other =
-                get_split1_other_out(loop_concrete_id);
-
-            if (consumer_split1_other != nullptr &&
-                loop_concrete_split1_other != nullptr &&
-                ca_map.areMapped(
-                    consumer_split1_other,
-                    loop_concrete_split1_other,
-                    IdMappingMode::ALMOSTEXACT)) {
-              return false;
-            }
-
-            return true;
-          });
-      consumer_only_permissive_leaf_ids_ =
-          std::move(consumer_only_permissive_leaf_ids);
-    }
-    return *consumer_only_permissive_leaf_ids_;
-  }
-
-  const VectorOfUniqueEntries<IterDomain*>& getConsumerLoopIndexingIDs() {
-    if (!consumer_loop_indexing_ids_.has_value()) {
-      consumer_loop_indexing_ids_ =
-          LoopIndexingAnalysis::getReplayableConcreteIDs(
-              getConsumerOnlyPermissiveLeafIds(), consumer_tv_);
-    }
-    return *consumer_loop_indexing_ids_;
-  }
-
- private:
-  TensorView* producer_tv_ = nullptr;
-  TensorView* consumer_tv_ = nullptr;
-  // Consumer leaf IDs that are also used to index the producer, i.e.,
-  // those that are loop-mapped with the producer leaf IDs
-  std::optional<std::vector<IterDomain*>>
-      consumer_leaf_ids_shared_with_producer_;
-  // Root IDs of the shared leaf IDs
-  std::optional<std::vector<Val*>> consumer_root_ids_shared_with_producer_;
-  // Consumer CA leaf IDs that are not shared with producer and
-  // permissively mapped with consumers of the consumer
-  std::optional<std::vector<IterDomain*>> consumer_only_permissive_leaf_ids_;
-  // IDs whose index depends on consumer_only_permissive_leaf_ids_
-  std::optional<VectorOfUniqueEntries<IterDomain*>> consumer_loop_indexing_ids_;
-};
-
-// For a given pair of a producer and consumer leaf ID, check if the
-// root domains that have dependencies with them are guaranteed to
-// have the same index.
-//
-// The algorithm first sees if the root domains reachable from the
-// consumer domain are all exactly mapped with the root domains
-// reachable from the producer domain. This is to detect merged
-// broadcast domains that only show up in the consumer. If such a
-// consumer-only root domain is found, it can mean the producer and
-// consumer are indexed differently, but not always. If there's a
-// consumer leaf ID that is shared with the producer through
-// computeAt, and if there's a dependency from the leaf ID to the
-// consumer-only root ID, the producer indexing also uses the shared
-// consumer ID and the indexing traversal reach at the consumer-only
-// broadcast root domain, generating the same index as that of the
-// consumer.
-//
-// It is also necessary to check non-CA-shared consumer leaf IDs that
-// are permissively mapped with its consumers. See inline comments
-// below.
-bool useSameIndex(
-    TensorView* producer_tv,
-    IterDomain* producer_id,
+// Return true when consumer_id of consumer_tv can accommodate
+// incoherent data dependencies.
+bool allowIncoherentDependency(
     TensorView* consumer_tv,
-    IterDomain* consumer_id,
-    ProducerConsumerIndexingInfoCache& indexing_info) {
-  const auto& ca_map = *(GpuLower::current()->caMap());
+    IterDomain* consumer_id) {
+  auto def = consumer_tv->definition();
+  NVF_ERROR(def != nullptr);
 
-  // At least, they must be mapped exactly or permissively
-  if (!ca_map.areMapped(producer_id, consumer_id, IdMappingMode::EXACT) &&
-      !ca_map.areMapped(producer_id, consumer_id, IdMappingMode::PERMISSIVE)) {
-    return false;
+  // In the case of topk, the dependency of the topk IDs are taken
+  // care by the topk operation itself.
+  if (auto topk = dynamic_cast<TopKOp*>(def)) {
+    auto topk_loop_ids = ir_utils::getReachableIds(
+        consumer_tv->getLoopDomain(),
+        {consumer_tv->getLogicalDomain().at(topk->dim())});
+    if (std::ranges::find(topk_loop_ids, consumer_id) != topk_loop_ids.end()) {
+      return true;
+    }
   }
 
-  // If the producer ID is mapped with any of the consumer IDs, the
-  // indexing is done with the corresponding consumer ID
-  if (std::any_of(
-          consumer_tv->getLeafDomain().begin(),
-          consumer_tv->getLeafDomain().end(),
-          [&](IterDomain* consumer_leaf_id) {
-            return ca_map.areMapped(
-                consumer_leaf_id, producer_id, IdMappingMode::LOOP);
-          })) {
-    return true;
-  }
-
-  // Grab all consumer root IDs that have the threading index of
-  // consumer_id. The goal of the analysis below is to find out if all
-  // of the root IDs are indexed in the same way between the producer
-  // and consumer tensors.
-  auto consumer_root_ids = InputsOf::output(consumer_id->fusion(), consumer_id);
-
-  auto producer_root_vals = StmtSort::getStmtsBetween(
-      producer_id->fusion(),
-      {producer_tv->getMaybeRFactorDomain().begin(),
-       producer_tv->getMaybeRFactorDomain().end()},
-      {producer_id});
-  auto producer_root_ids =
-      ir_utils::filterByType<IterDomain>(producer_root_vals);
-
-  // For each of the root IDs that consumer_id is dependent on, check
-  // if the producer uses the same indexing as the consumer. This
-  // requires that the producer has a root ID that is exactly mapped with
-  // the consumer root ID. Another case is when the consumer root ID
-  // has a dependency with any of the leaf consumer IDs that are
-  // shared with the producer. In that case, the producer uses those
-  // shared consumer leaf IDs to index the root ID and thus uses the same index
-  if (!std::all_of(
-          ir_utils::filterByType<IterDomain>(consumer_root_ids).begin(),
-          ir_utils::filterByType<IterDomain>(consumer_root_ids).end(),
-          [&](IterDomain* consumer_root_id) {
-            return std::find_if(
-                       producer_root_ids.begin(),
-                       producer_root_ids.end(),
-                       [&](IterDomain* producer_root_id) {
-                         return ca_map.areMapped(
-                             producer_root_id,
-                             consumer_root_id,
-                             IdMappingMode::EXACT);
-                       }) != producer_root_ids.end() ||
-                std::find(
-                    indexing_info.getConsumerRootIDsSharedWithProducer()
-                        .begin(),
-                    indexing_info.getConsumerRootIDsSharedWithProducer().end(),
-                    consumer_root_id) !=
-                indexing_info.getConsumerRootIDsSharedWithProducer().end();
-          })) {
-    return false;
-  }
-
-  // At this point, consumer_root_ids is the set of root IDs that
-  // commonly have dependencies with producer_id and consumer_id.
-  //
-  // It is also necessary to look at consumer leaf IDs that are
-  // computed-at its consumers, which means the consumer is indexed
-  // using its consumer domains. Unless such IDs are also shared with the
-  // producer, the consumer may have a different index as that of the
-  // producer.
-
-  // Example:
-  // t0: [I0], t1: [I0, I1]
-  // t2 = t0
-  // t3 = broadcast(t2, {true, false})
-  // t4 = t3 + t1
-  //
-  // t0: [I0]
-  // t1: [I0, I1]
-  // t2: [I0]
-  // t3: [I0, B0]
-  // t4: [I0, I1]
-  //
-  // t4->merge(0)->split(0, 4)
-  // propagate t4 transformations
-  // parallelize axis(-1) with tidx
-  //
-  // t0: [I0/4, tidx(4)]
-  // t1: [I0*I1/4, tidx(4)]
-  // t2: [I0/4, tidx(4)]
-  // t3: [I0*B0/4, tidx(4)]
-  // t4: [I0*I1/4, tidx(4)]
-  //
-  // t2->computeAt(t4, 1)
-  //
-  // t0: [I0/4, tidx(4)]
-  // t1: [I0*I1/4, tidx(4)]
-  // t2: [I0/4, tidx(4)] ca(1)
-  // t3: [I0*B0/4, tidx(4)] ca(1)
-  // t4: [I0*I1/4, tidx(4)] produce(1)
-  //
-  // The interesting part here is t0 and t2. They are completely
-  // exactly mapped, but the CA of t2 makes it indexed based on its
-  // consumer, t4. Specifically, the code would look like:
-  //
-  // for (i: I0/4)
-  //   t0[i * bdimx + tidx] = ...
-  // for (i: I0*I1/4)
-  //   t2[(i * bdimx + tidx) % bdimx] = t0[...]
-  //   t3[(i * bdimx + tidx) % bdimx] = t2[...]
-  //   t4[i * bdimx + tidx] = t3[...] + t1[...]
-  //
-  // t2->axis(0) is an example of consumer-only leaf IDs that are
-  // permissively mapped with consumers of consumers. Since it's
-  // effectively replaced with t4->axis(0) when indexing t2, whereas
-  // t0 is independently indexed, t0 must be placed on shared memory
-  // (or global memory) with a RAW sync. See See FusionValidateParallelize10.
-  //
-  // For the same original fusion, consider this transformation:
-  //
-  // t4->merge(0)->split(0, 4)->split->(0, 2)
-  // propagate t4 transformations
-  // parallelize axis(-1) with tidx
-  //
-  // t0: [I0/4/2, 2, tidx(4)]
-  // t1: [I0*I1/4/2, 2, tidx(4)]
-  // t2: [I0/4/2, 2, tidx(4)]
-  // t3: [I0*B0/4/2, 2, tidx(4)]
-  // t4: [I0*I1/4/2, 2, tidx(4)]
-  //
-  // t0->computeAt(t4, 1)
-  //
-  // t0: [I0/4/2, 2, tidx(4)] ca(1)
-  // t1: [I0*I1/4/2, 2, tidx(4)]
-  // t2: [I0/4/2, 2, tidx(4)] ca(1)
-  // t3: [I0*B0/4/2, 2, tidx(4)]
-  // t4: [I0*I1/4/2, 2, tidx(4)] produce(1)
-  //
-  // For t1 and t2, t2->axis(1) is again a consumer-only leaf ID
-  // permissively mapped with its consumer. However, in this case, t0
-  // also shares the first leaf ID with t2 and t4, making it indexed
-  // using t4.
-  //
-  // for (i: I0*I1/4/2)
-  //   for (j: 2)
-  //     t0[((i * 2 + j) * bdimx + tidx) % bdimx] = ...
-  //   for (j: 2)
-  //     t2[((i * 2 + j) * bdimx + tidx) % bdimx] = t0[...]
-  //   for (j: 2)
-  //     t3[((i * 2 + j) * bdimx + tidx) % bdimx] = t2[...]
-  //   for (j: 2)
-  //     t4[(i * 2 + j) * bdimx + tidx] = t3[...] + t1[...]
-  //
-  // All of the tensors are indexed consistently, so no RAW sync is
-  // required in this case. See FusionValidateParallelize11.
-
-  // If there's no consumer-only leaf ID that is permissively mapped
-  // with its consumers, this pair of producer and consumer indices
-  // should be used in the same way
-  if (indexing_info.getConsumerOnlyPermissiveLeafIds().empty()) {
-    return true;
-  }
-
-  return std::all_of(
-      ir_utils::filterByType<IterDomain>(consumer_root_ids).begin(),
-      ir_utils::filterByType<IterDomain>(consumer_root_ids).end(),
-      [&](IterDomain* consumer_root_id) {
-        // If the consumer root ID is part of the shared root IDs
-        // with the producer, it is guaranteed to be indexed in
-        // the same way. See the second example above.
-        if (std::find(
-                indexing_info.getConsumerRootIDsSharedWithProducer().begin(),
-                indexing_info.getConsumerRootIDsSharedWithProducer().end(),
-                consumer_root_id) !=
-            indexing_info.getConsumerRootIDsSharedWithProducer().end()) {
-          return true;
-        }
-
-        // Check if the consumer root ID has a dependency with any
-        // of the consumer-only leaf IDs. If so, its index may be
-        // different from the producer. The dependency here means
-        // the indexing traversal from the LOOP concrete domains of the
-        // leaf IDs. It's not just enough to do normal backward
-        // travesal from the concrete domains as they may come from
-        // post-view tensors.
-        return !indexing_info.getConsumerLoopIndexingIDs().has(
-            ca_map.getConcreteMappedID(consumer_root_id, IdMappingMode::EXACT));
-      });
+  return false;
 }
 
 } // namespace
@@ -434,6 +96,8 @@ bool useSameIndex(
 SyncMap::SyncMap(Fusion* fusion) {
   FUSER_PERF_SCOPE("SyncMap::SyncMap");
   FusionGuard fg(fusion);
+
+  NVF_ERROR(GpuLower::current()->hasIdModel());
 
   const auto& ca_map = GpuLower::current()->caMap();
   const auto& pred_map = GpuLower::current()->threadPredMap();
@@ -470,7 +134,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       // Stash information about parallelized producer iteration domains
       std::vector<IterDomain*> producer_parallel_ids(
           ParallelTypeBitmap::kNumParallelTypes, nullptr);
-      ParallelTypeBitmap producer_parallel_bitmap;
 
       // Get the parallel types that producer will be predicated off in producer
       // writes.
@@ -494,8 +157,8 @@ SyncMap::SyncMap(Fusion* fusion) {
       producer_redundant_types =
           producer_redundant_types & (~producer_redundant_use_types);
 
-      for (const auto producer_i : c10::irange(producer->nDims())) {
-        auto producer_axis = producer->axis((int)producer_i);
+      for (const auto producer_i : arange(producer->nDims())) {
+        auto producer_axis = producer->getLoopDomain().at(producer_i);
         auto producer_ptype =
             ca_map->getConcreteMappedID(producer_axis, IdMappingMode::LOOP)
                 ->getParallelType();
@@ -509,7 +172,6 @@ SyncMap::SyncMap(Fusion* fusion) {
           continue;
         }
 
-        producer_parallel_bitmap.set(producer_ptype);
         producer_parallel_ids[getParallelTypeBitMapOffset(producer_ptype)] =
             producer_axis;
       }
@@ -519,9 +181,8 @@ SyncMap::SyncMap(Fusion* fusion) {
         // Stash information about parallelized consumer iteration domains
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
-        ParallelTypeBitmap consumer_parallel_bitmap;
-        for (const auto consumer_i : c10::irange(consumer->nDims())) {
-          auto consumer_axis = consumer->axis((int)consumer_i);
+        for (const auto consumer_i : arange(consumer->nDims())) {
+          auto consumer_axis = consumer->getLoopDomain().at(consumer_i);
           auto consumer_ptype =
               ca_map->getConcreteMappedID(consumer_axis, IdMappingMode::LOOP)
                   ->getParallelType();
@@ -540,12 +201,25 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
-          consumer_parallel_bitmap.set(consumer_ptype);
           consumer_parallel_ids[getParallelTypeBitMapOffset(consumer_ptype)] =
               consumer_axis;
         }
 
-        ProducerConsumerIndexingInfoCache indexing_info(producer, consumer);
+        // P2C map is required when using the IdModel-based analysis
+        const std::unordered_map<IterDomain*, IterDomain*>
+            p2c_map_no_forwarding =
+                BestEffortReplay(
+                    consumer->getLoopDomain(),
+                    producer->getLoopDomain(),
+                    PairwiseLogicalDomainMap(producer, consumer)
+                        .mapProducerToConsumer(),
+                    /*replay_forward_id_map=*/{},
+                    /*target_forward_id_map=*/{},
+                    /*skip_replay_swizzle=*/false,
+                    /*skip_target_swizzle=*/false,
+                    /*skip_resize=*/false,
+                    /*error_on_failure=*/false)
+                    .getReplay();
 
         // At this point each parallel type that's present in the consumer or
         // the producer will be present in their corresponding `_parallel_ids`
@@ -578,54 +252,37 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           if (p_id == nullptr && c_id == nullptr) {
             continue;
-          } else if (p_id != nullptr && c_id != nullptr) {
-            if (GpuLower::current()->caMap()->areMapped(
-                    p_id, c_id, IdMappingMode::PERMISSIVE)) {
-              const auto halo_info = GpuLower::current()->haloInfo();
+          } else if (p_id != nullptr && c_id == nullptr) {
+            auto it = std::find_if(
+                consumer->getLoopDomain().begin(),
+                consumer->getLoopDomain().end(),
+                [&](IterDomain* c_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
 
-              if (halo_info->hasHaloWidth(p_id) !=
-                      halo_info->hasHaloWidth(c_id) ||
-                  (halo_info->hasHaloWidth(p_id) &&
-                   halo_info->hasHaloWidth(c_id) &&
-                   halo_info->getHaloWidth(p_id) !=
-                       halo_info->getHaloWidth(c_id))) {
-                raw_dims.set(parallel_type);
-                continue;
-              }
+            // If there isn't a mapping from producer to a consumer domain,
+            // need to assume there's communication across this parallel
+            // dimension.
+            c_id = it == consumer->getLoopDomain().end() ? nullptr : *it;
+            // i.e. if producer is parallelized across threadIdx.x in a
+            // certain split, if the consumer doesn't map to this split,
+            // then we need to assume it has to be in smem with proper
+            // syncs.
+          } else if (p_id == nullptr && c_id != nullptr) {
+            auto it = std::find_if(
+                producer->getLoopDomain().begin(),
+                producer->getLoopDomain().end(),
+                [&](IterDomain* p_id) {
+                  return GpuLower::current()->caMap()->areMapped(
+                      p_id, c_id, IdMappingMode::PERMISSIVE);
+                });
+            if (it == producer->getLoopDomain().end()) {
+              // Can't infer anything if producer doesn't have a matching axis
+              // to parallel consumer dim.
+              continue;
             }
-          } else {
-            if (p_id != nullptr) {
-              auto it = std::find_if(
-                  consumer->getLeafDomain().begin(),
-                  consumer->getLeafDomain().end(),
-                  [&](IterDomain* c_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-
-              // If there isn't a mapping from producer to a consumer domain,
-              // need to assume there's communication across this parallel
-              // dimension.
-              c_id = it == consumer->getLeafDomain().end() ? nullptr : *it;
-              // i.e. if producer is parallelized across threadIdx.x in a
-              // certain split, if the consumer doesn't map to this split,
-              // then we need to assume it has to be in smem with proper
-              // syncs.
-            } else {
-              auto it = std::find_if(
-                  producer->getLeafDomain().begin(),
-                  producer->getLeafDomain().end(),
-                  [&](IterDomain* p_id) {
-                    return GpuLower::current()->caMap()->areMapped(
-                        p_id, c_id, IdMappingMode::PERMISSIVE);
-                  });
-              if (it == producer->getLeafDomain().end()) {
-                // Can't infer anything if producer doesn't have a matching axis
-                // to parallel consumer dim.
-                continue;
-              }
-              p_id = *it;
-            }
+            p_id = *it;
           }
 
           // Comm pattern options (when parallel types don't have matching
@@ -665,7 +322,7 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           // Handle special cases first
 
-          // If any leaf id of producer is block or grid parallel and is
+          // If any loop id of producer is block or grid parallel and is
           // involved
           //  in any swizzle pattern, track this parallel dim as a communication
           //  dimension that requires the corresponding synchronization and
@@ -673,56 +330,10 @@ SyncMap::SyncMap(Fusion* fusion) {
           if (isParallelTypeThread(producer_ptype) &&
               producer->hasSwizzleOp()) {
             if (!ir_utils::getAllSwizzlesBetween(
-                     producer->getMaybeRFactorDomain(), {p_id})
+                     producer->getLogicalDomain(), {p_id})
                      .empty()) {
               raw_dims.set(producer_ptype);
-            }
-          }
-
-          // In shift or gather operations, if a thread or block
-          // domain's root ID is shifted or gathered, it can overlap
-          // in shared or global memory. This doesn't
-          // require a RAW sync since each thread would still write every value
-          // it would read, but it can require a WAR sync for Shared Memory.
-          // Since there isn't a separate structure for WAR than RAW for now
-          // we'll flag it on RAW which will trigger the WAR.
-          // See test FusionValidateParallelizeShift_CUDA for a
-          // concrete example where this sync is required.
-          if ((expr->isOneOf<GatherOp, ShiftOp>()) &&
-              producer->getMemoryType() == MemoryType::Shared &&
-              isParallelTypeThreadDim(producer_ptype)) {
-            std::unordered_set<Val*> shifted_rfactor_ids;
-            if (expr->isA<GatherOp>()) {
-              auto gather_op = expr->as<GatherOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
-                auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
-                // If the window shape is 1, it just copies the
-                // producer to the consumer
-                if (gather_op->windowShape()[root_i] != 1) {
-                  shifted_rfactor_ids.insert(rfactor_id);
-                }
-              }
-            } else if (expr->isA<ShiftOp>()) {
-              auto shift_op = expr->as<ShiftOp>();
-              for (auto root_i :
-                   c10::irange(producer->getMaybeRFactorDomain().size())) {
-                auto rfactor_id = producer->getMaybeRFactorDomain()[root_i];
-                // If the shift offset is 0, it doesn't actually shift
-                if (shift_op->offsets()[root_i] != 0) {
-                  shifted_rfactor_ids.insert(rfactor_id);
-                }
-              }
-            }
-
-            // Grab all values between shifted rfactor domains and p_id so we
-            // can identify which rfactor domains are inputs to the p_id
-            auto p_id_dep_vals =
-                DependencyCheck::getAllValsBetween(shifted_rfactor_ids, {p_id});
-            // If this shifted rfactor domain is an input to p_id, we
-            // must have a WAR sync. Mark raw sync so it will be generated.
-            if (!p_id_dep_vals.empty()) {
-              raw_dims.set(producer_ptype);
+              continue;
             }
           }
 
@@ -732,30 +343,90 @@ SyncMap::SyncMap(Fusion* fusion) {
             continue;
           }
 
-          // When the producer is parallelized, the producer and the
-          // consumer must use the same index with the same parallel
-          // type. Otherwise, a sync is required. This is not the case
-          // when this op is a parallel broadcast.
-
-          if (producer_parallel_bcast) {
-            // As long as they are permissively mapped using the same
-            // parallel type, no communication is required
-            if (producer_ptype == consumer_ptype &&
-                ca_map->areMapped(p_id, c_id, IdMappingMode::PERMISSIVE)) {
-              continue;
-            }
-            // Can this happen?
-            NVF_ERROR(
-                false,
-                "Unexpected case. Producer: ",
-                producer->toString(),
-                ", consumer: ",
-                consumer->toString());
+          // Certain operations resolve data dependencies by
+          // themselves, thus not requiring a RAW sync
+          if (allowIncoherentDependency(consumer, c_id)) {
+            continue;
           }
 
-          if (producer_ptype == consumer_ptype &&
-              useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
-            continue;
+          if (producer_ptype == consumer_ptype) {
+            // Case 1:
+            // Producer loop ID: non-broadcast
+            // Consumer loop ID: non-broadcast
+            // -> No sync if they are exactly mapped. This case is covered by
+            // the promotion check.
+            //
+            // Case 2:
+            // Producer loop ID: broadcast (which may be produced by
+            // merging multiple broadcast domains)
+            // Consumer loop ID: non-broadcast
+            // -> They are not exactly mapped but sync is not necessary as
+            // discussed below.
+            //
+            // Case 3:
+            // Producer loop ID: non-broadcast
+            // Consumer loop ID: non-broadcast
+            // -> Sync required if they are not exactly mapped, even when they
+            // are mapped by the best effort replay. (See
+            // NVFuserTest.RAWSync for a concrete repro).
+
+            // Case 1
+            const auto& id_model = GpuLower::current()->idModel();
+            auto producer_loop_id = getLoopPromotion(p_id, id_model);
+            auto consumer_loop_id = getLoopPromotion(c_id, id_model);
+            const auto& indexing_traveral_graph =
+                id_model.idGraph(TensorIndexer::traversalGraphType());
+            if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+                    producer_loop_id, consumer_loop_id)) {
+              continue;
+            }
+
+            // Case 2
+            // If the producer ID is a broadcast, it does not
+            // require synchronization even when the producer and
+            // consumer domains are not promoted to the same
+            // group. For example,
+            //
+            // tv0: [i0]
+            // tv1: [b1]
+            // tv2 = tv1
+            // tv3 = tv0 + tv2
+            //
+            // tv2->axis(0)->parallelize(ParallelType::TIDx);
+            // tv3->axis(0)->parallelize(ParallelType::TIDx);
+            //
+            // Assume that there's no inlining. Since it isn't
+            // inlined, the loop domain of tv2 is not mapped with
+            // that of tv3, thus the avove condition won't
+            // hit. Still, since tv2 will be executed by all TIDx
+            // threads independently, there's no need of
+            // synchronization.
+            //
+            // Consider a similar case like below:
+            //
+            // tv0: [i0, i1]
+            // tv1: [i2, b3]
+            // tv2 = tv1
+            // tv3 = tv0 + tv2
+            //
+            // tv2->merge(0, 1);
+            // tv3->merge(0, 1);
+            // tv2->axis(0)->parallelize(ParallelType::TIDx);
+            // tv3->axis(0)->parallelize(ParallelType::TIDx);
+            //
+            // This case does require a synchronization since for
+            // tv2, TIDx will be used to parallelize the outer
+            // domain only, whereas for tv3 it is mapped to the
+            // merged domain of the outer and inner domains. In
+            // other words, if a broadcast becomes non-broadcast
+            // by getting merged with a non-broadcast domain, it
+            // requires a synchronization.
+            if (p_id->isBroadcast()) {
+              if (auto it = p2c_map_no_forwarding.find(p_id);
+                  it != p2c_map_no_forwarding.end() && it->second == c_id) {
+                continue;
+              }
+            }
           }
 
           raw_dims.set(producer_ptype);
@@ -772,13 +443,17 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global Memory based on parallelization strategy.",
+              "). Producer is required to be in Global Memory based on "
+              "parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         } else if (raw_dims.hasTID()) {
           NVF_ERROR(
-              producer->getMemoryType() == MemoryType::Global ||
-                  producer->getMemoryType() == MemoryType::Shared,
+              ir_utils::isLdMatrixOp(producer->definition()) ||
+                  ir_utils::isStMatrixOp(consumer->definition()) ||
+                  producer->getMemoryType() == MemoryType::Global ||
+                  producer->getMemoryType() == MemoryType::Shared ||
+                  producer->getMemoryType() == MemoryType::Tensor,
               "Inconsistent parallelization found between TV",
               producer->name(),
               " (",
@@ -787,7 +462,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global or Shared Memory based on parallelization strategy.",
+              "). Producer is required to be in Global, Shared or Tensor "
+              "Memory based on parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         }
@@ -797,7 +473,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       if (raw_dims.any()) {
         needs_raw_sync_[producer] |= raw_dims;
       }
-
     } // end producer
   }
 }

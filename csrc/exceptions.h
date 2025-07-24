@@ -1,21 +1,36 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
 // This is a refactor of the NVF_ERROR and NVF_CHECK macros
 // from PyTorch for implementing NVFuser specific macros.
 
 #pragma once
 
-#include <exceptions.h>
 #include <array>
 #include <cstdint>
 #include <deque>
-#include <fstream>
+#include <exception>
+#include <iosfwd>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <type_traits>
-#include <typeinfo>
 #include <vector>
 
+#include <visibility.h>
+
 namespace nvfuser {
+
+// This function will demangle the mangled function name into a more human
+// readable format, e.g. _Z1gv -> g().
+// More information:
+// https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/libsupc%2B%2B/cxxabi.h
+// NOTE: `__cxa_demangle` returns a malloc'd string that we have to free
+// ourselves.
+std::string demangle(const char* name);
 
 std::string _get_backtrace(
     size_t frames_to_skip = 0,
@@ -118,7 +133,7 @@ inline decltype(auto) to_str(const Args&... args) {
       args...);
 }
 
-class nvfError : public std::exception {
+class NVF_API nvfError : public std::exception {
   // The actual error message.
   std::string msg_;
   // Context for the message (in order of decreasing specificity).  Context will
@@ -186,13 +201,13 @@ class nvfError : public std::exception {
   std::string compute_what(bool include_backtrace) const;
 };
 
-[[noreturn]] void nvfCheckFail(
+[[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
     uint32_t line,
     const std::string& msg);
 
-[[noreturn]] void nvfCheckFail(
+[[noreturn]] NVF_API void nvfCheckFail(
     const char* func,
     const char* file,
     uint32_t line,
@@ -214,7 +229,7 @@ class nvfError : public std::exception {
   nvfCheckFail(func, file, line, condMsg);
 }
 
-[[noreturn]] void nvfErrorFail(
+[[noreturn]] NVF_API void nvfErrorFail(
     const char* func,
     const char* file,
     uint32_t line,
@@ -238,18 +253,30 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
 #define STRINGIZE_IMPL(x) #x
 #define STRINGIZE(x) STRINGIZE_IMPL(x)
 
-#define NVF_ERROR(cond, ...)                                  \
-  if ((!(cond))) {                                            \
-    nvfuser::nvfErrorFail(                                  \
+#define NVF_THROW(...) \
+  nvfuser::nvfErrorFail(                                    \
         __FUNCTION__,                                       \
         __FILE__,                                           \
         static_cast<uint32_t>(__LINE__),                    \
-        #cond " INTERNAL ASSERT FAILED at " \
-        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__) \
+        " INTERNAL ASSERT FAILED at "                       \
+        STRINGIZE(__FILE__) ":" STRINGIZE(__LINE__)         \
         ", please report a bug with repro script to NVFuser at " \
-        "https://github.com/NVIDIA/Fuser/issues. ", \
-        nvfuser::to_str(__VA_ARGS__)); \
+        "https://github.com/NVIDIA/Fuser/issues. ",         \
+        nvfuser::to_str(__VA_ARGS__));
+
+#define NVF_ERROR(cond, ...) \
+  if ((!(cond))) {           \
+    NVF_THROW(__VA_ARGS__)   \
   }
+
+#define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
+  "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
+
+#define NVF_ERROR_EQ(lhs, rhs, ...)               \
+  NVF_ERROR(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
+      ##__VA_ARGS__)
 
 #define NVF_CHECK_MSG(cond, type, ...) \
   (nvfuser::nvfCheckMsgImpl(           \
@@ -263,3 +290,9 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         static_cast<uint32_t>(__LINE__),         \
         NVF_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
   }
+
+#define NVF_CHECK_EQ(lhs, rhs, ...)               \
+  NVF_CHECK(                                      \
+      (lhs) == (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
+      ##__VA_ARGS__)

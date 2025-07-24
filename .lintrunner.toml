@@ -16,7 +16,7 @@ init_command = [
     'python3',
     'tools/linter/adapters/pip_init.py',
     '--dry-run={{DRYRUN}}',
-    'flake8==6.0.0',
+    'flake8==6.1.0',
 ]
 
 
@@ -44,7 +44,7 @@ init_command = [
     'python3',
     'tools/linter/adapters/pip_init.py',
     '--dry-run={{DRYRUN}}',
-    'clang-format==16.0.6',
+    'clang-format==19.1.7',
 ]
 is_formatter = true
 
@@ -179,13 +179,13 @@ init_command = [
     'python3',
     'tools/linter/adapters/pip_init.py',
     '--dry-run={{DRYRUN}}',
-    'clang-tidy==14.0.6',
+    'clang-tidy==19.1.0.1',
 ]
 command = [
     'python3',
     'tools/linter/adapters/clangtidy_linter.py',
     '--binary=~/.local/bin/clang-tidy',
-    '--build_dir=./build',
+    '--build_dir=./python/build',
     '--',
     '@{{PATHSFILE}}'
 ]

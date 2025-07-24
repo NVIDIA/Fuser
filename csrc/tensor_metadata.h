@@ -8,6 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
+#include <expr_evaluator.h>
+#include <ir/interface_nodes.h>
 #include <polymorphic_value.h>
 #include <type.h>
 
@@ -58,7 +60,7 @@ struct TensorMetaData : public Struct {
         return [this]() { return PolymorphicValue(alloc_stride.vec()); };
       }
     } else {
-      NVF_ERROR(false, "Unknown key ", key);
+      NVF_THROW("Unknown key ", key);
     }
   }
 
@@ -87,7 +89,7 @@ struct TensorMetaData : public Struct {
         alloc_stride = c10::makeArrayRef(alloc_stride_data);
       };
     } else {
-      NVF_ERROR(false, "Unknown key ", key);
+      NVF_THROW("Unknown key ", key);
     }
   }
 
@@ -97,5 +99,20 @@ struct TensorMetaData : public Struct {
     return globalTensorMetaData(dtype, logical_size.size(), alloc_size.size());
   }
 };
+
+// Given an ATen tensor, whose sizes and strides are w.r.t to the logical domain
+// of its corresponding TensorView, compute the sizes and strides of the tensor
+// with respect to its allocation domain.
+// For example, if the logical domain is [I1, I2], and the allocation domain is
+// [I2*I1], and the tensor's size is [5, 3] and stride is [2, 10], then the
+// resulting size will be [15] and stride will be [2]
+// Another example, if the logical domain is [I1*I2] and the allocation domain
+// is [I1, I2], and the tensor's size is [15] and stride is [7], and the extent
+// of I2 is 5, then the resulting size will be [3, 5] and stride will be [35, 7]
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee);
 
 } // namespace nvfuser

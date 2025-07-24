@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <iter_visitor.h>
-#include <root_domain_map.h>
+#include <logical_domain_map.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -67,6 +67,7 @@ namespace nvfuser {
 class ContigIDs;
 class LoopIndexing;
 struct IndexFromIdGraph;
+class TensorIndexer;
 
 class IndexCompute : public BackwardVisitor {
  protected:
@@ -76,6 +77,7 @@ class IndexCompute : public BackwardVisitor {
 
   void handle(Split*) override;
   void handle(Merge*) override;
+  void handle(Swizzle*) override;
   void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
@@ -105,7 +107,7 @@ class IndexCompute : public BackwardVisitor {
   //!    2. the output id is found in permissive map.
   void updateIndexMapFromPermissiveMap(const Expr* id_expr);
 
-  //! Initialize unswitched_domain_map_ from the leaf unswitched
+  //! Initialize unswitched_domain_map_ from the loop unswitched
   //! domains
   void initializeUnswitchDomainMap();
 
@@ -127,8 +129,8 @@ class IndexCompute : public BackwardVisitor {
 
   // Map we update as we propagate backward, containing all IDs in the
   // propagation. Initial indices are mapped with this map at tv->domain()
-  // and are back propagated to tv->getRootDomain(). This index_map_ keeps the
-  // indices at intermediate IterDomain's in that back propagation.
+  // and are back propagated to tv->getMaybeAllocationDomain(). This index_map_
+  // keeps the indices at intermediate IterDomain's in that back propagation.
   std::unordered_map<IterDomain*, Val*> index_map_; // NOLINT
 
   // Map from IterDomain to their broadcasted extent. If a TV has I0*I1 but its
@@ -155,9 +157,6 @@ class IndexCompute : public BackwardVisitor {
   // if there's an option
   std::unordered_set<IterDomain*> preferred_paths_;
 
-  // Map from IterDomains to halo-extended extents
-  std::unordered_map<IterDomain*, Val*> halo_extent_map_;
-
   // Temporary flag which tells IndexCompute to use concrete id's from the exact
   // map rather than the actual IDs used in the ID expressions.
   bool concrete_id_pass_ = false;
@@ -183,20 +182,20 @@ class IndexCompute : public BackwardVisitor {
   //! predicates. These domains need extra adjustments when going
   //! through module operations for merge inner domains as module does
   //! not always guarantee to preserve the maximum-ness property
-  std::unordered_set<IterDomain*> unswitched_leaf_domains_;
+  std::unordered_set<IterDomain*> unswitched_loop_domains_;
 
   //! Mapppings from unswitched IterDomains to their unswitched
   //! domains and their inner domains. Used to figure out if a module
   //! could invalidate the maximum-ness property of an unswitched index.
   //!
-  //! Mappings are created in a bottom-up fashion from leaf to root
+  //! Mappings are created in a bottom-up fashion from loop to root
   //! such that fine-grained domain mappings are kept as much as
   //! possible for making the modulo analysis most precise.
   //!
-  //! Specifically, for the leaf domains, this just maps unswitched
-  //! domains, i.e., those included in unswitched_leaf_domains_, to
-  //! themselves. There'll be no mapping for those leaf domains that
-  //! are not included in unswitched_leaf_domains_. The mappings of
+  //! Specifically, for the loop domains, this just maps unswitched
+  //! domains, i.e., those included in unswitched_loop_domains_, to
+  //! themselves. There'll be no mapping for those loop domains that
+  //! are not included in unswitched_loop_domains_. The mappings of
   //! all other domains are defined based on their consumer
   //! domains. By default, they are also just mapped
   //! to themselves if any of the consumers are also mapped. However,
@@ -228,7 +227,7 @@ class IndexCompute : public BackwardVisitor {
   //! Notice that the merge of "32 * 32" is not contiguous, so we need
   //! to predicate its input domains by propagating index exprs
   //! through the merge inner path with "% 32". If any of the final
-  //! leaf domains are unswitched, we need to make sure the index expr
+  //! loop domains are unswitched, we need to make sure the index expr
   //! sent through "% 32" is the maximum for the domain of extent
   //! "32". Conservatively, this can just be 31, however, that isn't
   //! always strictly required. For example, suppose the innermost
@@ -292,8 +291,7 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_map<IterDomain*, Val*> _extent_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> _zero_merged_in,
-      std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {});
+      std::unordered_set<IterDomain*> preferred_paths = {});
 
   IndexCompute(
       const TensorDomain* _td,
@@ -303,16 +301,14 @@ class IndexCompute : public BackwardVisitor {
       std::unordered_set<IterDomain*> _zero_merged_in,
       const ContigIDs& contig_finder,
       std::unordered_set<IterDomain*> preferred_paths = {},
-      std::unordered_map<IterDomain*, Val*> halo_extent_map = {},
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Entry point used for using concrete id based traversal. This traversal is
-  // assumed to start at leaf IDs provided by initial_index_map.
+  // assumed to start at loop IDs provided by initial_index_map.
   IndexCompute(
       std::unordered_map<IterDomain*, Val*> initial_index_map,
       std::unordered_set<IterDomain*> zero_domains,
       std::unordered_set<IterDomain*> preferred_paths,
-      std::unordered_map<IterDomain*, Val*> concrete_halo_extent_map,
       std::unordered_set<IterDomain*> unswitched_domains = {});
 
   // Updates index_map, extent_map, and zero_merged_in based on id_map and
@@ -362,9 +358,12 @@ class IndexSwizzle : public IndexCompute {
   std::unordered_set<IterDomain*> swizzled_ids_;
 };
 
-//! Predicate information of a root or contiguous merged domain
-class RootPredicateInfo {
+//! Information about a predicate. By default, it corresponds to a
+//! single logical domain but may cover multiple logial domains due to
+//! contigous indexing.
+class PredicateInfo {
   friend class Index;
+  friend class TensorIndexer;
 
  public:
   const auto& startPredicate() const {
@@ -383,17 +382,29 @@ class RootPredicateInfo {
     return stop_predicate_;
   }
 
+  auto& stopPredicate() {
+    return stop_predicate_;
+  }
+
   const auto& stopOffset() const {
     return stop_offset_;
   }
 
-  const auto& rootIds() const {
-    return root_ids_;
+  const auto& predicatedDomains() const {
+    return predicated_domains_;
+  }
+
+  const auto& loopDomains() const {
+    return loop_domains_;
+  }
+
+  CircularBufferLoopStage loopStage() const {
+    return loop_stage_;
   }
 
   //! Return a false RootPredicateInfo, i.e., both start and stop
   //! predicates are false.
-  static RootPredicateInfo getFalseInfo();
+  static PredicateInfo getFalseInfo();
 
  private:
   // prdicate for lower end
@@ -404,8 +415,12 @@ class RootPredicateInfo {
   Val* start_offset_ = nullptr;
   // Offset of the stop predicate
   Val* stop_offset_ = nullptr;
-  // Track which roots have been handled by the generated predicates
-  std::unordered_set<IterDomain*> root_ids_;
+  // Track which domains are covered by the generated predicates
+  std::unordered_set<IterDomain*> predicated_domains_;
+  // Loops domains used for the predicate domains
+  std::unordered_set<IterDomain*> loop_domains_;
+  // Circular buffer loop stage if applicable
+  CircularBufferLoopStage loop_stage_ = CircularBufferLoopStage::NotApplicable;
 };
 
 // Simple interface for IndexCompute
@@ -417,15 +432,15 @@ class Index {
   static std::vector<Val*> getNonGlobalProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // Consumer indexing if it's in shared or local memory
   static std::vector<Val*> getNonGlobalConsumerStridedIndices(
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // get the strides of a tensor used for the index lowering
@@ -434,15 +449,15 @@ class Index {
   // get the allocation indices of a consumer tensor
   static std::vector<Val*> getConsumerAllocationIndices(
       const TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops,
+      const std::vector<ForLoop*>& loops,
       const IndexFromIdGraph& index_from_id_graph);
 
   // get the allocation indices of a producer tensor
   static std::vector<Val*> getProducerAllocationIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
  public:
@@ -450,15 +465,15 @@ class Index {
   static std::vector<Val*> getGlobalProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   // Consumer indexing if it's in global memory
   static std::vector<Val*> getGlobalConsumerStridedIndices(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {});
 
   // Indexing functions
@@ -475,39 +490,41 @@ class Index {
   static kir::TensorIndex* getProducerIndex(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
-      bool generate_pointer = false);
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
-      bool generate_pointer = false);
+      bool generate_pointer = false,
+      DataType as_type = DataType::Null);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a producer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
   static Val* getProducerStridedIndices(
       TensorView* producer,
       const TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false);
 
-  //! Returns a vector of strided indices mapped onto the (rfactor)
+  //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a consumer tensor. The size of the returned
   //! vector is guaranteed to be equal to the number of axes of the
   //! indexing allocation domain.
   static Val* getConsumerStridedIndices(
       TensorView* consumer,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<int, Val*>& override_index = {},
       bool generate_pointer = false);
 
@@ -517,25 +534,25 @@ class Index {
   //! rand (for Philox pseudo random sequences)
   static Val* getLinearLogicalIndex(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a consumer tensor. The returned index is intended
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a consumer tensor. The returned index is intended
   //! to be used for the computation of some tensor factories, such as:
   //! eye
   static std::vector<Val*> getConsumerPerDimLogicalIndex(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 
-  //! Returns a vector of logical indices mapped onto the (rfactor)
-  //! root domain of a producer tensor.
+  //! Returns a vector of logical indices mapped onto the logical
+  //! domain of a producer tensor.
   static std::vector<Val*> getProducerPerDimLogicalIndex(
       TensorView* producer_tv,
       const TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       const std::unordered_map<IterDomain*, Val*>& override_index = {});
 
   //! Take a consumer tensorview and loop nest and generates predicates
@@ -560,18 +577,17 @@ class Index {
   //! predicate, this is not a bool value as if we have an unswitch loop
   //! with a vectorized loop inside, we only want to base the "unswitch"
   //! like predicate on the vectorized loop.
-  static std::vector<RootPredicateInfo> getReferenceRootPredicates(
+  static std::vector<PredicateInfo> getReferenceRootPredicates(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
-      kir::ForLoop* unswitch_or_vec_loop,
-      bool padding_predicate);
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
+      ForLoop* unswitch_or_vec_loop);
 
   //! Compute the result for iota
   static Val* iota(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       Val* start,
       Val* step,
       DataType dtype);
@@ -579,31 +595,31 @@ class Index {
   //! Compute the result for eye
   static Val* eye(
       TensorView* consumer_tv,
-      const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops,
       DataType dtype);
 
-  //! Compute the global index for isCpAsyncBulk, currently just generate naive
-  //! zeros
-  static Val* cpAsyncBulkIndex(
-      TensorView* tv,
-      const std::vector<kir::ForLoop*>& loops);
+  //! Compute the global index and the expected bytes for complete_tx mechanism
+  //! for CpAsyncBulk.
+  static std::pair<Val*, Val*> getCpAsyncBulkGmemIndex(
+      const LoadStoreOp* ldst,
+      Val* mbarrier,
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_set<ForLoop*>& rotated_loops);
 };
 
 // Used for local and shared index mapping. Returns a map from loops
 // to loop indices as well as a set of loops that do not contribute to
 // indexing.
 // TODO: could be cleaned up further.
-std::pair<
-    std::unordered_map<kir::ForLoop*, Val*>,
-    std::unordered_set<kir::ForLoop*>>
+std::pair<std::unordered_map<ForLoop*, Val*>, std::unordered_set<ForLoop*>>
 indexMapFromTV(
     const TensorView* tv,
-    const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
-    kir::ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
+    const std::unordered_set<ForLoop*>& rotated_loops,
+    ForLoop* alloc_loop,
     bool as_consumer,
-    kir::ForLoop* double_buffer_loop = nullptr);
+    ForLoop* circular_buffer_loop = nullptr);
 
 //! Set "pragma unroll" required for loops that indexing of Local
 //! tensors depends on.
@@ -614,8 +630,26 @@ indexMapFromTV(
 //! \param id_map Producer-to-consumer map in case of indexing as producer
 void ensureStaticIndexing(
     const TensorView* tv,
-    kir::ForLoop* alloc_loop,
-    const std::vector<kir::ForLoop*>& loops,
+    ForLoop* alloc_loop,
+    const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {});
+
+struct PredicateDomainInfo {
+ public:
+  // Iteration domain to predicate
+  IterDomain* id = nullptr;
+  // The set of iteration domains that make up the id. If this is for
+  // a non-divisible split, the set only contains the id itself. This
+  // set is used to remove redundant predicates when gathering
+  // unswitch predicates.
+  std::unordered_set<IterDomain*> covered_ids;
+  // True if this predicate is for an intermediate domain. Examples
+  // include domains with non-divisible split and resized domains.
+  bool is_intermediate_domain = false;
+};
+
+// Get all domains that need to be predicated due to non-divisible splits
+std::vector<PredicateDomainInfo> getNonDivisibleConsumerDomainsToPredicate(
+    TensorView* consumer_tv);
 
 } // namespace nvfuser

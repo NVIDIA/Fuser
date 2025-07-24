@@ -8,7 +8,6 @@
 
 #pragma once
 
-#include <c10/macros/Export.h>
 #include <exceptions.h>
 
 #include <compute_at_map.h>
@@ -60,7 +59,7 @@ class LoopNestGenerator {
 
   // Keep all for loops conveniently to make unrolling easier, basically just a
   // stack of the active for_loops
-  std::vector<kir::ForLoop*> for_loops_;
+  std::vector<ForLoop*> for_loops_;
 
   // Loop structure of each expression
   std::unordered_map<TensorView*, std::vector<IterDomain*>> loop_structures_;

@@ -7,127 +7,16 @@
 // clang-format on
 #pragma once
 #include <exceptions.h>
-#include <executor_kernel_arg.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <scheduler/compile_time_info.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/heuristic_types.h>
-#include <scheduler/matmul_heuristic.h>
-#include <scheduler/pointwise_heuristic.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/transpose_heuristic.h>
 #include <scheduler/utils.h>
-#include <utils.h>
+
 namespace nvfuser {
 
-class SegmentedGroup;
-class ExpressionEvaluator;
-
-//!  SchedulerRuntimeInfo is the abstraction introduced in
-//! this PR for passing runtime input dependent information
-//! to the schedulers and kernel caches.
-//!
-//! Note:
-//!  if any additional info needed,  or maybe just the inputs themselves it
-//!    could just be added to this class, and they will be distributed to the
-//!    segmenter and schedulers.
-//!  It is important that input id encoding should be up to date with any change
-//!   of this class to avoid launching compiled kernels with illegal inputs.
-
-class SchedulerRuntimeInfo : public NonCopyable {
- public:
-  // Max vector size we will consider, in bytes,
-  //  currently set to 16B = 128b
-  static constexpr int64_t max_alignment_size_in_byte = 16;
-
-  //! Create runtime info for given fusion and input. Creating and binding
-  //! evaluator is optional. The evaluator is used to manage intermediate
-  //! integers in the fusion. We need them for segmenter and schedulers,
-  //! but we don't need them when we are just using this class to provide
-  //! additional encoding for kernel cache lookup.
-  //!
-  //! The index type of forced_index_type is used if given, no matter
-  //! how large the actual arguments and fusion tensors
-  //! are. CORRECTNESS IS NOT GUARANTEED.
-  SchedulerRuntimeInfo(
-      Fusion* complete_fusion,
-      KernelArgumentHolder args,
-      PrecomputedValues* precomputed_values = nullptr,
-      const std::vector<TensorView*>& all_tvs = {},
-      std::optional<PrimDataType> forced_index_type = std::nullopt);
-
-  SchedulerRuntimeInfo(
-      Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs);
-
-  //! Lookup for the alignment sizes of the given tv. Currently only returns
-  //!  actual alignment info for input tensors to the complete fusion,
-  //!  and for other intermediate/fuser-allocated tensors will
-  //!  return max_alignment_size_in_byte.
-  size_t getAlignmentSize(TensorView* tv);
-
-  // Computes alignment size in bytes for provided ptr address
-  static size_t computeAlignmentSize(size_t ptr_address);
-
-  // Return the runtime pointer value for provided tensor view
-  size_t ptrOf(TensorView* tv) const;
-
-  PrimDataType getIndexType() const {
-    return index_type_;
-  }
-
-  Fusion* fusion() {
-    return complete_fusion_;
-  }
-
-  ExpressionEvaluator& expressionEvaluator() {
-    NVF_ERROR(expression_evaluator_ != nullptr);
-    return *expression_evaluator_;
-  }
-
- private:
-  // Build and bind full fusion inputs to an expression evaluator
-  std::unique_ptr<ExpressionEvaluator> getExpressionEvaluator(
-      const KernelArgumentHolder& inputs,
-      PrecomputedValues* precomputed_values);
-
-  bool isInputTv(TensorView* tv) {
-    return std::find(
-               complete_fusion_->inputs().begin(),
-               complete_fusion_->inputs().end(),
-               tv) != complete_fusion_->inputs().end();
-  }
-
- private:
-  // Returns the offset of tv in the inputs ignoring non tensor views. Used to
-  // access input_sizes, input_strides, input_ptr
-  int offsetTensorPos(TensorView* tv);
-
-  // Expression evaluator used to probe sizes in the fusion IR
-  std::unique_ptr<ExpressionEvaluator> expression_evaluator_ = nullptr;
-
-  // Fusion reference that this runtime info is associated with
-  Fusion* complete_fusion_ = nullptr;
-
-  // Copy of aten input pointer addresses
-  // TODO: Support output tensor pointers
-  std::unordered_map<Val*, size_t> input_ptrs_;
-
-  // Copy of aten input tensor strides (in bytes)
-  std::unordered_map<Val*, std::vector<size_t>> input_discontig_strides_;
-
-  // Cache for getAlignmentSize
-  std::unordered_map<TensorView*, size_t> alignment_map_;
-
-  // Found index mode kernel needs to be run in
-  PrimDataType index_type_ = PrimDataType::Int;
-
-  // TODO: Remove
-  std::unordered_map<TensorView*, size_t> vectorword_map_;
-};
-
-class HeuristicSummary;
+class HeuristicDataCache;
+class HeuristicParams;
+class SchedulerRuntimeInfo;
 
 //! Virtual base class for schedule heuristics
 //!   heuristic implementations derive from this
@@ -135,96 +24,74 @@ class HeuristicSummary;
 //!   and a bool canSchedule(Fusion*) interface
 class SchedulerEntry {
  public:
-  //! Fusion runtime facing API,
-  //!   builds a new entry with the given heuristics
-  //!   corresponding to the given fusion
-  static std::unique_ptr<SchedulerEntry> makeEntry(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  virtual ~SchedulerEntry() = default;
-
-  //! External access for canSchedule utilities through SchedulerEntry
-  //!  to avoid exposing a single function to the namespace
-  static bool canSchedule(
-      ScheduleHeuristic sh,
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info,
-      HeuristicSummary* data_cache = nullptr);
-
-  //! Fusion segmenter facing API,
-  //!   returns a schedule that applies in the given fusion, returns a nullopt
-  //!   if no schedule in the registry can handle.
-  static std::optional<ScheduleHeuristic> proposeHeuristics(
-      Fusion* fusion,
-      SchedulerRuntimeInfo& runtime_info);
+  NVF_API virtual ~SchedulerEntry() = default;
 
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
-  virtual void schedule(Fusion* fusion) = 0;
+  NVF_API virtual void schedule(
+      Fusion* fusion,
+      const HeuristicParams* params) = 0;
+
+  virtual std::unique_ptr<HeuristicParams> computeHeuristics(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache = nullptr) = 0;
+
+  // Compile check that the scheduler maybe able to schedule the fusion
+  virtual bool canScheduleCompileTime(Fusion* fusion) = 0;
+
+  // Runtime check that the scheduler can take the fusion. Scheduler must be
+  // able to schedule the fusion if canScheduleCompileTime && this returns True.
+  virtual bool canScheduleRunTime(
+      Fusion* fusion,
+      SchedulerRuntimeInfo& runtime_info,
+      HeuristicDataCache* data_cache = nullptr) = 0;
+
+  // Dispatch heuristic type to the right derived class of scheduler entry.
+  // Scheduler entries are stateless so it's a lightweight class to dispatch to
+  // the virtual functions in this abstract class.
+  NVF_API static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
+      SchedulerType scheduler_type);
+
+  // Checks the provided scheduler type can schedule the fusion with the
+  // provided inputs. Schedules the fusion according to the heuristics provided
+  // by the scheduler. Returns the heuristics. This is simply a convenience
+  // function for a common testing pattern. If validate_scheduler is set to
+  // false canSchedule will not be checked.
+  NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
+      Fusion* fusion,
+      SchedulerType scheduler_type,
+      const KernelArgumentHolder& runtime_inputs,
+      bool validate_scheduler = true);
 
   //! Heuristic comparison
-  bool sameAs(const SchedulerEntry* other);
+  NVF_API bool sameAs(const SchedulerEntry* other);
 
-  ScheduleHeuristic heuristic() const {
-    return heuristic_;
+  NVF_API const HeuristicParams* params() const {
+    return params_.get();
   }
 
-  const std::shared_ptr<HeuristicParams>& params() const {
-    return params_;
-  }
-
-  const ReductionParams& reductionParams() const {
-    auto rparams = std::dynamic_pointer_cast<ReductionParams>(params_);
-    NVF_ERROR(
-        rparams != nullptr, "Heuristic parameter is not a reduction parameter");
-    return *rparams;
-  }
-
-  const PointwiseParams& pointwiseParams() const {
-    auto pparams = std::dynamic_pointer_cast<PointwiseParams>(params_);
-    NVF_ERROR(
-        pparams != nullptr, "Heuristic parameter is not a pointwise parameter");
-    return *pparams;
-  }
-
-  const TransposeParams& transposeParams() const {
-    auto tparams = std::dynamic_pointer_cast<TransposeParams>(params_);
-    NVF_ERROR(
-        tparams != nullptr, "Heuristic parameter is not a transpose parameter");
-    return *tparams;
-  }
-
-  const MatmulParams& matmulParams() const {
-    auto mparams = std::dynamic_pointer_cast<MatmulParams>(params_);
-    NVF_ERROR(
-        mparams != nullptr, "Heuristic parameter is not a matmul parameter");
-    return *mparams;
-  }
-
-  void updateLaunchConstraint(const LaunchParams& launch_params) {
-    params_->lparams = launch_params;
-  }
-
- protected:
-  explicit SchedulerEntry(ScheduleHeuristic heuristic)
-      : heuristic_(heuristic) {}
-
-  //! Heuristic parameters if applicable
-  std::shared_ptr<HeuristicParams> params_ = nullptr;
-
- private:
-  //! What kind of heuristics does this entry have?
-  const ScheduleHeuristic heuristic_;
+  std::unique_ptr<HeuristicParams> params_ = nullptr;
 };
 
-//! Hash function for a scheduler entry
-class SchedulerEntryHash {
- public:
-  size_t operator()(const SchedulerEntry& se) const;
-};
+namespace Schedule {
+
+//! External access for canSchedule utilities through SchedulerEntry
+//!  to avoid exposing a single function to the namespace
+bool canSchedule(
+    SchedulerType sh,
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache = nullptr,
+    bool skip_compile_time_checks = false);
+
+//! Fusion segmenter facing API,
+//!   returns a schedule that applies in the given fusion, returns
+//!   SchedulerType::None if no schedule in the registry can handle.
+SchedulerType proposeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info);
+} // namespace Schedule
 
 } // namespace nvfuser

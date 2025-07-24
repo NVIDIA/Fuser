@@ -13,17 +13,39 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <ops/arith.h>
+#include <scheduler/mma_utils.h>
 
 #include <limits>
 #include <set>
 
 namespace nvfuser::ir_utils {
 
+//! Checks whether this is a simple Set of a TensorView. If not, then this might
+//! represent a scalar set, or a segment_set.
+bool isSimpleTVSet(Expr* expr) {
+  auto* ldst = dynamic_cast<LoadStoreOp*>(expr);
+  if (ldst == nullptr) {
+    return false;
+  }
+  auto in_tv = dynamic_cast<TensorView*>(ldst->in());
+  if (in_tv == nullptr) {
+    return false;
+  }
+  auto out_tv = dynamic_cast<TensorView*>(ldst->out());
+  if (out_tv == nullptr) {
+    return false;
+  }
+
+  return ldst->opType() == LoadStoreOpType::Set &&
+      // The hasRoot() check is to prevent picking up Set.Permute ops here
+      !out_tv->hasRoot();
+}
+
 std::vector<int64_t> normalizeNew2Old(
     const std::vector<int64_t>& new2old_in,
-    size_t ndims) {
+    int64_t ndims) {
   NVF_CHECK(
-      new2old_in.size() == ndims,
+      (int64_t)new2old_in.size() == ndims,
       "There must be a transpose mapping for each dimension in domain");
 
   // Canonicalize dimensions by wrapping each dim for the given ndims
@@ -39,10 +61,9 @@ std::vector<int64_t> normalizeNew2Old(
       std::none_of(
           new2old.begin(),
           new2old.end(),
-          [ndims](int64_t entry) {
-            return entry < 0 || (unsigned int)entry >= ndims;
-          }),
-      "New2Old axes are not within the number of dimensions of the provided domain.\t",
+          [ndims](int64_t entry) { return entry < 0 || entry >= ndims; }),
+      "New2Old axes are not within the number of dimensions of the provided "
+      "domain.\t",
       new2old);
 
   // Going to use sets, to see if any duplicate values are in the map.
@@ -55,25 +76,25 @@ std::vector<int64_t> normalizeNew2Old(
 
   // Error out if duplicate values are found.
   NVF_CHECK(
-      new2old.size() == ndims && old_pos_set.size() == new2old.size(),
+      (int64_t)new2old.size() == ndims && old_pos_set.size() == new2old.size(),
       "Duplicate entries in transformation map.");
 
   // END VALIDATION CHECKS
   return new2old;
 }
 
-std::vector<int> normalizeOld2New(
-    const std::unordered_map<int, int>& old2new_in,
-    size_t ndims) {
+std::vector<int64_t> normalizeOld2New(
+    const std::unordered_map<int64_t, int64_t>& old2new_in,
+    int64_t ndims) {
   // adjust based on negative values (any negative values gets nDims added to
   // it)
-  std::unordered_map<int, int> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
   std::transform(
       old2new_in.begin(),
       old2new_in.end(),
       std::inserter(old2new, old2new.begin()),
-      [ndims](std::unordered_map<int, int>::value_type entry) {
-        return std::unordered_map<int, int>::value_type({
+      [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+        return std::unordered_map<int64_t, int64_t>::value_type({
             entry.first < 0 ? entry.first + ndims : entry.first,
             entry.second < 0 ? entry.second + ndims : entry.second,
         });
@@ -85,29 +106,30 @@ std::vector<int> normalizeOld2New(
       std::none_of(
           old2new.begin(),
           old2new.end(),
-          [ndims](std::unordered_map<int, int>::value_type entry) {
-            return entry.first < 0 || (unsigned int)entry.first >= ndims ||
-                entry.second < 0 || (unsigned int)entry.second >= ndims;
+          [ndims](std::unordered_map<int64_t, int64_t>::value_type entry) {
+            return entry.first < 0 || entry.first >= ndims ||
+                entry.second < 0 || entry.second >= ndims;
           }),
-      "Reorder axes are not within the number of dimensions of the provided domain.");
+      "Reorder axes are not within the number of dimensions of the provided "
+      "domain.");
 
   // Going to use sets, to see if any duplicate values are in the map.
 
-  std::set<int> old_pos_set;
+  std::set<int64_t> old_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(old_pos_set, old_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.first;
       });
 
-  std::set<int> new_pos_set;
+  std::set<int64_t> new_pos_set;
   std::transform(
       old2new.begin(),
       old2new.end(),
       std::inserter(new_pos_set, new_pos_set.begin()),
-      [](std::unordered_map<int, int>::value_type entry) {
+      [](std::unordered_map<int64_t, int64_t>::value_type entry) {
         return entry.second;
       });
 
@@ -119,26 +141,27 @@ std::vector<int> normalizeOld2New(
 
   // END VALIDATION CHECKS
 
-  std::vector<int> new2old(ndims, -1);
+  std::vector<int64_t> new2old(ndims, -1);
 
   // Go through each old and new position, make sure they're within [0, ndims)
-  for (std::pair<int, int> elem : old2new) {
-    int old_pos = elem.first;
-    int new_pos = elem.second;
+  for (std::pair<int64_t, int64_t> elem : old2new) {
+    int64_t old_pos = elem.first;
+    int64_t new_pos = elem.second;
     new2old[new_pos] = old_pos;
   }
 
   // old_positions that already have a new position
-  std::set<int> old_positions(new2old.begin(), new2old.end());
+  std::set<int64_t> old_positions(new2old.begin(), new2old.end());
   old_positions.erase(-1);
 
   // All available new positions
-  std::set<int> all_positions;
-  for (decltype(ndims) i{0}; i < ndims; i++)
-    all_positions.insert((int)i);
+  std::set<int64_t> all_positions;
+  for (auto i : arange(ndims)) {
+    all_positions.insert((int64_t)i);
+  }
 
   // Check what positions haven't been specified.
-  std::set<int> positions_left;
+  std::set<int64_t> positions_left;
   std::set_difference(
       all_positions.begin(),
       all_positions.end(),
@@ -151,9 +174,10 @@ std::vector<int> normalizeOld2New(
   // new2old[new_position] = old_position
   auto it = positions_left.begin(); // old positions left
   std::transform(
-      new2old.begin(), new2old.end(), new2old.begin(), [&it](int i) -> int {
-        return i == -1 ? *it++ : i;
-      });
+      new2old.begin(),
+      new2old.end(),
+      new2old.begin(),
+      [&it](int64_t i) -> int64_t { return i == -1 ? *it++ : i; });
 
   return new2old;
 }
@@ -163,7 +187,7 @@ namespace ValReplacement {
 // Creates a new Expr substituting current with producer
 struct SubstituteInExpr : public OptOutMutator {
  public:
-  static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
+  static Expr* substitute(Expr* expr, Val* reference, Val* substitute) {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
@@ -193,8 +217,18 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::substitute(
       expr, reference, substitute);
+}
+
+void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
+  auto uses = old_val->uses();
+  for (auto use_of_old_val : uses) {
+    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+  }
+  if (old_val->isFusionOutput()) {
+    old_val->fusion()->replaceOutput(old_val, new_val);
+  }
 }
 
 Expr* transferDefinitionToNewOutputs(
@@ -204,7 +238,7 @@ Expr* transferDefinitionToNewOutputs(
       new_outputs.size() == expr->outputs().size(),
       "Number of new outputs must match old outputs");
   OptOutMutator mutator;
-  for (const auto i : c10::irange(new_outputs.size())) {
+  for (const auto i : arange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
     auto new_output = new_outputs.at(i);
     if (new_output == old_output) {
@@ -238,9 +272,9 @@ Expr* transferDefinitionToNewOutputs(
   return mutator.mutateExprOutputsOnly(expr);
 }
 
-TensorView* rfactorHelper(
+TensorView* rFactorHelper(
     TensorView* reduction_tv,
-    const std::vector<int>& axes) {
+    const std::vector<int64_t>& axes) {
   NVF_ERROR(reduction_tv->definition() != nullptr);
   const bool has_multiple_tvs = reduction_tv->definition()->inputs().size() > 1;
   if (!has_multiple_tvs) {
@@ -264,15 +298,9 @@ TensorView* rfactorHelper(
 namespace {
 
 template <typename T>
-std::vector<T*> uniqueEntries(const std::vector<T*>& tv_deuqe) {
-  std::vector<T*> unique_entries;
-  std::unordered_set<T*> inserted;
-  for (auto tv_entry : tv_deuqe) {
-    if (inserted.emplace(tv_entry).second) {
-      unique_entries.emplace_back(tv_entry);
-    }
-  }
-  return unique_entries;
+std::vector<T*> uniqueEntries(const std::vector<T*>& tv_vector) {
+  VectorOfUniqueEntries<T*> unique_vector(tv_vector.begin(), tv_vector.end());
+  return unique_vector.vector();
 }
 
 } // namespace
@@ -398,29 +426,23 @@ std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs) {
   return uniqueEntries<TensorView>(out_tvs);
 }
 
-std::vector<TensorView*> allTvs(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
-  auto used_tvs = ir_utils::filterByType<TensorView>(used_vals);
-
-  // This shouldn't be necessary but FusionSegmentIoAlias_CUDA due to aliasing
-  // is having an input disconnected from outputs, and these iter domains are
-  // being checked in compute at maps in scheduling logic. This shouldn't hurt
-  // AFAICT.
-  auto tv_inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
-
-  std::vector<TensorView*> all_tvs({used_tvs.begin(), used_tvs.end()});
-  // Sometimes inputs are not connected to outputs, however, we still include
-  // them when returning allTvs because they are registered as an input.
-  all_tvs.insert(all_tvs.end(), tv_inputs.begin(), tv_inputs.end());
-
-  // all_tvs has duplicates, to deduplicate it and return
-  return uniqueEntries<TensorView>(all_tvs);
+VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
+    const std::vector<Expr*>& exprs) {
+  VectorOfUniqueEntries<TensorView*> all_tvs;
+  for (auto expr : exprs) {
+    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
+    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    for (const auto& tvs : {input_tvs, output_tvs}) {
+      all_tvs.pushBack(tvs.begin(), tvs.end());
+    }
+  }
+  return all_tvs;
 }
 
 std::vector<TensorView*> allTvsExcept(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& except) {
-  auto all_tvs = allTvs(fusion);
+  auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> result;
   for (auto tv : all_tvs) {
     if (except.count(tv) == 0) {
@@ -440,7 +462,7 @@ bool hasAnyReductionOps(Fusion* fusion) {
 
 namespace {
 
-class ValReplacementMutator : private OptOutMutator {
+class ValReplacementMutator : public OptOutMutator {
  public:
   ValReplacementMutator(
       Fusion* fusion,
@@ -452,7 +474,7 @@ class ValReplacementMutator : private OptOutMutator {
     // typically not used by anything else. If we don't grab that count, then it
     // would be a tensorview that doesn't get updated extents. Therefore, first
     // grab all leaves towards outputs and grab stmts from there.
-    auto stmts = StmtSort::getStmtsTo(fusion, allLeafOuts(fusion), true, true);
+    auto stmts = StmtSort::getAllStmtsTo(allLeafOuts(fusion), true, true);
 
     // Some fusions, such as standalone rand_like, can have disconnected DAG, so
     // we need some mechanism to make sure our replacement set is as complete as
@@ -470,11 +492,17 @@ class ValReplacementMutator : private OptOutMutator {
         more.emplace_back(v);
       }
     }
-    auto more_stmts = StmtSort::getStmtsTo(fusion, more, true, true);
+    auto more_stmts = StmtSort::getStmtsTo(more, true, true);
     more_stmts.insert(more_stmts.end(), stmts.begin(), stmts.end());
 
     for (auto stmt : more_stmts) {
       dispatchMutate(stmt);
+    }
+
+    for (const auto& [old_v, new_v] : replacement_map_) {
+      if (old_v->isFusionOutput()) {
+        fusion->replaceOutput(old_v, new_v);
+      }
     }
   }
 
@@ -496,6 +524,24 @@ class ValReplacementMutator : private OptOutMutator {
     std::unordered_set<Val*> outputs;
     std::vector<Val*> ordered_outputs;
     for (auto expr : exprs) {
+      // Iter domains and their exprs are taken care by traversing
+      // from TensorDomain with TensorDomain::allStatements, so they
+      // don't need to be included here
+      if (std::any_of(
+              expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+                return output->isA<IterDomain>();
+              })) {
+        NVF_ERROR(std::all_of(
+            expr->outputs().begin(), expr->outputs().end(), [](Val* output) {
+              return output->isA<IterDomain>();
+            }));
+        NVF_ERROR(std::all_of(
+            expr->inputs().begin(), expr->inputs().end(), [](Val* input) {
+              return input->isA<IterDomain>();
+            }));
+        continue;
+      }
+
       inputs.insert(expr->inputs().begin(), expr->inputs().end());
       outputs.insert(expr->outputs().begin(), expr->outputs().end());
       ordered_outputs.insert(
@@ -521,10 +567,12 @@ class ValReplacementMutator : private OptOutMutator {
 
 } // namespace
 
-void replaceValue(
+std::unordered_map<Val*, Val*> replaceValue(
     Fusion* fusion,
     const std::unordered_map<Val*, Val*>& replacement_map) {
-  ValReplacementMutator(fusion, replacement_map);
+  // NOLINTNEXTLINE(bugprone-unused-raii)
+  ValReplacementMutator mutator(fusion, replacement_map);
+  return mutator.mutations_;
 }
 
 Val* getReductionInitValOf(TensorView* tv) {
@@ -568,12 +616,20 @@ bool isReductionTvOp(const Expr* expr) {
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
-  // LoadStoreOp with rfactor domain means transpose, which is not
+  // LoadStoreOp with producer projection means transpose, which is not
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() &&
-        !ir_utils::getTvOutput(expr)->hasRFactor()));
+       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
+}
+
+bool isSegmentSet(const Expr* e) {
+  if (const auto* ldst = dynamic_cast<const LoadStoreOp*>(e)) {
+    if (ldst->opType() == LoadStoreOpType::SegmenterSet) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::vector<ViewOp*> getViewOps(Fusion* fusion) {
@@ -593,7 +649,7 @@ std::vector<ViewOp*> getViewOps(Fusion* fusion) {
               if (!v->isA<TensorView>()) {
                 return false;
               }
-              return v->as<TensorView>()->hasRFactor();
+              return v->as<TensorView>()->hasRoot();
             });
       });
 
@@ -661,10 +717,10 @@ bool isSqueezeInput(const TensorView* tv) {
 }
 
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
-  auto root_dom = TensorDomain::noReductions(tv->getMaybeRFactorDomain());
+  auto logical_dom = TensorDomain::noReductions(tv->getLogicalDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(root_dom.size())) {
-    if (root_dom[i] != id) {
+  for (auto i : arange(logical_dom.size())) {
+    if (logical_dom[i] != id) {
       continue;
     }
     for (auto squeeze : squeezes) {
@@ -691,7 +747,7 @@ IterDomain* getIndexedProducerID(const Expr* expr) {
     return select->getIndexedID();
   } else if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
     return index_select->getIndexedID();
-  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+  } else if (auto gather = dynamic_cast<const GatherOp*>(expr)) {
     return gather->getIndexedID();
   } else {
     return nullptr;
@@ -701,7 +757,7 @@ IterDomain* getIndexedProducerID(const Expr* expr) {
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
   if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
     return index_select->getConsumerOfIndexedID();
-  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+  } else if (auto gather = dynamic_cast<const GatherOp*>(expr)) {
     return gather->getConsumerOfIndexedID();
   } else {
     return nullptr;
@@ -711,27 +767,6 @@ IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id) {
   return tv->definition()->isA<ScatterOp>() &&
       tv->definition()->as<ScatterOp>()->getIndexedID() == id;
-}
-
-std::vector<IterDomain*> allIDsOf(const TensorView* tv) {
-  const auto& root_domain = tv->getRootDomain();
-  const auto& domain = tv->getLeafDomain();
-  // Grab all values in the history of the tensor view's domain
-  auto all_vals = DependencyCheck::getAllValsBetween(
-      {root_domain.begin(), root_domain.end()}, {domain.begin(), domain.end()});
-
-  // Filter so we only have iteration domains (ignore Ints used in split)
-  auto all_ids = ir_utils::filterByType<IterDomain>(all_vals);
-  return std::vector<IterDomain*>(all_ids.begin(), all_ids.end());
-}
-
-bool isSelectInput(TensorView* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<SelectOp>()) {
-      return true;
-    }
-  }
-  return false;
 }
 
 bool isIndexSelectLookupTv(const TensorView* tv) {
@@ -758,10 +793,10 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isTorchGatherLookupTv(const Val* tv) {
+bool isGatherLookupTv(const Val* tv) {
   for (auto expr : tv->uses()) {
-    if (expr->isA<TorchGatherOp>()) {
-      auto idx_sel = expr->as<TorchGatherOp>();
+    if (expr->isA<GatherOp>()) {
+      auto idx_sel = expr->as<GatherOp>();
       if (idx_sel->lookupTv() == tv) {
         return true;
       }
@@ -785,13 +820,12 @@ std::string varName(const Val* val) {
 }
 
 bool hasResizedRfactor(const TensorView* tv) {
-  if (!tv->hasRFactor()) {
+  if (!tv->hasRoot()) {
     return false;
   }
   auto root_to_rf_exprs = StmtSort::getExprsBetween(
-      tv->fusion(),
       {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-      {tv->getRFactorDomain().begin(), tv->getRFactorDomain().end()});
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
   return std::any_of(
       root_to_rf_exprs.begin(), root_to_rf_exprs.end(), [](Expr* expr) {
         return expr->isA<Resize>();
@@ -799,7 +833,7 @@ bool hasResizedRfactor(const TensorView* tv) {
 }
 
 std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
-  const auto all_tvs = ir_utils::allTvs(fusion);
+  const auto all_tvs = fusion->allTvs();
   std::vector<TensorView*> dynamic_tvs;
   std::copy_if(
       all_tvs.begin(),
@@ -809,81 +843,198 @@ std::vector<TensorView*> getTVsWithDynamicTransform(Fusion* fusion) {
   return dynamic_tvs;
 }
 
-namespace {
+CompareDomainWithReferenceResult compareDomainWithReference(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& reference) {
+  if (domain.empty()) {
+    return {{}, {}, reference};
+  }
+  // If domain is not empty but reference is, unclear what it should
+  // mean. Throw an error for now.
+  NVF_ERROR(!reference.empty(), "domain is not empty but reference is.");
 
-class ValidateDomainEquivalence : private IterVisitor {
- public:
-  ValidateDomainEquivalence(
-      const std::vector<IterDomain*>& initial_domain,
-      const std::vector<IterDomain*>& derived_domain)
-      : initial_domain_({initial_domain.begin(), initial_domain.end()}),
-        derived_domain_({derived_domain.begin(), derived_domain.end()}),
-        frontier_({initial_domain.begin(), initial_domain.end()}) {
-    NVF_ERROR(!initial_domain.empty());
-    NVF_ERROR(!derived_domain.empty());
-    // Make sure there's no duplicate in the parameter vectors
-    NVF_ERROR(
-        initial_domain.size() == initial_domain_.size(),
-        "Duplicated entry is detected in inial_domain: ",
-        toDelimitedString(initial_domain));
-    NVF_ERROR(
-        derived_domain.size() == derived_domain_.size(),
-        "Duplicated entry is detected in derived_domain: ",
-        toDelimitedString(derived_domain));
+  const std::unordered_set<IterDomain*> reference_set{
+      reference.begin(), reference.end()};
 
-    traverseBetween(
-        initial_domain.at(0)->fusion(),
-        {initial_domain.begin(), initial_domain.end()},
-        {derived_domain.begin(), derived_domain.end()});
+  std::vector<IterDomain*> redundant_ids;
 
-    // At this point, the frontier set and the derived set should be
-    // equal, except when there's a symbolic ID in the derived set,
-    // where the traversal may be incomplete.
-    if (std::any_of(derived_domain.begin(), derived_domain.end(), [](auto id) {
-          return id->getIterType() == IterType::Symbolic;
-        })) {
-      // Make sure all non-symbolic IDs of the derived set are included
-      // in the frontier set
-      NVF_ERROR(
-          std::all_of(
-              derived_domain.begin(),
-              derived_domain.end(),
-              [&](auto id) {
-                return id->getIterType() == IterType::Symbolic ||
-                    frontier_.count(id);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-      // Similarly, all frontier vals should be included in the
-      // derived set. It is also possible that an ID in the initial
-      // domain set still remains in the frontier set as there may be
-      // no expr connecting to the derived set, e.g., dynamic reshape
-      NVF_ERROR(
-          std::all_of(
-              frontier_.begin(),
-              frontier_.end(),
-              [&](Val* val) {
-                NVF_ERROR(val->isA<IterDomain>());
-                return derived_domain_.count(val->as<IterDomain>()) ||
-                    initial_domain_.count(val);
-              }),
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
-    } else {
-      NVF_ERROR(
-          derived_domain_ == frontier_,
-          "Invalid derived domain. Initial domain: ",
-          toDelimitedString(initial_domain),
-          ". Derived domain: ",
-          toDelimitedString(derived_domain));
+  // In case domain has duplicates
+  std::vector<IterDomain*> domain_dedup;
+  {
+    std::unordered_set<IterDomain*> domain_set;
+    for (const auto id : domain) {
+      if (domain_set.insert(id).second) {
+        domain_dedup.push_back(id);
+      } else {
+        redundant_ids.push_back(id);
+      }
     }
-  };
+  }
 
-  void dispatch(Expr* expr) override {
+  const auto path_to_ref = getExprsBetween<IRBFS>(
+                               {domain_dedup.begin(), domain_dedup.end()},
+                               {reference.begin(), reference.end()},
+                               false)
+                               .first;
+
+  // All output IDs along the path
+  std::unordered_set<Val*> produced_ids;
+  // All used IDs along the path
+  std::unordered_set<Val*> consumed_ids;
+  // Consider the domain itself as produced and consumed if included in
+  // reference since there's no expr for that case
+  for (const auto id_to_check : domain_dedup) {
+    if (reference_set.find(id_to_check) != reference_set.end()) {
+      produced_ids.insert(id_to_check);
+      consumed_ids.insert(id_to_check);
+    }
+  }
+
+  // Find any produced IDs that are produced multiple times
+  std::vector<IterDomain*> redundantly_produced_ids;
+  for (const auto& [expr, dir] : path_to_ref) {
+    const auto& inputs = getInputsOfExpr(expr, dir);
+    const auto& outputs = getOutputsOfExpr(expr, dir);
+    consumed_ids.insert(inputs.begin(), inputs.end());
+    for (const auto& output : outputs) {
+      bool already_produced = !produced_ids.insert(output).second;
+      if (already_produced) {
+        // This output is redundantly produced. If it's in the
+        // original domain, just mark it as a redundant ID. If not,
+        // find the corresnponding IDs out of the domain by doing
+        // another BFS analysis
+        if (std::find(domain_dedup.begin(), domain_dedup.end(), output) !=
+            domain_dedup.end()) {
+          redundant_ids.push_back(output->as<IterDomain>());
+        } else {
+          auto inputs_of_already_produced_id = getInputsOfExprPath(
+              getExprsBetween<IRBFS>(
+                  {domain_dedup.begin(), domain_dedup.end()}, {output}, false)
+                  .first,
+              IRInputs(),
+              IROutputs());
+          for (const auto& input : inputs_of_already_produced_id) {
+            redundant_ids.push_back(input->as<IterDomain>());
+          }
+        }
+      }
+    }
+  }
+
+  // IDs of the reference domain that are not reachable from the given domain
+  std::vector<IterDomain*> unreachable_reference_ids;
+  unreachable_reference_ids.reserve(reference.size());
+  std::copy_if(
+      reference.begin(),
+      reference.end(),
+      std::back_inserter(unreachable_reference_ids),
+      [&](const auto reference_id) {
+        return produced_ids.find(reference_id) == produced_ids.end();
+      });
+
+  // Check unused IDs, which should be either redundant or additional
+  // IDs.
+  std::vector<IterDomain*> unused_ids;
+  unused_ids.reserve(domain_dedup.size());
+  std::copy_if(
+      domain_dedup.begin(),
+      domain_dedup.end(),
+      std::back_inserter(unused_ids),
+      [&](const auto id_to_check) {
+        return consumed_ids.find(id_to_check) == consumed_ids.end();
+      });
+
+  std::vector<IterDomain*> additional_ids;
+
+  // If there're unused IDs, they may be redundant or additional
+  // IDs. The latter means the ID has no overlap with any other
+  // ID. This could happen, for example, when we use a concrete loop
+  // ID for a broadcast logical ID.
+  //
+  // If there's unreachable reference IDs, however, the unused IDs may have
+  // been unused because of missing dependencies, which should not be
+  // considered redundant or additional. Different analysis would be
+  // required in that case, which is not implemented since error
+  // reporting of this function is best effort.
+  if (!unused_ids.empty() && unreachable_reference_ids.empty()) {
+    // In order to understand if an unused ID is redundant or just an
+    //  additional ID, check if the unused ID is connected to any of
+    //  the reference domain. If it's connected even with missing
+    //  dependencies, it should be considered redundant. For this
+    //  reason, a variant of IRBFS with a relaxed dependency condition
+    //  is used. IRPermissiveBFS can traverse as long as one of
+    //  the inputs or outputs is visited.
+    const auto from_remaining_ids = getExprsBetween<IRPermissiveBFS>(
+                                        {unused_ids.begin(), unused_ids.end()},
+                                        {reference.begin(), reference.end()},
+                                        /*require_all_to_visited=*/false)
+                                        .first;
+    // Nothing is reachable, which means all of the unused IDs are not redundant
+    if (from_remaining_ids.empty()) {
+      additional_ids = unused_ids;
+    } else {
+      // Inputs of the path are redundant, and the rest are not
+      auto inputs =
+          getInputsOfExprPath(from_remaining_ids, IRInputs(), IROutputs());
+      for (const auto inp : inputs) {
+        redundant_ids.push_back(inp->as<IterDomain>());
+      }
+      for (const auto unused_id : unused_ids) {
+        if (std::find(inputs.begin(), inputs.end(), unused_id) ==
+            inputs.end()) {
+          additional_ids.push_back(unused_id);
+        }
+      }
+    }
+  }
+
+  // If an output of the path is not used, i.e., not part of the
+  // reference domain, it's considered an additional ID. For example,
+  // if we have `split i0 -> i1, i2`, and the reference only includes
+  // i1, then i2 is considered an additional ID
+  for (const auto output :
+       getOutputsOfExprPath(path_to_ref, IRInputs(), IROutputs())) {
+    if (reference_set.find(output->as<IterDomain>()) == reference_set.end()) {
+      additional_ids.push_back(output->as<IterDomain>());
+    }
+  }
+
+  return {redundant_ids, additional_ids, unreachable_reference_ids};
+}
+
+CompareDomainResult compareDomains(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids,
+    bool ignore_broadcast) {
+  std::unordered_set<Val*> dom0_set(dom0.begin(), dom0.end());
+  std::unordered_set<Val*> dom1_set(dom1.begin(), dom1.end());
+  std::unordered_set<Val*> additional_ids_set(
+      additional_ids.begin(), additional_ids.end());
+
+  // empty domain are equivalent.
+  if (dom0.empty() && dom1.empty()) {
+    return {};
+  }
+  // Make sure there's no duplicate in the parameter vectors
+  NVF_ERROR(
+      dom0.size() == dom0_set.size(),
+      "Duplicated entry is detected in dom0: ",
+      toDelimitedString(dom0));
+  NVF_ERROR(
+      dom1.size() == dom1_set.size(),
+      "Duplicated entry is detected in dom1: ",
+      toDelimitedString(dom1));
+
+  dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
+  auto exprs =
+      getExprsBetween<IRBFS>(
+          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
+          .first;
+
+  std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
+
+  for (auto [expr, direction] : exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -892,45 +1043,142 @@ class ValidateDomainEquivalence : private IterVisitor {
         std::all_of(expr->outputs().begin(), expr->outputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
         }));
-    // If any of the inputs is included in derived_domain_, that means there's a
-    // dependency within derived_domain_ and the dependent domains
-    // redundantly cover the initial domain
-    NVF_ERROR(
-        std::none_of(
-            expr->inputs().begin(),
-            expr->inputs().end(),
-            [&](Val* input_val) {
-              return derived_domain_.find(input_val) != derived_domain_.end();
-            }),
-        "Invalid derived domain due to dependent expr: ",
-        expr->toString(),
-        ". Derived domain: ",
-        toDelimitedString(derived_domain_));
-    for (auto out : expr->outputs()) {
-      // Make sure the output is not yet visited
+    std::vector<Val*> from;
+    std::vector<Val*> to;
+    if (direction == Direction::Forward) {
+      from = expr->inputs();
+      to = expr->outputs();
+    } else {
+      from = expr->outputs();
+      to = expr->inputs();
+    }
+    if (std::all_of(from.begin(), from.end(), [&](Val* v) {
+          return additional_ids_set.count(v);
+        })) {
+      additional_ids_set.insert(to.begin(), to.end());
+      continue;
+    }
+    for (auto v : to) {
+      if (additional_ids_set.count(v)) {
+        continue;
+      }
       NVF_ERROR(
-          frontier_.insert(out).second,
+          frontier.insert(v).second,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Output should just show up once: ",
-          out->toString());
+          v->toString());
     }
-    for (auto inp : expr->inputs()) {
+    for (auto v : from) {
+      bool ignorable =
+          (ignore_broadcast && v->as<IterDomain>()->isBroadcast()) ||
+          additional_ids_set.count(v);
       NVF_ERROR(
-          frontier_.erase(inp) == 1,
+          frontier.erase(v) == 1 || ignorable,
           "Invalid derived domain due to dependent expr: ",
           expr->toString(),
           ". Input not seen before: ",
-          inp->toString());
+          v->toString());
     }
   }
 
- private:
-  const std::unordered_set<Val*> initial_domain_;
-  const std::unordered_set<Val*> derived_domain_;
-  //! Traversal frontier vals
-  std::unordered_set<Val*> frontier_;
-};
+  // Remove symbolic IDs that appear both in frontier and in dom1_set. These IDs
+  // are carried over without any transformation.
+  auto is_symb = [](Val* v) {
+    return v->as<IterDomain>()->getIterType() == IterType::Symbolic;
+  };
+  std::vector<Val*> ids_to_remove;
+  for (Val* id : frontier) {
+    if (is_symb(id) && dom1_set.count(id)) {
+      ids_to_remove.push_back(id);
+    }
+  }
+  for (Val* id : ids_to_remove) {
+    frontier.erase(id);
+    dom1_set.erase(id);
+  }
+  // At this point, the frontier set and dom1 should be equal, except when
+  // there's a symbolic ID in frontier or dom1, where the transformations are
+  // incomplete.
+  bool frontier_has_symbolic =
+      std::any_of(frontier.begin(), frontier.end(), is_symb);
+  bool dom1_has_symbolic =
+      std::any_of(dom1_set.begin(), dom1_set.end(), is_symb);
+
+  CompareDomainResult result;
+
+  // Check if iter domains can be reachable from
+  // target_set. Returns true if any of iter domains is
+  // unreachable. Additionaly, make sure none of iter domains has any
+  // overlap with the other iter domains.
+  auto check_ids = [ignore_broadcast](
+                       const auto& ids_to_check,
+                       const auto& target_set) -> bool {
+    bool unreachable = false;
+    for (auto id : ids_to_check) {
+      // Symbolic and broadcast IDs are ignored
+      if (id->template as<IterDomain>()->getIterType() == IterType::Symbolic ||
+          (ignore_broadcast && id->template as<IterDomain>()->isBroadcast())) {
+        continue;
+      }
+      if (!target_set.count(id)) {
+        // not found in target, which means either:
+        //
+        // 1. id is unreachable from target_set, or
+        // 2. id is reachable from target_set but was erased from
+        // target_set as it was used as an input in the traversal.
+        //
+        // The second case means id is redundant
+        NVF_ERROR(
+            getReachableValsFrom<IRBFS>(
+                {target_set.begin(), target_set.end()}, {id})
+                .empty(),
+            id->toString(),
+            " is redundant in ",
+            toDelimitedString(target_set));
+
+        unreachable = true;
+        // Do not break here. The return value is now determined to be
+        // true, but the remaining IDs need also to be checked if they
+        // are redundant.
+      }
+    }
+    return unreachable;
+  };
+
+  if (!frontier_has_symbolic) {
+    result.dom1_has_unreachable_ids = check_ids(dom1, frontier);
+  }
+
+  if (!dom1_has_symbolic) {
+    result.dom0_has_unreachable_ids = check_ids(frontier, dom1_set);
+  }
+
+  return result;
+}
+
+void validateDomainEquivalence(
+    std::vector<IterDomain*> dom0,
+    const std::vector<IterDomain*>& dom1,
+    const std::vector<IterDomain*>& additional_ids) {
+  const auto compare_result = compareDomains(dom0, dom1, additional_ids);
+
+  NVF_ERROR(
+      !compare_result.dom0_has_unreachable_ids,
+      "dom0 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
+
+  NVF_ERROR(
+      !compare_result.dom1_has_unreachable_ids,
+      "dom1 has unreachable IDs. dom0: ",
+      toDelimitedString(dom0),
+      ". dom1: ",
+      toDelimitedString(dom1));
+}
+
+namespace {
 
 std::vector<Statement*> next(Statement* stmt) {
   if (stmt->isVal()) {
@@ -948,12 +1196,6 @@ std::vector<Statement*> next(Statement* stmt) {
 }
 
 } // namespace
-
-void validateDomainEquivalence(
-    const std::vector<IterDomain*>& initial_domain,
-    const std::vector<IterDomain*>& derived_domain) {
-  ValidateDomainEquivalence(initial_domain, derived_domain);
-}
 
 std::vector<Statement*> checkCycle(
     Fusion* fusion,
@@ -1021,7 +1263,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1030,7 +1272,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
   } else {
-    NVF_ERROR(false, "Invalid scope expr: ", expr->toString());
+    NVF_THROW("Invalid scope expr: ", expr->toString());
   }
 
   return true;
@@ -1071,6 +1313,394 @@ bool isTensorSize(const Val* val) {
 bool isTensorStride(const Val* val) {
   return isTensorAttr(val, "logical_stride") ||
       isTensorAttr(val, "alloc_stride");
+}
+
+int64_t getVectorizeSize(const TensorView* tv) {
+  for (auto id : tv->getLoopDomain()) {
+    if (!isParallelTypeVectorize(id->getParallelType())) {
+      continue;
+    }
+
+    NVF_ERROR(
+        id->extent()->isConstInt(),
+        "Could not evaluate constant value bound to vectorized dim.");
+
+    return id->extent()->evaluate().as<int64_t>();
+  }
+  return 1;
+}
+
+bool hasTrivialAllocationDomain(const TensorView* tv) {
+  if (!tv->hasAllocation()) {
+    return true;
+  }
+  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
+      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+}
+bool hasUniformSiblings(Expr* expr) {
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+}
+
+bool hasRootToLoopLinearTransformations(const TensorView* tv) {
+  auto root = tv->getMaybeRootDomain();
+  auto loop = tv->getLoopDomain();
+  std::vector<Val*> loop_val(loop.begin(), loop.end());
+  auto all_ids_vec =
+      DependencyCheck::getAllValsBetween({root.begin(), root.end()}, loop_val);
+  std::unordered_set<Val*> all_ids_set(all_ids_vec.begin(), all_ids_vec.end());
+  auto alloc = tv->getMaybeAllocationDomain();
+  auto logical = tv->getLogicalDomain();
+  bool all_alloc_id_on_path = std::all_of(
+      alloc.begin(), alloc.end(), [&](Val* v) { return all_ids_set.count(v); });
+  bool all_logical_id_on_path =
+      std::all_of(logical.begin(), logical.end(), [&](Val* v) {
+        return all_ids_set.count(v);
+      });
+  return all_alloc_id_on_path && all_logical_id_on_path;
+}
+
+bool isLoopDomainFullyDerivedFromLogicalDomain(TensorView* tv) {
+  return ir_utils::hasRootToLoopLinearTransformations(tv) &&
+      !ir_utils::compareDomains(
+           tv->getLoopDomain(),
+           tv->getLogicalDomain(),
+           /*additional_ids=*/{},
+           /*ignore_broadcast=*/false)
+           .dom0_has_unreachable_ids;
+}
+
+AsyncOpType getAsyncOpType(const Expr* expr) {
+  if (auto mma = dynamic_cast<const MmaOp*>(expr)) {
+    if (mma->isHopper()) {
+      return AsyncOpType::WgMma;
+    }
+  } else if (ir_utils::isCpAsyncBulkStore(expr)) {
+    return AsyncOpType::CpAsyncBulk;
+  } else if (ir_utils::isCpAsyncOp(expr)) {
+    return AsyncOpType::CpAsync;
+  }
+  return AsyncOpType::NotAsync;
+}
+
+std::string nullOrToString(const Statement* val) {
+  return val ? val->toString() : "nullptr";
+}
+
+std::string nullOrToInlineString(const Statement* id) {
+  return id ? id->toInlineString() : "nullptr";
+}
+
+bool isFunctional(const Val* v) {
+  auto def = v->definition();
+  if (def == nullptr) {
+    return true;
+  }
+  if (auto uop = dynamic_cast<UnaryOp*>(def)) {
+    // ElectSync is not functional, it does not return the same value
+    // every time it is called, so we do not want to reuse it.
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      return false;
+    }
+  }
+  if (dynamic_cast<kir::GetRNGSeedAndOffsetFromHost*>(def)) {
+    return false;
+  }
+  return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
+}
+
+bool isRecursivelyDefined(Val* val) {
+  NVF_ERROR(val != nullptr);
+
+  std::deque<Val*> vals_to_visit;
+  vals_to_visit.push_back(val);
+
+  std::unordered_set<Val*> visited_vals;
+
+  while (!vals_to_visit.empty()) {
+    auto v = vals_to_visit.front();
+    vals_to_visit.pop_front();
+
+    visited_vals.insert(v);
+
+    auto v_def = v->definition();
+    if (v_def == nullptr) {
+      continue;
+    }
+
+    for (const auto inp : v_def->inputs()) {
+      if (inp == val) {
+        // Recursive dependency detected
+        return true;
+      }
+      // Don't visit the same multiple times
+      if (!visited_vals.count(inp)) {
+        vals_to_visit.push_back(inp);
+      }
+    }
+  }
+
+  return false;
+}
+
+int64_t getOperationCount(Val* val) {
+  int64_t num_ops = 0;
+
+  // Start with the given val and recursively count the number of ops
+  // by traversing inputs
+  std::deque<Val*> vals;
+  vals.push_back(val);
+
+  while (!vals.empty()) {
+    auto v = vals.front();
+    vals.pop_front();
+
+    auto def = v->definition();
+    if (def == nullptr) {
+      continue;
+    }
+    ++num_ops;
+
+    for (auto inp : def->inputs()) {
+      vals.push_back(inp);
+    }
+  }
+
+  return num_ops;
+}
+
+ForLoop* createRangeLoop(int64_t size) {
+  Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
+  Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
+  Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
+  IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
+
+  ForLoop* loop = IrBuilder::create<ForLoop>(
+      loop_domain_builder.build(),
+      loop_index,
+      loop_start,
+      loop_stop,
+      /*step=*/FusionGuard::getCurFusion()->oneVal(),
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+
+  return loop;
+}
+
+TensorView* getTvOutput(const Expr* expr) {
+  for (auto out : expr->outputs()) {
+    if (auto tv = getTv(out)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+TensorView* getTvInput(const Expr* expr) {
+  for (auto inp : expr->inputs()) {
+    if (auto tv = getTv(inp)) {
+      return tv;
+    }
+  }
+  return nullptr;
+}
+
+std::vector<IterDomain*> strideOrderToAllocation(
+    const std::vector<IterDomain*>& logical_domain,
+    const std::vector<int64_t>& stride_order) {
+  // Verify that stride_order is valid.
+  std::vector<int64_t> inc_vec(stride_order.size());
+  std::iota(inc_vec.begin(), inc_vec.end(), 0);
+  NVF_CHECK(
+      std::is_permutation(
+          stride_order.begin(), stride_order.end(), inc_vec.begin()),
+      "Stride order is not valid: ",
+      toDelimitedString(stride_order));
+
+  const auto& logical_domain_no_red =
+      TensorDomain::noReductions(logical_domain);
+  NVF_CHECK(stride_order.size() == logical_domain_no_red.size());
+
+  auto rank = stride_order.size();
+  std::vector<IterDomain*> allocation_domain_no_red(rank);
+
+  for (auto idx : arange(rank)) {
+    allocation_domain_no_red[rank - 1 - stride_order[idx]] =
+        logical_domain_no_red[idx];
+  }
+  if (rank == logical_domain.size()) {
+    // No reduction axis is present, return early.
+    return allocation_domain_no_red;
+  }
+
+  // Insert reduction axis at the original index in allocation domain
+  std::vector<IterDomain*> allocation_domain(logical_domain.size());
+  auto idx_no_red = 0;
+  for (auto idx : arange(logical_domain.size())) {
+    if (logical_domain.at(idx)->isReduction()) {
+      allocation_domain[idx] = logical_domain[idx];
+    } else {
+      allocation_domain[idx] = allocation_domain_no_red[idx_no_red];
+      idx_no_red++;
+    }
+  }
+  return allocation_domain;
+}
+
+std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
+    UnaryOp* uop) {
+  NVF_CHECK(uop != nullptr);
+  NVF_CHECK(
+      uop->getUnaryOpType() == UnaryOpType::Cast,
+      "Invalid expr: ",
+      uop->toString());
+
+  auto inp_tv = ir_utils::getTvInput(uop);
+  auto out_tv = ir_utils::getTvOutput(uop);
+  if (inp_tv == nullptr || out_tv == nullptr) {
+    return std::nullopt;
+  }
+
+  auto inp_dtype = inp_tv->dtype().type;
+  auto out_dtype = out_tv->dtype().type;
+  auto inp_prim_type = std::get_if<PrimDataType>(&inp_dtype);
+  auto out_prim_type = std::get_if<PrimDataType>(&out_dtype);
+
+  if (inp_prim_type == nullptr || out_prim_type == nullptr ||
+      *inp_prim_type == PrimDataType::Index ||
+      *out_prim_type == PrimDataType::Index) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(
+      primDataTypeSizeByte(*inp_prim_type),
+      primDataTypeSizeByte(*out_prim_type));
+}
+
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
+  int64_t vec_size = ir_utils::getVectorizeSize(consumer_tv);
+  int64_t dtype_size = dataTypeSizeByte(consumer_tv->dtype());
+  int64_t vec_size_in_bytes = vec_size * dtype_size;
+  constexpr int64_t tmem_unit_size_bytes = 4;
+  NVF_ERROR(
+      vec_size_in_bytes % tmem_unit_size_bytes == 0,
+      "Vectorize size is not a multiple of ",
+      tmem_unit_size_bytes,
+      " bytes. vec_size: ",
+      vec_size,
+      ", dtype_size: ",
+      dtype_size,
+      ", vec_size_in_bytes: ",
+      vec_size_in_bytes);
+  return vec_size_in_bytes / tmem_unit_size_bytes;
+}
+
+TVDomainGuard::TVDomainGuard(TensorView* tv, TensorDomain* td)
+    : tv_(tv), prev_domain_(tv_->domain()) {
+  tv_->setDomain(td);
+}
+
+TVDomainGuard::TVDomainGuard(TVDomainGuard&& guard)
+    : tv_(nullptr), prev_domain_(guard.prev_domain_) {
+  std::swap(tv_, guard.tv_);
+}
+
+TVDomainGuard::~TVDomainGuard() {
+  if (tv_ != nullptr) {
+    tv_->setDomain(prev_domain_);
+  }
+}
+
+ir_utils::TVDomainGuard overrideContiguityGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getAllocationDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getMaybeAllocationDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+ir_utils::TVDomainGuard allocateToLogicalDomainGuard(
+    TensorView* tv,
+    bool contiguity) {
+  // Use domain guard to ignore the contiguity of the given tv.
+  TensorDomain* domain_with_specified_contiguity =
+      IrBuilder::create<TensorDomain>(
+          tv->getRootDomain(),
+          tv->getLogicalDomain(),
+          tv->getLoopDomain(),
+          TensorDomain::getContiguityFilledWith(
+              tv->getLogicalDomain(), contiguity));
+
+  return ir_utils::TVDomainGuard(tv, domain_with_specified_contiguity);
+}
+
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
+  NVF_ERROR(
+      reshape_out_tv->definition() != nullptr &&
+          reshape_out_tv->definition()->isA<ViewOp>(),
+      "Not a reshape output: ",
+      reshape_out_tv->toString());
+
+  auto all_reshape_exprs = DependencyCheck::getAllExprsBetween(
+      {reshape_out_tv->getRootDomain().begin(),
+       reshape_out_tv->getRootDomain().end()},
+      {reshape_out_tv->getLogicalDomain().begin(),
+       reshape_out_tv->getLogicalDomain().end()});
+
+  std::vector<IterDomain*> reshaped_root_ids;
+  std::vector<IterDomain*> reshaped_logical_ids;
+  for (auto expr : all_reshape_exprs) {
+    std::ranges::copy(
+        expr->inputs() | std::views::filter([&](Val* inp) {
+          return inp->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getRootDomain(), inp->as<IterDomain>()) !=
+              reshape_out_tv->getRootDomain().end();
+        }) | std::views::transform([](Val* inp) {
+          return inp->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_root_ids));
+    std::ranges::copy(
+        expr->outputs() | std::views::filter([&](Val* out) {
+          return out->isA<IterDomain>() &&
+              std::ranges::find(
+                  reshape_out_tv->getLogicalDomain(), out->as<IterDomain>()) !=
+              reshape_out_tv->getLogicalDomain().end();
+        }) | std::views::transform([](Val* out) {
+          return out->as<IterDomain>();
+        }),
+        std::back_inserter(reshaped_logical_ids));
+  }
+
+  return std::make_pair(reshaped_root_ids, reshaped_logical_ids);
+}
+
+std::vector<IterDomain*> getReachableIds(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& dependencies) {
+  auto vals = getValsBetween<IRBFS>(
+      {domain.begin(), domain.end()},
+      {dependencies.begin(), dependencies.end()});
+
+  std::vector<IterDomain*> dependent_ids;
+  std::ranges::copy_if(
+      domain, std::back_inserter(dependent_ids), [&](IterDomain* id) {
+        return std::ranges::find(vals, id) != vals.end();
+      });
+  return dependent_ids;
 }
 
 } // namespace nvfuser::ir_utils

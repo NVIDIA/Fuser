@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/bank_conflict.h>
 
+#include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
@@ -27,18 +28,7 @@ bool isSmemTensorIndex(Val* value) {
 }
 
 int64_t getVectorizeSize(kir::TensorIndex* ti) {
-  for (auto id : ti->view()->getLeafDomain()) {
-    if (!isParallelTypeVectorize(id->getParallelType())) {
-      continue;
-    }
-
-    NVF_ERROR(
-        id->extent()->isConstInt(),
-        "Could not evaluate constant value bound to vectorized dim.");
-
-    return id->extent()->evaluateInt();
-  }
-  return 1;
+  return ir_utils::getVectorizeSize(ti->view());
 }
 
 inline int64_t getPhaseSize(int64_t word_size_bytes) {
@@ -83,12 +73,12 @@ int64_t getLdMatrixNumThreads(int64_t word_size) {
       // and all the 32 threads contain useful addresses.
       return 32;
     default:
-      NVF_ERROR(false, "Invalid word size for ldmatrix");
+      NVF_THROW("Invalid word size for ldmatrix");
   }
 }
 
 std::vector<int64_t> evaluateAddressesOnFirstPhase(
-    const std::vector<kir::ForLoop*>& for_loops,
+    const std::vector<ForLoop*>& for_loops,
     ExpressionEvaluator expr_eval_common,
     LoadStoreOp* ldst,
     bool is_producer) {
@@ -111,12 +101,12 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
     num_threads = (bdimx ? bdimx.as<int64_t>() : 1) *
         (bdimy ? bdimy.as<int64_t>() : 1) * (bdimz ? bdimz.as<int64_t>() : 1);
   }
-  int64_t dtype_size = (int64_t)dataTypeSize(*(ti->getDataType()));
+  int64_t dtype_size = dataTypeSizeByte(*(ti->getDataType()));
   int64_t word_size_bytes = dtype_size * word_size;
   int64_t phase_size =
       std::min(num_threads, getPhaseSize((int64_t)word_size_bytes));
 
-  for (int64_t linear_tidx : c10::irange(phase_size)) {
+  for (int64_t linear_tidx : arange(phase_size)) {
     int64_t tidx = linear_tidx;
     int64_t tidy = 0;
     int64_t tidz = 0;
@@ -157,7 +147,7 @@ std::vector<int64_t> evaluateAddressesOnFirstPhase(
   return addresses;
 }
 
-int getConflictWays(const std::vector<int64_t>& addresses) {
+int64_t getConflictWays(const std::vector<int64_t>& addresses) {
   using long_set = std::unordered_set<int64_t>;
   std::array<long_set, 32> words_by_bank;
   for (auto addr : addresses) {
@@ -165,16 +155,16 @@ int getConflictWays(const std::vector<int64_t>& addresses) {
     int64_t bank = word % 32;
     words_by_bank.at(bank).insert(word);
   }
-  int conflict = 1;
+  int64_t conflict = 1;
   for (const auto& words : words_by_bank) {
-    conflict = std::max<int>(conflict, (int)words.size());
+    conflict = std::max(conflict, (int64_t)words.size());
   }
   return conflict;
 }
 
 class BankConflictInfo : public kir::IrVisitor {
  public:
-  static std::unordered_map<const Expr*, std::pair<int, int>> get(
+  static std::unordered_map<const Expr*, std::pair<int64_t, int64_t>> get(
       const kir::Kernel* kernel,
       LaunchParams launch_params,
       const std::unordered_map<Val*, PolymorphicValue>& known_values) {
@@ -226,7 +216,7 @@ class BankConflictInfo : public kir::IrVisitor {
 
   void inferLaunchParams(const kir::Kernel* kernel) {
     const auto& parallel_dimension_map =
-        kernel->summary().parallel_dimension_map_.getMap();
+        kernel->summary().parallel_dimension_map.getMap();
     for (const auto& [p, v] : parallel_dimension_map) {
       auto inferred_parallel_dim = expr_eval_.evaluate(v);
       if (inferred_parallel_dim.hasValue()) {
@@ -238,14 +228,14 @@ class BankConflictInfo : public kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
 
     if (expr->isA<LoadStoreOp>()) {
       auto ldst = expr->as<LoadStoreOp>();
-      std::pair<int, int> conflict_ways{0, 0};
+      std::pair<int64_t, int64_t> conflict_ways{0, 0};
       if (isSmemTensorIndex(ldst->in())) {
         conflict_ways.first = getConflictWays(
             evaluateAddressesOnFirstPhase(for_loops_, expr_eval_, ldst, true));
@@ -260,13 +250,14 @@ class BankConflictInfo : public kir::IrVisitor {
     }
   }
 
-  std::unordered_map<const Expr*, std::pair<int, int>> bank_conflict_info_;
+  std::unordered_map<const Expr*, std::pair<int64_t, int64_t>>
+      bank_conflict_info_;
   ExpressionEvaluator expr_eval_;
 };
 
 } // namespace
 
-std::unordered_map<const Expr*, std::pair<int, int>> getBankConflictInfo(
+std::unordered_map<const Expr*, std::pair<int64_t, int64_t>> getBankConflictInfo(
     const kir::Kernel* kernel,
     LaunchParams launch_params,
     const std::unordered_map<Val*, PolymorphicValue>& known_values) {

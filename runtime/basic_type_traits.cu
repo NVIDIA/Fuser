@@ -47,6 +47,8 @@ template <class _Tp, class _Up>
 struct is_same : public false_type {};
 template <class _Tp>
 struct is_same<_Tp, _Tp> : public true_type {};
+template <class T, class U>
+constexpr bool is_same_v = is_same<T, U>::value;
 
 // is_integral, for some types.
 template <class _Tp>
@@ -153,7 +155,7 @@ template <
     class _A1,
     class _A2 = void,
     class _A3 = void,
-    bool = __numeric_type<_A1>::value&& __numeric_type<_A2>::value&&
+    bool = __numeric_type<_A1>::value && __numeric_type<_A2>::value &&
         __numeric_type<_A3>::value>
 class __promote_imp {
  public:

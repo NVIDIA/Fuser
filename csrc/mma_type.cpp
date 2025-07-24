@@ -12,240 +12,78 @@
 
 namespace nvfuser {
 
-MmaOp* MmaOptions::mmaOp() const {
-  NVF_ERROR(
-      accumulator_tv != nullptr && accumulator_tv->definition() != nullptr,
-      "Invalid accumulator_tv.");
-  auto mma_op = dynamic_cast<MmaOp*>(accumulator_tv->definition());
-  NVF_ERROR(mma_op != nullptr, "accumulator tv not an output of mma op");
-  return mma_op;
+GemmTile getMmaOpShape(MmaMacro macro) {
+  return {getM(macro), getN(macro), getK(macro)};
 }
 
-MmaBuilder::MmaBuilder(
-    MmaOptions::MacroType macro,
-    MatMulTileOptions gemm_tile) {
-  option_.macro = macro;
-  // Calculate accumulator stride, will be removed once transpose swizzle ready
-  int outer_stride = gemm_tile.warp_tile.n / gemm_tile.instruction_tile.n;
-  switch (macro) {
-    // Numbers depend on actual output layout of mma instruction
-    case MmaOptions::MacroType::Volta_16_16_4:
-      option_.accumulator_stride = outer_stride * 4;
-      break;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      option_.accumulator_stride = outer_stride * 2;
-      break;
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      option_.accumulator_stride = outer_stride * 4;
-      break;
+int64_t getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle) {
+  // References:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#swizzling-modes
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return 128;
+    case MmaInputSmemSwizzle::B32:
+      return 256;
+    case MmaInputSmemSwizzle::B64:
+      return 512;
+    case MmaInputSmemSwizzle::B128:
+      return 1024;
     default:
-      NVF_CHECK(false, "unsupported macro");
+      NVF_CHECK(false, "Unknown swizzle type!");
       break;
   }
 }
 
-MmaBuilder& MmaBuilder::layout(MmaOptions::MmaLayout layout) {
-  option_.layout = layout;
-  return *this;
-}
-
-MmaBuilder& MmaBuilder::operand(MmaOptions::Operand a_or_b) {
-  option_.operand = a_or_b;
-  return *this;
-}
-
-// TODO: validate op config
-MmaOptions MmaBuilder::build() const {
-  NVF_CHECK(
-      option_.accumulator_tv != nullptr,
-      "Please configure accumulator tv before using swizzle options.")
-  return option_;
-}
-
-void MmaBuilder::configureMma(MmaOp* mma) const {
-  NVF_CHECK(mma, "configureMma: invalid op object ", mma);
-  mma->configureOptions(option_);
-}
-
-void MmaBuilder::accumulatorTv(TensorView* tv) {
-  NVF_CHECK(
-      tv->getMemoryType() == MemoryType::Local, "Mma only outputs to register");
-  NVF_CHECK(tv->definition(), "Input cannot be accumulator tv");
-  NVF_CHECK(
-      tv->definition()->isA<MmaOp>(),
-      "Requires mma op output for reduction tv");
-  option_.accumulator_tv = tv;
-}
-
-namespace {
-
-// Utility to get ldmatrix direction a mma layout and operand
-LoadStoreOpType getLdMatrixType(MmaOptions options) {
-  bool transpose = false;
-  switch (options.macro) {
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      // Turing mma assumes TN as default
-      transpose = (options.operand == MmaOptions::Operand::A &&
-                   !isOperandTransposed(options)) ||
-          (options.operand == MmaOptions::Operand::B &&
-           isOperandTransposed(options));
-      break;
+int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return 16;
+    case MmaInputSmemSwizzle::B32:
+      return 32;
+    case MmaInputSmemSwizzle::B64:
+      return 64;
+    case MmaInputSmemSwizzle::B128:
+      return 128;
     default:
-      NVF_ERROR(false, "unsupported op with ldmatrix");
+      NVF_CHECK(false, "Unknown swizzle type!");
       break;
   }
-  return transpose ? LoadStoreOpType::LdMatrixTranspose
-                   : LoadStoreOpType::LdMatrix;
 }
 
-} // namespace
-
-LoadStoreOpType MmaBuilder::ldMatrix() const {
-  return getLdMatrixType(option_);
-}
-
-bool isVolta(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Volta_16_16_4;
-}
-
-bool isTuring(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Turing_16_8_16 ||
-      macro == MmaOptions::MacroType::Turing_16_16_16;
-}
-
-bool isAmpere(MmaOptions::MacroType macro) {
-  return macro == MmaOptions::MacroType::Ampere_16_8_8 ||
-      macro == MmaOptions::MacroType::Ampere_16_8_16 ||
-      macro == MmaOptions::MacroType::Ampere_16_16_16;
-}
-
-int getOutputRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return 8;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
+MmaInputSmemSwizzle getSwizzleFromBytes(int64_t bytes) {
+  switch (bytes) {
+    case 16:
+      return MmaInputSmemSwizzle::None;
+    case 32:
+      return MmaInputSmemSwizzle::B32;
+    case 64:
+      return MmaInputSmemSwizzle::B64;
+    case 128:
+      return MmaInputSmemSwizzle::B128;
     default:
-      NVF_ERROR(false, "unknown macro");
+      NVF_CHECK(false, "Unknown swizzle size!");
       break;
   }
-  return -1;
 }
 
-int getInputARegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-int getInputBRegisterSize(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return 4;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return 8;
-    default:
-      NVF_ERROR(false, "unknown macro");
-      break;
-  }
-  return -1;
-}
-
-bool isOperandTransposed(MmaOptions options) {
-  switch (options.operand) {
-    case MmaOptions::Operand::A:
-      return options.layout == MmaOptions::MmaLayout::TT ||
-          options.layout == MmaOptions::MmaLayout::TN;
-    case MmaOptions::Operand::B:
-      return options.layout == MmaOptions::MmaLayout::TT ||
-          options.layout == MmaOptions::MmaLayout::NT;
-    default:
-      NVF_CHECK(false, "isOperandTransposed: please specify operand");
-  }
-  return false;
-}
-
-GemmTile getMmaOpShape(MmaOptions::MacroType macro) {
-  switch (macro) {
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return {16, 16, 4};
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return {16, 8, 16};
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return {16, 16, 16};
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return {16, 8, 8};
-    case MmaOptions::MacroType::NoMMA:
-      return {1, 1, 1};
-  }
-
-  NVF_ERROR(false, "unknown MMA macro");
-}
-
-std::string toString(MmaOptions::MmaLayout input_layout) {
+std::string toString(MmaLayout input_layout) {
   std::stringstream ss;
   switch (input_layout) {
-    case MmaOptions::MmaLayout::TT:
+    case MmaLayout::TT:
       ss << "TT";
       break;
-    case MmaOptions::MmaLayout::TN:
+    case MmaLayout::TN:
       ss << "TN";
       break;
-    case MmaOptions::MmaLayout::NT:
+    case MmaLayout::NT:
       ss << "NT";
       break;
-    case MmaOptions::MmaLayout::NN:
+    case MmaLayout::NN:
       ss << "NN";
       break;
     default:
-      NVF_ERROR(false, "unsupported operand layout");
-  }
-  return ss.str();
-}
-
-std::string toString(MmaOptions::MacroType mt) {
-  std::stringstream ss;
-  switch (mt) {
-    case MmaOptions::MacroType::NoMMA:
-      ss << "NoOp";
-      break;
-    case MmaOptions::MacroType::Volta_16_16_4:
-      ss << "M16N16K4";
-      break;
-    case MmaOptions::MacroType::Turing_16_8_16:
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      ss << "M16N8K16";
-      break;
-    case MmaOptions::MacroType::Turing_16_16_16:
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      ss << "M16N16K16";
-      break;
-    default:
-      NVF_ERROR(false, "undefined mma type");
-      break;
+      NVF_THROW("unsupported operand layout");
   }
   return ss.str();
 }
@@ -259,38 +97,61 @@ std::string toString(const GemmTile& tile) {
 std::string toString(const MatMulTileOptions& opts) {
   std::stringstream ss;
   ss << "MatMulTileOptions: "
-     << "instruction tile " << toString(opts.instruction_tile) << ", "
      << "warp tile " << toString(opts.warp_tile) << ", "
      << "CTA tile " << toString(opts.cta_tile);
   return ss.str();
 }
 
-std::string toString(MmaOptions::MacroType mt, bool) {
-  switch (mt) {
-    case MmaOptions::MacroType::Ampere_16_8_8:
-      return "Ampere_16_8_8";
-    case MmaOptions::MacroType::Ampere_16_8_16:
-      return "Ampere_16_8_16";
-    case MmaOptions::MacroType::Ampere_16_16_16:
-      return "Ampere_16_16_16";
-    case MmaOptions::MacroType::NoMMA:
+std::string toString(MmaMacro macro) {
+  std::stringstream ss;
+  auto underlying = static_cast<MmaMacroEncode>(macro);
+  switch (underlying.arch) {
+    case MmaMacroEncode::Arch::NoMma:
       return "NoOp";
-    case MmaOptions::MacroType::Turing_16_8_16:
-      return "Turing_16_8_16";
-    case MmaOptions::MacroType::Turing_16_16_16:
-      return "Turing_16_16_16";
-    case MmaOptions::MacroType::Volta_16_16_4:
-      return "Volta_16_16_4";
+    case MmaMacroEncode::Arch::Volta:
+      ss << "Volta";
+      break;
+    case MmaMacroEncode::Arch::Turing:
+      ss << "Turing";
+      break;
+    case MmaMacroEncode::Arch::Ampere:
+      ss << "Ampere";
+      break;
+    case MmaMacroEncode::Arch::Hopper:
+      ss << "Hopper";
+      break;
+    case MmaMacroEncode::Arch::Blackwell1CTA:
+      ss << "Blackwell1CTA";
+      break;
+    case MmaMacroEncode::Arch::Blackwell2CTA:
+      ss << "Blackwell2CTA";
+      break;
   }
-  NVF_ERROR(false, "Unsupported mma type");
-  return "Unsupported";
+  ss << "_" << underlying.m << "_" << underlying.n << "_" << underlying.k;
+  return ss.str();
 }
 
-size_t hash(MmaOptions::MacroType macro) {
+std::string toString(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return "NoSwizzle";
+    case MmaInputSmemSwizzle::B32:
+      return "32B";
+    case MmaInputSmemSwizzle::B64:
+      return "64B";
+    case MmaInputSmemSwizzle::B128:
+      return "128B";
+    default:
+      NVF_CHECK(false, "Unknown tensor map swizzle type!");
+      break;
+  }
+}
+
+size_t hash(MmaMacro macro) {
   return std::hash<size_t>{}(static_cast<size_t>(macro));
 }
 
-size_t hash(MmaOptions::MmaLayout input_layout) {
+size_t hash(MmaLayout input_layout) {
   return std::hash<size_t>{}(static_cast<size_t>(input_layout));
 }
 
@@ -301,8 +162,24 @@ size_t hash(const GemmTile& tile) {
 }
 
 size_t hash(const MatMulTileOptions& opts) {
-  return (hash(opts.instruction_tile) << 0) ^ (hash(opts.warp_tile) << 1) ^
-      (hash(opts.cta_tile) << 2);
+  size_t h = hash(opts.warp_tile);
+  hashCombine(h, hash(opts.cta_tile));
+  return h;
+}
+
+std::string toString(const MatmulDimRole role) {
+  switch (role) {
+    case MatmulDimRole::Batch:
+      return "Batch";
+    case MatmulDimRole::M:
+      return "M";
+    case MatmulDimRole::N:
+      return "N";
+    case MatmulDimRole::K:
+      return "K";
+  }
+  // Unreachable
+  return "Unrecognized role";
 }
 
 } // namespace nvfuser

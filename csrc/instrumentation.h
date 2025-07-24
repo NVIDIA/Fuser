@@ -10,7 +10,7 @@
 #include <exceptions.h>
 #include <utils.h>
 
-#include <nvToolsExt.h>
+#include <nvtx3/nvToolsExt.h>
 
 // NOLINTNEXTLINE(modernize-deprecated-headers)
 #include <stdio.h>
@@ -41,7 +41,7 @@ class Trace : public NonCopyable {
   using Clock = std::chrono::steady_clock;
 
  public:
-  static Trace* instance() {
+  NVF_API static Trace* instance() {
     static Trace trace;
     return &trace;
   }
@@ -65,10 +65,10 @@ class Trace : public NonCopyable {
   }
 
  private:
-  Trace();
-  ~Trace();
+  NVF_API Trace();
+  NVF_API ~Trace();
 
-  void logEvent(char ph, const char* name, char sep = ',');
+  NVF_API void logEvent(char ph, const char* name, char sep = ',');
 
  private:
   FILE* log_file_ = nullptr;

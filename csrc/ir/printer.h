@@ -7,8 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <c10/macros/Export.h>
-
 #include <ir/iostream.h>
 #include <iter_visitor.h>
 
@@ -53,7 +51,7 @@ class IrTransformPrinter : public IrPrinter {
 
   void handle(Fusion* f) override;
 
-  void printTransforms(TensorView* tv);
+  void printTransforms(const TensorView* tv);
 };
 
 } // namespace nvfuser
