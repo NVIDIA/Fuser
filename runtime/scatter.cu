@@ -8,15 +8,13 @@
 
 namespace scatter {
 
-template <typename DataT,
-      bool Aligned>
+template <typename DataT, bool Aligned>
 __device__ void blockScatter(
     DataT& out,
     DataT* out_base,
     const DataT& in,
     nvfuser_index_t index,
     DataT val) {
-
   // Assumes out is in shared memory
   out = in;
   block_sync::sync<Aligned>(blockDim);
