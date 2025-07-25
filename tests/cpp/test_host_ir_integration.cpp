@@ -247,8 +247,8 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
-  auto hicExprs =
-      runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+  const std::vector<Expr*>& hicExprs =
+      runtime->getHostIrEvaluator().container().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
 

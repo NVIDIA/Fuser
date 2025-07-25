@@ -514,15 +514,16 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
+      smem_consumers, persistent_buffers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  normalization_scheduler_utils::beforeSchedule(
+  normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
       smem_consumers,
+      persistent_buffers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
@@ -826,7 +827,14 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
         // skip tvs that are already vectorized in general vectorization
         // analysis and propagation.
-        if (cached_tv->axis(-1)->getParallelType() == ParallelType::Vectorize) {
+        // The last iter dim may be a broadcast, so we need to check all the
+        // iter dims.
+        if (std::any_of(
+                cached_tv->domain()->loop().begin(),
+                cached_tv->domain()->loop().end(),
+                [](const IterDomain* id) {
+                  return id->getParallelType() == ParallelType::Vectorize;
+                })) {
           continue;
         }
 

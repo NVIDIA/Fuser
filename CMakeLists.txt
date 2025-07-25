@@ -83,6 +83,74 @@ endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
+set(CUTLASS_STATUS "N/A")
+if(BUILD_CUTLASS)
+  enable_language(CUDA)
+
+  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
+    message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
+    set(CUTLASS_STATUS "DISABLED")
+  else()
+    add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
+    set(CUTLASS_STATUS "ENABLED")
+
+    find_package(CUDAToolkit REQUIRED)
+    include(FetchContent)
+
+    # cutlass
+    FetchContent_Declare(
+      repo-cutlass
+      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
+      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
+      GIT_SHALLOW    OFF
+    )
+    FetchContent_Populate(repo-cutlass)
+
+    include(ProcessorCount)
+    ProcessorCount(NPROC)
+
+    set(NVF_CUTLASS_CUDA_FLAGS
+      "-DCUTE_USE_PACKED_TUPLE=1"
+      "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
+      "-DCUTLASS_VERSIONS_GENERATED"
+      "-DCUTLASS_TEST_LEVEL=0"
+      "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
+      "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
+      "--expt-relaxed-constexpr"
+      "--expt-extended-lambda"
+      "--threads=${NPROC}"
+      # Suppress warnings
+      "-Xcompiler=-Wconversion"
+      "-Xcompiler=-fno-strict-aliasing"
+    )
+
+    set(NVFUSER_CUTLASS_SRCS)
+    list(APPEND NVFUSER_CUTLASS_SRCS
+	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
+        ${NVFUSER_CUTLASS}/cutlass_utils.cpp
+        )
+    add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
+    set_target_properties(nvf_cutlass PROPERTIES
+        CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+        CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+        POSITION_INDEPENDENT_CODE Yes
+    )
+    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
+    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
+    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
+    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+    target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
+    if(NOT MSVC)
+      set(NVF_LIB_SUFFIX ".so")
+    else()
+      set(NVF_LIB_SUFFIX ".pyd")
+    endif()
+    set_target_properties(nvf_cutlass PROPERTIES CUDA_ARCHITECTURES "100a")
+    target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
+    install(TARGETS nvf_cutlass DESTINATION lib)
+  endif()
+endif()
+
 # ------------------------------
 # build nvfuser_codegen library
 # ------------------------------
@@ -205,7 +273,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/allocation_order_inference.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/consecutive_cast.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/exact_mapped_extent_substitution.cpp
-  ${NVFUSER_SRCS_DIR}/preseg_passes/insert_reshardings.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/decompose_reshardings.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/finalize_multidevice_domains.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_gather.cpp
@@ -410,6 +478,11 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
+if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
+  target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
+endif()
+
 if(NVFUSER_HOST_IR_JIT)
   target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 endif()
@@ -500,74 +573,6 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
-set(CUTLASS_STATUS "N/A")
-if(BUILD_CUTLASS)
-  enable_language(CUDA)
-
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
-    message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
-    set(CUTLASS_STATUS "DISABLED")
-  else()
-    add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
-    set(CUTLASS_STATUS "ENABLED")
-
-    find_package(CUDAToolkit REQUIRED)
-    include(FetchContent)
-
-    # cutlass
-    FetchContent_Declare(
-      repo-cutlass
-      GIT_REPOSITORY https://github.com/NVIDIA/cutlass
-      GIT_TAG        f115c3f85467d5d9619119d1dbeb9c03c3d73864
-      GIT_SHALLOW    OFF
-    )
-    FetchContent_Populate(repo-cutlass)
-
-    include(ProcessorCount)
-    ProcessorCount(NPROC)
-
-    set(NVF_CUTLASS_CUDA_FLAGS
-      "-DCUTE_USE_PACKED_TUPLE=1"
-      "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
-      "-DCUTLASS_VERSIONS_GENERATED"
-      "-DCUTLASS_TEST_LEVEL=0"
-      "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
-      "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
-      "--expt-relaxed-constexpr"
-      "--expt-extended-lambda"
-      "--threads=${NPROC}"
-      # Suppress warnings
-      "-Xcompiler=-Wconversion"
-      "-Xcompiler=-fno-strict-aliasing"
-    )
-
-    set(NVFUSER_CUTLASS_SRCS)
-    list(APPEND NVFUSER_CUTLASS_SRCS
-	${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
-        ${NVFUSER_CUTLASS}/cutlass_utils.cpp
-        )
-    add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
-    set_target_properties(nvf_cutlass PROPERTIES
-        CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-        CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-        POSITION_INDEPENDENT_CODE Yes
-    )
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
-    target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
-    if(NOT MSVC)
-      set(NVF_LIB_SUFFIX ".so")
-    else()
-      set(NVF_LIB_SUFFIX ".pyd")
-    endif()
-    set_target_properties(nvf_cutlass PROPERTIES CUDA_ARCHITECTURES "100a")
-    target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
-    install(TARGETS nvf_cutlass DESTINATION lib)
-  endif()
-endif()
-
 if(BUILD_PYTHON)
   # -----------------------------
   # build nvfuser python library
@@ -634,7 +639,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
     VISIBILITY_INLINES_HIDDEN Yes
@@ -650,6 +655,10 @@ if(BUILD_PYTHON)
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
+
+  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+    target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
+  endif()
 
   target_link_libraries(nvf_py_internal PRIVATE
     codegen_internal
@@ -806,6 +815,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
@@ -975,7 +985,7 @@ if(BUILD_TEST)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_overlap.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
@@ -1190,6 +1200,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
+  ${NVFUSER_ROOT}/runtime/cub_utils.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
   ${NVFUSER_ROOT}/runtime/fp4_support.cu

@@ -88,6 +88,168 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
 //
 // TODO: Refactor this and the allocation lowering pass
 class AllocationDomainSetup : private kir::IrVisitor {
+ private:
+  // In general, if the tensor has an allocation domain set, it
+  // should be used with no change. However, set allocation domains
+  // are not always right allocation domains. For example,
+  // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
+  // is a Local tensor with CA position of 4 but has an allocation
+  // domain that's just a permutation of its logical domain. Such
+  // invalid allocations need to be ignored. If there doesn't seem
+  // to be any clear condition when the set domain can be used, so
+  // it needs to be inferred. Here's what seems to be working
+  // reasonably well.
+  bool canUsePresetAllocationDomain(TensorView* tv) {
+    if (!tv->hasAllocation()) {
+      return false;
+    }
+    // Honor the allocation domain if the tensor is global or Hopper MMA's
+    // output
+    if (tv->getMemoryType() == MemoryType::Global ||
+        (tv->definition()->isA<MmaOp>() &&
+         isHopper(tv->definition()->as<MmaOp>()->macro()))) {
+      return true;
+    }
+    // If it's a shared memory tensor, the set domain is likely
+    // valid if Swizzle or Bulk is used. Also, if the allocation
+    // domain is just a permutation of the loop domain, use the
+    // set allocation domain. This seems to happen only with
+    // AllocationDomainTest.TransposedIntermediate.
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      if (std::any_of(
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end(),
+              [](IterDomain* allocation_domain) {
+                return dynamic_cast<Swizzle*>(
+                           allocation_domain->definition()) != nullptr ||
+                    allocation_domain->getParallelType() == ParallelType::Bulk;
+              }) ||
+          std::is_permutation(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end())) {
+        return true;
+      }
+
+      // Honor the set allocation domain if the tensor is used by a
+      // TMA store or MmaOp
+      if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+            return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+          })) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Helper function to check if an allocation domain should be excluded
+  // Returns the excluded ID if found, nullptr otherwise.
+  // An allocation domain should be excluded if it is not required to be
+  // allocated. For example:
+  // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+  // logical domain : (iS6{2}, iS7{12}, iB8{16})
+  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+  // contiguity: t t t t
+  //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
+  //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
+  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+  // Based on loop domain and compute pos, we don't need to allocate iS6{2}
+  // and iS11{3}. Then the corresponding allocation domains iS6{2} and
+  // iS15{3} should be excluded.
+  // iS6{2} is found directly by pointer comparison.
+  // iS15{3} is found by IdModel.
+  IterDomain* getExcludedAllocationDomain(
+      IterDomain* id,
+      const std::unordered_set<IterDomain*>& exclude_ca_ids) {
+    auto exclude_it = exclude_ca_ids.find(id);
+    if (exclude_it != exclude_ca_ids.end()) {
+      return *exclude_it;
+    }
+    // Fallback: use IdModel to check if any excluded ID is mapped
+    if (GpuLower::current()->hasIdModel()) {
+      const auto& exact_graph =
+          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      for (auto exclude_id : exclude_ca_ids) {
+        if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
+          return exclude_id;
+        }
+      }
+    }
+    return nullptr;
+  }
+
+  // Helper function to collect loop domains that should be excluded
+  std::unordered_set<IterDomain*> collectExcludedLoopDomains(
+      TensorView* tv,
+      int64_t allocation_pos) {
+    std::unordered_set<IterDomain*> exclude_ca_ids;
+    for (auto i : arange(allocation_pos)) {
+      auto ca_id = tv->axis(i);
+      if (!ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), ca_id->getParallelType())) {
+        exclude_ca_ids.insert(ca_id);
+      }
+    }
+    return exclude_ca_ids;
+  }
+
+  // select domains from allocation domain that should be allocated
+  std::pair<std::vector<IterDomain*>, std::vector<std::optional<bool>>>
+  usePresetAllocationDomain(
+      TensorView* tv,
+      const std::vector<ForLoop*>& for_loops) {
+    if (tv->getMemoryType() == MemoryType::Global) {
+      auto allocation_domains = tv->getAllocationDomain();
+      auto contiguity = tv->domain()->contiguity();
+      NVF_ERROR(allocation_domains.size() == contiguity.size());
+      return {allocation_domains, contiguity};
+    }
+
+    // Get allocation position and collect excluded loop domains
+    // For example:
+    // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
+    // iS6{2}, iS11{3} are excluded.
+    int64_t allocation_pos =
+        lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+    auto exclude_ca_ids = collectExcludedLoopDomains(tv, allocation_pos);
+
+    // Process allocation domains
+    std::vector<IterDomain*> allocation_domains;
+    std::vector<std::optional<bool>> contiguity;
+
+    for (auto i : arange(tv->getAllocationDomain().size())) {
+      auto id = tv->getAllocationDomain()[i];
+
+      // Excluded based on allocation position
+      IterDomain* excluded_id = getExcludedAllocationDomain(id, exclude_ca_ids);
+      if (excluded_id != nullptr) {
+        exclude_ca_ids.erase(excluded_id);
+        continue;
+      }
+      // Excluded based on memory partitioning
+      if (ir_utils::isMemoryPartitionedAcross(
+              tv->getMemoryType(), id->getParallelType())) {
+        continue;
+      }
+      allocation_domains.push_back(id);
+      contiguity.push_back(tv->domain()->contiguity()[i]);
+    }
+
+    // Verify all excluded domains were found
+    NVF_ERROR(
+        exclude_ca_ids.empty(),
+        "The non-allocating compute-at IDs are not found in the allocation "
+        "domain. ",
+        "It is unclear how to allocate the tensor: ",
+        tv->toString(),
+        " allocation domain: ",
+        ir_utils::toString(tv->getAllocationDomain()));
+
+    NVF_ERROR(allocation_domains.size() == contiguity.size());
+    return {allocation_domains, contiguity};
+  }
+
  public:
   using IrVisitor::dispatch;
 
@@ -161,187 +323,95 @@ class AllocationDomainSetup : private kir::IrVisitor {
   getAllocationDomainsAndContiguity(
       TensorView* tv,
       const std::vector<ForLoop*>& for_loops) {
+    if (canUsePresetAllocationDomain(tv)) {
+      return usePresetAllocationDomain(tv, for_loops);
+    }
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
-    // In general, if the tensor has an allocation domain set, it
-    // should be used with no change. However, set allocation domains
-    // are not always right allocation domains. For example,
-    // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
-    // is a Local tensor with CA position of 4 but has an allocation
-    // domain that's just a permutation of its logical domain. Such
-    // invalid allocations need to be ignored. If there doesn't seem
-    // to be any clear condition when the set domain can be used, so
-    // it needs to be inferred. Here's what seems to be working
-    // reasonably well.
-    bool use_set_allocation_domain = false;
-    if (tv->hasAllocation()) {
-      // Honor the allocation domain if the tensor is global or Hopper MMA's
-      // output
-      if (tv->getMemoryType() == MemoryType::Global ||
-          (tv->definition()->isA<MmaOp>() &&
-           isHopper(tv->definition()->as<MmaOp>()->macro()))) {
-        use_set_allocation_domain = true;
-      } else if (tv->getMemoryType() == MemoryType::Shared) {
-        // If it's a shared memory tensor, the set domain is likely
-        // valid if Swizzle or Bulk is used. Also, if the allocation
-        // domain is just a permutation of the loop domain, use the
-        // set allocation domain. This seems to happen only with
-        // AllocationDomainTest.TransposedIntermediate.
-        if (std::any_of(
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end(),
-                [](IterDomain* allocation_domain) {
-                  return dynamic_cast<Swizzle*>(
-                             allocation_domain->definition()) != nullptr ||
-                      allocation_domain->getParallelType() ==
-                      ParallelType::Bulk;
-                }) ||
-            std::is_permutation(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin(),
-                tv->getAllocationDomain().end())) {
-          use_set_allocation_domain = true;
+    // If allocation domain is not set, assume that:
+    // - Global: logical domains
+    // - Local/Shared: loop domains to the right of the CA position
+    if (tv->getMemoryType() == MemoryType::Global) {
+      allocation_domains = tv->getLogicalDomain();
+      contiguity = tv->domain()->contiguity();
+    } else {
+      int64_t allocation_pos =
+          lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+      for (const auto i : arange(tv->nDims())) {
+        auto loop_id = tv->getLoopDomain().at(i);
+        auto pt = loop_id->getParallelType();
+
+        // If the position is left of the inlining position, no need to
+        // allocate the domain unless it's shared. For example, if this
+        // is a Shared tensor and the domain is parallelized with TID,
+        // even if it's outside of the CA position, since the domain
+        // is shared, it must be allocated.
+        if (i < allocation_pos &&
+            !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
+          continue;
         }
 
-        // Honor the set allocation domain if the tensor is used by a
-        // TMA store or MmaOp
-        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
-              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
-            })) {
-          use_set_allocation_domain = true;
-        }
+        allocation_domains.push_back(loop_id);
       }
+      // Assume Local and Shared are always fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
 
-    // Allocation position is not always the same as the CA
-    // position. See also lower_utils::getAllocInformation.
-    int64_t allocation_pos =
-        lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
+    if (auto indexed_alloc_dom =
+            patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
+        indexed_alloc_dom.has_value()) {
+      allocation_domains = indexed_alloc_dom.value();
+      // Make sure the original allocation domains are fully contiguous
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
+      // Set the new allocation domains fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
+    }
 
-    if (use_set_allocation_domain) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        // For global memory tensors we always allocate the entire tensor
-        // TODO: do we really want to treat global memory tensors differently?
-        // need to think about this more.
-        allocation_domains = tv->getAllocationDomain();
-        contiguity = tv->domain()->contiguity();
-      } else {
-        std::unordered_set<IterDomain*> exclude_ca_ids;
-        for (auto i : arange(allocation_pos)) {
-          auto ca_id = tv->axis(i);
-          if (!ir_utils::isMemorySharedAcross(
-                  tv->getMemoryType(), ca_id->getParallelType())) {
-            exclude_ca_ids.insert(ca_id);
-          }
-        }
-        for (auto i : arange(tv->getAllocationDomain().size())) {
-          auto id = tv->getAllocationDomain()[i];
-          if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
-            if (ir_utils::isMemoryPartitionedAcross(
-                    tv->getMemoryType(), id->getParallelType())) {
-              continue;
-            }
-            allocation_domains.push_back(id);
-            contiguity.push_back(tv->domain()->contiguity()[i]);
-          } else {
-            exclude_ca_ids.erase(id);
-          }
-        }
-        NVF_ERROR(
-            exclude_ca_ids.empty(),
-            "The non-allocating compute-at IDs are not found in the allocation "
-            "domain. ",
-            "It is unclear how to allocate the tensor: ",
-            tv->toString(),
-            " allocation domain: ",
-            ir_utils::toString(tv->getAllocationDomain()));
+    // reorderAllocationDomains and
+    // patchAllocationOfTransposedSmemTensor assume unallocated IDs
+    // are removed
+    std::vector<IterDomain*> actual_allocation_ids;
+    std::vector<std::optional<bool>> actual_contiguity;
+    for (auto [i, id] : enumerate(allocation_domains)) {
+      if (mayRequireAllocation(tv, id)) {
+        actual_allocation_ids.push_back(id);
+        actual_contiguity.push_back(contiguity.at(i));
       }
-    } else {
-      // If allocation domain is not set, assume that:
-      // - Global: logical domains
-      // - Local/Shared: loop domains to the right of the CA position
-      if (tv->getMemoryType() == MemoryType::Global) {
-        allocation_domains = tv->getLogicalDomain();
-        contiguity = tv->domain()->contiguity();
-      } else {
-        for (const auto i : arange(tv->nDims())) {
-          auto loop_id = tv->getLoopDomain().at(i);
-          auto pt = loop_id->getParallelType();
+    }
+    std::swap(allocation_domains, actual_allocation_ids);
+    std::swap(contiguity, actual_contiguity);
 
-          // If the position is left of the inlining position, no need to
-          // allocate the domain unless it's shared. For example, if this
-          // is a Shared tensor and the domain is parallelized with TID,
-          // even if it's outside of the CA position, since the domain
-          // is shared, it must be allocated.
-          if (i < allocation_pos &&
-              !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
-            continue;
-          }
+    if (auto reordered_domains =
+            reorderAllocationDomains(tv, allocation_domains);
+        reordered_domains.has_value()) {
+      allocation_domains = reordered_domains.value();
+      NVF_ERROR(
+          std::all_of(
+              contiguity.begin(),
+              contiguity.end(),
+              [](auto b) { return b.has_value() && b.value(); }),
+          tv->toString());
+    }
 
-          allocation_domains.push_back(loop_id);
-        }
-        // Assume Local and Shared are always fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
-      }
-
-      if (auto indexed_alloc_dom =
-              patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
-          indexed_alloc_dom.has_value()) {
-        allocation_domains = indexed_alloc_dom.value();
-        // Make sure the original allocation domains are fully contiguous
-        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-          return b.has_value() && b.value();
-        }));
-        // Set the new allocation domains fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
-      }
-
-      // reorderAllocationDomains and
-      // patchAllocationOfTransposedSmemTensor assume unallocated IDs
-      // are removed
-      std::vector<IterDomain*> actual_allocation_ids;
-      std::vector<std::optional<bool>> actual_contiguity;
-      for (auto [i, id] : enumerate(allocation_domains)) {
-        if (mayRequireAllocation(tv, id)) {
-          actual_allocation_ids.push_back(id);
-          actual_contiguity.push_back(contiguity.at(i));
-        }
-      }
-      std::swap(allocation_domains, actual_allocation_ids);
-      std::swap(contiguity, actual_contiguity);
-
-      if (auto reordered_domains =
-              reorderAllocationDomains(tv, allocation_domains);
-          reordered_domains.has_value()) {
-        allocation_domains = reordered_domains.value();
-        NVF_ERROR(
-            std::all_of(
-                contiguity.begin(),
-                contiguity.end(),
-                [](auto b) { return b.has_value() && b.value(); }),
-            tv->toString());
-      }
-
-      // WAR for transpose
-      if (auto transposed_smem_alloc_dom =
-              patchAllocationOfTransposedSmemTensor(
-                  tv,
-                  allocation_domains,
-                  GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
-          transposed_smem_alloc_dom.has_value()) {
-        allocation_domains = transposed_smem_alloc_dom.value();
-        // Make sure the original allocation domains are fully contiguous
-        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
-          return b.has_value() && b.value();
-        }));
-        // Set the new allocation domains fully contiguous
-        contiguity =
-            std::vector<std::optional<bool>>(allocation_domains.size(), true);
-      }
+    // WAR for transpose
+    if (auto transposed_smem_alloc_dom = patchAllocationOfTransposedSmemTensor(
+            tv,
+            allocation_domains,
+            GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
+        transposed_smem_alloc_dom.has_value()) {
+      allocation_domains = transposed_smem_alloc_dom.value();
+      // Make sure the original allocation domains are fully contiguous
+      NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+        return b.has_value() && b.value();
+      }));
+      // Set the new allocation domains fully contiguous
+      contiguity =
+          std::vector<std::optional<bool>>(allocation_domains.size(), true);
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
@@ -877,7 +947,7 @@ ForLoop* createStageDepthForLoop(ForLoop* circular_buffer_loop) {
 //     mbarrier::init(...);
 //   }
 // }
-Expr* initializeMbarrier(
+Expr* initializeCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -950,7 +1020,7 @@ Expr* initializeMbarrier(
 //     mbarrier::inval(...);
 //   }
 // }
-Expr* invalidateMbarrier(
+Expr* invalidateCircularBufferMbarrier(
     ForLoop* circular_buffer_loop,
     TensorView* all_mbarriers,
     CircularBufferWaitType wait_type) {
@@ -1400,13 +1470,13 @@ class AllocationInserter : public kir::ExprMutator {
     ExprMutator::handle(fl);
 
     // If fl is a circular buffered loop, the we should lowering the loop as:
-    //    alloc mbarrier
-    //    init mbarrier
+    //    alloc cb_mbarrier
+    //    init cb_mbarrier
     //    block_sync
     //    for-loop with cpAsyncBulk expression (the `fl` parameter)
-    //    inval mbarrier
+    //    inval cb_mbarrier
 
-    auto circular_buffer_tvs =
+    std::unordered_set<const TensorView*> circular_buffer_tvs =
         GpuLower::current()->circularBufferInfo().getCircularBufferTvs(fl);
 
     bool circular_buffer_load_is_tma = std::any_of(
@@ -1421,7 +1491,7 @@ class AllocationInserter : public kir::ExprMutator {
       // then allocate an array of mbarier objects. mbarrier::init and
       // mbarrier::inval will be updated in circular buffering pass, but we
       // add them here to handle shared memory correctly in alias memory pass.
-      const auto& opt =
+      const CircularBufferOptions& cb_opt =
           GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
               fl->iter_domain());
 
@@ -1429,25 +1499,26 @@ class AllocationInserter : public kir::ExprMutator {
       // of the TMA load of the circular buffer tensor, and
       // mbarrier[stage:2*stage] for WAR, that is, to wait for the completion of
       // the reading of the circular buffer tensor.
-      int64_t num_mbarriers =
-          opt.usesMBarrierForWAR() ? opt.stage * 2 : opt.stage;
+      int64_t num_cb_mbarriers =
+          cb_opt.usesMBarrierForWAR() ? cb_opt.stage * 2 : cb_opt.stage;
 
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{num_mbarriers})
-                                 .dtype(DataType::UInt64)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
+      TensorView* cb_mbarrier =
+          TensorViewBuilder()
+              .shape(std::vector<int64_t>{num_cb_mbarriers})
+              .dtype(DataType::UInt64)
+              .contiguity(true)
+              .build();
+      cb_mbarrier->setMemoryType(MemoryType::Shared);
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+      kir::Allocate* cb_mbarrier_alloc =
+          IrBuilder::create<kir::Allocate>(cb_mbarrier, MemoryType::Shared);
 
       // Initialize and invalidate mbarriers that are used to notify that
       // the load of the circular buffer is complete.
-      auto mbarrier_init_raw = initializeMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
-      auto mbarrier_inval_raw = invalidateMbarrier(
-          fl, mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_init_raw = initializeCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
+      Expr* cb_mbarrier_inval_raw = invalidateCircularBufferMbarrier(
+          fl, cb_mbarrier, CircularBufferWaitType::ReadAfterWrite);
 
       // Block sync is necessary to finish mbarrier initialization.
       kir::BlockSync* sync = IrBuilder::create<kir::BlockSync>(false);
@@ -1455,42 +1526,61 @@ class AllocationInserter : public kir::ExprMutator {
       // Add mbarriers, init, and inval operations around tma expression like
       // this:
       //
-      // __shared__ mbarrier[num_stages];
+      // __shared__ cb_mbarrier[num_stages];
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for RAW
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // initialize mbarrier for WAR
-      //   init(mbarrier[stage]);
+      //   init(cb_mbarrier[stage]);
       // }
       // block_sync();
       //
       // for (circular_buffer_loop) {
-      //   cp.async.bulk(data, mbarrier);
+      //   cp.async.bulk(data, cb_mbarrier);
       // }
       //
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for WAR
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       // for (circular_buffer_stage) {
       //   // invalidate mbarrier for RAW
-      //   inval(mbarrier[stage]);
+      //   inval(cb_mbarrier[stage]);
       // }
       //
       Scope* current_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(fl, mbarrier_alloc, current_scope);
-      registerInsertBefore(fl, mbarrier_init_raw, current_scope);
-      registerInsertAfter(fl, mbarrier_inval_raw, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_alloc, current_scope);
+      registerInsertBefore(fl, cb_mbarrier_init_raw, current_scope);
+      registerInsertAfter(fl, cb_mbarrier_inval_raw, current_scope);
 
-      if (opt.usesMBarrierForWAR()) {
-        auto mbarrier_init_war = initializeMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        auto mbarrier_inval_war = invalidateMbarrier(
-            fl, mbarrier, CircularBufferWaitType::WriteAfterRead);
-        registerInsertBefore(fl, mbarrier_init_war, current_scope);
-        registerInsertAfter(fl, mbarrier_inval_war, current_scope);
+      // If this is a ping-pong hopper, then we need to create and allocate
+      // ping-pong mbarriers.
+      HopperPingPongMbarriers* ping_pong_mbarriers =
+          GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+              fl->iter_domain());
+      if (ping_pong_mbarriers != nullptr) {
+        auto
+            [ping_pong_mbarrier_alloc,
+             ping_pong_mbarrier_init_raw,
+             ping_pong_mbarrier_inval_raw] =
+                ping_pong_mbarriers->createPingPongMbarrier();
+        NVF_ERROR(ping_pong_mbarrier_alloc != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_init_raw != nullptr);
+        NVF_ERROR(ping_pong_mbarrier_inval_raw != nullptr);
+        registerInsertBefore(fl, ping_pong_mbarrier_alloc, current_scope);
+        registerInsertBefore(fl, ping_pong_mbarrier_init_raw, current_scope);
+        registerInsertAfter(fl, ping_pong_mbarrier_inval_raw, current_scope);
+      }
+
+      if (cb_opt.usesMBarrierForWAR()) {
+        auto cb_mbarrier_init_war = initializeCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        auto cb_mbarrier_inval_war = invalidateCircularBufferMbarrier(
+            fl, cb_mbarrier, CircularBufferWaitType::WriteAfterRead);
+        registerInsertBefore(fl, cb_mbarrier_init_war, current_scope);
+        registerInsertAfter(fl, cb_mbarrier_inval_war, current_scope);
       }
       registerInsertBefore(fl, sync, current_scope);
 
@@ -1500,7 +1590,7 @@ class AllocationInserter : public kir::ExprMutator {
           continue;
         }
         // Map LoadStoreOp expression to ir nodes created in this pass
-        GpuLower::current()->mbarrierMap()[tv->definition()] = mbarrier;
+        GpuLower::current()->mbarrierMap()[tv->definition()] = cb_mbarrier;
       }
     }
   }

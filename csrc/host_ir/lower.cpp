@@ -18,8 +18,8 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <preseg_passes/decompose_reshardings.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -78,7 +78,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
+      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
   preseg_passes::OptimizationPass<
       preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
 

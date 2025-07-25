@@ -8,11 +8,20 @@ import torch
 from opinfo_core import OpInfo
 from opinfo_utils import ArgumentType, is_tensor
 
-from nvfuser import FusionDefinition
-from nvfuser.pytorch_utils import (
-    python_scalar_to_nvfuser_dtype,
-    torch_dtype_to_nvfuser_dtype,
-)
+import sys
+
+if "nvfuser" in sys.modules:
+    from nvfuser import FusionDefinition
+    from nvfuser.pytorch_utils import (
+        python_scalar_to_nvfuser_dtype,
+        torch_dtype_to_nvfuser_dtype,
+    )
+else:
+    from nvfuser_direct import FusionDefinition
+    from nvfuser_direct.pytorch_utils import (
+        python_scalar_to_nvfuser_dtype,
+        torch_dtype_to_nvfuser_dtype,
+    )
 
 
 def parse_inputs_fusion_definition(fd: FusionDefinition, opinfo: OpInfo, *args):

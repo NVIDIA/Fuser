@@ -769,7 +769,7 @@ int64_t roundUpSharedMemory(
   int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
   int64_t max_smem_bit = 0;
   int64_t max_vectorize_factor =
-      SchedulerRuntimeInfo::max_alignment_size_in_bit / data_type_size_bit;
+      getMaxVectorizationSizeInBit() / data_type_size_bit;
   int64_t dim_size = tv_buffer_size_bit / data_type_size_bit;
   // Check all possible combinations of vectorization factor, batch size and
   // threads per block
@@ -1191,6 +1191,15 @@ bool checkReductionPattern(
 // The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          scheduler_type, "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, scheduler_type)) {
@@ -1313,7 +1322,8 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
-    const std::vector<TensorView*>& cached_inputs) {
+    const std::vector<TensorView*>& cached_inputs,
+    const std::vector<TensorView*>& persistent_buffers) {
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
@@ -1321,8 +1331,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
-  const auto& persistent_buffers =
-      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
     return std::any_of(
         rparams->smem_persistent_buffers.begin(),
@@ -1468,13 +1477,14 @@ void recomputeNonPersistentUnmappbleTvs(
 } // namespace
 
 // common prepare for all persistent schedulers
-void beforeSchedule(
+void commonScheduleBeforeIterDomainTransform(
     Fusion* fusion,
     const ReductionParams* rparams,
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
+    std::vector<TensorView*>& persistent_buffers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
@@ -1504,9 +1514,14 @@ void beforeSchedule(
   scheduler_utils::clearMemorySpace(fusion);
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
+  // recheck persistent buffers after project to inputs and cached inputs
+  persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
-  smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+  smem_consumers = movePersistentBufferToSmem(
+      fusion, rparams, cached_inputs, persistent_buffers);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1569,15 +1584,16 @@ void schedulePersistentKernel(
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
   std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
+      smem_consumers, persistent_buffers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  beforeSchedule(
+  commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
       smem_consumers,
+      persistent_buffers,
       cached_outputs);
 
   TensorView* reference_tv =
@@ -1613,6 +1629,7 @@ void schedulePersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1620,6 +1637,49 @@ void schedulePersistentKernel(
       use_grouped_reduction,
       reduction_tvs,
       unroll_vectorizable_cached_tvs);
+
+  // For inner persistent with vectorized load, use explicity unroll for cached
+  // input if it is a persistent buffer. This won't increase register usage
+  // and encourages compiler issuing memory load instructions together. It
+  // improves performance with cuda-13.0.
+  bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
+      rparams->fastest_dim && !rparams->schedule_3D;
+  if (unroll_persistent_cached_inputs) {
+    for (auto tv : cached_inputs) {
+      if (std::find(persistent_buffers.begin(), persistent_buffers.end(), tv) ==
+          persistent_buffers.end()) {
+        continue;
+      }
+      // Find PersistentBatch domain to unroll, typical case is:
+      // [..., PersistentBatch, US, TIDx, Vect].
+      // From first principle, the PersistentBatch domain was created from
+      // an outer split and parallelized with Serial, and its content equals
+      // rparams->batches_per_block_inner_reduction, we should have only one
+      // such domain.
+      int identified_count = 0;
+      for (auto id : tv->getLoopDomain()) {
+        if (id->getParallelType() != ParallelType::Serial ||
+            !id->definition() || !id->definition()->isA<Split>()) {
+          continue;
+        }
+        auto split = id->definition()->as<Split>();
+        if (split->innerSplit() ||
+            split->factor()->value().as<int64_t>() !=
+                rparams->batches_per_block_inner_reduction) {
+          continue;
+        }
+        identified_count++;
+        id->parallelize(ParallelType::Unroll);
+      }
+      NVF_ERROR(
+          identified_count == 1,
+          "Expected to find exactly one PersistentBatch domain to unroll, but "
+          "found ",
+          identified_count,
+          " in ",
+          tv->toString());
+    }
+  }
 
   // Needs special handling of vectorized loading from shared memory due to
   // potential different data types of inputs and shared memory tensor.

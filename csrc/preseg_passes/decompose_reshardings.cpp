@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/insert_reshardings.h>
+#include <preseg_passes/decompose_reshardings.h>
 
 #include <device_lower/utils.h>
 #include <fusion.h>
@@ -245,7 +245,11 @@ void canonicalizeLoopDomain(TensorView* tv) {
 }
 
 void decomposeRowParallelLinearWithBias(Fusion* fusion) {
-  for (Expr* e : fusion->exprs()) {
+  // Iterate backwards over fusion expressions to avoid processing
+  // expressions that have been deleted.
+  // Recall that replaceValInAllExprInputsAndFusionOutputs invalidates
+  // consumers.
+  for (Expr* e : fusion->exprs() | std::views::reverse) {
     auto* linear_op = dynamic_cast<LinearOp*>(e);
     if (linear_op == nullptr) {
       continue;
@@ -386,7 +390,7 @@ void rFactorLoopSplits(Fusion* fusion) {
 
 } // namespace
 
-void InsertReshardingsPass::runPass(Fusion* fusion) {
+void DecomposeReshardingsPass::runPass(Fusion* fusion) {
   decomposeRowParallelLinearWithBias(fusion);
 
   rFactorLoopSplits(fusion);
