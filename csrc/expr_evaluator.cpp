@@ -135,8 +135,10 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
+      
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR(
+  if (evaluate_validate) {
+    NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
       "Expected ",
       getInputPosString(tv),
@@ -145,6 +147,7 @@ void ExpressionEvaluator::bindTensorDomain(
       logical_domain.size(),
       ", but got a tensor of rank ",
       t.dim());
+  }
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
 
