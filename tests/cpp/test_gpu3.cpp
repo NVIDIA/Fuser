@@ -9102,6 +9102,38 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
 }
 
+TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // [TIDx, TIDy]
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDy);
+
+  // [TIDy, TIDx]
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  auto kernel = gpulw.kernel();
+  const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+  EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+    return expr->isA<kir::BlockSync>();
+  }));
+}
+
 // Repro of issue #4829
 TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
   auto fusion_ptr = std::make_unique<Fusion>();
