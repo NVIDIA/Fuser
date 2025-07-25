@@ -13,7 +13,8 @@
 
 namespace nvfuser {
 
-//! This is an experimental pass that subsumes the following previously-used passes:
+//! This is an experimental pass that subsumes the following previously-used
+//! passes:
 //!
 //!  - reuseMemoryAllocations
 //!  - CircularBufferPass
@@ -21,7 +22,9 @@ namespace nvfuser {
 //!  - insertWarThreadSynchronization
 //!  - insertWarAsyncWait
 //!
-//! These passes all used similar analyses and had circular dependencies because syncing, circular buffering, and memory reuse are intertwined topics.
-std::vector<Expr*> circularBufferAndInsertSyncs(const std::vector<Expr*>& exprs);
+//! These passes all used similar analyses and had circular dependencies because
+//! syncing, circular buffering, and memory reuse are intertwined topics.
+std::vector<Expr*> circularBufferAndInsertSyncs(
+    const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser
