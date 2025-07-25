@@ -494,12 +494,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     expr->fusion()->zeroVal()),
                 expr->fusion()->zeroVal(DataType::UInt32)));
       }
-    } else if (ir_utils::isCpAsyncBulkStore(expr)) {
-      // Add a fence before TMA store so that writes in the generic proxy is
-      // visible to the async proxy.
-      auto scope = scope_.empty() ? nullptr : scope_.back();
-      auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
-      registerInsertBefore(expr, fence_async, scope);
     }
 
     // Insert sync exprs after async ops. For example, insert
@@ -705,11 +699,12 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
 
+    ForLoop* placed_in_fl = nullptr;
+    Expr* place_before = nullptr;
     if (sync_within_fl == nullptr) {
       // Sync should be placed at global scope, after its outer most loop if
       // it has one.
-      Expr* place_before =
-          !for_loops_.empty() ? for_loops_[0] : insert_before_expr;
+      place_before = !for_loops_.empty() ? for_loops_[0] : insert_before_expr;
       // Find location in exprs_
       auto place_before_it =
           std::find(exprs_.begin(), exprs_.end(), place_before);
@@ -723,13 +718,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         registerInsertBefore(place_before, maybe_alloc, nullptr);
       }
       registerInsertBefore(*(place_before_it), sync_expr, nullptr);
-      return nullptr;
     } else {
       auto sync_within_loop_it =
           std::find(for_loops_.begin(), for_loops_.end(), sync_within_fl);
 
       auto place_in = *sync_within_loop_it;
-      Expr* place_before = nullptr;
 
       if (sync_within_loop_it + 1 == for_loops_.end()) {
         // Inline, place before expr
@@ -742,8 +735,61 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       if (maybe_alloc != nullptr) {
         registerInsertBefore(place_before, maybe_alloc, &place_in->body());
       }
-      return place_in;
+      placed_in_fl = place_in;
     }
+
+    // We insert a ProxyFence whenever the consuming operation
+    // (insert_before_expr) is in the async proxy and any of the definitions of
+    // last_writes is in the generic proxy or vice versa. So here we check
+    // whether the proxies match between consumer and every last_write.
+    const lower_utils::MemoryProxy consumer_proxy =
+        lower_utils::getMemoryProxy(insert_before_expr);
+    std::unordered_set<MemoryType> guarded_memtypes;
+    bool needs_proxy_fence = false;
+    for (Expr* write_expr : last_writes) {
+      // Determine whether an implicit fence is guaranteed or if we need to
+      // insert one
+      if (auto* mma = dynamic_cast<MmaOp*>(write_expr);
+          mma && mma->isHopper()) {
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-async-proxy
+        continue;
+      }
+      if (ir_utils::isCpAsyncOp(write_expr) ||
+          ir_utils::isCpAsyncBulk(write_expr)) {
+        // https://docs.nvidia.com/cuda/parallel-thread-execution/#async-proxy
+        continue;
+      }
+      if (lower_utils::getMemoryProxy(write_expr) != consumer_proxy) {
+        needs_proxy_fence = true;
+        // If this expression requires a fence, determine which memory space(s)
+        // need to be fenced.
+        for (Val* out_val : write_expr->outputs()) {
+          if (auto* tv = dynamic_cast<TensorView*>(out_val)) {
+            guarded_memtypes.insert(tv->getMemoryType());
+          }
+        }
+      }
+    }
+
+    if (needs_proxy_fence) {
+      NVF_ERROR(
+          guarded_memtypes.size() == 1 &&
+              guarded_memtypes.count(MemoryType::Shared) == 1,
+          "We currently only support fence.proxy.async.shared::cta, but other "
+          "memory types were detected.");
+      Expr* fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
+      // Predicate the fence to select the first warp. TMA store is warp
+      // collective so ElectSync is not needed.
+      Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+      Val* select_first_warp = IrBuilder::ltExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
+      auto* select_warp_pred =
+          IrBuilder::create<kir::Predicate>(select_first_warp);
+      fence_async = fence_async->withPredicate(select_warp_pred);
+      registerInsertBefore(place_before, fence_async, &placed_in_fl->body());
+    }
+
+    return placed_in_fl;
   }
 
   void handle(kir::IfThenElse* ite) final {
