@@ -4500,9 +4500,6 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
             maybe_upcast_squeeze_out_tv->dtype(),
             upcast_op->input(0)->as<TensorView>());
 
-        TransformReplay::selfReplay(
-            maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
-
       } else {
         auto squeeze_op =
             maybe_upcast_squeeze_out_tv->definition()->as<SqueezeOp>();
@@ -4513,6 +4510,9 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
                 squeeze_op->input(0)->as<TensorView>(),
                 squeeze_op->getSqueezeDimFlags()));
       }
+
+      TransformReplay::selfReplay(
+          maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
 
       auto new_expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
