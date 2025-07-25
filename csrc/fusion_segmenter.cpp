@@ -4366,7 +4366,7 @@ bool is_upcast_op(Expr* expr) {
     return false;
   }
   auto precisions =
-      ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
   if (!precisions.has_value() || precisions->first >= precisions->second) {
     return false;
   }
@@ -4512,9 +4512,6 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
             maybe_upcast_squeeze_out_tv->dtype(),
             upcast_op->input(0)->as<TensorView>());
 
-        TransformReplay::selfReplay(
-            maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
-
       } else {
         auto squeeze_op =
             maybe_upcast_squeeze_out_tv->definition()->as<SqueezeOp>();
@@ -4525,6 +4522,9 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
                 squeeze_op->input(0)->as<TensorView>(),
                 squeeze_op->getSqueezeDimFlags()));
       }
+
+      TransformReplay::selfReplay(
+          maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
 
       auto new_expr = ir_utils::replaceValInExprInputs(
           expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
