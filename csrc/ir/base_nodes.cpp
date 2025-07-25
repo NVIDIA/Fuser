@@ -58,6 +58,10 @@ bool Statement::lessThan(const Statement* stmt1, const Statement* stmt2) {
   return stmt1->name() < stmt2->name();
 }
 
+size_t Statement::get_hash() const {
+  NVF_THROW("get_hash for IR node ", typeid(*this).name(), " is not defined");
+}
+
 std::string Statement::toString(int indent_size) const {
   NVF_THROW("toString for IR node ", typeid(*this).name(), " is not defined");
 }
