@@ -319,11 +319,4 @@ struct MostInlinedTransformPropagator
 // TensorViews.
 Expr* replayExprWithNewInput(Expr* e, Val* new_in);
 
-// Builds the allocation domain of `tv` by reusing existing IDs from the loop
-// domain. This avoids creating duplicate IDs when the loop domain already
-// contains the transformed IDs we need. It ensures we can allocate the tensor
-// based on its allocation domains and also verfiy that the allocated Ids are
-// consistent with the compute at position.
-void buildAllocationDomainWithLoopIds(TensorView* tv);
-
 } // namespace nvfuser

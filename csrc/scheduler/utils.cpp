@@ -3106,7 +3106,7 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
-void replayLoopToAllocationForSharedMemoryTvs(Fusion* fusion) {
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() != MemoryType::Shared) {
       continue;
@@ -3114,7 +3114,7 @@ void replayLoopToAllocationForSharedMemoryTvs(Fusion* fusion) {
     if (!tv->hasAllocation()) {
       continue;
     }
-    buildAllocationDomainWithLoopIds(tv);
+    tv->buildAllocationDomainFromLoopIds();
   }
 }
 } // namespace scheduler_utils

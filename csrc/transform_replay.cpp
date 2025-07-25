@@ -30,10 +30,6 @@ namespace {
 
 using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
 
-// ReplaySelf: Used when we need to apply the same transformations to a
-// different root domain, which requires creating new IDs. This is different
-// from cases like buildAllocationDomainWithLoopIds where we can reuse existing
-// IDs from the loop domain by reordering them.
 class ReplaySelf : public ReplayTransformations {
  private:
   // Took a good bit of this from ReplayTransformations::handle(Split...)
@@ -73,6 +69,7 @@ class ReplaySelf : public ReplayTransformations {
         s->outer()->isRFactorProduct(),
         s->outer()->getIterType(),
         s->inner()->getIterType());
+
     // Remove mapped id from loop IDs
     loop_ids_.erase(mapped);
 
@@ -83,16 +80,6 @@ class ReplaySelf : public ReplayTransformations {
     // Update our ID map to include these outputs
     id_map_[s->outer()] = ido;
     id_map_[s->inner()] = idi;
-
-    // Update ordered domain if exists
-    if (!ordered_domain_.empty()) {
-      auto it_ordered =
-          std::find(ordered_domain_.begin(), ordered_domain_.end(), mapped);
-      if (it_ordered != ordered_domain_.end()) {
-        it_ordered = ordered_domain_.erase(it_ordered);
-        ordered_domain_.insert(it_ordered, {ido, idi});
-      }
-    }
   }
 
   void handle(Merge* m) override {
@@ -129,21 +116,6 @@ class ReplaySelf : public ReplayTransformations {
     loop_ids_[merged_id] = newCounter();
 
     id_map_[m->out()] = merged_id;
-
-    // Update ordered domain if exists
-    if (!ordered_domain_.empty()) {
-      auto it_outer = std::find(
-          ordered_domain_.begin(), ordered_domain_.end(), id_outer_mapped);
-      if (it_outer != ordered_domain_.end()) {
-        ordered_domain_.erase(it_outer);
-      }
-      auto it_inner = std::find(
-          ordered_domain_.begin(), ordered_domain_.end(), id_inner_mapped);
-      if (it_inner != ordered_domain_.end()) {
-        it_inner = ordered_domain_.erase(it_inner);
-        ordered_domain_.insert(it_inner, merged_id);
-      }
-    }
   }
 
   void handle(Swizzle* swizzle) override {
@@ -186,24 +158,14 @@ class ReplaySelf : public ReplayTransformations {
     loop_ids_[replayed_out] = newCounter();
 
     id_map_[resize->out()] = replayed_out;
-    NVF_ERROR(
-        ordered_domain_.empty(),
-        "Resize is not implemented yet in ordered domain replay.");
   }
-
-  std::vector<IterDomain*> ordered_domain_;
 
  public:
   ReplaySelf(
       const std::vector<IterDomain*>& target_domain,
-      IterDomainMap id_map,
-      std::vector<IterDomain*> ordered_domain = {})
-      : ReplayTransformations(target_domain, std::move(id_map)),
-        ordered_domain_(std::move(ordered_domain)) {
+      IterDomainMap id_map)
+      : ReplayTransformations(target_domain, std::move(id_map)) {
     setErrorOnFailure(false);
-  }
-  const std::vector<IterDomain*>& getReplayedOrderedDomain() const {
-    return ordered_domain_;
   }
 };
 
@@ -1491,73 +1453,6 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
 
   return e->newObjectFunc()(
       e->container(), {new_in_tv}, new_outs, e->attributes());
-}
-
-// This function requires the allocation domain to be a permutation of the
-// logical domain.
-// For each allocation domain ID (which is a logical domain ID),
-// replace it with all the loop domain IDs that were derived from it.
-void buildAllocationDomainWithLoopIds(TensorView* tv) {
-  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-  NVF_ERROR(
-      std::is_permutation(
-          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
-      "buildAllocationDomainWithLoopIds expects the allocation domain to be a "
-      "permutation of the logical domain, but got: ",
-      tv->getMaybeAllocationDomain().toString(),
-      " vs ",
-      tv->getLogicalDomain().toString());
-  const std::vector<IterDomain*>& loop = tv->getLoopDomain();
-
-  // Build the new allocation domain by reusing existing loop domain IDs
-  std::vector<IterDomain*> new_alloc_domain;
-  std::unordered_set<IterDomain*> used_loop_ids;
-
-  // For each allocation domain ID (which is a logical domain ID),
-  // find all the loop domain IDs that were derived from it
-  for (auto alloc_id : alloc) {
-    // Find all loop domain IDs that depend on this logical/allocation ID
-    auto dependent_vals = DependencyCheck::getAllValsBetween(
-        {alloc_id}, {loop.begin(), loop.end()});
-
-    // Filter to only IterDomains and keep only those in the loop domain
-    std::vector<IterDomain*> derived_loop_ids;
-    for (auto val : dependent_vals) {
-      if (auto id = dynamic_cast<IterDomain*>(val)) {
-        if (std::find(loop.begin(), loop.end(), id) != loop.end()) {
-          derived_loop_ids.push_back(id);
-        }
-      }
-    }
-
-    // If no transformations were applied to this allocation ID,
-    // it should appear directly in the loop domain
-    if (derived_loop_ids.empty()) {
-      auto it = std::find(loop.begin(), loop.end(), alloc_id);
-      if (it != loop.end()) {
-        derived_loop_ids.push_back(alloc_id);
-      } else {
-        NVF_THROW(
-            "Could not find the associated loop IDs for allocation domain ID ",
-            alloc_id);
-      }
-    }
-
-    // Add derived IDs to the new allocation domain in loop domain order,
-    // but only if they haven't been added already (to avoid duplicates)
-    for (auto loop_id : loop) {
-      if (std::find(
-              derived_loop_ids.begin(), derived_loop_ids.end(), loop_id) !=
-              derived_loop_ids.end() &&
-          used_loop_ids.find(loop_id) == used_loop_ids.end()) {
-        new_alloc_domain.push_back(loop_id);
-        used_loop_ids.insert(loop_id);
-      }
-    }
-  }
-
-  tv->setAllocationDomain(new_alloc_domain, true);
 }
 
 } // namespace nvfuser

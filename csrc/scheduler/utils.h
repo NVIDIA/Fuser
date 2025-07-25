@@ -853,7 +853,7 @@ bool isSymbolicTensor(const TensorView* tv);
 
 // For shared memory tensor, replay loop domain transformations to allocation
 // domain
-void replayLoopToAllocationForSharedMemoryTvs(Fusion* fusion);
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
