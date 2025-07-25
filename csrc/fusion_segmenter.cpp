@@ -4488,9 +4488,23 @@ bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
         continue;
       }
 
+      // This is just a hack/heuristic to avoid performance regressions.
+      // In test_rope.py we had seen regressions when privatizing squeeze ops.
+      // These regressions go away if we don't privatize squeeze ops whose
+      // outputs have more than 2 uses.
+      // Please also note that privating squeeze ops (even with 2 uses of the
+      // output) can create "horizontal" groups during segmentation. These
+      // horizontal groups are currently not merged leading to extra
+      // segments/squeeze ops that may appear in the final segmenter output.
+      // More details of the issue regarding merging horizontal groups can be
+      // found in issue 3829 -- https://github.com/NVIDIA/Fuser/issues/3829.
+      // Even with a squeeze op with 2 uses, this test case:
+      // https://github.com/NVIDIA/Fuser/blob/70ab277c7d91bcc24cd50dd75cedd79863a24f96/tests/python/test_python_frontend.py#L3666C1-L3666C30
+      // demonstrates that privatizing the squeeze op leads to horizontal groups
+      // that can't be merged back.
       if (maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>() &&
           maybe_upcast_squeeze_out_tv->uses().size() > 2) {
-        continue; // SqueezeOp with more than 2 uses is not supported
+        continue;
       }
 
       // Check if there's multiple uses of the upcast/squeeze output
