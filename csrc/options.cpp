@@ -157,6 +157,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   static const std::unordered_map<std::string, EnableOption> available_options =
       {
+          {"experimental_sync_pass", EnableOption::ExperimentalSyncPass},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
           {"id_model", EnableOption::IdModel},
