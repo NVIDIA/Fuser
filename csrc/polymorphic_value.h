@@ -226,6 +226,8 @@ using PolymorphicValue = dynamic_type::DynamicType<
 
 namespace PolymorphicValue_functions {
 
+NVF_API size_t hash(const PolymorphicValue& v);
+
 NVF_API std::string toString(const PolymorphicValue& v);
 
 template <typename T>
