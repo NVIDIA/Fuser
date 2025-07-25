@@ -530,30 +530,29 @@ class TransformerBackwardFusion(FusionDefinition):
           self._head,
           self._hidden,
       )
-
-      self.mlp_linear0_out = self.define_tensor(shape=[b, s, 4 * e], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-      self.out_grad = self.define_tensor(shape=[b, s, e], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-      self.mlp_dropout_mask = self.define_tensor(shape=[b, s, e], contiguity=[True, True, True], dtype=DataType.Bool, is_cpu=False, stride_order=[2, 1, 0])
-      self.mlp_linear1_weight = self.define_tensor(shape=[e, e * 4], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
-      self.mha_dropout_mask = self.define_tensor(shape=[b, s, e], contiguity=[True, True, True], dtype=DataType.Bool, is_cpu=False, stride_order=[2, 1, 0])
-      self.mha_linear1_out = self.define_tensor(shape=[b, s, e], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-      self.mlp_linear0_weight = self.define_tensor(shape=[4 * e, e], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
-      self.layernorm1_weight = self.define_tensor(shape=[e], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-      self.layernorm1_mean = self.define_tensor(shape=[b, s], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
-      self.inp = self.define_tensor(shape=[b, s, e], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-      self.layernorm1_rstd = self.define_tensor(shape=[b, s, 1], contiguity=[True, True, None], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
-      self.mha_linear1_weight = self.define_tensor(shape=[e, e], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
-      self.mha_linear0_out = self.define_tensor(shape=[b, s, 3 * e], contiguity=[True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
-      self.sdpa_out = self.define_tensor(shape=[b, h, s, e // h], contiguity=[True, True, True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
-      self.sdpa_logsum_exp = self.define_tensor(shape=[b, h, s], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
-      self.sdpa_seed = self.define_tensor(shape=[2], contiguity=[True], dtype=DataType.UInt64, is_cpu=False, stride_order=[0])
+      self.mlp_linear0_out = self.define_tensor(shape=[b, s, 4 * e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+      self.out_grad = self.define_tensor(shape=[b, s, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+      self.mlp_dropout_mask = self.define_tensor(shape=[b, s, e], contiguity=True, dtype=DataType.Bool, is_cpu=False, stride_order=[2, 1, 0])
+      self.mlp_linear1_weight = self.define_tensor(shape=[e, e * 4], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+      self.mha_dropout_mask = self.define_tensor(shape=[b, s, e], contiguity=True, dtype=DataType.Bool, is_cpu=False, stride_order=[2, 1, 0])
+      self.mha_linear1_out = self.define_tensor(shape=[b, s, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+      self.mlp_linear0_weight = self.define_tensor(shape=[4 * e, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+      self.layernorm1_weight = self.define_tensor(shape=[e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+      self.layernorm1_mean = self.define_tensor(shape=[b, s], contiguity=True, dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+      self.inp = self.define_tensor(shape=[b, s, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+      self.layernorm1_rstd = self.define_tensor(shape=[b, s, 1], contiguity=True, dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
+      self.mha_linear1_weight = self.define_tensor(shape=[e, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+      self.mha_linear0_out = self.define_tensor(shape=[b, s, 3 * e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[2, 1, 0])
+      self.sdpa_out = self.define_tensor(shape=[b, h, s, e // h], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[3, 1, 2, 0])
+      self.sdpa_logsum_exp = self.define_tensor(shape=[b, h, s], contiguity=True, dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
+      self.sdpa_seed = self.define_tensor(shape=[2], contiguity=True, dtype=DataType.UInt64, is_cpu=False, stride_order=[0])
       self.sdpa_offset = self.define_tensor(shape=[], contiguity=[], dtype=DataType.UInt64, is_cpu=False)
-      self.mha_linear0_weight = self.define_tensor(shape=[3*e, e], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
-      self.layernorm0_weight = self.define_tensor(shape=[e], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-      self.layernorm0_mean = self.define_tensor(shape=[b, s], contiguity=[True, True], dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
-      self.layernorm0_rstd = self.define_tensor(shape=[b, s, 1], contiguity=[True, True, None], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
-      self.layernorm0_bias = self.define_tensor(shape=[e], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
-      self.layernorm1_bias = self.define_tensor(shape=[e], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+      self.mha_linear0_weight = self.define_tensor(shape=[3*e, e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[1, 0])
+      self.layernorm0_weight = self.define_tensor(shape=[e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+      self.layernorm0_mean = self.define_tensor(shape=[b, s], contiguity=True, dtype=DataType.Float, is_cpu=False, stride_order=[1, 0])
+      self.layernorm0_rstd = self.define_tensor(shape=[b, s, 1], contiguity=True, dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
+      self.layernorm0_bias = self.define_tensor(shape=[e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
+      self.layernorm1_bias = self.define_tensor(shape=[e], contiguity=True, dtype=DataType.BFloat16, is_cpu=False, stride_order=[0])
       T23 = self.ops.cast(self.mlp_linear0_out, dtype=DataType.Float)
       T24 = self.ops.cast(self.out_grad, dtype=DataType.Float)
       T25 = self.ops.mul(T23, T23)
@@ -844,7 +843,7 @@ def test_transformer_backward(multidevice_test, benchmark):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
 
-    b, s, h, e = 16, 128, 12, 768
+    b, s, h, e = 1, 2048, 96, 12288
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
 
@@ -904,7 +903,7 @@ def test_transformer_backward(multidevice_test, benchmark):
         transformer_backward_definition(fd, d, b, s, h, e)
         transformer_backward_multidevice_schedule(fd, d)
 
-    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins, _disable_options=['resize_scheduler']))
 
     (
         mlp_linear1_weight_grad,
