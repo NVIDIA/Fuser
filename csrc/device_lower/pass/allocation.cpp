@@ -143,42 +143,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return false;
   }
 
-  // Helper function to check if an allocation domain should be excluded
-  // Returns the excluded ID if found, nullptr otherwise.
-  // An allocation domain should be excluded if it is not required to be
-  // allocated. For example:
-  // T2_s_float[iS6{2}, iS11{3}, iS12{4}, iB8{16}] ca_pos( 2 )
-  // logical domain : (iS6{2}, iS7{12}, iB8{16})
-  // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
-  // contiguity: t t t t
-  //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
-  //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
-  // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
-  // Based on loop domain and compute pos, we don't need to allocate iS6{2}
-  // and iS11{3}. Then the corresponding allocation domains iS6{2} and
-  // iS15{3} should be excluded.
-  // iS6{2} is found directly by pointer comparison.
-  // iS15{3} is found by IdModel.
-  IterDomain* getExcludedAllocationDomain(
-      IterDomain* id,
-      const std::unordered_set<IterDomain*>& exclude_ca_ids) {
-    auto exclude_it = exclude_ca_ids.find(id);
-    if (exclude_it != exclude_ca_ids.end()) {
-      return *exclude_it;
-    }
-    // Fallback: use IdModel to check if any excluded ID is mapped
-    if (GpuLower::current()->hasIdModel()) {
-      const auto& exact_graph =
-          GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
-      for (auto exclude_id : exclude_ca_ids) {
-        if (exact_graph.disjointValSets().strictAreMapped(exclude_id, id)) {
-          return exclude_id;
-        }
-      }
-    }
-    return nullptr;
-  }
-
   // Helper function to collect loop domains that should be excluded
   std::unordered_set<IterDomain*> collectExcludedLoopDomains(
       TensorView* tv,
@@ -218,22 +182,44 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
-    for (auto i : arange(tv->getAllocationDomain().size())) {
-      auto id = tv->getAllocationDomain()[i];
+    // Convert excluded CA IDs to groups for efficient lookup and create mapping
+    NVF_ERROR(GpuLower::current()->hasIdModel());
+    const auto& exact_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+    const auto excluded_ca_groups = exact_graph.toGroups(exclude_ca_ids);
+    std::unordered_map<ValGroup, IterDomain*> group_to_exclude_id;
+    for (auto exclude_id : exclude_ca_ids) {
+      group_to_exclude_id[exact_graph.toGroup(exclude_id)] = exclude_id;
+    }
 
-      // Excluded based on allocation position
-      IterDomain* excluded_id = getExcludedAllocationDomain(id, exclude_ca_ids);
-      if (excluded_id != nullptr) {
-        exclude_ca_ids.erase(excluded_id);
+    for (auto [idx, id] : enumerate(tv->getAllocationDomain())) {
+      // Check if an allocation domain should be excluded based on allocation
+      // position. An allocation domain should be excluded if it is not required
+      // to be allocated. For example: T2_s_float[iS6{2}, iS11{3}, iS12{4},
+      // iB8{16}] ca_pos( 2 ) logical domain : (iS6{2}, iS7{12}, iB8{16})
+      // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
+      // contiguity: t t t t
+      //  Split: iS7{12} by factor 4 -> iS15{3}, iS16{4}
+      //  Split: iS7{12} by factor 4 -> iS11{3}, iS12{4}
+      // loop domain : (iS6{2}, iS11{3}, iS12{4}, iB8{16})
+      // Based on loop domain and compute pos, we don't need to allocate iS6{2}
+      // and iS11{3}. Then the corresponding allocation domains iS6{2} and
+      // iS15{3} should be excluded.
+      auto id_group = exact_graph.toGroup(id);
+      if (excluded_ca_groups.has(id_group)) {
+        exclude_ca_ids.erase(group_to_exclude_id[id_group]);
         continue;
       }
+
       // Excluded based on memory partitioning
       if (ir_utils::isMemoryPartitionedAcross(
               tv->getMemoryType(), id->getParallelType())) {
         continue;
       }
+
+      // Need to allocate the id
       allocation_domains.push_back(id);
-      contiguity.push_back(tv->domain()->contiguity()[i]);
+      contiguity.push_back(tv->domain()->contiguity()[idx]);
     }
 
     // Verify all excluded domains were found
