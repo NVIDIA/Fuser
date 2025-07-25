@@ -902,7 +902,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   // here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
-    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
+    expr_evaluator_.at(expr->output(i)) = concrete_outputs.at(i);
   }
 }
 
