@@ -641,11 +641,12 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 
   auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
   auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-  if (t_out.is_meta()) {
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(out).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
     unhandled(matmul);
     return;
   }
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
   at::matmul_out(t_out, t_a, t_b);
 }
 
@@ -657,12 +658,12 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
   auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
   auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
-  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
-
-  if (out_at.is_meta()) {
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(out).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
     unhandled(linear);
     return;
   }
+  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->hasBias()) {
     auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
@@ -752,13 +753,13 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
 
   auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
   auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output =
-      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(binary_op->outputs().at(0)).as<at::Tensor>();
   
-  if (output.is_meta()) {
+  if (unknown_out_tensor.is_meta()) {
     unhandled(binary_op);
     return;
   }
+  auto output = getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
  
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -790,11 +791,12 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
       !output_tv->hasRoot(),
       "Evaluation for rFactored reductions is not supported.");
   auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
-  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
-  if (output.is_meta()) {
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(output_tv).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
     unhandled(reduction_op);
     return;
   }
+  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
 
   std::vector<int64_t> reduction_axes;
   for (const auto i :

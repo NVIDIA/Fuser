@@ -511,11 +511,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           // expressions
           // NOTE: if there is an output alias, we just continue
           for (auto* expr : group_to_run->stablyOrderedExprs()) {
-            for(auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+            auto cloned_expr = ir_cloner.clone(expr);
+            for(auto* tv : ir_utils::filterByType<TensorView>(cloned_expr->outputs())) {
               auto* new_tensor = IrBuilder::create<hir::NewTensor>(tv);
               hic->pushBackTopLevelExprs(new_tensor);
             }
-            auto cloned_expr = ir_cloner.clone(expr);
             hic->pushBackTopLevelExprs(cloned_expr);
           }
         } break;
