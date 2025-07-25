@@ -434,7 +434,7 @@ def test_transformer_forward(multidevice_test, benchmark):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
 
-    b, s, h, e = 16, 128, 12, 768
+    b, s, h, e = 1, 2048, 96, 12288
 
     assert (
         e % h == 0
