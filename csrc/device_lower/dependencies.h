@@ -20,10 +20,12 @@ class DependencyMapper : public kir::IrVisitor {
  public:
   DependencyMapper(const std::vector<Expr*>& top_level_exprs);
 
+  using Coords = std::vector<int64_t>;
+
   //! This describes the position of a particular expression in the kernel
   struct ExprPosition {
     //! This gives the tree coordinates of
-    std::vector<int64_t> coords;
+    Coords coords;
 
     //! This position is the order in which we would see the expressions if they
     //! were converted to a CUDA kernel as-is. Note that a position is given to
@@ -36,12 +38,12 @@ class DependencyMapper : public kir::IrVisitor {
   //! Given coordinates expressed in terms of _non-trivial_ for loops only,
   //! return the non-null expr at a given location. Note that this method is
   //! slow as it must reconstruc
-  Expr* exprFromCoord(const std::vector<int64_t>& coords) const;
+  Expr* exprFromCoord(const Coords& coords) const;
 
   //! Given coordinates expressed in terms of _non-trivial_ for loops only,
   //! return the non-null expr at a given location. Note that this method is
   //! slow as it must reconstruc
-  Scope& scopeFromCoord(const std::vector<int64_t>& coords) const;
+  Scope& scopeFromCoord(const Coords& coords) const;
 
   const ExprPosition& getExprPosition(Expr* expr) const {
     auto pos_int_it = expr_pos_int_.find(expr);
@@ -145,14 +147,32 @@ class DependencyMapper : public kir::IrVisitor {
   //! endfor
   //!
   // TODO: finish examples
-  struct NonTrivialExprOrScope {
-    Expr* expr;
-    bool is_else_branch = false;
-    std::vector<std::shared_ptr<NonTrivialExprOrScope>> members;
-  } nontrivial_exprs_;
+  class NonTrivialExprTree {
+   public:
+    NonTrivialExprTree() {
+      base_node_ = insertNode(nullptr);
+    }
+
+    struct Node {
+      Expr* expr;
+      bool is_else_branch = false;
+      std::vector<std::shared_ptr<NonTrivialExprOrScope>> members;
+    };
+
+    Node* insertNode(expr, bool is_else_branch = false) {
+      return &nodes_up_.emplace_back(
+          std::make_unique<Node>(expr, is_else_branch));
+    }
+
+   private:
+    std::vector<std::unique_ptr<Node>> nodes_up_;
+    Node* base_node_;
+  } nontrivial_expr_tree_;
+
+  std::vector<NonTrivialExprTree::Node*> nontrivial_expr_stack_;
 
   int64_t current_pos_;
-  std::vector<int64_t> current_coords_;
+  Coords current_coords_;
 };
 
 } // namespace nvfuser

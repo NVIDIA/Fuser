@@ -15,12 +15,12 @@ DependencyMapper::DependencyMapper(const std::vector<Expr*>& top_level_exprs)
     : top_level_exprs_(top_level_exprs) {
   current_pos_ = 0;
   current_coords_ = {-1};
+  nontrivial_expr_stack_ = {&nontrivial_exprs_};
 
   handle(top_level_exprs_);
 }
 
-Expr* DependencyMapper::exprFromCoord(
-    const std::vector<int64_t>& coords) const {
+Expr* DependencyMapper::exprFromCoord(const Coords& coords) const {
   NVF_ERROR(!coords.empty());
   const std::vector<Expr*>* scope_exprs = &top_level_exprs_;
   Expr* expr = nullptr;
@@ -73,19 +73,28 @@ void DependencyMapper::dispatch(Expr* expr) {
   ExprPosition& expr_pos = getExprPosition(expr);
   expr_pos.pos = current_pos_;
   expr_pos.coords = current_coords_;
+  auto& this_nontriv_expr = nontrivial_expr_stack_.back().members.emplace_back(
+      std::make_shared<NonTrivialExprOrScope>(expr));
 
-  auto recurse_to_scope = [&](const Scope& scope) {
+  auto recurse_to_scope = [&](const Scope& scope, bool then_branch = false) {
+    nontrivial_expr_stack_.push_back(nontrivial_expr_stack_.back());
     current_coords_.push_back(-1);
     handle(scope.exprs());
     current_pos_++; // increment for close of scope
     exprs_.push_back(nullptr);
     expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
     current_coords_.pop_back();
+    nontrivial_expr_stack_.pop_back()
   };
 
   if (auto* ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-    recurse_to_scope(ite->thenBody());
-    recurse_to_scope(ite->elseBody());
+    nontrivial_expr_stack_.back().members.push_back(
+        std::make_shared<NonTrivialExprOrScope>(
+            expr, /*is_else_branch=*/false));
+    recurse_to_scope(ite->thenBody(), /*else_branch=*/false);
+    nontrivial_expr_stack_.back().members.push_back(
+        std::make_shared<NonTrivialExprOrScope>(expr, /*is_else_branch=*/true));
+    recurse_to_scope(ite->elseBody(), /*else_branch=*/true);
 
     return;
   } else if (auto* fl = dynamic_cast<ForLoop*>(expr)) {

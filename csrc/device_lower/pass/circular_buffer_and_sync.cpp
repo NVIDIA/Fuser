@@ -59,9 +59,38 @@ struct WarSyncInterval {
 
 // For warp specialization
 struct WarpSpecializedRole {
+  // This would always be true if circular buffering does not use
+  // WarpSpecialized
+  bool all_warps = false;
+
   // For Hopper, we will have one async warp with index 0 and compute warps with
   // index -1.
   int64_t async_warp = -1L;
+};
+
+struct PlannedInsertion {
+  // Which roles should include this in their cloned loop, in case of warp
+  // specialization.
+  WarpSpecializedRole role;
+
+  enum class Type {
+    CpAsyncCommit,
+    CpAsyncWait,
+    WgmmaFence,
+    WgmmaCommit,
+    WgmmaWait,
+    MbarrierArrive,
+    MbarrierArriveExpectTx,
+    MbarrierWait,
+  } type;
+
+  // This is the template argument to wgmma::wait or cpasync::wait
+  int64_t stages;
+
+  int64_t expect_tx;
+
+  int64_t mbarrier_num;
+  bool mbarrier_is_circ_buffered;
 };
 
 class SyncHelper {
@@ -70,6 +99,8 @@ class SyncHelper {
     // Look up circular buffering info
 
     // Determine warp specialized roles
+
+    // Set predicates on ops like TMA load/store
 
     // Find all producer-consumer RAW sync intervals (p2c data dependencies)
 
@@ -81,6 +112,8 @@ class SyncHelper {
     // Add mbarriers for pingpong
 
     // Allocate mbarriers
+
+    // Copy exprs, cloning circular buffered loops, inserting ITEs, etc.
   }
 
   const std::vector<Expr*>& exprs() const {
@@ -90,6 +123,9 @@ class SyncHelper {
  private:
   std::vector<Expr*> exprs_;
   DependencyMapper deps_;
+
+  std::unordered_map<DependencyMapper::Coords, std::vector<PlannedInsertion>>
+      insertion_map_;
 };
 
 } // namespace
