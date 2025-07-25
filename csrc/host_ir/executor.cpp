@@ -675,8 +675,8 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
-      load_store_op->opType() == LoadStoreOpType::Set,
-      "LoadStoreOp must be a Set");
+    load_store_op->opType() == LoadStoreOpType::Set ||
+    load_store_op->opType() == LoadStoreOpType::SegmenterSet);
   NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
