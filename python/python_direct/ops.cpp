@@ -1524,6 +1524,54 @@ TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
   return reshape(arg, SequenceAsVector(generic_new_shape));
 }
 
+template <class ShapeType>
+TensorView* expand_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return expand(arg, SequenceAsVector(generic_new_shape));
+}
+
+template <class ShapeType>
+TensorView* broadcast_in_dim_fn(
+    TensorView* arg,
+    ShapeType generic_output_shape,
+    std::vector<int64_t>& broadcast_dims) {
+  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  NVF_CHECK(
+      output_shape.size() >= broadcast_dims.size(),
+      "broadcast_dims vector size is too big for output shape!");
+
+  const auto arg_ndims = arg->domain()->noReductions().size();
+  NVF_CHECK(
+      output_shape.size() >= broadcast_dims.size(),
+      "The new shape is expected to be greater-then-or-equal to the input: ",
+      output_shape.size(),
+      " vs ",
+      arg_ndims);
+  NVF_CHECK(
+      arg_ndims == broadcast_dims.size(),
+      "The broadcast dimensions should match the input dimensions: ",
+      arg_ndims,
+      " vs ",
+      broadcast_dims.size(),
+      ". arg = ",
+      arg->toString());
+
+  std::vector<bool> is_broadcast_dim(output_shape.size(), true);
+  for (const auto idx : arange(broadcast_dims.size())) {
+    if (idx > 0) {
+      NVF_CHECK(
+          broadcast_dims[idx - 1] < broadcast_dims[idx],
+          "Broadcast dimension is not greater than the previous value.");
+    }
+    NVF_CHECK(
+        broadcast_dims[idx] < static_cast<int>(output_shape.size()),
+        "Invalid broadcast_dims value.");
+    is_broadcast_dim.at(broadcast_dims[idx]) = false;
+  }
+
+  auto bcast_output = broadcast(arg, is_broadcast_dim);
+  return expand(bcast_output, output_shape);
+}
+
 void bindMetadataOps(py::module_& ops) {
   ops.def(
       "broadcast",
@@ -1539,6 +1587,36 @@ Parameters
 ----------
 arg : TensorView
 is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      py::return_value_policy::reference);
+  ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+broadcast_dims : list or tuple
     The dimensions to broadcast.
 
 Returns
@@ -1613,6 +1691,74 @@ TensorView
     The permuted tensor.
 )",
       py::return_value_policy::reference);
+  ops.def(
+      "expand",
+      expand_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "expand",
+      expand_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
+      R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "squeeze",
+      [](TensorView* arg,
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> TensorView* {
+        return squeeze(arg, dims, squeeze_expanded);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
+      py::return_value_policy::reference,
+      R"(
+Reduce a tensor by removing specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to remove.
+squeeze_expanded : bool, optional
+    Whether to squeeze expanded dimensions. Default is False.
+
+Returns
+-------
+TensorView
+    The squeezed tensor.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindTensorUtilityOps(py::module_& ops) {
@@ -1650,6 +1796,57 @@ list of Val
 )");
 }
 
+void bindIndexingOps(py::module_& ops) {
+  ops.def(
+         "index_select",
+         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+           return indexSelect(arg, dim, index);
+         },
+         py::arg("arg"),
+         py::arg("index"),
+         py::arg("dim"),
+         py::return_value_policy::reference,
+         R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : TensorView
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)")
+      .def(
+          "select",
+          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+            return select(arg, dim, index);
+          },
+          py::arg("arg"),
+          py::arg("index"),
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : Scalar
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)");
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1662,6 +1859,7 @@ void bindOperations(py::module& nvfuser) {
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
+  bindIndexingOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
