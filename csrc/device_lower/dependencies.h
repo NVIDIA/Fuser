@@ -33,7 +33,15 @@ class DependencyMapper : public kir::IrVisitor {
     Scope* scope = nullptr;
   };
 
+  //! Given coordinates expressed in terms of _non-trivial_ for loops only,
+  //! return the non-null expr at a given location. Note that this method is
+  //! slow as it must reconstruc
   Expr* exprFromCoord(const std::vector<int64_t>& coords) const;
+
+  //! Given coordinates expressed in terms of _non-trivial_ for loops only,
+  //! return the non-null expr at a given location. Note that this method is
+  //! slow as it must reconstruc
+  Scope& scopeFromCoord(const std::vector<int64_t>& coords) const;
 
   const ExprPosition& getExprPosition(Expr* expr) const {
     auto pos_int_it = expr_pos_int_.find(expr);
@@ -115,6 +123,33 @@ class DependencyMapper : public kir::IrVisitor {
   std::vector<TensorView*> tvs_;
   std::vector<std::unique_ptr<TensorAccesses>> tv_access_up_;
   std::unordered_map<TensorView*, size_t> tv_pos_int_;
+
+  //! This holds either a single Expr or a collection of these nodes. In cases
+  //! where we hold a collection of nodes, it corresponds to a collection of
+  //! nested scopes and we record the a reference to the ForLoop with the
+  //! smallest enclosing scope as expr. In case of an ITE we record whether this
+  //! is the then or else branch.
+  //!
+  //! for iS0
+  //!   for iS1
+  //!     expr0
+  //!     expr1
+  //!   endfor
+  //!   expr2
+  //!   for iS2
+  //!     for iS3
+  //!       expr3
+  //!     endfor
+  //!   endfor
+  //!   expr3
+  //! endfor
+  //!
+  // TODO: finish examples
+  struct NonTrivialExprOrScope {
+    Expr* expr;
+    bool is_else_branch = false;
+    std::vector<std::shared_ptr<NonTrivialExprOrScope>> members;
+  } nontrivial_exprs_;
 
   int64_t current_pos_;
   std::vector<int64_t> current_coords_;

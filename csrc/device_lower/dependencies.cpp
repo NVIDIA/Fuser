@@ -58,6 +58,11 @@ Expr* DependencyMapper::exprFromCoord(
 }
 
 void DependencyMapper::dispatch(Expr* expr) {
+  if (auto* fl = dynamic_cast<ForLoop*>(expr); fl && fl->isTrivial()) {
+    // Flatten away non-trivial loops
+    handle(fl->body().exprs());
+    return;
+  }
   current_pos_++;
   current_coords_.back()++;
   // Record expr position
