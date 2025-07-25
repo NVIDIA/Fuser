@@ -520,6 +520,7 @@ void compileFunctionDeclarations(
     llvm::LLVMContext& context) {
   // Get the types
   auto* void_type = llvm::Type::getVoidTy(context);
+  auto* void_ptr_type = getInt8PtrType(context);
   auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
   auto* int64_type = llvm::Type::getInt64Ty(context);
   auto* int64_ptr_type = getInt64PtrType(context);
@@ -583,7 +584,7 @@ void compileFunctionDeclarations(
 
   // nvtx_range_push function: void nvtx_range_push(const char* name)
   auto* nvtx_range_push_type =
-      llvm::FunctionType::get(void_type, {int8_ptr_type}, false);
+      llvm::FunctionType::get(void_type, {void_ptr_type}, false);
   llvm::Function::Create(
       nvtx_range_push_type,
       llvm::Function::ExternalLinkage,
