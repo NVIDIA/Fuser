@@ -789,6 +789,8 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
   hic->addOutput(sliced_tv);
 
   if (put_slice_op_in_top_level_expr) {
+    auto* new_tensor_sliced_tv = IrBuilder::create<NewTensor>(sliced_tv);
+    hic->pushBackTopLevelExprs(new_tensor_sliced_tv);
     hic->pushBackTopLevelExprs(sliced_tv->definition());
   }
 
@@ -1021,6 +1023,8 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
   hic->addOutput(selected_tv);
 
   if (put_select_op_in_top_level_expr) {
+    auto* new_tensor_selected_tv = IrBuilder::create<NewTensor>(selected_tv);
+    hic->pushBackTopLevelExprs(new_tensor_selected_tv);
     hic->pushBackTopLevelExprs(selected_tv->definition());
   }
 

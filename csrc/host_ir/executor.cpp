@@ -697,6 +697,11 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     t = in_tensor;
   }
 
+  if(!expr_evaluator_.isKnown(out_tv)) {
+    expr_evaluator_.bind(out_tv, t);
+    return;
+  }
+
   at::Tensor& unknown_out_tensor = expr_evaluator_.at(out_tv).as<at::Tensor>();
   if(!unknown_out_tensor.is_meta()) {
     auto out_tensor = getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
