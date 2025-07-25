@@ -13,11 +13,18 @@
 
 namespace nvfuser {
 
+int nonNegativeAxis(int axis, size_t ndims) {
+  return (axis >= 0) ? axis : ((int)ndims + axis);
+}
+
 Val* numFeatures(
     TensorView* x,
     const std::vector<int64_t>& dims,
     int64_t ndims) {
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
+  if (ndims == 0) {
+    return num_features;
+  }
   for (const auto dim : dims) {
     const int64_t axis = wrapDim(dim, ndims);
     num_features = mul(num_features, x->getLoopDomain()[axis]->extent());
@@ -124,6 +131,11 @@ VarMeanResult variance_mean(
   auto zero_val = IrBuilder::createInContainer<Val>(x->container(), 0);
   auto denom = sub(num_features, correction_val);
   denom = where(ge(denom, zero_val), denom, zero_val);
+
+  // Welford op can't handle 0-dim tensors, so we need to handle them separately
+  if (x->nDims() == 0) {
+    return {variance(x, dims, correction, keepdim), mean(x, dims, keepdim)};
+  }
 
   auto welford_out = Welford(x, dims);
   auto mean = welford_out.avg;
