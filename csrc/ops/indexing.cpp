@@ -120,6 +120,24 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
+  // If acc_tv is a zero tensor and the ID of index_tv is a broadcast,
+  // just scattering is sufficient. Note that only 1D case is
+  // considered for simplicity. In the case of N-D, where N > 1, the
+  // index tensor would need to be repeated rather than just unsqueezed.
+  auto is_zero_tensor = [](TensorView* tv) -> bool {
+    auto full_op = dynamic_cast<FullOp*>(tv->definition());
+    if (full_op == nullptr) {
+      return false;
+    }
+    return full_op->getFillValue()->isZero();
+  };
+  if (acc_domain.size() == 1 && index_domain.size() == 1 &&
+      (index_domain.at(0)->isBroadcast() ||
+       index_domain.at(0)->extent()->isOne()) &&
+      is_zero_tensor(acc_tv)) {
+    return scatter(acc_tv, 0, index_tv, value_tv);
+  }
+
   NVF_CHECK(acc_domain.size() == value_domain.size());
   NVF_CHECK(index_domain.size() == 1);
 
@@ -161,7 +179,6 @@ TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   return out_tensor->as<TensorView>();
 }
 
-// torch.scatter torch.scatter_add
 TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
@@ -180,9 +197,9 @@ TensorView* scatterOp(
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
-  std::vector<IterDomain*> out_domain;
+  std::vector<IterDomain*> out_logical;
   for (const auto i : arange(self_dom.size())) {
-    out_domain.push_back(
+    out_logical.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
                 self_dom[i]->getIterType() == IterType::Iteration
@@ -193,7 +210,8 @@ TensorView* scatterOp(
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_logical,
+          TensorDomain::getContiguityFilledWith(out_logical, true)),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);

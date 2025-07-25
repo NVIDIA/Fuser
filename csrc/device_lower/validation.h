@@ -75,4 +75,7 @@ void validateReductions(Fusion* fusion);
 //! divisible. This is similar to vectorization, where we don't have an extra
 //! else branch to load the tailing elements.
 void validate1dTmaLoad(Fusion* fusion);
+
+void validateScatter(Fusion* fusion);
+
 } // namespace nvfuser
