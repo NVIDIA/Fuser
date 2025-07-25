@@ -198,16 +198,16 @@ void ExpressionEvaluator::bind_(
     bool evaluate_validate) {
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->isConst()) {
-    NVF_CHECK(
-        value->value() == concrete_value,
-        "Tried to bind to a constant value: ",
-        toString(value->value()),
-        " as ",
-        toString(concrete_value));
-    return;
-  }
-  if (evaluate_validate) {
+  if(evaluate_validate) {
+    if (value->isConst()) {
+      NVF_CHECK(
+          value->value() == concrete_value,
+          "Tried to bind to a constant value: ",
+          toString(value->value()),
+          " as ",
+          toString(concrete_value));
+      return;
+    }
     validateValWithConcreteValue(value, concrete_value);
   }
   if (evaluate_validate &&
@@ -225,6 +225,7 @@ void ExpressionEvaluator::bind_(
         ") as ",
         toString(concrete_value));
   }
+
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
     bindTensorDomain(tv, t, evaluate_validate);

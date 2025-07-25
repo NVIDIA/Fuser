@@ -928,6 +928,8 @@ TEST_F(LinearHostIrTest, HostIr) {
   hic->addInput(bias);
   hic->addOutput(out);
 
+  auto* new_tensor = IrBuilder::create<NewTensor>(out);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(out->definition());
 
   HostIrEvaluator hie(std::move(hic));
@@ -1103,6 +1105,8 @@ TEST_F(ReductionHostIrTest, Sum) {
 
   hic->addInput(tv0);
   hic->addOutput(tv1);
+  auto* new_tensor = IrBuilder::create<NewTensor>(tv1);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(tv1->definition());
 
   HostIrEvaluator hie(std::move(hic));
@@ -1364,6 +1368,8 @@ TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
   hic->addInput(lhs);
   hic->addInput(rhs);
   hic->addOutput(out);
+  auto* new_tensor = IrBuilder::create<NewTensor>(out);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(out->definition());
 
   HostIrEvaluator hie(std::move(hic));
