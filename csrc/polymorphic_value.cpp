@@ -43,7 +43,9 @@ bool StructHandle::operator==(const StructHandle& other) const {
 namespace PolymorphicValue_functions {
 
 size_t hash(const PolymorphicValue& v) {
-  if (v.is<std::complex<double>>()) {
+  if (v.is<std::monostate>()) {
+    return 0;
+  } else if (v.is<std::complex<double>>()) {
     std::complex<double> val = v.as<std::complex<double>>();
     std::hash<double> hasher;
     return hash_combine(hasher(val.real()), hasher(val.imag()));
