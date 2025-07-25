@@ -1364,3 +1364,165 @@ class TestRepro(NVFuserTest):
             ),
         ]
         fd.execute(inputs)
+
+    # Repro of https://github.com/NVIDIA/Fuser/pull/4823
+    def test_reshape_cancellation(self):
+        def nvfuser_fusion_id1(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[1, 2048, 24, 32],
+                contiguity=[None, True, True, False],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[1, 2048, 24, 32],
+                contiguity=[None, True, True, False],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[1, 2048, 24, 32],
+                contiguity=[None, True, True, False],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[1, 2048, 4, 4608],
+                contiguity=[None, True, True, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T4 = fd.define_tensor(
+                shape=[1, 2048, 24, 32],
+                contiguity=[None, True, True, False],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T5 = fd.define_tensor(
+                shape=[1, 2048, 24, 64],
+                contiguity=[None, True, None, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T6 = fd.define_tensor(
+                shape=[1, 2048, 24, 64],
+                contiguity=[None, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T7 = fd.define_tensor(
+                shape=[1, 2048, 24, 64],
+                contiguity=[None, True, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[3, 2, 1, 0],
+            )
+            T8 = fd.ops.cast(T0, dtype=DataType.Float)
+            T9 = fd.ops.neg(T8)
+            T10 = fd.ops.cast(T9, dtype=DataType.BFloat16)
+            T17 = fd.ops.broadcast_in_dim(
+                T1, shape=[1, 2048, 24, 32, 1], broadcast_dims=[0, 1, 2, 3]
+            )
+            T24 = fd.ops.broadcast_in_dim(
+                T10, shape=[1, 2048, 24, 32, 1], broadcast_dims=[0, 1, 2, 3]
+            )
+            T25 = fd.ops.cast(T2, dtype=DataType.Float)
+            T41 = fd.ops.slice(
+                T3,
+                start_indices=[0, 0, 0, 3072],
+                end_indices=[1, 2048, 4, 4608],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T42 = fd.ops.cat([T24, T17], dim=-1, manual_padding=0)
+            T43 = fd.ops.neg(T25)
+            T50 = fd.ops.reshape(T41, new_shape=[1, 2048, 4, 6, 256])
+            T56 = fd.ops.reshape(T42, new_shape=[1, 2048, 24, 64])
+            T57 = fd.ops.cast(T43, dtype=DataType.BFloat16)
+            T63 = fd.ops.reshape(T50, new_shape=[1, 2048, 24, 256])
+            T64 = fd.ops.cast(T56, dtype=DataType.Float)
+            T71 = fd.ops.broadcast_in_dim(
+                T4, shape=[1, 2048, 24, 32, 1], broadcast_dims=[0, 1, 2, 3]
+            )
+            T78 = fd.ops.broadcast_in_dim(
+                T57, shape=[1, 2048, 24, 32, 1], broadcast_dims=[0, 1, 2, 3]
+            )
+            T94 = fd.ops.slice(
+                T63,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[1, 2048, 24, 256],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T95 = fd.ops.mul(T64, T5)
+            T111 = fd.ops.slice(
+                T3,
+                start_indices=[0, 0, 0, 0],
+                end_indices=[1, 2048, 4, 1536],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T112 = fd.ops.cat([T78, T71], dim=-1, manual_padding=0)
+            T113 = fd.ops.cast(T94, dtype=DataType.Float)
+            T114 = fd.ops.add(T6, T95)
+            T121 = fd.ops.reshape(T111, new_shape=[1, 2048, 4, 6, 256])
+            T127 = fd.ops.reshape(T112, new_shape=[1, 2048, 24, 64])
+            T128 = fd.ops.cat([T114, T113], dim=-1, manual_padding=0)
+            T134 = fd.ops.reshape(T121, new_shape=[1, 2048, 24, 256])
+            T135 = fd.ops.cast(T127, dtype=DataType.Float)
+            T136 = fd.ops.permute(T128, dims=[0, 2, 1, 3])
+            T152 = fd.ops.slice(
+                T134,
+                start_indices=[0, 0, 0, 64],
+                end_indices=[1, 2048, 24, 256],
+                strides=[1, 1, 1, 1],
+                manual_normalization=0,
+            )
+            T153 = fd.ops.mul(T135, T5)
+            T154 = fd.ops.cast(T136, dtype=DataType.BFloat16)
+            T155 = fd.ops.cast(T152, dtype=DataType.Float)
+            T156 = fd.ops.add(T7, T153)
+            T157 = fd.ops.cat([T156, T155], dim=-1, manual_padding=0)
+            T158 = fd.ops.permute(T136, dims=[0, 1, 3, 2])
+            T159 = fd.ops.permute(T157, dims=[0, 2, 1, 3])
+            fd.add_output(T159)
+            fd.add_output(T154)
+            fd.add_output(T158)
+
+        with FusionDefinition() as fd:
+            nvfuser_fusion_id1(fd)
+
+        inputs = [
+            torch.randn(3145727, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 24, 32), (3145728, 1536, 64, 2)
+            ),
+            torch.randn(3145727, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 24, 32), (3145728, 1536, 64, 2)
+            ),
+            torch.randn(3145727, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 24, 32), (3145728, 1536, 64, 2)
+            ),
+            torch.testing.make_tensor(
+                (1, 2048, 4, 4608), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.randn(3145727, dtype=torch.bfloat16, device="cuda:0").as_strided(
+                (1, 2048, 24, 32), (3145728, 1536, 64, 2)
+            ),
+            torch.randn(131072, dtype=torch.float32, device="cuda:0").as_strided(
+                (1, 2048, 24, 64), (131072, 64, 0, 1)
+            ),
+            torch.testing.make_tensor(
+                (1, 2048, 24, 64), dtype=torch.float32, device="cuda:0"
+            ),
+            torch.testing.make_tensor(
+                (1, 2048, 24, 64), dtype=torch.float32, device="cuda:0"
+            ),
+        ]
+        fd.execute(inputs)
