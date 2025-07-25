@@ -30,6 +30,10 @@ namespace {
 
 using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
 
+// ReplaySelf: Used when we need to apply the same transformations to a
+// different root domain, which requires creating new IDs. This is different
+// from cases like buildAllocationDomainWithLoopIds where we can reuse existing
+// IDs from the loop domain by reordering them.
 class ReplaySelf : public ReplayTransformations {
  private:
   // Took a good bit of this from ReplayTransformations::handle(Split...)
@@ -1489,37 +1493,71 @@ Expr* replayExprWithNewInput(Expr* e, Val* new_in) {
       e->container(), {new_in_tv}, new_outs, e->attributes());
 }
 
-void selfReplayLoopToAllocation(TensorView* tv) {
+// This function requires the allocation domain to be a permutation of the
+// logical domain.
+// For each allocation domain ID (which is a logical domain ID),
+// replace it with all the loop domain IDs that were derived from it.
+void buildAllocationDomainWithLoopIds(TensorView* tv) {
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
-
   NVF_ERROR(
       std::is_permutation(
           logical.begin(), logical.end(), alloc.begin(), alloc.end()),
-      "should not call selfReplayLoopToAllocation on transformed allocation "
-      "domain");
+      "buildAllocationDomainWithLoopIds expects the allocation domain to be a "
+      "permutation of the logical domain, but got: ",
+      tv->getMaybeAllocationDomain().toString(),
+      " vs ",
+      tv->getLogicalDomain().toString());
+  const std::vector<IterDomain*>& loop = tv->getLoopDomain();
 
-  // Create a mapping from logical domain to allocation domain
-  IterDomainMap logical_to_alloc_map;
-  for (auto logical_id : logical) {
-    auto it = std::find(alloc.begin(), alloc.end(), logical_id);
-    NVF_ERROR(
-        it != alloc.end(),
-        "Could not find matching allocation ID for logical ID: ",
-        logical_id);
-    logical_to_alloc_map[logical_id] = *it;
+  // Build the new allocation domain by reusing existing loop domain IDs
+  std::vector<IterDomain*> new_alloc_domain;
+  std::unordered_set<IterDomain*> used_loop_ids;
+
+  // For each allocation domain ID (which is a logical domain ID),
+  // find all the loop domain IDs that were derived from it
+  for (auto alloc_id : alloc) {
+    // Find all loop domain IDs that depend on this logical/allocation ID
+    auto dependent_vals = DependencyCheck::getAllValsBetween(
+        {alloc_id}, {loop.begin(), loop.end()});
+
+    // Filter to only IterDomains and keep only those in the loop domain
+    std::vector<IterDomain*> derived_loop_ids;
+    for (auto val : dependent_vals) {
+      if (auto id = dynamic_cast<IterDomain*>(val)) {
+        if (std::find(loop.begin(), loop.end(), id) != loop.end()) {
+          derived_loop_ids.push_back(id);
+        }
+      }
+    }
+
+    // If no transformations were applied to this allocation ID,
+    // it should appear directly in the loop domain
+    if (derived_loop_ids.empty()) {
+      auto it = std::find(loop.begin(), loop.end(), alloc_id);
+      if (it != loop.end()) {
+        derived_loop_ids.push_back(alloc_id);
+      } else {
+        NVF_THROW(
+            "Could not find the associated loop IDs for allocation domain ID ",
+            alloc_id);
+      }
+    }
+
+    // Add derived IDs to the new allocation domain in loop domain order,
+    // but only if they haven't been added already (to avoid duplicates)
+    for (auto loop_id : loop) {
+      if (std::find(
+              derived_loop_ids.begin(), derived_loop_ids.end(), loop_id) !=
+              derived_loop_ids.end() &&
+          used_loop_ids.find(loop_id) == used_loop_ids.end()) {
+        new_alloc_domain.push_back(loop_id);
+        used_loop_ids.insert(loop_id);
+      }
+    }
   }
 
-  // Use ReplaySelf to replay the transformations from logical to loop domain
-  // onto the allocation domain.
-  // Happens within ReplaySelf in the following steps:
-  // 1. Given a loop domain, find the logical domain that poduces it.
-  // 2. Map the logical domain to the allocation domain.
-  // 3. Do the same transformation on the allocation domain.
-  // The mapping flow is: loop --> logical --> alloc --> transformed alloc
-  ReplaySelf replay(tv->getLoopDomain(), logical_to_alloc_map, alloc);
-  replay.runReplay();
-  tv->setAllocationDomain(replay.getReplayedOrderedDomain(), true);
+  tv->setAllocationDomain(new_alloc_domain, true);
 }
 
 } // namespace nvfuser

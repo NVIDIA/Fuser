@@ -147,20 +147,17 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 
   if (tv->hasAllocation()) {
     const auto& alloc_domain = tv->getAllocationDomain();
-    for (const auto exp : tv->domain()->allExprsToIds(alloc_domain)) {
-      os() << "  " << exp->toString();
-    }
+
     os() << " allocation domain : (" << toDelimitedString(alloc_domain)
          << ")\n";
   }
 
   os() << " contiguity: " << tv->domain()->getContiguityString() << "\n";
 
-  const auto& loop_domain = tv->getLoopDomain();
-  for (const auto exp : tv->domain()->allExprsToIds(loop_domain)) {
+  for (const auto exp : tv->domain()->allExprs()) {
     os() << "  " << exp->toString();
   }
-  os() << " loop domain : (" << toDelimitedString(loop_domain) << ")\n";
+  os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {

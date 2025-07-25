@@ -3114,7 +3114,7 @@ void replayLoopToAllocationForSharedMemoryTvs(Fusion* fusion) {
     if (!tv->hasAllocation()) {
       continue;
     }
-    selfReplayLoopToAllocation(tv);
+    buildAllocationDomainWithLoopIds(tv);
   }
 }
 } // namespace scheduler_utils

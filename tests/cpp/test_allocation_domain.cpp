@@ -1604,7 +1604,7 @@ TEST_F(AllocationDomainTest, ManualReplayLoopToAllocation) {
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, selfReplayLoopToAllocationSplit) {
+TEST_F(AllocationDomainTest, buildAllocationDomainWithLoopIdsSplit) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1626,7 +1626,7 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocationSplit) {
   }
 
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
-  selfReplayLoopToAllocation(tv1);
+  buildAllocationDomainWithLoopIds(tv1);
 
   // check allocation domain of tv1, expect:
   // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
@@ -1647,7 +1647,7 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocationSplit) {
   testValidate(fusion.get(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(AllocationDomainTest, selfReplayLoopToAllocationMerge) {
+TEST_F(AllocationDomainTest, buildAllocationDomainWithLoopIdsMerge) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1670,7 +1670,7 @@ TEST_F(AllocationDomainTest, selfReplayLoopToAllocationMerge) {
 
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/1);
   // allocation domain : (iS7{12}, iS6{2}, iB8{16})
-  selfReplayLoopToAllocation(tv1);
+  buildAllocationDomainWithLoopIds(tv1);
   // allocation domain : (iS12{24}, iB8{16})
 
   // check allocation domain of tv1, expect:
