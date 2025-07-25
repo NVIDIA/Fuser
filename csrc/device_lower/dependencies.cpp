@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/pass/dependencies.h>
+#include <device_lower/dependencies.h>
 
 #include <kernel_ir_dispatch.h>
 
