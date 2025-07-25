@@ -14,6 +14,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace nvfuser {
@@ -278,6 +279,132 @@ TEST_F(ScanDeviceFuncTest, EdgeCases) {
 
     validateScanResult(input_tensor, output_tensor, binary_op_type);
   }
+}
+
+TEST_F(ScanDeviceFuncTest, OnlineSoftmax) {
+  //   m[-1] = -infinity
+  //   d[-1] = 0
+  //   (1) First read of gmem input x
+  //       one scan op to compute max(m[j-1], x[j])
+  //       one scan op to compute d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j]
+  //       - m[j])
+  //   for j = 0 .. N-1
+  //     m[j] = max(m[j-1], x[j])
+  //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+
+  //   (2) Second read of gmem input x
+  //   for j = 0 .. N-1
+  //     result[j] = exp(x[j] - m[N-1]) / d[N-1]
+  //
+  // Final maximum is m[N-1]
+  // Final denominator is d[N-1]
+  // Final softmax results are exp(x[i] - m[N-1]) / d[N-1]
+  const int BLOCK_SIZE = 4;
+  const int ITEMS_PER_THREAD = 2;
+  const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
+
+  // Common tensor options for all tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input_tensor = at::tensor({2, 0, 2, 5, 0, 7, 2, 3}, options);
+
+  // (1) m[j] = max(m[j-1], x[j])
+  //     m = inclusive_scan(x, max)
+  const ScanBinaryOpType binary_op_type = ScanBinaryOpType::Max;
+  auto tensor_m_inc = at::empty({total_elements}, options);
+  launchBasicScanTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      tensor_m_inc.data_ptr<float>(),
+      0.0f, // init_value
+      BLOCK_SIZE,
+      binary_op_type);
+
+  // (2) d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+  // (2.1) exclusive_scan to get m[j-1]
+  constexpr float neg_infinity = -std::numeric_limits<float>::infinity();
+  auto tensor_m_exc = at::empty({total_elements}, options);
+  tensor_m_exc[0] = neg_infinity; // Set first element to -infinity
+  tensor_m_exc.slice(/*dim=*/0, /*start=*/1, /*end=*/total_elements) =
+      tensor_m_inc.slice(/*dim=*/0, /*start=*/0, /*end=*/total_elements - 1);
+  // (2.2) tensor_exp_x_m = exp(x[j] - m[j])
+  auto tensor_exp_x_m = at::exp(at::sub(input_tensor, tensor_m_inc));
+  // (2.3) tensor_discount = exp(m[j-1] - m[j])
+  auto tensor_discount = at::exp(at::sub(tensor_m_exc, tensor_m_inc));
+  // (2.4) tensor_denominator = discount_scan(tensor_exp_x_m, tensor_discount)
+  // d[j] = d[j-1] * tensor_discount[j] + tensor_exp_x_m[j]
+  // This implements the softmax attention denominator computation
+  auto tensor_denominator = at::empty({total_elements}, options);
+  launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      tensor_exp_x_m.data_ptr<float>(),
+      tensor_discount.data_ptr<float>(),
+      tensor_denominator.data_ptr<float>(),
+      0.0f, // init_value
+      BLOCK_SIZE);
+  cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
+
+  // (3) Online softmax final step: result[j] = exp(x[j] - m[N-1]) / d[N-1]
+  auto tensor_global_max = at::broadcast_to(
+      tensor_m_inc.slice(
+          /*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements),
+      {total_elements});
+  auto tensor_global_denominator = at::broadcast_to(
+      tensor_denominator.slice(
+          /*dim=*/0, /*start=*/total_elements - 1, /*end=*/total_elements),
+      {total_elements});
+  auto tensor_result_online = at::div(
+      at::exp(at::sub(input_tensor, tensor_global_max)),
+      tensor_global_denominator);
+
+  // (4) validate
+  auto tensor_result_pytorch = at::softmax(input_tensor, /*dim=*/0);
+  EXPECT_TRUE(at::allclose(
+      tensor_result_online,
+      tensor_result_pytorch,
+      /*rtol=*/1e-5,
+      /*atol=*/1e-6));
+}
+
+// Test discount scan functionality with simple, predictable inputs
+TEST_F(ScanDeviceFuncTest, DiscountScan) {
+  const int BLOCK_SIZE = 4;
+  const int ITEMS_PER_THREAD = 2;
+  const int total_elements = BLOCK_SIZE * ITEMS_PER_THREAD;
+
+  // Common tensor options for all tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input_tensor =
+      at::tensor({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f}, options);
+  auto discount_tensor =
+      at::tensor({0.0f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f}, options);
+  auto output_tensor = at::empty({total_elements}, options);
+
+  // Launch discount scan kernel
+  launchDiscountScanTestKernel<float, ITEMS_PER_THREAD>(
+      at::cuda::getCurrentCUDAStream(),
+      input_tensor.data_ptr<float>(),
+      discount_tensor.data_ptr<float>(),
+      output_tensor.data_ptr<float>(),
+      0.0f, // init_value
+      BLOCK_SIZE);
+  cudaStreamSynchronize(at::cuda::getCurrentCUDAStream());
+
+  // Manual validation: d[j] = d[j-1] * discount[j] + input[j]
+  std::vector<float> expected = {
+      1.0f, // d[0] = input[0] = 1.0
+      1.0f * 0.5f + 2.0f, // d[1] = 1.0 * 0.5 + 2.0 = 2.5
+      2.5f * 0.5f + 3.0f, // d[2] = 2.5 * 0.5 + 3.0 = 4.25
+      4.25f * 0.5f + 4.0f, // d[3] = 4.25 * 0.5 + 4.0 = 6.125
+      6.125f * 0.5f + 5.0f, // d[4] = 6.125 * 0.5 + 5.0 = 8.0625
+      8.0625f * 0.5f + 6.0f, // d[5] = 8.0625 * 0.5 + 6.0 = 10.03125
+      10.03125f * 0.5f + 7.0f, // d[6] = 10.03125 * 0.5 + 7.0 = 12.015625
+      12.015625f * 0.5f + 8.0f // d[7] = 12.015625 * 0.5 + 8.0 = 14.0078125
+  };
+  auto expected_tensor = at::tensor(expected, options);
+  // Validate results with tolerance for floating point precision
+  EXPECT_TRUE(at::allclose(
+      output_tensor, expected_tensor, /*rtol=*/1e-5, /*atol=*/1e-6))
+      << "Discount scan results don't match expected values";
 }
 
 } // namespace nvfuser
