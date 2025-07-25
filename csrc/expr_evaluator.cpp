@@ -269,7 +269,11 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
 // This will allow us change the reference of the value in the known_values_ map
 // thus we can handle `new` type of values in host ir
 PolymorphicValue& ExpressionEvaluator::at(const Val* value) {
-  return evaluate(value, known_values_);
+  auto it = known_values_.find(value);
+  if (it != known_values_.end()) {
+    return it->second;
+  }
+  return null_;
 }
 
 const PolymorphicValue& ExpressionEvaluator::evaluate(const Val* value) {

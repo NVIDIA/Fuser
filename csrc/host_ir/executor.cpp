@@ -695,35 +695,13 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   } else {
     t = in_tensor;
   }
-
-  if (expr_evaluator_.isKnown(out_tv)) {
-    auto out_tensor =
-        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    if(out_tensor.defined()) {
-      out_tensor.copy_(t, /*non_blocking=*/true);
-    } else {
-      out_tensor = t;
-      expr_evaluator_.bind(out_tv, out_tensor);
-    }
+  
+  auto& unknown_out_tensor = expr_evaluator_.at(out_tv);
+  if(!unknown_out_tensor.is_meta()) {
+    auto out_tensor = getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
-    // For completeness, we may check if out_tv's allocation matches `t` and
-    // copy data if yes. For example,
-    //
-    // clang-format off
-    // ```
-    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
-    // if (strides == t.strides()) {
-    //   expr_evaluator_.bind(out_tv, t);
-    // } else {
-    //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
-    //   out_tensor.copy_(t);
-    //   bind_(out_tv, out_tensor);
-    // }
-    // ```
-    // clang-format on
-    //
-    // For now, I choose to keep code simple for the limited use cases.
-    expr_evaluator_.bind(out_tv, t);
+    unknown_out_tensor = t;
   }
 }
 
@@ -860,19 +838,19 @@ void HostIrEvaluator::handle(NewTensor* new_tensor) {
       !expr_evaluator_.isKnown(tv),
       "Tried to create a new tensor wrapper that is already created",
       tv);
-  // GlobalBufferInfo info =
-  //     getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
-  // // Get the device from the communicator or use CUDA as default
-  // c10::Device device = communicator_ ? communicator_->device() : at::Device("cuda:0");
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  // Get the device from the communicator or use CUDA as default
+  c10::Device device = communicator_ ? communicator_->device() : at::Device("cuda:0");
 
-  // at::Tensor tensor = at::detail::empty_strided_meta(
-  //     info.shape_info.logical_sizes,
-  //     info.shape_info.logical_strides,
-  //     info.type,
-  //     c10::nullopt,
-  //     device,  // Use the same device as other tensors
-  //     c10::nullopt);
-  expr_evaluator_.bind(tv, at::Tensor(),false);
+  at::Tensor tensor = at::detail::empty_strided_meta(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,  // Use the same device as other tensors
+      c10::nullopt);
+  expr_evaluator_.bind(tv,tensor,false);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
