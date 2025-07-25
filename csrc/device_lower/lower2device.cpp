@@ -291,63 +291,61 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
   if (isOptionEnabled(EnableOption::ExperimentalSyncPass)) {
-    passes_ =
-          {{"removeTensorProducerAliases", removeTensorProducerAliases},
-           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
-           {"loadStoreOpInserter", loadStoreOpInserter},
+    passes_ = {
+        {"removeTensorProducerAliases", removeTensorProducerAliases},
+        {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+        {"loadStoreOpInserter", loadStoreOpInserter},
 
-           // TODO: should we do this in the new pass too?
-           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
+        // TODO: should we do this in the new pass too?
+        {"insertGridSerializationSyncs", insertGridSerializationSyncs},
 
-           {"insertAllocations", insertAllocations},
+        {"insertAllocations", insertAllocations},
 
-           // {"reuseMemoryAllocations", reuseMemoryAllocations},
-           //{"CircularBufferPass", CircularBufferPass::run},
-           //{"insertRawThreadSynchronization", insertRawThreadSynchronization},
-           //{"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           //{"insertWarAsyncWait", insertWarAsyncWait},
-          
-           // TODO: a better name is needed sync we also set up buffer aliasing
-           {"circularBufferAndInsertSyncs", circularBufferAndInsertSyncs},
-           
-           {"rotateLoops", rotateLoops},
-           {"UnrollPass", UnrollPass::runPass},
-           {"IndexLowering", IndexLowering::getIndexedExprs},
-           {"fuseWarpReduce", fuseWarpReduce},
-           {"generateConditionalFromPredicate",
-            generateConditionalFromPredicate},
-           {"vectorizeWelford", vectorizeWelford},
-           {"addRNG", addRNG},
-           {"allocateCommonScalars", allocateCommonScalars},
-           {"insertMagicZero", insertMagicZero},
-           {"KIRCleaner", KIRCleaner::cleanUp},
-           {"instrumentKernel", instrumentKernel},
-           {"lowerToInlinePtx", lowerToInlinePtx}};
+        // {"reuseMemoryAllocations", reuseMemoryAllocations},
+        //{"CircularBufferPass", CircularBufferPass::run},
+        //{"insertRawThreadSynchronization", insertRawThreadSynchronization},
+        //{"insertWarThreadSynchronization", insertWarThreadSynchronization},
+        //{"insertWarAsyncWait", insertWarAsyncWait},
+
+        // TODO: a better name is needed sync we also set up buffer aliasing
+        {"circularBufferAndInsertSyncs", circularBufferAndInsertSyncs},
+
+        {"rotateLoops", rotateLoops},
+        {"UnrollPass", UnrollPass::runPass},
+        {"IndexLowering", IndexLowering::getIndexedExprs},
+        {"fuseWarpReduce", fuseWarpReduce},
+        {"generateConditionalFromPredicate", generateConditionalFromPredicate},
+        {"vectorizeWelford", vectorizeWelford},
+        {"addRNG", addRNG},
+        {"allocateCommonScalars", allocateCommonScalars},
+        {"insertMagicZero", insertMagicZero},
+        {"KIRCleaner", KIRCleaner::cleanUp},
+        {"instrumentKernel", instrumentKernel},
+        {"lowerToInlinePtx", lowerToInlinePtx}};
   } else {
-    passes_ = 
-          {{"removeTensorProducerAliases", removeTensorProducerAliases},
-           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
-           {"loadStoreOpInserter", loadStoreOpInserter},
-           {"insertGridSerializationSyncs", insertGridSerializationSyncs},
-           {"insertAllocations", insertAllocations},
-           {"reuseMemoryAllocations", reuseMemoryAllocations},
-           {"CircularBufferPass", CircularBufferPass::run},
-           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
-           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
-           {"insertWarAsyncWait", insertWarAsyncWait},
-           {"rotateLoops", rotateLoops},
-           {"UnrollPass", UnrollPass::runPass},
-           {"IndexLowering", IndexLowering::getIndexedExprs},
-           {"fuseWarpReduce", fuseWarpReduce},
-           {"generateConditionalFromPredicate",
-            generateConditionalFromPredicate},
-           {"vectorizeWelford", vectorizeWelford},
-           {"addRNG", addRNG},
-           {"allocateCommonScalars", allocateCommonScalars},
-           {"insertMagicZero", insertMagicZero},
-           {"KIRCleaner", KIRCleaner::cleanUp},
-           {"instrumentKernel", instrumentKernel},
-           {"lowerToInlinePtx", lowerToInlinePtx}};
+    passes_ = {
+        {"removeTensorProducerAliases", removeTensorProducerAliases},
+        {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+        {"loadStoreOpInserter", loadStoreOpInserter},
+        {"insertGridSerializationSyncs", insertGridSerializationSyncs},
+        {"insertAllocations", insertAllocations},
+        {"reuseMemoryAllocations", reuseMemoryAllocations},
+        {"CircularBufferPass", CircularBufferPass::run},
+        {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+        {"insertWarThreadSynchronization", insertWarThreadSynchronization},
+        {"insertWarAsyncWait", insertWarAsyncWait},
+        {"rotateLoops", rotateLoops},
+        {"UnrollPass", UnrollPass::runPass},
+        {"IndexLowering", IndexLowering::getIndexedExprs},
+        {"fuseWarpReduce", fuseWarpReduce},
+        {"generateConditionalFromPredicate", generateConditionalFromPredicate},
+        {"vectorizeWelford", vectorizeWelford},
+        {"addRNG", addRNG},
+        {"allocateCommonScalars", allocateCommonScalars},
+        {"insertMagicZero", insertMagicZero},
+        {"KIRCleaner", KIRCleaner::cleanUp},
+        {"instrumentKernel", instrumentKernel},
+        {"lowerToInlinePtx", lowerToInlinePtx}};
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
