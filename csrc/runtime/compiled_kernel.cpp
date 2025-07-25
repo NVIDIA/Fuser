@@ -1157,6 +1157,10 @@ std::string _getStructuredCode(
   // generating cuda code;
   std::string code = "";
 
+  if (has_argsort || has_topk || has_scan) {
+    code += nvfuser_resources::cub_utils_cu;
+  }
+
   // scan.cu uses CUB, which may include a header file that define
   // macros like INFINITY, which are also defined in our
   // complex_number.cu. In order to avoid duplicated definitions, the
@@ -1169,10 +1173,6 @@ std::string _getStructuredCode(
   code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
-
-  if (has_argsort || has_topk) {
-    code += nvfuser_resources::cub_utils_cu;
-  }
 
   if (has_argsort) {
     code += nvfuser_resources::argsort_cu;
