@@ -192,6 +192,70 @@ def test_broadcast(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_implicit_broadcast_input(nvfuser_direct_test):
+    inputs = [
+        torch.randn(3, device="cuda"),
+        torch.randn(2, 3, 4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t0_b = fd.ops.broadcast_in_dim(t0, [2, 3, 4], [1])
+        t2 = fd.ops.add(t0_b, t1)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.add(
+        prims.broadcast_in_dim(inputs[0], inputs[1].size(), [1]), inputs[1]
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_explicit_broadcast_input(nvfuser_direct_test):
+    inputs = [
+        torch.randn(1, 1, 4, device="cuda"),
+        torch.randn(2, 3, 4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t0_b = fd.ops.broadcast_in_dim(t0, inputs[1].size(), [0, 1, 2])
+        t2 = fd.ops.add(t0_b, t1)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.add(
+        prims.broadcast_in_dim(inputs[0], inputs[1].size(), [0, 1, 2]), inputs[1]
+    )
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_broadcast_mixing(nvfuser_direct_test):
+    inputs = [
+        torch.randn(3, 1, device="cuda"),
+        torch.randn(3, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+
+        t1_b = fd.ops.broadcast_in_dim(t1, [3, 3], [0])
+        t2 = fd.ops.add(t0, t1_b)
+
+        fd.add_output(t2)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    eager_out = refs.add(inputs[0], prims.broadcast_in_dim(inputs[1], [3, 3], [0]))
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
 def test_matmul(nvfuser_direct_test):
     m = 24
     n = 16
