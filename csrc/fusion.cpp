@@ -32,6 +32,7 @@ namespace nvfuser {
 size_t Fusion::hash() const {
   size_t seed = 0;
   for (const auto& val : inputs_) {
+    std::cout << "Input: " << val->toString() << std::endl;
     seed = hash_combine(seed, val->hash());
   }
 
@@ -63,6 +64,7 @@ size_t Fusion::hash() const {
         std::back_inserter(scalars),
         [](Val* v) { return v->isScalar(); });
     for (const Val* v : scalars) {
+      std::cout << "Scalar: " << v->toString() << std::endl;
       seed = hash_combine(seed, v->hash());
     }
 
@@ -80,11 +82,13 @@ size_t Fusion::hash() const {
 
     // Create string representation given inputs, outputs, and attributes.
     visited.insert(e);
+    std::cout << "Expr: " << e->toString() << std::endl;
     seed = hash_combine(seed, e->hash());
     visited_vals.insert(e->outputs().begin(), e->outputs().end());
     skip_count = 0;
   }
 
+  std::cout << "Outputs: " << outputs_.size() << std::endl;
   for (nvfuser::Val* val : outputs_) {
     seed = hash_combine(seed, val->hash());
   }
