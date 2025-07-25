@@ -197,6 +197,9 @@ class NVF_API Fusion : public IrContainer {
   //! Lower the fusion and print a kernel
   void printKernel(const CompileParams& compile_params = CompileParams());
 
+  //! Hash the fusion. This is used to identify the fusion in the cache.
+  size_t hash() const;
+
   //! Returns if this fusion is noop, for example, trivially forwarding inputs,
   //! or all outputs are size-0 tensors, etc.
   bool isNoOp();
