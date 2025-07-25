@@ -142,91 +142,91 @@ class TransformerForwardFusion(FusionDefinition):
         )
         self.inp = self.define_tensor(
             shape=[b, s, e],
-            contiguity=[True, True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[2, 1, 0],
         )
         self.layernorm0_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.layernorm0_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.mha_linear0_weight = self.define_tensor(
             shape=[e * 3, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[1, 0],
         )
         self.mha_linear0_bias = self.define_tensor(
             shape=[e * 3],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.mha_linear1_weight = self.define_tensor(
             shape=[e, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[1, 0],
         )
         self.mha_linear1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.layernorm1_weight = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.layernorm1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.mlp_linear0_weight = self.define_tensor(
             shape=[e * 4, e],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[1, 0],
         )
         self.mlp_linear0_bias = self.define_tensor(
             shape=[e * 4],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
         )
         self.mlp_linear1_weight = self.define_tensor(
             shape=[e, e * 4],
-            contiguity=[True, True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[1, 0],
         )
         self.mlp_linear1_bias = self.define_tensor(
             shape=[e],
-            contiguity=[True],
+            contiguity=True,
             dtype=DataType.BFloat16,
             is_cpu=False,
             stride_order=[0],
