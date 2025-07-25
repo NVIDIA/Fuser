@@ -830,7 +830,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
       return {(a <= b) ? c : a};
       break;
     case TernaryOpType::Where:
-      return {a.as<bool>() ? b : c};
+      return {where(a, b, c)};
       break;
     default:
       NVF_CHECK(
@@ -3572,6 +3572,14 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
     return {};
   }
 
+  // The allocation domain is set by the loop domain not by permuting the
+  // logical domain.
+  if (loop_domain_ == allocation_domain_) {
+    return {};
+  }
+
+  NVF_ERROR(logical_domain_.size() == allocation_domain_.size());
+
   std::vector<int64_t> stride_order;
   stride_order.reserve(logical_domain_.size());
 
@@ -6010,7 +6018,51 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR(!alpha.defined(), "alpha is not supported yet");
     NVF_ERROR(!beta.defined(), "beta is not supported yet");
     NVF_ERROR(!bias.defined(), "bias is not supported yet");
-    result = at::_grouped_mm(mat1, mat2, offsets, /*bias=*/std::nullopt);
+
+    // Compute numbers of tokens per group from offsets.
+    at::Tensor offsets_cpu = offsets.cpu();
+    NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
+    const int* data_ptr = offsets_cpu.data_ptr<int>();
+    const int64_t num_groups = offsets_cpu.numel();
+    std::vector<int64_t> group_sizes(data_ptr, data_ptr + num_groups);
+    for (int64_t i : arange(1, num_groups) | std::views::reverse) {
+      group_sizes[i] -= group_sizes[i - 1];
+    }
+
+    std::vector<at::Tensor> group_mat1s;
+    std::vector<at::Tensor> group_mat2s;
+    std::vector<at::Tensor> group_outs;
+    if (mat1.dim() == 2 && mat2.dim() == 2) {
+      // [m, k] @ [k, n] => [g, m, n]
+      group_mat1s = mat1.split(group_sizes, -1);
+      group_mat2s = mat2.split(group_sizes, 0);
+      result =
+          at::empty({num_groups, mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.unbind();
+    } else if (mat1.dim() == 3 && mat2.dim() == 2) {
+      // [g, m, k] @ [k, n] => [m, n]
+      group_mat1s = mat1.unbind();
+      group_mat2s = mat2.split(group_sizes, -1);
+      result = at::empty({mat1.size(1), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, -1);
+    } else if (mat1.dim() == 2 && mat2.dim() == 3) {
+      // [m, k] @ [g, k, n] => [m, n]
+      group_mat1s = mat1.split(group_sizes, 0);
+      group_mat2s = mat2.unbind();
+      result = at::empty({mat1.size(0), mat2.size(-1)}, mat1.options());
+      group_outs = result.split(group_sizes, 0);
+    } else {
+      NVF_THROW(
+          "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
+          mat1.sizes(),
+          " and mat2 = ",
+          mat2.sizes());
+    }
+
+    for (auto [group_mat1, group_mat2, group_out] :
+         zip(group_mat1s, group_mat2s, group_outs)) {
+      at::matmul_out(group_out, group_mat1, group_mat2);
+    }
   }
 
   result = result.to(data_type_to_aten(out()->dtype()));

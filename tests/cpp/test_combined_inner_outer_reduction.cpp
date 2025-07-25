@@ -1492,125 +1492,192 @@ TEST_F(CombinedSchedulerTest, ViewOps) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  // Define constants for dimensions
-  const int64_t dim_512 = 512;
-  const int64_t dim_288 = 288;
-  const int64_t dim_128 = 128;
+  // Input tensors
+  auto tv0 = makeContigConcreteTensor({512, 32}, DataType::Float);
+  auto tv1 = makeContigConcreteTensor({512, 32}, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
 
-  auto v512 = IrBuilder::create<Val>(dim_512);
-  auto v288 = IrBuilder::create<Val>(dim_288);
-  auto v128 = IrBuilder::create<Val>(dim_128);
+  // ViewOp: reshape from 2D to 3D
+  // 512 * 32 = 16384 elements, reshape to {128, 4, 32} = 16384 elements
+  auto tv2 = reshape(tv0, {512, 32}, {128, 4, 32});
+  auto tv3 = reshape(tv1, {512, 32}, {128, 4, 32});
 
-  {
-    auto tv0 = makeContigConcreteTensor({147456, 128}, DataType::BFloat16);
-    fusion->addInput(tv0);
-    auto tv1 = makeContigConcreteTensor({128}, DataType::BFloat16);
-    fusion->addInput(tv1);
-    auto tv2 = makeContigConcreteTensor({288, 512}, DataType::Float);
-    fusion->addInput(tv2);
-    auto tv3 = makeContigConcreteTensor({288, 512, 128}, DataType::BFloat16);
-    fusion->addInput(tv3);
-    auto tv4 = makeContigConcreteTensor({288, 512, 1}, DataType::Float);
-    fusion->addInput(tv4);
-    auto tv9 = reshape(tv0, {147456, 128}, {288, 512, 128});
-    auto tv14 = expand(broadcast(tv1, {true, true, false}), {v288, v512, v128});
-    auto tv19 = expand(
-        broadcast(tv2, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv20 = castOp(DataType::Float, tv9);
-    auto tv21 = castOp(DataType::Float, tv14);
-    auto tv26 =
-        expand(broadcast(tv19, {false, false, false}), {v288, v512, v128});
-    auto tv27 = castOp(DataType::Float, tv3);
-    auto tv28 = mul(tv21, tv20);
-    auto tv29 = sub(tv27, tv26);
-    auto tv30 = mul(tv29, tv28);
-    auto tv31 = sum(tv30, {2}, false, DataType::Null);
-    auto tv36 = expand(
-        broadcast(tv31, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv41 =
-        expand(broadcast(tv4, {false, false, false}), {v288, v512, v128});
-    auto tv43 = mul(tv4, mul(tv4, tv4));
-    auto s44 = IrBuilder::create<Val>(-0.5, DataType::Double);
-    auto tv45 = mul(s44, tv36);
-    auto tv46 = mul(tv41, tv28);
-    auto tv47 = mul(tv45, tv43);
-    auto tv48 = neg(tv46);
-    auto tv49 = sum(tv47, {2}, false, DataType::Null);
-    auto tv50 = sum(tv48, {2}, false, DataType::Null);
-    auto tv55 = expand(
-        broadcast(tv2, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv60 = expand(
-        broadcast(tv49, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv65 = expand(
-        broadcast(tv50, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv70 =
-        expand(broadcast(tv55, {false, false, false}), {v288, v512, v128});
-    auto tv75 =
-        expand(broadcast(tv60, {false, false, false}), {v288, v512, v128});
-    auto tv76 = sum(tv65, {2}, false, DataType::Null);
-    auto tv77 = sub(tv27, tv70);
-    auto s78 = IrBuilder::create<Val>(2.0, DataType::Double);
-    auto tv79 = mul(s78, tv75);
-    auto tv84 = expand(
-        broadcast(tv76, {false, false, true}),
-        {v288, v512, IrBuilder::create<Val>(1)});
-    auto tv85 = mul(tv79, tv77);
-    auto tv90 =
-        expand(broadcast(tv84, {false, false, false}), {v288, v512, v128});
-    auto s91 = IrBuilder::create<Val>(128.0, DataType::Double);
-    auto s92 = reciprocal(s91);
-    auto tv93 = mul(tv85, s92);
-    auto s94 = IrBuilder::create<Val>(0.0078125, DataType::Double);
-    auto tv95 = mul(s94, tv90);
-    auto tv96 = add(tv95, tv93);
-    auto tv97 = add(tv46, tv96);
-    auto tv98 = castOp(DataType::BFloat16, tv97);
-    auto tv99 = mul(tv29, tv41);
-    auto tv100 = mul(tv99, tv20);
-    auto tv101 = castOp(DataType::Float, tv9);
-    auto tv105 = reshape(tv98, {288, 512, 128}, {147456, 128});
-    auto tv106 = sum(tv97, {0, 1}, false, DataType::Null);
-    auto tv107 = sum(tv100, {0, 1}, false, DataType::Null);
-    auto tv108 = sum(tv101, {0, 1}, false, DataType::Null);
-    auto tv109 = permute(tv105, {1, 0});
-    auto tv110 = castOp(DataType::BFloat16, tv106);
-    auto tv111 = castOp(DataType::BFloat16, tv107);
-    auto tv112 = castOp(DataType::BFloat16, tv108);
-    fusion->addOutput(tv109);
-    fusion->addOutput(tv110);
-    fusion->addOutput(tv105);
-    fusion->addOutput(tv98);
-    fusion->addOutput(tv111);
-    fusion->addOutput(tv112);
-  }
+  // Cast to float for computation
+  tv2 = castOp(DataType::Float, tv2);
+  tv3 = castOp(DataType::Float, tv3);
+
+  // Element-wise addition (like SimpleFusion)
+  auto tv4 = add(tv2, tv3);
+
+  // Inner reduction (sum on innermost dimension - dimension 2, size 32)
+  auto tv5 = sum(tv4, {2}, false, DataType::Null);
+
+  // Broadcast the inner reduction result back to 3D
+  auto tv6 = broadcast(tv5, {false, false, true});
+
+  // Add the broadcasted result back to the original tensor
+  auto tv7 = add(tv4, tv6);
+
+  // Outer reduction (sum on outermost dimensions - dimensions 0 and 1)
+  auto tv8 = sum(tv4, {0, 1}, false, DataType::Null);
+
+  // Outputs
+  fusion->addOutput(tv7); // Reshaped result with inner reduction
+  fusion->addOutput(tv8); // Outer reduction result
 
   auto fusion_copy = *fusion_ptr;
-  auto options_fp32 =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_fp16 =
-      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto t0 = at::randn({147456, 128}, options_fp16);
-  auto t1 = at::randn({128}, options_fp16);
-  auto t2 = at::randn({288, 512}, options_fp32);
-  auto t3 = at::randn({288, 512, 128}, options_fp16);
-  auto t4 = at::randn({288, 512, 1}, options_fp32);
-  KernelArgumentHolder args = {t0, t1, t2, t3, t4};
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  auto t0 = at::randn({512, 32}, options);
+  auto t1 = at::randn({512, 32}, options);
+
+  KernelArgumentHolder args = {t0, t1};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
-  // ViewOp disables warp specialized approach
+  // Verify that ViewOp disables warp specialized approach
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   HeuristicParams* heur =
       runtime->schedulerHeuristics()->heuristicsList().at(0).get();
   ASSERT_NE(heur, nullptr);
   ASSERT_TRUE(heur->isA<ReductionParams>());
+  EXPECT_TRUE(heur->as<ReductionParams>()->combined_inner_outer);
   EXPECT_FALSE(heur->as<ReductionParams>()->tma_warp_specialized);
 
   testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
 }
+
+// https://nvbugspro.nvidia.com/bug/5374765
+// Avoid setting 2 vectorization loop domains for a single tensor.
+// Test different broadcast positions for tensors with non-concretized
+// dimensions
+class NonConcretizedDomainTest : public NVFuserFixtureParamTest<int> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<int>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::WarpSpecializedNormalization);
+  }
+};
+
+// combined_inner_outer scheduler can handle this case.
+TEST_P(NonConcretizedDomainTest, OnNonReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create tv1 shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv1_shape;
+  if (non_concretized_pos == 0) {
+    tv1_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv1_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv1_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+
+  auto tv0 = makeContigConcreteTensor({2048, 32});
+  auto tv1 = makeContigConcreteTensor(tv1_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = sum(tv0, {0});
+
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv1_shape.size(); i++) {
+    broadcast_pattern.push_back(tv1_shape[i] == 1);
+  }
+  auto tv6 = broadcast(tv4, broadcast_pattern);
+  auto tv7 = add(tv1, tv6);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv7);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2048, 32}, options);
+  auto t1 = at::randn(tv1_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  HeuristicParams* heur =
+      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
+  ASSERT_NE(heur, nullptr);
+  ASSERT_TRUE(heur->isA<ReductionParams>());
+  EXPECT_TRUE(heur->as<ReductionParams>()->combined_inner_outer);
+  EXPECT_TRUE(heur->as<ReductionParams>()->tma_warp_specialized);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+// Segmented due to non-concretized dimensions on reduction tensor.
+// Ideally, the scheduler should be able to handle this case.
+// TODO: modify canSchedule check to allow this case.
+TEST_P(NonConcretizedDomainTest, OnReductionTv) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto non_concretized_pos = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // Create shape with non-concretized dimension at the specified position
+  std::vector<int64_t> tv_shape;
+  if (non_concretized_pos == 0) {
+    tv_shape = {1, 2048, 32}; // Non-concretized at beginning
+  } else if (non_concretized_pos == 1) {
+    tv_shape = {2048, 1, 32}; // Non-concretized in middle
+  } else if (non_concretized_pos == 2) {
+    tv_shape = {2048, 32, 1}; // Non-concretized at end
+  } else {
+    NVF_ERROR("Invalid position: ", non_concretized_pos);
+  }
+  std::vector<bool> broadcast_pattern;
+  for (size_t i = 0; i < tv_shape.size(); i++) {
+    broadcast_pattern.push_back(tv_shape[i] == 1);
+  }
+
+  auto tv0 = makeContigConcreteTensor(tv_shape);
+  auto tv1 = makeContigConcreteTensor(tv_shape);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = sum(tv0, {1});
+  auto tv3 = broadcast(tv2, broadcast_pattern);
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = add(tv1, tv4);
+  auto tv6 = sum(tv0, {0});
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+
+  auto fusion_copy = *fusion_ptr;
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(tv_shape, options);
+  auto t1 = at::randn(tv_shape, options);
+  KernelArgumentHolder args = {t0, t1};
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+
+  // Verify that the fusion executes without issues
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    NonConcretizedDomainTest,
+    testing::Values(0, 1, 2),
+    [](const testing::TestParamInfo<int>& info) -> std::string {
+      std::stringstream ss;
+      ss << "non_concretized_pos_" << info.param;
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser

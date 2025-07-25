@@ -86,7 +86,7 @@ class HostIrEvaluator final : public OptOutDispatch {
       Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
-  // Used by FusionExecutor, the main stack.
+  // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);
 
   // Used by MultiDeviceExecutor.
@@ -101,17 +101,13 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->outputs();
   }
 
-  auto* container() const {
-    return container_.get();
+  const HostIrContainer& container() const {
+    return *container_;
   }
 
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
-
-  const HostIrContainer& getHostIrContainer() const {
-    return *container_.get();
-  }
 
   const auto& getFusionExecutorCaches() {
     return fec_;
@@ -168,9 +164,6 @@ class HostIrEvaluator final : public OptOutDispatch {
   }
 
   std::unique_ptr<HostIrContainer> container_;
-#ifdef NVFUSER_HOST_IR_JIT
-  std::unique_ptr<HostIrJit> jit_;
-#endif
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
   // Stores concrete computed values

@@ -66,6 +66,7 @@
 #include <nvfuser_resources/casts.h>
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
+#include <nvfuser_resources/cub_utils.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp4_support.h>
 #include <nvfuser_resources/fp8_support.h>
@@ -751,8 +752,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
           dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
     }
     if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
-      std::string sass_str =
-          disassembleBinary(compiled_kernel->cubin, "-fun 1 -c");
+      std::string sass_str = disassembleBinary(compiled_kernel->cubin, "-c");
       compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
       compiled_kernel->sass_filename =
           dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
@@ -1159,6 +1159,10 @@ std::string _getStructuredCode(
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
+  if (has_argsort || has_topk) {
+    code += nvfuser_resources::cub_utils_cu;
+  }
+
   if (has_argsort) {
     code += nvfuser_resources::argsort_cu;
   }
@@ -1413,7 +1417,7 @@ std::string CompiledKernel::getStructuredCode() const {
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
-  return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
+  return disassembleBinary(compiled_kernel_->cubin, "-c");
 }
 
 void CompiledKernel::createKernelId() {

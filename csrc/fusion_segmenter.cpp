@@ -3684,7 +3684,7 @@ class MergeUpAndDownCast {
   }
 
   bool isUpCast(SegmentedGroup* group) const {
-    if (auto precision_bits = getProducerConsumerPrecision(group);
+    if (auto precision_bits = getProducerConsumerPrecisionBit(group);
         precision_bits.has_value()) {
       return precision_bits->first < precision_bits->second;
     } else {
@@ -3693,7 +3693,7 @@ class MergeUpAndDownCast {
   }
 
   bool isDownCast(SegmentedGroup* group) const {
-    if (auto precision_bits = getProducerConsumerPrecision(group);
+    if (auto precision_bits = getProducerConsumerPrecisionBit(group);
         precision_bits.has_value()) {
       return precision_bits->first > precision_bits->second;
     } else {
@@ -3701,7 +3701,7 @@ class MergeUpAndDownCast {
     }
   }
 
-  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecision(
+  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecisionBit(
       SegmentedGroup* group) const {
     if (group->exprs().size() != 1) {
       return std::nullopt;
@@ -3712,7 +3712,7 @@ class MergeUpAndDownCast {
       return std::nullopt;
     }
 
-    return ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    return ir_utils::getPrecisionOfProducerConsumerTensorsBit(uop);
   }
 
  private:
@@ -4372,7 +4372,7 @@ void SegmentCandidateFinder::privatizeUpcast() {
       }
 
       auto precisions =
-          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+          ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
       if (!precisions.has_value() || precisions->first >= precisions->second) {
         continue;
       }

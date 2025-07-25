@@ -40,8 +40,8 @@ bool isTvContiguous(const TensorView* tv) {
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
-  for (IterDomain* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (!alloc_id->isDeviceDim()) {
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (!id->isDeviceDim()) {
       continue;
     }
 
@@ -53,7 +53,7 @@ bool isSharded(const TensorView* tv) {
     //   ```
     //
     // is considered an allreduce and the output is replicated.
-    if (alloc_id->isReduction()) {
+    if (id->isReduction()) {
       continue;
     }
 
@@ -121,22 +121,35 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(tv->getMaybeAllocationDomain());
-  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
+  // The allocation domain for multidevice tensorviews is set during
+  // presegmentation, which is after concretization. This exposes a issue:
+  // allocation domain is not set for fusion inputs before presegmentation and
+  // can cause errors during binding.
+  //
+  // We use the loop domain, since allocation and loop domain will have the
+  // same DID parallelization. For ParalleType::Stream, fusion inputs will
+  // always be fully allocated, and segment inputs/outputs may be partially /
+  // fully allocated which can be inferred from its allocation domain.
+
+  const std::vector<IterDomain*>& domain = parallel_type == ParallelType::Stream
+      ? tv->getMaybeAllocationDomain()
+      : tv->getLoopDomain();
+  const std::unordered_map<ParallelType, IterDomain*>& parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(domain);
+  IterDomain* parallel_id = getOrDefault(parallel_type_to_id, parallel_type);
+  if (parallel_id == nullptr) {
     return -1;
   }
 
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = alloc_id;
+  IterDomain* id = parallel_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        alloc_id);
+        id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -173,6 +186,8 @@ int64_t getShardedLogicalAxis(
           split);
       id = split->in();
     } else if (auto* merge = dynamic_cast<Merge*>(def)) {
+      // During propagation, we follow the outermost of the merge to shard
+      // across reshape. We follow that here, but it may not always be accurate.
       // For example,
       //
       //   t = makeContigTensor(2);
@@ -181,10 +196,7 @@ int64_t getShardedLogicalAxis(
       //
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
-      NVF_THROW(
-          "Failed to attribute the sharding to a single tensor axis and "
-          "therefore bailed out: ",
-          merge);
+      id = merge->outer();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
@@ -192,7 +204,6 @@ int64_t getShardedLogicalAxis(
           def);
     }
   }
-
   return logical_id_to_axis.at(id);
 }
 
@@ -308,19 +319,18 @@ std::pair<Val*, bool> computeLoopIndex(
 
 } // namespace
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
+std::unordered_set<IterDomain*> getInputsInTargetDomain(
+    const std::vector<IterDomain*>& loop_id,
     const std::vector<IterDomain*>& target_domain) {
   const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id}, {target_domain.begin(), target_domain.end()});
+      {loop_id.begin(), loop_id.end()},
+      {target_domain.begin(), target_domain.end()});
 
-  std::vector<IterDomain*> inputs_as_iter_domains;
+  std::unordered_set<IterDomain*> inputs_as_iter_domains;
   inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  std::transform(
-      inputs_as_vals.begin(),
-      inputs_as_vals.end(),
-      std::back_inserter(inputs_as_iter_domains),
-      [](Val* val) { return val->as<IterDomain>(); });
+  for (auto val : inputs_as_vals) {
+    inputs_as_iter_domains.insert(val->as<IterDomain>());
+  }
   return inputs_as_iter_domains;
 }
 
@@ -454,7 +464,7 @@ bool haveDifferentShardings(
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
       for (IterDomain* p_logical_id :
-           getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain())) {
+           getInputsInTargetDomain({p_loop_id}, producer->getLogicalDomain())) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -467,8 +477,8 @@ bool haveDifferentShardings(
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      for (IterDomain* c_root_id :
-           getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain())) {
+      for (IterDomain* c_root_id : getInputsInTargetDomain(
+               {c_loop_id}, consumer->getMaybeRootDomain())) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }
@@ -714,22 +724,6 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     }
   }
   return ret;
-}
-
-void propagateDIDTransform(
-    const TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    int64_t did_pos,
-    PropagateDirection direction) {
-  TensorDomain* replayed_domain = nullptr;
-  for (TensorView* tv : tvs) {
-    if (direction == PropagateDirection::kForward) {
-      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
-    } else {
-      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
-    }
-    tv->setLoopDomain(replayed_domain->loop());
-  }
 }
 
 } // namespace nvfuser

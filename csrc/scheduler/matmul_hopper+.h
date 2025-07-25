@@ -161,13 +161,11 @@ class HopperPlus : public Common {
   //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
   //! data
   void setCGADims() const {
-    if (params_->cluster_dims != MatmulParams::ClusterDims{1, 1, 1}) {
+    if (params_->cluster_dims != MatmulParams::ClusterDims{1, 1}) {
       fusion_->manage(
           "cluster_dims",
           std::tuple<int64_t, int64_t, int64_t>{
-              params_->cluster_dims.x,
-              params_->cluster_dims.y,
-              params_->cluster_dims.z});
+              params_->cluster_dims.m, params_->cluster_dims.n, 1});
     }
   }
 
