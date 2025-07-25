@@ -176,8 +176,15 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
 
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
+  size_t hash() const {
+    return hash_combine(std::hash<StmtNameType>()(name_), get_hash());
+  }
+
  protected:
   Statement(IrBuilderPasskey);
+
+  // Virtual helper for hashing that is defined in child class
+  virtual size_t get_hash() const;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   StmtNameType name_ = kInvalidStmName;
@@ -270,6 +277,15 @@ class NVF_API Val : public Statement {
         vtype_(src->vtype_),
         dtype_(src->dtype_),
         value_(src->value_) {}
+
+  size_t get_hash() const override {
+    return hash_combine(
+        std::hash<ValType>()(vtype_),
+        hash_combine(
+            std::hash<int>()(
+                static_cast<int>(std::get<PrimDataType>(dtype_.type))),
+            PolymorphicValue_functions::hash(value_)));
+  }
 
   std::string toString(int indent_size = 0) const override;
 
@@ -611,6 +627,22 @@ class NVF_API Expr : public Statement {
   virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
  protected:
+  size_t get_hash(const std::vector<Val*>& vals) const {
+    size_t seed = 0;
+    for (const auto& val : vals) {
+      seed = hash_combine(seed, val->hash());
+    }
+    return seed;
+  }
+
+  size_t get_hash() const override {
+    size_t seed = 0;
+    seed = hash_combine(seed, std::hash<std::string>()(getOpString()));
+    seed = hash_combine(seed, get_hash(inputs_));
+    seed = hash_combine(seed, get_hash(outputs_));
+    return seed;
+  }
+
   // TODO: Protect based on being in kernel container
   void setPredicate(kir::Predicate* predicate);
 
