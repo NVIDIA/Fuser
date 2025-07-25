@@ -114,6 +114,10 @@ __device__ __bfloat fmax(__bfloat a, __bfloat b) {
   return __bfloat2float(a) > __bfloat2float(b) ? a : b;
 }
 
+__device__ double abs(double a) {
+  return a < 0 ? -a : a;
+}
+
 __device__ float abs(float a) {
   return fabs(a);
 }
