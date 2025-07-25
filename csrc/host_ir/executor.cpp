@@ -100,7 +100,7 @@ void validateTensors(
     const ExpressionEvaluator& expr_eval) {
   NVF_ERROR(tensors.size() == tvs.size());
   for (const auto& [tensor, tv] : zip(tensors, tvs)) {
-    if (tensor.defined()) {
+    if (tensor.defined() && !tensor.is_meta()) {
       inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     }
   }
@@ -642,7 +642,7 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
   auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
   auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-  if (!t_out.defined()) {
+  if (t_out.is_meta()) {
     unhandled(matmul);
     return;
   }
@@ -659,7 +659,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
-  if (!out_at.defined()) {
+  if (out_at.is_meta()) {
     unhandled(linear);
     return;
   }
@@ -755,7 +755,7 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
   auto output =
       getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
   
-  if (!output.defined()) {
+  if (output.is_meta()) {
     unhandled(binary_op);
     return;
   }
@@ -791,7 +791,7 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
       "Evaluation for rFactored reductions is not supported.");
   auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
   auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
-  if (!output.defined()) {
+  if (output.is_meta()) {
     unhandled(reduction_op);
     return;
   }
