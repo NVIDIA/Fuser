@@ -699,7 +699,12 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (expr_evaluator_.isKnown(out_tv)) {
     auto out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    out_tensor.copy_(t, /*non_blocking=*/true);
+    if(out_tensor.defined()) {
+      out_tensor.copy_(t, /*non_blocking=*/true);
+    } else {
+      out_tensor = t;
+      expr_evaluator_.bind(out_tv, out_tensor);
+    }
   } else {
     // For completeness, we may check if out_tv's allocation matches `t` and
     // copy data if yes. For example,
@@ -884,15 +889,15 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   }
 
   // Check that there is no pre-allocated output
-  NVF_ERROR(
-      std::all_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [this](Val* output) {
-            return !this->expr_evaluator_.isKnown(output);
-          }),
-      "Do not support pre-allocated outputs for the op ",
-      expr);
+  // NVF_ERROR(
+  //     std::all_of(
+  //         expr->outputs().begin(),
+  //         expr->outputs().end(),
+  //         [this](Val* output) {
+  //           return !this->expr_evaluator_.isKnown(output);
+  //         }),
+  //     "Do not support pre-allocated outputs for the op ",
+  //     expr);
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid
   // here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);

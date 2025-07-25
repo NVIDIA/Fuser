@@ -830,6 +830,8 @@ INSTANTIATE_TEST_SUITE_P(
 
 using MatmulHostIrTest = NVFuserTest;
 
+// NOTE: we should have a newTensor node for this test case since we are using
+// the matmul op in the wrapper allocation
 TEST_F(MatmulHostIrTest, HostIr) {
   constexpr int64_t H = 32;
   constexpr int64_t M = 64;
@@ -847,6 +849,8 @@ TEST_F(MatmulHostIrTest, HostIr) {
   hic->addInput(tv1);
   hic->addOutput(tv2);
 
+  auto* new_tensor = IrBuilder::create<NewTensor>(tv2);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(tv2->definition());
 
   HostIrEvaluator hie(std::move(hic));
