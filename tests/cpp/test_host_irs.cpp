@@ -1068,13 +1068,20 @@ TEST_F(ViewTest, SimpleReshape) {
   Val* y = input->axis(1)->extent();
   Val* xy = mul(x, y);
   auto flattened_input = reshape(input, {xy});
-  auto transposed_intput = reshape(flattened_input, {y, x});
+  auto transposed_input = reshape(flattened_input, {y, x});
 
   hic->addInput(input);
   hic->addOutput(flattened_input);
-  hic->addOutput(transposed_intput);
+  hic->addOutput(transposed_input);
+
+  // Need to manually create new tensor for flattened_input and transposed_input
+  auto* new_tensor_flattened_input = IrBuilder::create<NewTensor>(flattened_input);
+  hic->pushBackTopLevelExprs(new_tensor_flattened_input);
+  auto* new_tensor_transposed_input = IrBuilder::create<NewTensor>(transposed_input);
+  hic->pushBackTopLevelExprs(new_tensor_transposed_input);
+
   hic->pushBackTopLevelExprs(flattened_input->definition());
-  hic->pushBackTopLevelExprs(transposed_intput->definition());
+  hic->pushBackTopLevelExprs(transposed_input->definition());
 
   HostIrEvaluator hie(std::move(hic));
 
