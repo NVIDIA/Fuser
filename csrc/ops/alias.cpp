@@ -213,7 +213,7 @@ NVF_API TensorView* reshape(
           logical_domain,
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       x->getDataType().value());
-  IrBuilder::create<ViewOp>(out_tv, x);
+  IrBuilder::create<ViewOp>(x, out_tv);
   return out_tv;
 }
 
