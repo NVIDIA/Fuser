@@ -1910,67 +1910,90 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
 
 // Segmented into: reduction + reduction + pointwise (transpose)
 // one reduction for fmax, one for add.
-// total time on H100: 8 + 24 + 15 = 47 us
-TEST_F(PersistentBufferTest, softmax128main) {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    auto& fusion = *fusion_ptr;
-    FusionGuard fg(fusion_ptr.get());
+// total time on H100:
+// 64 x 128k: 8 + 24 + 15 = 47 us
+// 1024 x 128k: 88 + 297 + 289 = 674 us
+using SoftmaxTestParam = std::tuple<int64_t, int64_t>;
+using SoftmaxParameterizedTest = NVFuserFixtureParamTest<SoftmaxTestParam>;
+TEST_P(SoftmaxParameterizedTest, softmax128main) {
+  auto [x, y] = GetParam();
 
-    int64_t x = 64, y = 128*1024;
-    auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
-    fusion.addInput(tv0);
-    auto tv1 = castOp(DataType::Float, tv0);
-    auto tv2 = softmax(tv1, {1});
-    auto tv3 = castOp(DataType::BFloat16, tv2);
-    fusion.addOutput(tv3);
-    auto unscheduled_fusion_copy = fusion;
-  
-    auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-    auto t0 = at::randn({x, y}, options);
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-    testValidate(&unscheduled_fusion_copy, cg_outputs, {t0});
-  }
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = softmax(tv1, {1});
+  auto tv3 = castOp(DataType::BFloat16, tv2);
+  fusion.addOutput(tv3);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&unscheduled_fusion_copy, cg_outputs, {t0});
+}
+
 // One kernel using grid-wise persistent buffer.
-// total time on H100: 19 us
-TEST_F(PersistentBufferTest, softmax128InnerGridPersistent) {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    auto& fusion = *fusion_ptr;
-    FusionGuard fg(fusion_ptr.get());
+// total time on H100:
+// 64 x 128k: 19 us, main: 47 us
+// 1024 x 128k: 314 us, main: 674 us
+TEST_P(SoftmaxParameterizedTest, softmaxInnerGridPersistent) {
+  auto [x, y] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = softmax(tv1, {1});
+  auto tv3 = castOp(DataType::BFloat16, tv2);
+  fusion.addOutput(tv3);
+  auto unscheduled_fusion_copy = fusion;
 
-    int64_t x = 64, y = 128*1024;
-    auto tv0 = makeContigConcreteTensor({x, y}, DataType::BFloat16);
-    fusion.addInput(tv0);
-    auto tv1 = castOp(DataType::Float, tv0);
-    auto tv2 = softmax(tv1, {1});
-    auto tv3 = castOp(DataType::BFloat16, tv2);
-    fusion.addOutput(tv3);
-    auto unscheduled_fusion_copy = fusion;
-  
-    auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-    auto t0 = at::randn({x, y}, options);
-    SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
-    auto scheduler =
-        SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
-    auto heuristic_params =
-        scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
-    auto rparams = heuristic_params->as<ReductionParams>();
-    rparams->cross_grid_inner_reduction = true;
-    rparams->grid_dim_inner_reduction = ParallelType::BIDx;
-    rparams->grid_dim_iter_dom = ParallelType::BIDy;
-    rparams->lparams = LaunchParams(
-        /*gdimx*/ 2,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  auto rparams = heuristic_params->as<ReductionParams>();
+  rparams->cross_grid_inner_reduction = true;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  auto gdimx = 2;
+  auto max_gdimy = deviceSMCount() / gdimx;
+  rparams->split_grid_dim_iter_dom_inner = max_gdimy < x;
+  rparams->lparams = LaunchParams(
+      gdimx,
+      rparams->split_grid_dim_iter_dom_inner ? max_gdimy
+                                             : LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
 
-    scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
-    KernelExecutor ke;
-    ke.compile(fusion_ptr.get(), {t0});
-    auto outputs =
-        ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
-    testValidate(&unscheduled_fusion_copy, outputs, {t0});
-  }
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    SoftmaxParameterizedTest,
+    ::testing::Values(
+        std::make_tuple(64, 128 * 1024),
+        std::make_tuple(1024, 128 * 1024)),
+    [](const testing::TestParamInfo<SoftmaxTestParam>& info) {
+      std::stringstream ss;
+      ss << "batch_" << std::get<0>(info.param);
+      ss << "_vocab_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser
