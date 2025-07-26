@@ -270,6 +270,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_topk = true;
   }
 
+  void handle(ScanOp* scan) final {
+    summary_.has_scan = true;
+  }
+
   void handle(IfThenElse* ite) final {
     // Search for ElectSync UnaryOp in IfThenElse predicate
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
