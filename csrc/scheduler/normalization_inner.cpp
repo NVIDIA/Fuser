@@ -527,7 +527,7 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL);
 }
 
-void innerPersistentHeuristicSharedMemory(
+void innerGridPersistentHeuristic2D(
     const PersistentKernelProperties& properties,
     ReductionParams* rparams) {
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -536,33 +536,33 @@ void innerPersistentHeuristicSharedMemory(
   // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
   // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = properties.vectorize_factor;
-  int64_t bdimx = dev_prop->maxThreadsPerBlock;
-  NVF_ERROR(
-      properties.total_reduction_numel >= vectorize_factor * bdimx,
-      "total_reduction_numel should be larger than or equal to "
-      "vectorize_factor * bdimx.\n",
-      "total_reduction_numel= ",
-      properties.total_reduction_numel,
-      ", vectorize_factor= ",
-      vectorize_factor,
-      ", bdimx= ",
-      bdimx);
+  int64_t bdimx = 1024;
+  int64_t gdimx = scheduler_utils::roundUpPow2(properties.max_persistent_buffer_size_bit / scheduler_utils::register_file_size_bit);
+  NVF_ERROR(gdimx > 1, "gdimx should be larger than 1");
   int64_t persistent_batch =
-      ceilDiv(properties.total_reduction_numel, vectorize_factor * bdimx);
+      ceilDiv(properties.total_reduction_numel, vectorize_factor * bdimx * gdimx);
   rparams->cross_block_inner_reduction = true;
+  rparams->cross_grid_inner_reduction = true;
+
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
+  rparams->grid_dim_inner_reduction = ParallelType::BIDx;
+
+  
   rparams->pad_inner_reduction_to_warp = true;
   rparams->batches_per_block_inner_reduction = persistent_batch;
   rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->vectorize_inner_reduction = vectorize_factor > 1;
 
   // Iter
+  rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->multiple_reds_per_blk = false;
-  rparams->grid_dim_iter_dom = ParallelType::BIDx;
   rparams->unroll_factor_iter_dom = 1;
+  auto max_gdimy = dev_prop->multiProcessorCount / gdimx;
+  rparams->split_grid_dim_iter_dom_inner = max_gdimy < properties.total_iteration_numel;
   rparams->lparams = LaunchParams(
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
+      gdimx,
+      rparams->split_grid_dim_iter_dom_inner ? max_gdimy
+                                             : LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
@@ -1080,11 +1080,8 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   // specific heuristics for different cases
   if (prop.max_persistent_buffer_size_bit >
       scheduler_utils::register_file_size_bit) {
-    rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
-    // all persistent buffers are moved to shared memory
-    // TODO: allow only part of the buffers to be moved to shared memory
-    rparams->smem_persistent_buffers = prop.persistent_buffers;
-    innerPersistentHeuristicSharedMemory(prop, rparams.get());
+    rparams->tag = "Register Grid Inner Persistent Heuristic.\n";
+    innerGridPersistentHeuristic2D(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
     innerPersistentHeuristic2D(prop, rparams.get());
@@ -1134,7 +1131,6 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   // reduction
   bool can_use_smem_persistent =
       properties.total_reduction_numel == properties.inner_most_dimension_numel;
-
   // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
   const std::pair<int64_t, int64_t> buffer_size_bit =
       getPersistentBufferSizeBit(
@@ -1144,19 +1140,20 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
           reduction_tvs,
           can_use_smem_persistent);
   const int64_t persistent_buffer_size_bit = buffer_size_bit.first;
-  const int64_t available_persistent_buffer_size_bit = buffer_size_bit.second;
-
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
 
-  if (persistent_buffer_size_bit > available_persistent_buffer_size_bit) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
-        can_use_smem_persistent
-            ? "not enough registers or shared memory for persistence."
-            : "not enough registers for persistence and shared memory "
-              "persistence is not supported yet.");
-    return false;
+  if (std::getenv("USE_MAIN")) {
+    const int64_t available_persistent_buffer_size_bit = buffer_size_bit.second;
+    if (persistent_buffer_size_bit > available_persistent_buffer_size_bit) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          can_use_smem_persistent
+              ? "not enough registers or shared memory for persistence."
+              : "not enough registers for persistence and shared memory "
+                "persistence is not supported yet.");
+      return false;
+    }
   }
 
   const int64_t device_max_threads_per_multiprocessor =

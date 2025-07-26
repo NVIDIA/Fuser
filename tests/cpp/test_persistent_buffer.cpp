@@ -1941,6 +1941,9 @@ TEST_P(SoftmaxParameterizedTest, softmax128main) {
 // total time on H100:
 // 64 x 128k: 19 us, main: 47 us
 // 1024 x 128k: 314 us, main: 674 us
+// bimdx = 256 --> 361 us
+// bimdx = 512 --> 314 us
+// bimdx = 1024 --> 307 us
 TEST_P(SoftmaxParameterizedTest, softmaxInnerGridPersistent) {
   auto [x, y] = GetParam();
   auto fusion_ptr = std::make_unique<Fusion>();
