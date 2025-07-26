@@ -761,7 +761,7 @@ class TestDifferences:
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
             print(f"  {self.run2.directory}: {self.run2.command}", file=sys.stderr)
 
-        if self.run1.exit_code != self.run1.exit_code:
+        if self.run1.exit_code != self.run2.exit_code:
             print(
                 f"WARNING: Exit codes {self.run1.exit_code} and {self.run2.exit_code} do not match.",
                 file=sys.stderr,
