@@ -326,7 +326,12 @@ TensorView* scheduleReductionTV(
           outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
         }
       } else if (rparams->split_grid_dim_iter_dom_inner) {
-        inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        if(rparams->lparams.gdimy() != LaunchParams::UNINITIALIZED_VAL){
+          inner_parallel_static(
+            iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+        }else{
+          inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        }
       } else {
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
