@@ -110,6 +110,12 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis)->parallelize(ptype);
   };
 
+  auto outer_parallel_static =
+      [&reduction_tv](int64_t axis, ParallelType ptype, int64_t factor) {
+        reduction_tv->split(axis, factor, false);
+        reduction_tv->axis(axis)->parallelize(ptype);
+      };
+
   auto outer_unswitch = [&reduction_tv](int64_t axis) {
     reduction_tv->split(axis, 1, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unswitch);
@@ -192,7 +198,8 @@ TensorView* scheduleReductionTV(
     }
     auto outer_i = inner_reduce_axis;
     if (rparams->cross_grid_inner_reduction) {
-      outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
+      // outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
+      outer_parallel_static(outer_i++, rparams->grid_dim_inner_reduction, rparams->lparams.gdimx());
     }
 
     reduction_tv->split(
@@ -325,6 +332,9 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+  reduction_tv->printTransforms();
+
   const bool is_non_persistent_outer_reduction =
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =
