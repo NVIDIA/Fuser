@@ -167,7 +167,8 @@ class Val;
   f(EndCoalescing);                   \
   f(ShareMemHandles);                 \
   f(HirAliasSelect);                  \
-  f(Deallocate);
+  f(Deallocate);                      \
+  f(NewTensor);
 
 // Forward declarations for all Val and Expr types
 

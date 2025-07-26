@@ -135,8 +135,10 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
+      
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR(
+  if (evaluate_validate) {
+    NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
       "Expected ",
       getInputPosString(tv),
@@ -145,6 +147,7 @@ void ExpressionEvaluator::bindTensorDomain(
       logical_domain.size(),
       ", but got a tensor of rank ",
       t.dim());
+  }
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
 
@@ -195,16 +198,18 @@ void ExpressionEvaluator::bind_(
     bool evaluate_validate) {
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
-  if (value->isConst()) {
-    NVF_CHECK(
-        value->value() == concrete_value,
-        "Tried to bind to a constant value: ",
-        toString(value->value()),
-        " as ",
-        toString(concrete_value));
-    return;
+  if(evaluate_validate) {
+    if (value->isConst()) {
+      NVF_CHECK(
+          value->value() == concrete_value,
+          "Tried to bind to a constant value: ",
+          toString(value->value()),
+          " as ",
+          toString(concrete_value));
+      return;
+    }
+    validateValWithConcreteValue(value, concrete_value);
   }
-  validateValWithConcreteValue(value, concrete_value);
   if (evaluate_validate &&
       ir_utils::dependenciesSatisfied(value, known_values_)) {
     auto evaluated_value = evaluate(value);
@@ -220,6 +225,7 @@ void ExpressionEvaluator::bind_(
         ") as ",
         toString(concrete_value));
   }
+
   if (auto tv = dynamic_cast<const TensorView*>(value)) {
     const auto& t = concrete_value.as<at::Tensor>();
     bindTensorDomain(tv, t, evaluate_validate);
@@ -255,6 +261,16 @@ void ExpressionEvaluator::bind(
 const PolymorphicValue& ExpressionEvaluator::evaluate(ParallelType pt) {
   auto it = known_named_scalars_.find(stringifyThreadSize(pt));
   if (it != known_named_scalars_.end()) {
+    return it->second;
+  }
+  return null_;
+}
+
+// This will allow us change the reference of the value in the known_values_ map
+// thus we can handle `new` type of values in host ir
+PolymorphicValue& ExpressionEvaluator::at(const Val* value) {
+  auto it = known_values_.find(value);
+  if (it != known_values_.end()) {
     return it->second;
   }
   return null_;

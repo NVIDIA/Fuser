@@ -417,6 +417,27 @@ class HirAliasSelect : public Expr {
   }
 };
 
+class NewTensor : public Expr {
+  public:
+   using Expr::Expr;
+   NewTensor(IrBuilderPasskey passkey, TensorView* tv);
+ 
+   NewTensor(const NewTensor& other) = delete;
+   NewTensor& operator=(const NewTensor& other) = delete;
+   NewTensor(NewTensor&& other) = delete;
+   NewTensor& operator=(NewTensor&& other) = delete;
+ 
+   NVFUSER_DECLARE_CLONE_AND_CREATE
+ 
+   std::string toString(int indent_size = 0) const override;
+   std::string toInlineString(int indent_size = 0) const override;
+   const char* getOpString() const override {
+     return "hir::NewTensor";
+   }
+ 
+   TensorView* buffer() const;
+ };
+
 } // namespace hir
 
 } // namespace nvfuser

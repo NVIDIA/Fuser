@@ -100,7 +100,7 @@ void validateTensors(
     const ExpressionEvaluator& expr_eval) {
   NVF_ERROR(tensors.size() == tvs.size());
   for (const auto& [tensor, tv] : zip(tensors, tvs)) {
-    if (tensor.defined()) {
+    if (tensor.defined() && !tensor.is_meta()) {
       inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     }
   }
@@ -639,14 +639,15 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-    at::matmul_out(t_out, t_a, t_b);
-  } else {
+  auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+  auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(out).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
     unhandled(matmul);
+    return;
   }
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+  at::matmul_out(t_out, t_a, t_b);
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
@@ -655,13 +656,13 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* bias = linear->bias()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
 
-  if (!expr_evaluator_.isKnown(out)) {
+  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(out).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
     unhandled(linear);
     return;
   }
-
-  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
-  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->hasBias()) {
@@ -674,8 +675,8 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
-      load_store_op->opType() == LoadStoreOpType::Set ||
-      load_store_op->opType() == LoadStoreOpType::SegmenterSet);
+    load_store_op->opType() == LoadStoreOpType::Set ||
+    load_store_op->opType() == LoadStoreOpType::SegmenterSet);
   NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
@@ -696,34 +697,21 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     t = in_tensor;
   }
 
-  if (expr_evaluator_.isKnown(out_tv)) {
-    auto out_tensor =
-        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+  if(!expr_evaluator_.isKnown(out_tv)) {
+    expr_evaluator_.bind(out_tv, t);
+    return;
+  }
+
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(out_tv).as<at::Tensor>();
+  if(!unknown_out_tensor.is_meta()) {
+    auto out_tensor = getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
     out_tensor.copy_(t, /*non_blocking=*/true);
   } else {
-    // For completeness, we may check if out_tv's allocation matches `t` and
-    // copy data if yes. For example,
-    //
-    // clang-format off
-    // ```
-    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
-    // if (strides == t.strides()) {
-    //   expr_evaluator_.bind(out_tv, t);
-    // } else {
-    //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
-    //   out_tensor.copy_(t);
-    //   bind_(out_tv, out_tensor);
-    // }
-    // ```
-    // clang-format on
-    //
-    // For now, I choose to keep code simple for the limited use cases.
-    expr_evaluator_.bind(out_tv, t);
+    unknown_out_tensor = t;
   }
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
-  FUSER_PERF_SCOPE("HostIrEvaluator::handle(kir::Allocate)");
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
       "Allocation must be on a TensorView but got ",
@@ -767,15 +755,17 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
 }
 
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
-  if (!expr_evaluator_.isKnown(binary_op->outputs().at(0))) {
-    return unhandled(binary_op);
-  }
 
   auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
   auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output =
-      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
-
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(binary_op->outputs().at(0)).as<at::Tensor>();
+  
+  if (unknown_out_tensor.is_meta()) {
+    unhandled(binary_op);
+    return;
+  }
+  auto output = getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+ 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
       at::add_out(output, lhs, rhs);
@@ -801,14 +791,16 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
 void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   auto input_tv = reduction_op->in()->as<TensorView>();
   auto output_tv = reduction_op->out()->as<TensorView>();
-  if (!expr_evaluator_.isKnown(output_tv)) {
-    return unhandled(reduction_op);
-  }
 
   NVF_ERROR(
       !output_tv->hasRoot(),
       "Evaluation for rFactored reductions is not supported.");
   auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
+  at::Tensor& unknown_out_tensor = expr_evaluator_.at(output_tv).as<at::Tensor>();
+  if (unknown_out_tensor.is_meta()) {
+    unhandled(reduction_op);
+    return;
+  }
   auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
 
   std::vector<int64_t> reduction_axes;
@@ -847,6 +839,27 @@ void HostIrEvaluator::handle(Deallocate* deallocate) {
   expr_evaluator_.invalidate(tv);
 }
 
+void HostIrEvaluator::handle(NewTensor* new_tensor) {
+  auto* tv = new_tensor->buffer();
+  NVF_ERROR(
+      !expr_evaluator_.isKnown(tv),
+      "Tried to create a new tensor wrapper that is already created",
+      tv);
+  GlobalBufferInfo info =
+      getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
+  // Get the device from the communicator or use CUDA as default
+  c10::Device device = communicator_ ? communicator_->device() : at::Device("cuda:0");
+
+  at::Tensor tensor = at::detail::empty_strided_meta(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,  // Use the same device as other tensors
+      c10::nullopt);
+  expr_evaluator_.bind(tv,tensor,false);
+}
+
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
@@ -861,20 +874,20 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   }
 
   // Check that there is no pre-allocated output
-  NVF_ERROR(
-      std::all_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [this](Val* output) {
-            return !this->expr_evaluator_.isKnown(output);
-          }),
-      "Do not support pre-allocated outputs for the op ",
-      expr);
+  // NVF_ERROR(
+  //     std::all_of(
+  //         expr->outputs().begin(),
+  //         expr->outputs().end(),
+  //         [this](Val* output) {
+  //           return !this->expr_evaluator_.isKnown(output);
+  //         }),
+  //     "Do not support pre-allocated outputs for the op ",
+  //     expr);
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid
   // here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
-    expr_evaluator_.bind(expr->output(i), concrete_outputs.at(i));
+    expr_evaluator_.at(expr->output(i)) = concrete_outputs.at(i);
   }
 }
 

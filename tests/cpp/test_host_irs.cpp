@@ -789,6 +789,8 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
   hic->addOutput(sliced_tv);
 
   if (put_slice_op_in_top_level_expr) {
+    auto* new_tensor_sliced_tv = IrBuilder::create<NewTensor>(sliced_tv);
+    hic->pushBackTopLevelExprs(new_tensor_sliced_tv);
     hic->pushBackTopLevelExprs(sliced_tv->definition());
   }
 
@@ -830,6 +832,8 @@ INSTANTIATE_TEST_SUITE_P(
 
 using MatmulHostIrTest = NVFuserTest;
 
+// NOTE: we should have a newTensor node for this test case since we are using
+// the matmul op in the wrapper allocation
 TEST_F(MatmulHostIrTest, HostIr) {
   constexpr int64_t H = 32;
   constexpr int64_t M = 64;
@@ -847,6 +851,8 @@ TEST_F(MatmulHostIrTest, HostIr) {
   hic->addInput(tv1);
   hic->addOutput(tv2);
 
+  auto* new_tensor = IrBuilder::create<NewTensor>(tv2);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(tv2->definition());
 
   HostIrEvaluator hie(std::move(hic));
@@ -924,6 +930,8 @@ TEST_F(LinearHostIrTest, HostIr) {
   hic->addInput(bias);
   hic->addOutput(out);
 
+  auto* new_tensor = IrBuilder::create<NewTensor>(out);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(out->definition());
 
   HostIrEvaluator hie(std::move(hic));
@@ -1015,6 +1023,8 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
   hic->addOutput(selected_tv);
 
   if (put_select_op_in_top_level_expr) {
+    auto* new_tensor_selected_tv = IrBuilder::create<NewTensor>(selected_tv);
+    hic->pushBackTopLevelExprs(new_tensor_selected_tv);
     hic->pushBackTopLevelExprs(selected_tv->definition());
   }
 
@@ -1062,13 +1072,20 @@ TEST_F(ViewTest, SimpleReshape) {
   Val* y = input->axis(1)->extent();
   Val* xy = mul(x, y);
   auto flattened_input = reshape(input, {xy});
-  auto transposed_intput = reshape(flattened_input, {y, x});
+  auto transposed_input = reshape(flattened_input, {y, x});
 
   hic->addInput(input);
   hic->addOutput(flattened_input);
-  hic->addOutput(transposed_intput);
+  hic->addOutput(transposed_input);
+
+  // Need to manually create new tensor for flattened_input and transposed_input
+  auto* new_tensor_flattened_input = IrBuilder::create<NewTensor>(flattened_input);
+  hic->pushBackTopLevelExprs(new_tensor_flattened_input);
+  auto* new_tensor_transposed_input = IrBuilder::create<NewTensor>(transposed_input);
+  hic->pushBackTopLevelExprs(new_tensor_transposed_input);
+
   hic->pushBackTopLevelExprs(flattened_input->definition());
-  hic->pushBackTopLevelExprs(transposed_intput->definition());
+  hic->pushBackTopLevelExprs(transposed_input->definition());
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -1099,6 +1116,8 @@ TEST_F(ReductionHostIrTest, Sum) {
 
   hic->addInput(tv0);
   hic->addOutput(tv1);
+  auto* new_tensor = IrBuilder::create<NewTensor>(tv1);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(tv1->definition());
 
   HostIrEvaluator hie(std::move(hic));
@@ -1360,6 +1379,8 @@ TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
   hic->addInput(lhs);
   hic->addInput(rhs);
   hic->addOutput(out);
+  auto* new_tensor = IrBuilder::create<NewTensor>(out);
+  hic->pushBackTopLevelExprs(new_tensor);
   hic->pushBackTopLevelExprs(out->definition());
 
   HostIrEvaluator hie(std::move(hic));

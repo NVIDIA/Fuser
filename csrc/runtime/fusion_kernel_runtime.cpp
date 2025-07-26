@@ -508,8 +508,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         case SchedulerType::ExprEval: {
           // push back segment's exprs into the container as top level
           // expressions
+          // NOTE: if there is an output alias, we just continue
           for (auto* expr : group_to_run->stablyOrderedExprs()) {
             auto cloned_expr = ir_cloner.clone(expr);
+            for(auto* tv : ir_utils::filterByType<TensorView>(cloned_expr->outputs())) {
+              auto* new_tensor = IrBuilder::create<hir::NewTensor>(tv);
+              hic->pushBackTopLevelExprs(new_tensor);
+            }
             hic->pushBackTopLevelExprs(cloned_expr);
           }
         } break;
