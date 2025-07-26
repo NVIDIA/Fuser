@@ -3106,5 +3106,16 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      continue;
+    }
+    if (!tv->hasAllocation()) {
+      continue;
+    }
+    tv->buildAllocationDomainFromLoopIds();
+  }
+}
 } // namespace scheduler_utils
 } // namespace nvfuser
