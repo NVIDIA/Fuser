@@ -758,8 +758,7 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveTest,
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
-        // Can't do testing::Bool() yet due to #4230
-        testing::Values(false)),
+        testing::Bool()),
     ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
             info) -> std::string {
       const auto& [backend_type, enable_host_ir_lowering] = info.param;
