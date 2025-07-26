@@ -31,10 +31,6 @@ namespace nvfuser {
 
 size_t Fusion::hash() const {
   size_t seed = 0;
-  for (const auto& val : inputs_) {
-    std::cout << "Input: " << val->toString() << std::endl;
-    seed = hash_combine(seed, val->hash());
-  }
 
   // Gather all expressions in CPP Fusion.
   std::deque<Expr*> to_visit(exprs_.begin(), exprs_.end());
@@ -43,6 +39,13 @@ size_t Fusion::hash() const {
   size_t skip_count = 0;
   std::unordered_set<Expr*> visited;
   std::unordered_set<const Val*> visited_vals;
+
+  for (const auto& val : inputs_) {
+    std::cout << "Input: " << val->toString() << std::endl;
+    seed = hash_combine(seed, val->hash());
+    visited_vals.insert(val);
+  }
+
   while (!to_visit.empty()) {
     Expr* e = to_visit.front();
     to_visit.pop_front();
@@ -63,9 +66,10 @@ size_t Fusion::hash() const {
         e->inputs().end(),
         std::back_inserter(scalars),
         [](Val* v) { return v->isScalar(); });
-    for (const Val* v : scalars) {
-      std::cout << "Scalar: " << v->toString() << std::endl;
-      seed = hash_combine(seed, v->hash());
+    for (const Val* val : scalars) {
+      std::cout << "Scalar: " << val->toString() << std::endl;
+      seed = hash_combine(seed, val->hash());
+      visited_vals.insert(val);
     }
 
     // short-circuit: add to back of stack if not all of the expression's

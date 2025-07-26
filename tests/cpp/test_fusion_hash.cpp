@@ -25,12 +25,13 @@ namespace nvfuser {
 
 TEST_F(NVFuserTest, FusionHash_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(1);
-  fusion_ptr->addInput(tv0);
+  fusion.addInput(tv0);
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
-  fusion_ptr->addOutput(tv1);
+  fusion.addOutput(tv1);
 
   std::cout << "Fusion hash: " << fusion_ptr->hash() << std::endl;
 
@@ -39,7 +40,7 @@ TEST_F(NVFuserTest, FusionHash_CUDA) {
   at::Tensor t0 = at::randn({100}, options);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
   auto ref = t0 + 1;
-  testValidate(fusion_ptr.get(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
