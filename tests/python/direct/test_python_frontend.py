@@ -35,12 +35,24 @@ def test_basic(nvfuser_direct_test):
 
         fd.add_output(t4)
 
+    # Check that keep_dim argument is not in fd_str
+    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False)
+    tv2 = fd.ops.add(tv0, tv1)
+    c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
+    tv3 = fd.ops.mul(tv2, c7)
+    tv4 = fd.ops.sum(tv3, dims=[2], dtype=DataType.Float)
+    fd.add_output(tv4)"""
+
     # t0 and t1 are ones(2, 4, 8) tensors.
     # t2 = t0 + t1 = twos(2, 4, 8)
     # t3 = t2 * 3.0 = sixes(2,4,8)
     # t4 = sum(t3, dim=-1) = forty-eights(2, 4)
     # The expected output is a tensor of 48's.
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, expected_fd_str=fd_str
+    )
     eager_out = torch.sum((inputs[0] + inputs[1]) * 3.0, dim=-1)
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
@@ -277,7 +289,7 @@ def test_matmul(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
-def test_linear_with_bias(nvfuser_direct_test):
+def test_linear_without_bias(nvfuser_direct_test):
     m = 24
     n = 16
     k = 8
@@ -292,12 +304,21 @@ def test_linear_with_bias(nvfuser_direct_test):
         t2 = fd.ops.linear(t0, t1)
         fd.add_output(t2)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    # Check that bias is not included with linear
+    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    tv2 = fd.ops.linear(tv0, tv1)
+    fd.add_output(tv2)"""
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, expected_fd_str=fd_str
+    )
     eager_out = torch.nn.functional.linear(inputs[0], inputs[1])
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
-def test_linear_without_bias(nvfuser_direct_test):
+def test_linear_with_bias(nvfuser_direct_test):
     m = 24
     n = 16
     k = 8
@@ -314,7 +335,16 @@ def test_linear_without_bias(nvfuser_direct_test):
         t3 = fd.ops.linear(t0, t1, t2)
         fd.add_output(t3)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True], dtype=DataType.BFloat16, is_cpu=False)
+    tv2 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.BFloat16, is_cpu=False)
+    tv3 = fd.ops.linear(tv0, tv1, bias=tv2)
+    fd.add_output(tv3)"""
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, expected_fd_str=fd_str
+    )
     eager_out = torch.nn.functional.linear(inputs[0], inputs[1], inputs[2])
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
@@ -467,12 +497,51 @@ def test_squeeze(nvfuser_direct_test):
         t7 = fd.ops.mul(t6, t5)
         fd.add_output(t7)
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    # Check that squeeze does not print default argument: squeeze_expanded
+    fd_str = """def nvfuser_fusion(fd : FusionDefinition) -> None :
+    tv0 = fd.define_tensor(shape=[-1], contiguity=[True], dtype=DataType.Float, is_cpu=False)
+    tv1 = fd.define_tensor(shape=[1, -1, 1], contiguity=[None, True, None], dtype=DataType.Float, is_cpu=False)
+    tv2 = fd.define_tensor(shape=[-1, 1, -1], contiguity=[True, None, True], dtype=DataType.Float, is_cpu=False)
+    tv3 = fd.ops.squeeze(tv1, dims=[0, 2])
+    tv6 = fd.ops.mul(tv0, tv3)
+    tv4 = fd.ops.squeeze(tv2, dims=[1])
+    tv5 = fd.ops.sum(tv4, dims=[0], dtype=DataType.Float)
+    tv7 = fd.ops.mul(tv6, tv5)
+    fd.add_output(tv7)"""
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, expected_fd_str=fd_str
+    )
 
     v1 = torch.sum(inputs[1], [0, -1])
     v2 = torch.sum(inputs[2], [0, 1])
     eager_out = inputs[0] * v1 * v2
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+# Test that expanded dimensions can be reduced properly
+# See https://github.com/NVIDIA/Fuser/issues/1678
+def test_expanded_reduction(nvfuser_direct_test):
+    inputs = [torch.tensor(1.0, device="cuda").as_strided((2, 3), (0, 0))]
+
+    for keepdim in [False, True]:
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[-1, -1],
+                contiguity=[None, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T1 = fd.ops.sum(T0, dims=[0], keep_dim=keepdim, dtype=DataType.Null)
+            fd.add_output(T1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        nvfuser_direct_test.assertEqual(
+            nvf_out[0], inputs[0].sum(dim=0, keepdim=keepdim)
+        )
 
 
 def test_expand(nvfuser_direct_test):

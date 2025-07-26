@@ -170,7 +170,7 @@ def nvfuser_fusion(fd : FusionDefinition) -> None :
     tv2 = fd.ops.add(tv0, tv1)
     c7 = fd.define_scalar(3.00000, dtype=DataType.Double)
     tv3 = fd.ops.mul(tv2, c7)
-    tv4 = fd.ops.sum(tv3, dims=[1], keep_dim=False, dtype=DataType.Float)
+    tv4 = fd.ops.sum(tv3, dims=[1], dtype=DataType.Float)
     fd.add_output(tv4)
 with FusionDefinition() as fd:
     nvfuser_fusion(fd)
