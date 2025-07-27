@@ -31,6 +31,54 @@ class SwiGLU(nn.Module):
         )
 
 
+def _group_sizes_from_offsets(offsets: torch.Tensor) -> list[int]:
+    group_sizes = []
+    prev = 0
+    for offset in offsets:
+        group_sizes.append(offset - prev)
+        prev = offset
+    return group_sizes
+
+
+# This function should be replaced with torch._grouped_mm.  However,
+# torch._grouped_mm is yet to be usable because it requires offsets being
+# multiples of 16.
+def grouped_mm(a: torch.Tensor, b: torch.Tensor, offsets: torch.Tensor) -> torch.Tensor:
+    group_sizes = _group_sizes_from_offsets(offsets)
+    group_outs = []
+    for group_a, group_b in zip(a.split(group_sizes), b.unbind()):
+        group_outs.append(group_a @ group_b)
+    return torch.cat(group_outs)
+
+
+class GroupedLinear(nn.Module):
+    def __init__(self, groups: int, in_features: int, out_features: int):
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(groups, in_features, out_features))
+
+    def forward(
+        self, hidden_states: torch.Tensor, offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return grouped_mm(hidden_states, self.weight, offsets)
+
+
+class GroupedSwiGLU(nn.Module):
+    def __init__(self, groups: int, hidden_size: int, intermediate_size: int):
+        super().__init__()
+        self.gate_proj = GroupedLinear(groups, hidden_size, intermediate_size)
+        self.up_proj = GroupedLinear(groups, hidden_size, intermediate_size)
+        self.down_proj = GroupedLinear(groups, intermediate_size, hidden_size)
+
+    def forward(
+        self, hidden_states: torch.Tensor, offsets: torch.Tensor
+    ) -> torch.Tensor:
+        return self.down_proj(
+            F.silu(self.gate_proj(hidden_states, offsets))
+            * self.up_proj(hidden_states, offsets),
+            offsets,
+        )
+
+
 class Llama4MoE(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
@@ -39,11 +87,8 @@ class Llama4MoE(nn.Module):
         self.shared_experts = SwiGLU(
             config.hidden_size, config.intermediate_size * config.num_shared_experts
         )
-        self.routed_experts = nn.ModuleList(
-            [
-                SwiGLU(config.hidden_size, config.intermediate_size)
-                for _ in range(config.num_routed_experts)
-            ]
+        self.routed_experts = GroupedSwiGLU(
+            config.num_routed_experts, config.hidden_size, config.intermediate_size
         )
 
     def run_routed_experts(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -66,20 +111,10 @@ class Llama4MoE(nn.Module):
             token_ids_sorted_by_expert_id
         ]  # [s, h]
 
-        # The following code block should be replaced with a grouped gemm.
-        # However, torch._grouped_mm is yet to be usable because it requires
-        # offsets being multiples of 16.
-        outs_per_expert = []
-        start_index = 0
-        for expert_id, num_tokens in enumerate(tokens_per_expert):
-            end_index = start_index + num_tokens
-            if num_tokens == 0:
-                continue
-            expert = self.routed_experts[expert_id]
-            expert_out = expert(tokens_sorted_by_expert_id[start_index:end_index])
-            outs_per_expert.append(expert_out)
-            start_index = end_index
-        outs_sorted_by_expert_id = torch.cat(outs_per_expert, dim=0)  # [s, h]
+        offsets = torch.cumsum(tokens_per_expert, 0)
+        outs_sorted_by_expert_id = self.routed_experts(
+            tokens_sorted_by_expert_id, offsets
+        )
 
         outs_sorted_by_token_id = torch.empty_like(outs_sorted_by_expert_id)  # [s, h]
         outs_sorted_by_token_id[
