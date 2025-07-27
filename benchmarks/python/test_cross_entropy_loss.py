@@ -89,17 +89,21 @@ def test_cross_entropy_bwd_benchmark(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
 @pytest.mark.parametrize("vocab_size", SyntheticMiniModel.generate_vocab_sizes())
-def test_cross_entropy_mini_benchmark_fwd(benchmark, executor: str, vocab_size: int):
+@pytest.mark.parametrize("cross_entropy_no_redu", [False, True])
+def test_cross_entropy_mini_benchmark_fwd(benchmark, executor: str, vocab_size: int, cross_entropy_no_redu: bool):
     if executor == "torchcompile":
         clear_dynamo_cache()
 
     # picking a value that doesn't OOM for large vocab sizes
-    batch_size = 4096
+    if cross_entropy_no_redu:
+        batch_size = 32768
+    else:
+        batch_size = 4096
 
     def fwd_call(inp):
         return SyntheticMiniModel.mini_model(*inp)
 
-    inputs = SyntheticMiniModel.inputs(int(batch_size), int(vocab_size))
+    inputs = SyntheticMiniModel.inputs(int(batch_size), int(vocab_size), cross_entropy_no_redu)
 
     fwd_fn = with_executor(executor, fwd_call)
     run_benchmark(benchmark, fwd_fn, inputs)
