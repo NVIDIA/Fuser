@@ -163,31 +163,49 @@ cross_entropy_loss_setup = {
 
 class SyntheticMiniModel:
     @staticmethod
-    def mini_model(logits, labels):
-        labels = torch.nn.functional.pad(labels, (0, 1))
-        labels = labels[1 : labels.shape[-1]]
-        logits = logits.to(dtype=torch.float32)
-        logits = logits.squeeze(dim=0)
-        return torch.nn.functional.cross_entropy(logits, labels)
+    def mini_model(logits, labels, cross_entropy_no_redu):
+        if cross_entropy_no_redu:
+          return torch.nn.functional.cross_entropy(logits, labels, reduction='none')
+        else:
+          labels = torch.nn.functional.pad(labels, (0, 1))
+          labels = labels[1 : labels.shape[-1]]
+          logits = logits.to(dtype=torch.float32)
+          logits = logits.squeeze(dim=0)
+          return torch.nn.functional.cross_entropy(logits, labels)
 
     @staticmethod
-    def inputs(batch_size, vocab_size):
-        input = torch.randn(
-            1,
-            batch_size,
-            vocab_size,
-            device="cuda",
-            dtype=torch.bfloat16,
-            requires_grad=True,
-        )
-        labels = torch.randint(
-            0,
-            vocab_size - 1,
-            (batch_size,),
-            device="cuda",
-            requires_grad=False,
-        )
-        return (input, labels)
+    def inputs(batch_size, vocab_size, cross_entropy_no_redu):
+        if cross_entropy_no_redu:
+          input = torch.randn(
+              batch_size,
+              vocab_size,
+              device="cuda",
+              dtype=torch.bfloat16,
+          )
+          labels = torch.randint(
+              0,
+              vocab_size,
+              (batch_size,),
+              device="cuda",
+              dtype=torch.int64,
+          )          
+        else:
+          input = torch.randn(
+              1,
+              batch_size,
+              vocab_size,
+              device="cuda",
+              dtype=torch.bfloat16,
+              requires_grad=True,
+          )
+          labels = torch.randint(
+              0,
+              vocab_size - 1,
+              (batch_size,),
+              device="cuda",
+              requires_grad=False,
+          )
+        return (input, labels, cross_entropy_no_redu)
 
     @staticmethod
     def grads():
