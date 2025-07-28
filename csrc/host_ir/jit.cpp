@@ -662,15 +662,13 @@ class HostIrCompileDispatcher : public OptInDispatch {
           " of the root domain: ",
           out_tv);
 
-      // permute the input tensor
       llvm::Function* permute_tensor_func =
           module->getFunction(kPermuteTensorFuncName);
       
       // Create array of permutation values
       llvm::ArrayType* perm_array_type = getInt64StaticArrayType(context, permutation.value().size());
       llvm::Value* perm_array = builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
-      
-      // Store permutation values into array
+
       for (size_t i = 0; i < permutation.value().size(); ++i) {
         llvm::Value* gep = builder_.CreateInBoundsGEP(
             perm_array_type, perm_array, 
