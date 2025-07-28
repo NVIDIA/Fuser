@@ -76,7 +76,7 @@ def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
         a_sf_padded[0:mn, 0:sf_k] = a_sf_linear
     else:
         a_sf_padded = a_sf_linear
-    tmp = torch.reshape(a_sf_padded, (m_tiles, 32, 4, k_tiles, 4))
+    tmp = torch.reshape(a_sf_padded, (m_tiles, 4, 32, k_tiles, 4))
     return tmp.transpose(1, 3).reshape(mn, sf_k)
 
 

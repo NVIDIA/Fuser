@@ -3,28 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from functools import partial
-import itertools
-import io
-import math
-import re
-import random
-import sys
-from typing import List
-
 import torch
-import torch.nn.functional as F
-import torch._refs as refs
-import torch._prims as prims
 
 from nvfuser import (
     FusionDefinition,
-    FusionCache,
     DataType,
-    Tensor,
-    version,
-    compute_contiguity,
-    compute_tensor_descriptor,
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from python.utils import (
@@ -32,7 +15,6 @@ from python.utils import (
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
     is_pre_blackwell,
-    NVFuserTest,
     linear_to_swizzled_128_4,
 )
 
