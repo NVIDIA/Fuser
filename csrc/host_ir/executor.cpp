@@ -100,6 +100,8 @@ void validateTensors(
     const ExpressionEvaluator& expr_eval) {
   NVF_ERROR(tensors.size() == tvs.size());
   for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    // NOTE: we don't need to validate meta tensor sizes and strides,
+    // since they are new type and will be replaced by actual allocations
     if (tensor.defined() && !tensor.is_meta()) {
       inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     }
