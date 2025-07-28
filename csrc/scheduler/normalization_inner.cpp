@@ -536,8 +536,8 @@ void innerGridPersistentHeuristic2D(
   // e.g. layer_norm with hidden size larger than 64K for fp16 or 32K for fp32.
   // fully vectorized, use maxThreadsPerBlock to reduce workload per threads
   int64_t vectorize_factor = properties.vectorize_factor;
-  int64_t bdimx = 1024;
-  int64_t gdimx = scheduler_utils::roundUpPow2(properties.max_persistent_buffer_size_bit / scheduler_utils::register_file_size_bit);
+  int64_t bdimx = 256;
+  int64_t gdimx = 8;//scheduler_utils::roundUpPow2(properties.max_persistent_buffer_size_bit / scheduler_utils::register_file_size_bit);
   NVF_ERROR(gdimx > 1, "gdimx should be larger than 1");
   int64_t persistent_batch =
       ceilDiv(properties.total_reduction_numel, vectorize_factor * bdimx * gdimx);
@@ -559,6 +559,7 @@ void innerGridPersistentHeuristic2D(
   rparams->unroll_factor_iter_dom = 1;
   auto max_gdimy = dev_prop->multiProcessorCount / gdimx;
   rparams->split_grid_dim_iter_dom_inner = max_gdimy < properties.total_iteration_numel;
+  rparams->split_grid_dim_iter_dom_inner = false;
   rparams->lparams = LaunchParams(
       gdimx,
       rparams->split_grid_dim_iter_dom_inner ? max_gdimy

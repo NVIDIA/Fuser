@@ -3093,6 +3093,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableName(sync_buffer));
     NVF_ERROR(grop->predicate() != nullptr && grop->predicate()->hasValue());
     func_args.arg(genInline(grop->predicate()));
+    func_args.arg(genComputeBlockDim());
 
     indent() << genCall("grid_broadcast::broadcast", template_args, func_args)
              << ";\n";

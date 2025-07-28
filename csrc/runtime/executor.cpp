@@ -1266,7 +1266,7 @@ KernelArgumentHolder KernelExecutor::run(
               << ", occupancy=" << oss.str() << std::endl;
     }
 
-    if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+    if (true  || !compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,
