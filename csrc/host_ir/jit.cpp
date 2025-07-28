@@ -426,7 +426,7 @@ void unpackInputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
 
-  // Get the current function (main) and its first argument
+  // Get the current function (main) and its input tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* aten_tensor_array = func->getArg(1);
 
@@ -472,7 +472,7 @@ void packOutputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
 
-  // Get the current function (main) and its second argument
+  // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
   llvm::Value* aten_tensor_array = func->getArg(2);
 
