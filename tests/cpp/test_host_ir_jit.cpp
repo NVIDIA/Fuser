@@ -368,16 +368,20 @@ TEST_F(HostIrJitTest, Linear) {
   TensorView* in = makeContigTensor(3);
   TensorView* weight = makeContigTensor(2);
   TensorView* bias = makeContigTensor(1);
-  TensorView* out = makeContigTensor(3);
+  TensorView* out_with_bias = makeContigTensor(3);
+  TensorView* out_without_bias = makeContigTensor(3);
 
-  auto linear_op = IrBuilder::create<LinearOp>(out, in, weight, bias);
+  auto linear_op_with_bias = IrBuilder::create<LinearOp>(out_with_bias, in, weight, bias);
+  auto linear_op_without_bias = IrBuilder::create<LinearOp>(out_without_bias, in, weight, nullptr);
 
   hic->addInput(in);
   hic->addInput(weight);
   hic->addInput(bias);
-  hic->addInput(out);
+  hic->addInput(out_with_bias);
+  hic->addInput(out_without_bias);
 
-  hic->pushBackTopLevelExprs(linear_op);
+  hic->pushBackTopLevelExprs(linear_op_with_bias);
+  hic->pushBackTopLevelExprs(linear_op_without_bias);
 
   HostIrJit jit(std::move(hic));
 
@@ -385,21 +389,25 @@ TEST_F(HostIrJitTest, Linear) {
   auto in_at = at::randint(5, {B, M, K}, options);
   auto weight_at = at::randint(5, {N, K}, options);
   auto bias_at = at::randint(5, {N}, options);
-  auto out_at = at::empty({B, M, N}, options);
+  auto out_with_bias_at = at::empty({B, M, N}, options);
+  auto out_without_bias_at = at::empty({B, M, N}, options);
 
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
   in_args.push(in_at);
   in_args.push(weight_at);
   in_args.push(bias_at);
-  in_args.push(out_at);
+  in_args.push(out_with_bias_at);
+  in_args.push(out_without_bias_at);
 
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 0);
   // validate
-  auto ref_output = at::linear(in_at, weight_at, bias_at);
+  auto ref_output_with_bias = at::linear(in_at, weight_at, bias_at);
+  auto ref_output_without_bias = at::linear(in_at, weight_at);
 
-  EXPECT_TRUE(ref_output.allclose(out_at));
+  EXPECT_TRUE(ref_output_with_bias.allclose(out_with_bias_at));
+  EXPECT_TRUE(ref_output_without_bias.allclose(out_without_bias_at));
 }
 
 } // namespace hir

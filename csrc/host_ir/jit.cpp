@@ -54,8 +54,7 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearOutWithBiasFuncName = "linear_out_with_bias";
-constexpr std::string_view kLinearOutWithoutBiasFuncName = "linear_out_without_bias";
+constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr size_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
@@ -587,15 +586,10 @@ llvm::Function::Create(
   llvm::Function::Create(
     matmul_out_type, llvm::Function::ExternalLinkage, kMatmulOutFuncName, module);
 
-  // linear_out_with_bias function: void linear_out_with_bias(at::Tensor* out, at::Tensor* in, at::Tensor* weight, at::Tensor* bias)
-  auto* linear_out_with_bias_type = llvm::FunctionType::get(void_type, {tensor_type, tensor_type, tensor_type, tensor_type}, false);
+  // linear_out function: void linear_out(at::Tensor* out, at::Tensor* in, at::Tensor* weight, at::Tensor* bias = nullptr)
+  auto* linear_out_type = llvm::FunctionType::get(void_type, {tensor_type, tensor_type, tensor_type, tensor_type}, false);
   llvm::Function::Create(
-    linear_out_with_bias_type, llvm::Function::ExternalLinkage, kLinearOutWithBiasFuncName, module);
-
-  // linear_out_without_bias function: void linear_out_without_bias(at::Tensor* out, at::Tensor* in, at::Tensor* weight)
-  auto* linear_out_without_bias_type = llvm::FunctionType::get(void_type, {tensor_type, tensor_type, tensor_type}, false);
-  llvm::Function::Create(
-    linear_out_without_bias_type, llvm::Function::ExternalLinkage, kLinearOutWithoutBiasFuncName, module);
+    linear_out_type, llvm::Function::ExternalLinkage, kLinearOutFuncName, module);
 
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
@@ -658,6 +652,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
   void handle(LinearOp* linear_op) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
 
     llvm::Value* t_in = getOrCreateValue(linear_op->inA(), val_to_value_, builder_);
     llvm::Value* t_weight = getOrCreateValue(linear_op->inB(), val_to_value_, builder_);
@@ -666,10 +661,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* t_bias = nullptr;
     if (linear_op->hasBias()) {
       t_bias = getOrCreateValue(linear_op->bias(), val_to_value_, builder_);
-      builder_.CreateCall(module->getFunction(kLinearOutWithBiasFuncName), {t_out, t_in, t_weight, t_bias});
     } else {
-      builder_.CreateCall(module->getFunction(kLinearOutWithoutBiasFuncName), {t_out, t_in, t_weight});
-    }
+      // Create a proper null pointer for LLVM
+      auto* tensor_type = getTensorPtrType(context);
+      t_bias = llvm::ConstantPointerNull::get(llvm::cast<llvm::PointerType>(tensor_type));
+    } 
+    builder_.CreateCall(module->getFunction(kLinearOutFuncName), {t_out, t_in, t_weight, t_bias});
     val_to_value_[linear_op->out()] = t_out;
   }
 
@@ -1015,19 +1012,15 @@ void HostIrJitImpl::registerExternalFunctions() {
       at::matmul_out(*t_out, *t_a, *t_b);
     });
 
-  // linear_out function with bias
-  void* linear_out_func_ptr_with_bias = reinterpret_cast<void*>(
+  // linear_out function
+  void* linear_out_func_ptr = reinterpret_cast<void*>(
     +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight, at::Tensor* t_bias) {
-      at::linear_out(*t_out, *t_in, t_weight->squeeze(), t_bias->squeeze());
+      if (t_bias != nullptr) {
+        at::linear_out(*t_out, *t_in, t_weight->squeeze(), t_bias->squeeze());
+      } else {
+        at::linear_out(*t_out, *t_in, t_weight->squeeze());
+      }
     });
-
-  // linear_out function without bias
-  // NOTE: there is a difference between at::linear and at::linear_out in result
-  void* linear_out_func_ptr_without_bias = reinterpret_cast<void*>(
-    +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight) {
-      at::linear_out(*t_out, *t_in, t_weight->squeeze());
-    });
-
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
   registerExternalFunction(
@@ -1056,9 +1049,7 @@ void HostIrJitImpl::registerExternalFunctions() {
   registerExternalFunction(
       matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
   registerExternalFunction(
-      linear_out_func_ptr_with_bias, name_to_symbol, mangler, kLinearOutWithBiasFuncName);
-  registerExternalFunction(
-      linear_out_func_ptr_without_bias, name_to_symbol, mangler, kLinearOutWithoutBiasFuncName);
+      linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
