@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
 from linear import TensorParallelLinear
-from nvfuser.testing.benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,

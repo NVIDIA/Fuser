@@ -11,7 +11,6 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>

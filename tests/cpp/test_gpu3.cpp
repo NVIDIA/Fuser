@@ -9102,6 +9102,67 @@ TEST_F(NVFuserTest, UseAllSharedMemory) {
   EXPECT_EQ(ke.getStaticSmemSize(), expected_static_smem);
 }
 
+TEST_F(NVFuserTest, SyncthreadsWithGmemIssue4741) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Global);
+
+  // [TIDx, TIDy]
+  tv1->axis(0)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::TIDy);
+
+  // [TIDy, TIDx]
+  tv2->axis(0)->parallelize(ParallelType::TIDy);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  auto kernel = gpulw.kernel();
+  const auto exprs = ir_utils::flattenScopedExprs(kernel->topLevelExprs());
+  EXPECT_TRUE(std::any_of(exprs.begin(), exprs.end(), [](Expr* expr) {
+    return expr->isA<kir::BlockSync>();
+  }));
+}
+
+// Repro of issue #4829
+TEST_F(NVFuserTest, InliningPosWithVectorizedCastOps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = add(tv0, fusion.oneVal());
+  auto tv3 = add(tv2, fusion.oneVal());
+  auto tv4 = castOp(DataType::BFloat16, tv3);
+  auto tv5 = castOp(DataType::Float, tv4);
+  auto tv6 = eq(tv1, fusion.zeroVal());
+  auto tv7 = where(tv6, tv2, tv5);
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024 * 1024}, options);
+  auto t1 = at::randn({1024 * 1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
