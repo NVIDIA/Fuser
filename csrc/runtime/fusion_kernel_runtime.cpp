@@ -372,6 +372,8 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
 }
 
 namespace {
+// Ideally, recomputation should be done automatically in TensorView's cloner.
+// But I'm hitting #4849 when trying that.
 void recomputeTv(const TensorView* tv, IrCloner& ir_cloner) {
   for (Expr* e : StmtSort::getExprsTo(
            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
