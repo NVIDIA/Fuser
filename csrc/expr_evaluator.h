@@ -51,6 +51,9 @@ class ExpressionEvaluator {
   //! Try to evaluate a parallel dimension
   const PolymorphicValue& evaluate(ParallelType pt);
 
+  //! Try to evaluate a modifiable value
+  PolymorphicValue& at(const Val* value);
+
   //! Evaluates a value through a const evaluator reference.
   //! Initializes a known_values map to store intermediate values in lieu of
   //! known_values_.

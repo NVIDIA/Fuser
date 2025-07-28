@@ -30,6 +30,7 @@
 
 #include <bfs.h>
 #include <host_ir/executor.h>
+#include <host_ir/host_ir.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -53,7 +54,13 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
+constexpr std::string_view kPermuteTensorFuncName = "permute_tensor";
 constexpr size_t kMaxTensorDim = 8;
+
+llvm::Value* getOrCreateValueForTensor(
+    TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder);
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -303,6 +310,14 @@ llvm::Value* getOrCreateValueForExtent(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
   return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
+}
+
+
+llvm::Value* getOrCreateValueForTensor(
+    TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  return getOrCreateValue(tv, val_to_value, builder);
 }
 
 // Simple permute transformation example:
@@ -599,6 +614,14 @@ void compileFunctionDeclarations(
       kNvtxRangePopFuncName,
       module);
 
+  // permute_tensor function: void permute_tensor(at::Tensor* out, at::Tensor* in, const int64_t* permutation, int64_t perm_size)
+  auto* permute_tensor_type = llvm::FunctionType::get(void_type, {tensor_type, tensor_type, int64_ptr_type, int64_type}, false);
+  llvm::Function::Create(
+      permute_tensor_type,
+      llvm::Function::ExternalLinkage,
+      kPermuteTensorFuncName,
+      module);
+
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
       void_type, {void_array_ptr_type, void_array_ptr_type}, false);
@@ -615,33 +638,62 @@ class HostIrCompileDispatcher : public OptInDispatch {
       : builder_(builder), val_to_value_(val_to_value) {}
   using OptInDispatch::handle;
 
-  // NOTE: this is just a simple example of allocate a output tensor and set it
-  // to input tensor. The whole concept is to demonstrate llvm jit works, we
-  // will change this in the future LoadStoreOp Function LLVM IR Generation
+  void handle(hir::NewTensor* new_tensor) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
+    llvm::Value* tensor =
+        builder_.CreateCall(new_tensor_func, {}, "new_tensor");
+    val_to_value_[new_tensor->buffer()->as<Val>()] = tensor;
+  }
+
   void handle(LoadStoreOp* load_store_op) final {
     NVF_ERROR(
         load_store_op->opType() == LoadStoreOpType::Set ||
         load_store_op->opType() == LoadStoreOpType::SegmenterSet);
     NVF_ERROR(
-        load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-    auto* in_tv = load_store_op->in()->as<Val>();
-    auto* out_tv = load_store_op->out()->as<Val>();
-    auto it = val_to_value_.find(in_tv);
-    NVF_ERROR(
-        it != val_to_value_.end(), "input tensor is not found in val_to_value");
+    load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+    TensorView* in_tv = load_store_op->in()->as<TensorView>();
+    TensorView* out_tv = load_store_op->out()->as<TensorView>();
+    llvm::Value* in_tensor = getOrCreateValueForTensor(in_tv, val_to_value_, builder_);
+    // we assume all output tensors are already created, either through new or allocated
+    llvm::Value* out_tensor = getOrCreateValueForTensor(out_tv, val_to_value_, builder_);
+
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
-    llvm::Value* in_tensor = it->second;
-    // Create a new tensor
-    llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
-    llvm::Value* out_tensor =
-        builder_.CreateCall(new_tensor_func, {}, "out_tensor");
+    llvm::LLVMContext& context = builder_.getContext();
+  
+    if (out_tv->hasRoot()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getLogicalDomain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The logical domain of a Set.Permute is supposed to be a permutation"
+          " of the root domain: ",
+          out_tv);
 
-    // Set the output tensor to the input tensor
-    llvm::Function* set_tensor_func = module->getFunction(kSetTensorFuncName);
-    builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
+      llvm::Function* permute_tensor_func =
+          module->getFunction(kPermuteTensorFuncName);
+      
+      // Create array of permutation values
+      llvm::ArrayType* perm_array_type = getInt64StaticArrayType(context, permutation.value().size());
+      llvm::Value* perm_array = builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
 
-    // Bind the output tensor to val_to_value
-    val_to_value_[out_tv] = out_tensor;
+      for (size_t i = 0; i < permutation.value().size(); ++i) {
+        llvm::Value* gep = builder_.CreateInBoundsGEP(
+            perm_array_type, perm_array, 
+            {builder_.getInt32(0), builder_.getInt32(i)});
+        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+      }
+      
+      llvm::Type* int64_ptr_type = getInt64PtrType(context);
+      llvm::Value* perm_ptr = builder_.CreateBitCast(perm_array, int64_ptr_type);
+      llvm::Value* perm_size = builder_.getInt64(permutation.value().size());
+      builder_.CreateCall(permute_tensor_func, {out_tensor, in_tensor, perm_ptr, perm_size});
+    } else {
+      llvm::Function* set_tensor_func =
+          module->getFunction(kSetTensorFuncName);
+      builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
+    }
   }
 
   // Create Function LLVM IR Generation
@@ -649,10 +701,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    // Define LLVM types
     llvm::Type* int64_ptr_type = getInt64PtrType(context);
 
-    // Get tensor sizes and strides using the inference function
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
@@ -678,14 +728,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides =
         builder_.CreateAlloca(strides_type, nullptr, "strides");
 
-    // Populate sizes array
     for (const auto [i, size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type, sizes, {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(size, gep);
     }
 
-    // Populate strides array
     for (const auto [i, stride] : enumerate(tensor_strides)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           strides_type, strides, {builder_.getInt32(0), builder_.getInt32(i)});
@@ -714,7 +762,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* device_index_constant =
         builder_.getInt64(Communicator::getInstance().deviceId());
 
-    // Configure output tensor
+    // Make allocation to new tensor
     llvm::Function* at_empty_strided_cuda_func =
         module->getFunction(kAtEmptyStridedCudaWrapper);
 
@@ -846,7 +894,13 @@ void HostIrJitImpl::registerExternalFunctions() {
       reinterpret_cast<void*>(+[](at::Tensor* out, at::Tensor* in) -> void {
         NVF_ERROR(out != nullptr, kSetTensorFuncName, " out is nullptr");
         NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
-        *out = in->clone(); // Clone the input tensor
+        if (!out->defined()) {
+          // new tensor
+          *out = in->clone(); // Clone the input tensor
+        } else {
+          // allocated tensor
+          out->copy_(*in, /*non_blocking=*/true);
+        }
       });
 
   // at::native::empty_strided_cuda
@@ -883,6 +937,19 @@ void HostIrJitImpl::registerExternalFunctions() {
   void* nvtx_range_pop_func_ptr =
       reinterpret_cast<void*>(+[]() -> void { nvtxRangePop(); });
 
+  // permute a tensor
+  void* permute_tensor_func_ptr = reinterpret_cast<void*>(
+    +[](at::Tensor* out, at::Tensor* in, const int64_t* permutation, int64_t perm_size) -> void {
+        // Convert pointer to vector for permute function
+        std::vector<int64_t> perm_vec(permutation, permutation + perm_size);
+        
+        if (!out->defined()) {
+          *out = in->permute(perm_vec);
+        } else {
+          out->copy_(in->permute(perm_vec), /*non_blocking=*/true);
+        }
+    });
+
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
   registerExternalFunction(
@@ -913,6 +980,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       kNvtxRangePushFuncName);
   registerExternalFunction(
       nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
+  registerExternalFunction(
+      permute_tensor_func_ptr, name_to_symbol, mangler, kPermuteTensorFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }

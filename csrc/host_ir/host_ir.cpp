@@ -424,6 +424,30 @@ std::string HirAliasSelect::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
+NewTensor::NewTensor(IrBuilderPasskey passkey, TensorView* tv)
+    : Expr(passkey) {
+  addAttribute(tv);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(NewTensor)
+
+TensorView* NewTensor::buffer() const {
+  return attributes_.at(0)->as<TensorView>();
+}
+
+std::string NewTensor::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "NewTensor {" << std::endl;
+  ss << buffer()->toString(indent_size + 1) << std::endl;
+  indent(ss, indent_size) << "}" << std::endl;
+  return ss.str();
+}
+
+std::string NewTensor::toInlineString(int indent_size) const {
+  return std::string("NewTensor ") + buffer()->toInlineString();
+}
+
+
 } // namespace hir
 
 } // namespace nvfuser
