@@ -16,6 +16,8 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#ifndef NVFUSER_HOST_IR_JIT
+
 namespace nvfuser {
 
 namespace hir {
@@ -290,3 +292,5 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 } // namespace hir
 
 } // namespace nvfuser
+
+#endif
