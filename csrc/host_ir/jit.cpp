@@ -378,15 +378,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     val_to_value_[out_tv] = out_tensor;
   }
 
-  // Allocate Function LLVM IR Generation
   void handle(kir::Allocate* allocate) final {
     llvm::LLVMContext& context = builder_.getContext();
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    // Define LLVM types
     llvm::Type* int64_ptr_type = getInt64PtrType(context);
 
-    // Get tensor sizes and strides using the inference function
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_sizes;
     llvm::SmallVector<llvm::Value*, kMaxTensorDim> tensor_strides;
     inferTensorShapesAndStrides(
@@ -396,7 +393,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
         tensor_sizes,
         tensor_strides);
 
-    // Bounds checking for ndim
     auto logical_domain = TensorDomain::noReductions(
         allocate->buffer()->as<TensorView>()->getLogicalDomain());
 
@@ -412,14 +408,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* strides =
         builder_.CreateAlloca(strides_type, nullptr, "strides");
 
-    // Populate sizes array
     for (const auto [i, size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type, sizes, {builder_.getInt32(0), builder_.getInt32(i)});
       builder_.CreateStore(size, gep);
     }
 
-    // Populate strides array
     for (const auto [i, stride] : enumerate(tensor_strides)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           strides_type, strides, {builder_.getInt32(0), builder_.getInt32(i)});
@@ -448,7 +442,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* device_index_constant =
         builder_.getInt64(Communicator::getInstance().deviceId());
 
-    // Configure output tensor
+    // Make allocation to new tensor
     llvm::Function* at_empty_strided_cuda_func =
         module->getFunction(kAtEmptyStridedCudaWrapper);
 
