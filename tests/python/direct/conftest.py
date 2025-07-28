@@ -21,6 +21,7 @@ class NVFuserTest(TestCase):
         fusion_func,
         inputs,
         *,
+        expected_fd_str=None,
         device=None,
     ):
         # Copy inputs because aliased outputs can modify inputs when running
@@ -37,6 +38,7 @@ class NVFuserTest(TestCase):
         )
 
         assert check_captured_python_definition(out, fd, inputs_captured, device)
+        assert expected_fd_str is None or expected_fd_str in repr(fd)
         return out, fd
 
 
