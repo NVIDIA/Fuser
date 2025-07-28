@@ -2674,6 +2674,37 @@ TEST_F(NVFuserTest, FusionVarMean_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, FusionVarMeanZeroDim_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int correction = 0;
+  bool keepdim = false;
+  at::ScalarType dtype = at::kFloat;
+
+  auto tv0 = makeSymbolicTensor(0, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tvs = variance_mean(tv0, {0}, correction, keepdim);
+  auto tv_mean = tvs.mean;
+  auto tv_var = tvs.var;
+  fusion->addOutput(tv_var);
+  fusion->addOutput(tv_mean);
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::manual_seed(0);
+  at::Tensor t0 = at::randn({}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  auto at_var_mean = at::var_mean(t0, {0}, correction, keepdim);
+  std::vector<at::Tensor> aten_outputs = {
+      std::get<0>(at_var_mean), std::get<1>(at_var_mean)};
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t0}, aten_outputs, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);

@@ -666,6 +666,16 @@ class PythonTranslator : public OptInConstDispatch {
         {bop->out()});
   }
 
+  // Map TernaryOp to python frontend
+  void handle(const TernaryOp* top) final {
+    NVF_ERROR(top != nullptr);
+    visited_vals_.insert(top->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(top),
+        {top->in1(), top->in2(), top->in3()},
+        {top->out()});
+  }
+
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
@@ -729,6 +739,29 @@ class PythonTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    auto filter_range = std::views::iota(0UL, is_squeeze_dims.size()) |
+        std::views::filter([&is_squeeze_dims](int64_t dim) {
+                          return is_squeeze_dims.at(dim);
+                        });
+    std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
+
+    // Always squeeze_expanded dimensions
+    static const std::vector<std::string> squeeze_argument_names = {
+        "dims", "squeeze_expanded"};
+    printer_.generateKwargsOperation(
+        "fd.ops.squeeze",
+        std::make_tuple(sop->in()),
+        squeeze_argument_names,
+        std::make_tuple(squeeze_dims, /*squeeze_expanded=*/true),
+        {sop->out()});
+  }
+
   // Map ViewOp to python frontend
   void handle(const ViewOp* vop) final {
     NVF_ERROR(vop != nullptr);
@@ -753,6 +786,27 @@ class PythonTranslator : public OptInConstDispatch {
         reshape_argument_names,
         std::make_tuple(new_shape),
         {vop->out()});
+  }
+
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    std::vector<Val*> shape = getShape(out_tv);
+
+    static const std::vector<std::string> expand_argument_names = {"shape"};
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(
+        shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+    visited_vals_.insert(eop->out());
+    printer_.generateKwargsOperation(
+        "fd.ops.expand",
+        std::make_tuple(eop->in()),
+        expand_argument_names,
+        std::make_tuple(shape),
+        {eop->out()});
   }
 
   // If input and output values share the same type, a LoadStoreOp will be
@@ -792,6 +846,34 @@ class PythonTranslator : public OptInConstDispatch {
         argument_names,
         std::make_tuple(new2old.value()),
         {lsop->out()});
+  }
+
+  // Map IndexSelectOp to IndexSelectOpRecord
+  void handle(const IndexSelectOp* isop) final {
+    NVF_ERROR(isop != nullptr);
+    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.index_select",
+        std::make_tuple(isop->lookupTv(), isop->indexTv()),
+        argument_names,
+        std::make_tuple(isop->dim()),
+        {out_tv});
+  }
+
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.select",
+        std::make_tuple(sop->lookupTv(), sop->input(1)),
+        argument_names,
+        std::make_tuple(sop->dim()),
+        {out_tv});
   }
 
  private:
