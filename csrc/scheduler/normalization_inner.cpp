@@ -560,6 +560,10 @@ void innerGridPersistentHeuristic2D(
   auto max_gdimy = dev_prop->multiProcessorCount / gdimx;
   rparams->split_grid_dim_iter_dom_inner = max_gdimy < properties.total_iteration_numel;
   rparams->split_grid_dim_iter_dom_inner = false;
+
+  // smem
+  rparams->smem_persistent_buffers = properties.persistent_buffers;
+
   rparams->lparams = LaunchParams(
       gdimx,
       rparams->split_grid_dim_iter_dom_inner ? max_gdimy
