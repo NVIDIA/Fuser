@@ -4453,6 +4453,14 @@ bool needs_to_squeeze_expanded(
 
 } // namespace
 
+// In addition to privatizing upcasts, this function also privatizes squeeze.
+// We decided to privatize squeeze ops motivated by cross-entropy loss.
+// Let's say we have the sequence:
+// T1 (input) bfloat -> (up)cast to float  ->  squeeze.
+// also, say, T1 is input to another operation say takeAlongAxis.
+// Since T1 has multiple uses, the T1->cast->squeeze cannot be forwarded
+// and the cast cannot be privatized without privatizing the squeeze.
+// The above reasons motivated us to privatize squeeze ops as well.
 bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
@@ -4712,7 +4720,11 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
       };
 
   auto remaining_privatized_ops = privatized_ops_;
-  while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
+  // int c = 0;
+  // while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
+    //c = c + 1;
+
+    // std::cout << "reverting privatized ops: " << c << std::endl;
     // remove exprs that have been processed.
     for (const auto& key : processed) {
       remaining_privatized_ops.erase(key);
@@ -4720,7 +4732,7 @@ void SegmentCandidateFinder::revertPrivatizedOps(SegmentedGroup* group) {
     // Revert privatized upcasts
     processed.clear();
     revert_privatized_exprs(remaining_privatized_ops);
-  };
+  //};
 }
 
 // Decides whether we should forward an input (or a forwarded input) of a
