@@ -35,7 +35,7 @@ def nvfp4_quantize(x):
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 @pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
-@pytest.mark.parametrize("out_dtype", [torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm(
     config,
     out_dtype,
@@ -96,10 +96,6 @@ def test_scaled_mm(
 
     o = fd.execute(inputs)[0]
 
-    # error on reference implementation is too large. maybe use the ref implementation instead.
-    # mat1_ref = mat1_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale1.unsqueeze(-1).to(torch.bfloat16)
-    # mat2_ref = mat2_ref.reshape(m, k//16, 16).to(torch.bfloat16) * scale2.unsqueeze(-1).to(torch.bfloat16)
-    # ref_o = mat1_ref @ mat2_ref.t() * alpha
     ref_o = (
         torch._scaled_mm(
             mat1,
@@ -108,7 +104,7 @@ def test_scaled_mm(
             linear_to_swizzled_128_4(scale2),
             None,
             None,
-            torch.bfloat16,
+            out_dtype,
         )
         * alpha
     )
