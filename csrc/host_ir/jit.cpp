@@ -42,8 +42,8 @@
 
 namespace nvfuser {
 
-// inputTensors, outputTensors
-using main_func_t = void (*)(const void**, void**);
+// cacheId, inputTensors, outputTensors
+using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
@@ -428,7 +428,14 @@ void unpackInputs(
 
   // Get the current function (main) and its input tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(0);
+  llvm::Value* cache_id = func->getArg(0);
+  auto* launch_kernel = std::find_if(container->topLevelExprs().begin(), container->topLevelExprs().end(), [](Expr* expr) {
+    return expr->isA<hir::LaunchKernel>();
+  });
+  NVF_ERROR(launch_kernel != container->topLevelExprs().end(), "LaunchKernel not found in inputs");
+  val_to_value[launch_kernel->cacheId()] = cache_id;
+
+  llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
@@ -474,7 +481,7 @@ void packOutputs(
 
   // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(1);
+  llvm::Value* aten_tensor_array = func->getArg(2);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
@@ -565,7 +572,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor** input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t num_outputs, void* launchKernel, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
-    void_type, {void_array_ptr_type, int64_type, void_array_ptr_type, int64_type, void_ptr_type, void_ptr_type}, false);
+    void_type, {int64_type, tensor_type->getPointerTo(), int64_type, tensor_type->getPointerTo(), int64_type, void_ptr_type, void_ptr_type}, false);
 llvm::Function::Create(
     launch_kernel_type, llvm::Function::ExternalLinkage, kLaunchKernelFuncName, module);
 
@@ -586,7 +593,7 @@ llvm::Function::Create(
 
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
-      void_type, {void_array_ptr_type, void_array_ptr_type}, false);
+      void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 
@@ -679,6 +686,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
       output_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
     }
 
+    // Get the cacheId from the main function's first argument
+    llvm::Value* cache_id_arg = getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+
     // Create arrays to hold tensor pointers
     auto* input_array_type = getInt8PtrStaticArrayType(context, input_tensors.size());
     auto* output_array_type = getInt8PtrStaticArrayType(context, output_tensors.size());
@@ -720,7 +730,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     builder_.CreateCall(
         module->getFunction(kLaunchKernelFuncName),
-        {input_array_ptr,
+        {cache_id_arg,
+         input_array_ptr,
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
@@ -961,7 +972,8 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // launch kernel function
   void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor** input_tensors,
+      reinterpret_cast<void*>(+[](int64_t cache_id,
+                                  at::Tensor** input_tensors,
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
                                   int64_t num_outputs,
@@ -972,7 +984,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         auto* container_ptr =
             static_cast<hir::HostIrContainer*>(container);
         KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(launch_kernel_ptr->cacheId()->value().as<int64_t>());
+        input_args.setCacheId(cache_id);
 
         for (int64_t i = 0; i < num_inputs; i++) {
           input_args.push(
@@ -1069,7 +1081,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
-  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
+  main_func_(args.getCacheId().value(), input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
