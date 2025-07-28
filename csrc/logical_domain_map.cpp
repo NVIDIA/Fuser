@@ -254,9 +254,20 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         // between input and output for index=2
         // 2. `[B, M, K] x [K, N] -> [B, M, N]`: For input B, the second
         // iterdomain maps to the third output iterdomain.
-        const std::vector<IterDomain*>& aligned_producer_ids =
+        std::vector<IterDomain*> aligned_producer_ids =
             ops::mapMatmulOpIterDomains(
                 producer_logical, input_position, out_size);
+
+        // TODO: this is not right. erasing k dimension when we have packed
+        // inputs.
+        if ((isPackedType(producer_tv_->dtype()) !=
+             isPackedType(consumer_tv_->dtype())) ||
+            ((dataTypeSizeBit(producer_tv_->dtype()) < 8) !=
+             (dataTypeSizeBit(consumer_tv_->dtype()) < 8))) {
+          aligned_producer_ids.back() = nullptr;
+        }
+        pairwiseMapAllIds(aligned_producer_ids, consumer_root);
+
         return dom_map;
       }
       // note op->beta() should map as a pointwise
