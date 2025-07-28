@@ -1014,12 +1014,12 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // linear_out function
   void* linear_out_func_ptr = reinterpret_cast<void*>(
-    +[](at::Tensor* t_out, at::Tensor* t_in, at::Tensor* t_weight, at::Tensor* t_bias) {
-      if (t_bias != nullptr) {
-        at::linear_out(*t_out, *t_in, t_weight->squeeze(), t_bias->squeeze());
-      } else {
-        at::linear_out(*t_out, *t_in, t_weight->squeeze());
+    +[](at::Tensor* out, at::Tensor* in, at::Tensor* weight, at::Tensor* bias) {
+      std::optional<at::Tensor> bias_opt = std::nullopt;
+      if (bias != nullptr) {
+        bias_opt = *bias;
       }
+      at::linear_out(*out, *in, *weight, bias_opt);
     });
   // Register wrapper functions in JIT
   llvm::orc::SymbolMap name_to_symbol;
