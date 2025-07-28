@@ -161,7 +161,9 @@ void ExpressionEvaluator::bindTensorDomain(
         break;
       }
     }
-    NVF_ERROR(last_id_index != -1, "could not find the last ID in allocation for sub byte data types.");
+    NVF_ERROR(
+        last_id_index != -1,
+        "could not find the last ID in allocation for sub byte data types.");
     auto& last_dim = logical_sizes[last_id_index];
     last_dim = adjust_last_dim.fromATenToNVF(last_dim);
   }
