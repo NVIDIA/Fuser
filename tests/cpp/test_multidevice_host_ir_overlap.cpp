@@ -1258,10 +1258,9 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _  : arange(params.number_of_iterations)) {
-    // I don't know why but this seems necessary...
-    at::manual_seed(getATenRandomSeed());
+  at::manual_seed(getATenRandomSeed());
 
+  for ([[maybe_unused]] const auto& _  : arange(params.number_of_iterations)) {
     initializeIO();
 
     std::unordered_map<Val*, PolymorphicValue> inputs = {
@@ -1434,7 +1433,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _  : arange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
 
