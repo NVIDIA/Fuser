@@ -2,11 +2,13 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import math
+from contextlib import contextmanager
+from dataclasses import dataclass
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from contextlib import contextmanager
-from dataclasses import dataclass
 
 
 # Sizes used in Llama 4 Maverick
@@ -55,6 +57,8 @@ class GroupedLinear(nn.Module):
     def __init__(self, groups: int, in_features: int, out_features: int):
         super().__init__()
         self.weight = nn.Parameter(torch.empty(groups, in_features, out_features))
+        # Initialize the weight in the same way as nn.Linear
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
 
     def forward(
         self, hidden_states: torch.Tensor, offsets: torch.Tensor
@@ -111,10 +115,10 @@ class Llama4MoE(nn.Module):
             token_ids_sorted_by_expert_id
         ]  # [s, h]
 
-        offsets = torch.cumsum(tokens_per_expert, 0)
+        offsets = torch.cumsum(tokens_per_expert, 0)  # [n]
         outs_sorted_by_expert_id = self.routed_experts(
             tokens_sorted_by_expert_id, offsets
-        )
+        )  # [s, h]
 
         outs_sorted_by_token_id = torch.empty_like(outs_sorted_by_expert_id)  # [s, h]
         outs_sorted_by_token_id[
