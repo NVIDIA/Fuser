@@ -349,6 +349,14 @@ class HostIrCompileDispatcher : public OptInDispatch {
       : builder_(builder), val_to_value_(val_to_value) {}
   using OptInDispatch::handle;
 
+  void handle(NewTensor* new_tensor) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
+    llvm::Value* tensor =
+        builder_.CreateCall(new_tensor_func, {}, "new_tensor");
+    val_to_value_[new_tensor->out()->as<Val>()] = tensor;
+  }
+
   // NOTE: this is just a simple example of allocate a output tensor and set it
   // to input tensor. The whole concept is to demonstrate llvm jit works, we
   // will change this in the future LoadStoreOp Function LLVM IR Generation
