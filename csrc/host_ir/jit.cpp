@@ -42,8 +42,8 @@
 
 namespace nvfuser {
 
-// cacheId, inputTensors, outputTensors
-using main_func_t = void (*)(int64_t, const void**, void**);
+// inputTensors, outputTensors
+using main_func_t = void (*)(const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
@@ -428,7 +428,7 @@ void unpackInputs(
 
   // Get the current function (main) and its input tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(1);
+  llvm::Value* aten_tensor_array = func->getArg(0);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
@@ -474,7 +474,7 @@ void packOutputs(
 
   // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(2);
+  llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
@@ -680,7 +680,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
 
     // Get the cacheId from the main function's first argument
-    llvm::Value* cache_id_arg = builder_.GetInsertBlock()->getParent()->getArg(0);
+    llvm::Value* cache_id_arg = builder_.getInt64(launch_kernel->cacheId()->value().as<int64_t>());
 
     // Create arrays to hold tensor pointers
     auto* input_array_type = getInt8PtrStaticArrayType(context, input_tensors.size());
@@ -1074,7 +1074,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
 
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
-  main_func_(args.getCacheId().value(), input_aten_tensors.data(), output_aten_tensors.data());
+  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
