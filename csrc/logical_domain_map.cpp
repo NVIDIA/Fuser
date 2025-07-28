@@ -257,13 +257,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         std::vector<IterDomain*> aligned_producer_ids =
             ops::mapMatmulOpIterDomains(
                 producer_logical, input_position, out_size);
-        // TODO: this is not right. We shouldn't erase k dimension
-        if ((isPackedType(producer_tv_->dtype()) !=
-             isPackedType(consumer_tv_->dtype())) ||
-            ((dataTypeSizeBit(producer_tv_->dtype()) < 8) !=
-             (dataTypeSizeBit(consumer_tv_->dtype()) < 8))) {
-          aligned_producer_ids.back() = nullptr;
-        }
         pairwiseMapAllIds(aligned_producer_ids, consumer_root);
         return dom_map;
       }
