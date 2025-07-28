@@ -41,6 +41,7 @@ jobs:
         run: |
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
+          wait
           source tools/setup-env.sh
 
           # Install lintrunner
@@ -48,8 +49,6 @@ jobs:
 
           # Initialize lintrunner
           lintrunner init 2> /dev/null
-
-          wait
 
           # Go to python folder to build cmake files
           cd python
