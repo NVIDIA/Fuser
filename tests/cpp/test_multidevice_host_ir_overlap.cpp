@@ -1260,7 +1260,7 @@ TEST_F(
 
   at::manual_seed(getATenRandomSeed());
 
-  for ([[maybe_unused]] const auto& _  : arange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
 
     std::unordered_map<Val*, PolymorphicValue> inputs = {
