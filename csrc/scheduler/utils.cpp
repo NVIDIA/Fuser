@@ -575,7 +575,7 @@ TensorView* getUpCastInputOf(const TensorView* tv) {
       return nullptr;
     }
     // skip if the cast is not upcast
-    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensorsBit(uop);
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
     if (!precisions.has_value() || precisions->first >= precisions->second) {
       return nullptr;
     }
