@@ -565,7 +565,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor** input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t num_outputs, void* launchKernel, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
-    void_type, {int64_type, tensor_type->getPointerTo(), int64_type, tensor_type->getPointerTo(), int64_type, void_ptr_type, void_ptr_type}, false);
+    void_type, {int64_type, void_array_ptr_type, int64_type, void_array_ptr_type, int64_type, void_ptr_type, void_ptr_type}, false);
 llvm::Function::Create(
     launch_kernel_type, llvm::Function::ExternalLinkage, kLaunchKernelFuncName, module);
 
@@ -586,7 +586,7 @@ llvm::Function::Create(
 
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
-      void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
+      void_type, {void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 
@@ -977,6 +977,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         auto* container_ptr =
             static_cast<hir::HostIrContainer*>(container);
         KernelArgumentHolder input_args, output_args;
+        std::cout << "cache_id: " << cache_id << std::endl;
         input_args.setCacheId(cache_id);
 
         for (int64_t i = 0; i < num_inputs; i++) {
