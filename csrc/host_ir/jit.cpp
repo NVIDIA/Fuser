@@ -565,7 +565,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor** input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t num_outputs, void* launchKernel, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
-    void_type, {int64_type, void_array_ptr_type, int64_type, void_array_ptr_type, int64_type, void_ptr_type, void_ptr_type}, false);
+    void_type, {void_array_ptr_type, int64_type, void_array_ptr_type, int64_type, void_ptr_type, void_ptr_type}, false);
 llvm::Function::Create(
     launch_kernel_type, llvm::Function::ExternalLinkage, kLaunchKernelFuncName, module);
 
@@ -679,9 +679,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
       output_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
     }
 
-    // Get the cacheId from the main function's first argument
-    llvm::Value* cache_id_arg = builder_.getInt64(launch_kernel->cacheId()->value().as<int64_t>());
-
     // Create arrays to hold tensor pointers
     auto* input_array_type = getInt8PtrStaticArrayType(context, input_tensors.size());
     auto* output_array_type = getInt8PtrStaticArrayType(context, output_tensors.size());
@@ -723,8 +720,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     builder_.CreateCall(
         module->getFunction(kLaunchKernelFuncName),
-        {cache_id_arg,
-         input_array_ptr,
+        {input_array_ptr,
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
@@ -965,8 +961,7 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // launch kernel function
   void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](int64_t cache_id,
-                                  at::Tensor** input_tensors,
+      reinterpret_cast<void*>(+[](at::Tensor** input_tensors,
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
                                   int64_t num_outputs,
@@ -977,8 +972,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         auto* container_ptr =
             static_cast<hir::HostIrContainer*>(container);
         KernelArgumentHolder input_args, output_args;
-        std::cout << "cache_id: " << cache_id << std::endl;
-        input_args.setCacheId(cache_id);
+        input_args.setCacheId(launch_kernel_ptr->cacheId()->value().as<int64_t>());
 
         for (int64_t i = 0; i < num_inputs; i++) {
           input_args.push(
