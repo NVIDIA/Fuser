@@ -426,15 +426,21 @@ void unpackInputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
 
-  // Get the current function (main) and its input tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
+
+  // Get the cacheId from the main function's first argument
   llvm::Value* cache_id = func->getArg(0);
-  auto* launch_kernel = std::find_if(container->topLevelExprs().begin(), container->topLevelExprs().end(), [](Expr* expr) {
+
+  auto launch_kernel_it = std::find_if(container->topLevelExprs().begin(), container->topLevelExprs().end(), [](Expr* expr) {
     return expr->isA<hir::LaunchKernel>();
   });
-  NVF_ERROR(launch_kernel != container->topLevelExprs().end(), "LaunchKernel not found in inputs");
-  val_to_value[launch_kernel->cacheId()] = cache_id;
 
+  if (launch_kernel_it != container->topLevelExprs().end()) {
+    auto* launch_kernel = (*launch_kernel_it)->as<hir::LaunchKernel>();
+    val_to_value[launch_kernel->cacheId()] = cache_id;
+  }
+
+  // Get the current function (main) and its input tensor array
   llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
