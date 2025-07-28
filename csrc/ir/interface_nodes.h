@@ -565,13 +565,6 @@ class NVF_API TensorView : public Val {
   //!  be refactored or extended if any more use cases appear.
   void clearReductionIterDomains();
 
-  // Builds the allocation domain of `tv` by reusing existing IDs from the loop
-  // domain. This avoids creating duplicate IDs when the loop domain already
-  // contains the transformed IDs we need. It ensures we can allocate the tensor
-  // based on its allocation domains and also verfiy that the allocated Ids are
-  // consistent with the compute at position.
-  void buildAllocationDomainFromLoopIds();
-
   //! Compute this TensorView relative to a consumer position, -1 will
   //! compute tensors inline with each other, 0 doesn't share
   //! any loop nests between the tensors. It's an error when the given

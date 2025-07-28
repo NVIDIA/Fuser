@@ -15,6 +15,7 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1550,7 +1551,7 @@ TEST_F(AllocationDomainTest, buildAllocationDomainFromLoopIdsSplit) {
   }
 
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/2);
-  tv1->buildAllocationDomainFromLoopIds();
+  scheduler_utils::buildAllocationDomainFromLoopIds(tv1);
 
   // check allocation domain of tv1, expect:
   // allocation domain : (iS15{3}, iS16{4}, iS6{2}, iB8{16})
@@ -1594,7 +1595,7 @@ TEST_F(AllocationDomainTest, buildAllocationDomainFromLoopIdsMerge) {
 
   inlineSelectedAt({tv1}, tv1, /*reference_pos=*/1);
   // allocation domain : (iS7{12}, iS6{2}, iB8{16})
-  tv1->buildAllocationDomainFromLoopIds();
+  scheduler_utils::buildAllocationDomainFromLoopIds(tv1);
   // allocation domain : (iS12{24}, iB8{16})
 
   // check allocation domain of tv1, expect:
