@@ -32,14 +32,6 @@ TensorView* indexPutAccumulate(
 // torch.gather
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
-// TODO: Revisit the interface design. ScatterOpType could be just BinaryOpType
-TensorView* scatterOp(
-    ScatterOpType type,
-    TensorView* self,
-    int64_t dim,
-    TensorView* index,
-    TensorView* src);
-
 // Provides torch.scatter. It is semantically ouf-of-place, i.e., the
 // returned tensor, out_tv, is defined as follows:
 //
@@ -54,7 +46,8 @@ NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
     TensorView* index,
-    TensorView* src);
+    TensorView* src,
+    std::optional<BinaryOpType> accumulate_op = std::nullopt);
 
 //! numpy.take_along_axis
 //! (https://numpy.org/doc/stable/reference/generated/numpy.take_along_axis.html)
