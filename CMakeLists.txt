@@ -1318,6 +1318,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   if(NVFUSER_DISTRIBUTED)
     set(MULTIDEVICE_BENCHMARK_SRCS)
     list(APPEND MULTIDEVICE_BENCHMARK_SRCS
+      ${NVFUSER_ROOT}/benchmarks/cpp/cuda_ipc.cpp
       ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
       ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
       ${NVFUSER_ROOT}/tests/cpp/utils.cpp
