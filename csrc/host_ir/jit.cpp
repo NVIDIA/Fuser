@@ -648,6 +648,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* in_tensor = getOrCreateValueForTensor(in_tv, val_to_value, builder);
     // we assume all output tensors are already created, either through new or allocated
     llvm::Value* out_tensor = getOrCreateValueForTensor(out_tv, val_to_value, builder);
+
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
   
     if (out_tv->hasRoot()) {
       std::optional<std::vector<int64_t>> permutation =
@@ -658,9 +661,27 @@ class HostIrCompileDispatcher : public OptInDispatch {
           "The logical domain of a Set.Permute is supposed to be a permutation"
           " of the root domain: ",
           out_tv);
+
+      // permute the input tensor
       llvm::Function* permute_tensor_func =
           module->getFunction(kPermuteTensorFuncName);
-      builder_.CreateCall(permute_tensor_func, {out_tensor, in_tensor, permutation.value()});
+      
+      // Create array of permutation values
+      llvm::ArrayType* perm_array_type = getInt64StaticArrayType(context, permutation.value().size());
+      llvm::Value* perm_array = builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
+      
+      // Store permutation values into array
+      for (size_t i = 0; i < permutation.value().size(); ++i) {
+        llvm::Value* gep = builder_.CreateInBoundsGEP(
+            perm_array_type, perm_array, 
+            {builder_.getInt32(0), builder_.getInt32(i)});
+        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+      }
+      
+      llvm::Type* int64_ptr_type = getInt64PtrType(context);
+      llvm::Value* perm_ptr = builder_.CreateBitCast(perm_array, int64_ptr_type);
+      llvm::Value* perm_size = builder_.getInt64(permutation.value().size());
+      builder_.CreateCall(permute_tensor_func, {out_tensor, in_tensor, perm_ptr, perm_size});
     } else {
       llvm::Function* set_tensor_func =
           module->getFunction(kSetTensorFuncName);
@@ -911,11 +932,14 @@ void HostIrJitImpl::registerExternalFunctions() {
 
   // permute a tensor
   void* permute_tensor_func_ptr = reinterpret_cast<void*>(
-    +[](at::Tensor* out, at::Tensor* in, const std::vector<int64_t>& permutation) -> void {
+    +[](at::Tensor* out, at::Tensor* in, const int64_t* permutation, int64_t perm_size) -> void {
+        // Convert pointer to vector for permute function
+        std::vector<int64_t> perm_vec(permutation, permutation + perm_size);
+        
         if (!out->is_defined()) {
-          *out = in->permute(permutation);
+          *out = in->permute(perm_vec);
         } else {
-          out->copy_(in->permute(permutation), /*non_blocking=*/true);
+          out->copy_(in->permute(perm_vec), /*non_blocking=*/true);
         }
     });
 
