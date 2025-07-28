@@ -4366,7 +4366,7 @@ bool is_upcast_op(Expr* expr) {
     return false;
   }
   auto precisions =
-      ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
+      ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
   if (!precisions.has_value() || precisions->first >= precisions->second) {
     return false;
   }
@@ -4465,6 +4465,14 @@ bool needs_to_squeeze_expanded(
 
 } // namespace
 
+// In addition to privatizing upcasts, this function also privatizes squeeze.
+// We decided to privatize squeeze ops motivated by cross-entropy loss.
+// Let's say we have the sequence:
+// T1 (input) bfloat -> (up)cast to float  ->  squeeze.
+// also, say, T1 is input to another operation say takeAlongAxis.
+// Since T1 has multiple uses, the T1->cast->squeeze cannot be forwarded
+// and the cast cannot be privatized without privatizing the squeeze.
+// The above reasons motivated us to privatize squeeze ops as well.
 bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
   FusionGuard fg(segmented_fusion_->complete_fusion_.get());
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
