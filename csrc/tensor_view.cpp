@@ -1099,9 +1099,12 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
           getRootDomain(),
           getLogicalDomain(),
           getAllocationDomain(),
-          getLoopDomain(),
+          getLogicalDomain(),
           getContiguity()),
       getDataType().value());
+
+  // Loop domain may not fully retain the logical domain (e.g., scatter)
+  producer->domain()->setLoopDomain(getLoopDomain(), /*skip_validation=*/true);
 
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1139,10 +1142,13 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  // We do not want to reproduce the loop domain if it's for scatter
+  if (!producer->definition()->isA<ScatterOp>()) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
