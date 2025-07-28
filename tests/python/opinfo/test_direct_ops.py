@@ -22,6 +22,8 @@ from opinfo_utils import (
     requiresJAX,
 )
 
+import io
+from contextlib import redirect_stdout, redirect_stderr
 from nvfuser_direct import FusionDefinition
 from nvfuser_direct.pytorch_utils import retry_on_oom_or_skip_test
 from python.direct_utils import check_captured_python_definition
@@ -218,5 +220,10 @@ def _regex_escape_parenthesis(a: str) -> str:
 def test_errors(op: OpInfo, dtype: torch.dtype):
     for sample, exception_type, exception_regex in op.error_input_generator(op, dtype):
         # TODO skip regex check because direct bindings do not have same error message as frontend.
-        with pytest.raises(exception_type):
+        # Capture error strings to avoid false positives in the CI
+        stdout_capture = io.StringIO()
+        stderr_capture = io.StringIO()
+        with pytest.raises(exception_type), redirect_stdout(
+            stdout_capture
+        ), redirect_stderr(stderr_capture):
             errors_test_fn(op, sample)
