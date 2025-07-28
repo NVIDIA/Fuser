@@ -1650,16 +1650,6 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 //! Check if the reduction heuristics apply in given fusion
 bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   FUSER_PERF_SCOPE("ReductionScheduler::canScheduleCompileTime");
-
-  for (auto tv : fusion->allTvs()) {
-    if (tv->dtype() != DataType::Index &&
-        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(), "Does not support sub-byte data types.");
-      return false;
-    }
-  }
-
   if (scheduler_utils::isResharding(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "Fusion is resharding.");
@@ -1697,7 +1687,7 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   // this needs to be changed. see issue
   // https://github.com/NVIDIA/Fuser/issues/3811
   scheduler_tools::DomainMap domain_map(fusion);
-  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/true)) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Output contains ID that's not scheduled by reference tv.");
