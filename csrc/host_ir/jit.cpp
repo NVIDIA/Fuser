@@ -970,30 +970,30 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
                                   int64_t num_outputs,
-                                  void* launchKernel,
-                                  void* hostIrContainer) {
-        auto* launch_kernel =
-            reinterpret_cast<hir::LaunchKernel*>(launchKernel);
-        auto* container =
-            reinterpret_cast<hir::HostIrContainer*>(hostIrContainer);
+                                  void* launch_kernel,
+                                  void* container) {
+        auto* launch_kernel_ptr =
+            static_cast<hir::LaunchKernel*>(launch_kernel);
+        auto* container_ptr =
+            static_cast<hir::HostIrContainer*>(container);
         KernelArgumentHolder input_args, output_args;
         input_args.setCacheId(cache_id);
 
         for (int64_t i = 0; i < num_inputs; i++) {
           input_args.push(
-              *input_tensors[i]); // Dereference pointer to get actual tensor
+              *input_tensors[i]); 
         }
         for (int64_t i = 0; i < num_outputs; i++) {
           output_args.push(
-              *output_tensors[i]); // Dereference pointer to get actual tensor
+              *output_tensors[i]); 
         }
         input_args.setDeviceIndex();
-        container->getKernelExecutor(launch_kernel->groupId())
+        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
             ->run(
                 input_args,
                 output_args,
-                launch_kernel->launchParams(),
-                launch_kernel->compileParams());
+                launch_kernel_ptr->launchParams(),
+                launch_kernel_ptr->compileParams());
       });
 
   // matmul_out function
