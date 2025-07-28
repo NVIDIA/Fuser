@@ -156,7 +156,7 @@ void ExpressionEvaluator::bindTensorDomain(
     NVF_ERROR(!logical_sizes.empty(), "DataType not supported");
     int64_t last_id_index = -1;
     for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
-      if (id == *(tv->getMaybeAllocationDomain().back())) {
+      if (id == tv->getMaybeAllocationDomain().back()) {
         last_id_index = i;
         break;
       }
