@@ -22,6 +22,10 @@ class PrecomputedValues;
 class KernelArgumentHolder;
 struct TensorArgAbstract;
 
+//! adjust evaluator sizes for dtype with non-regular width.
+//! This is necessary to compensate fp4, fp6, where the at::Tensor size doesn't match the logical domain of TensorView
+std::vector<int64_t> adjustEvaluatorSizes(TensorView* tv, std::vector<int64_t>& unsharded_sizes);
+
 //! NaiveValueMachine:
 //!  This is an un-optimized runtime for evaluating a
 //!   set of values in one run. The runtime contains

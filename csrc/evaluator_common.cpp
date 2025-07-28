@@ -130,6 +130,28 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 
 } // namespace
 
+std::vector<int64_t> adjustEvaluatorSizes(TensorView* tv, std::vector<int64_t>& unsharded_sizes) {
+  // Adjust the inner most dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  if (adjust_last_dim.denominator != 1 || adjust_last_dim.numerator != 1) {
+    NVF_ERROR(!unsharded_sizes.empty(), "DataType not supported");
+    int64_t last_id_index = -1;
+    for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
+      if (id == tv->getMaybeAllocationDomain().back()) {
+        last_id_index = i;
+        break;
+      }
+    }
+    NVF_ERROR(
+        last_id_index != -1,
+        "could not find the last ID in allocation for sub byte data types.");
+    unsharded_sizes[last_id_index] = adjust_last_dim.fromATenToNVF(last_dim);
+  }
+
+}
+
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
@@ -353,41 +375,7 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-
-  // Adjust the inner most dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (adjust_last_dim.denominator != 1 || adjust_last_dim.numerator != 1) {
-    NVF_ERROR(!logical_sizes.empty(), "DataType not supported");
-    int64_t last_id_index = -1;
-    for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
-      if (id == tv->getMaybeAllocationDomain().back()) {
-        last_id_index = i;
-        break;
-      }
-    }
-    NVF_ERROR(
-        last_id_index != -1,
-        "could not find the last ID in allocation for sub byte data types.");
-    auto& last_dim = logical_sizes[last_id_index];
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  }
-
-  for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
-    IterDomain* id = logical_domain[dim];
-    const auto dim_size = logical_sizes.at(dim);
-    if (id->isBroadcast()) {
-      // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
-      // and .ExpandedBroadcast.
-      bindValue(id->extent()->evaluatorIndex(), 1L);
-      if (id->hasExpandedExtent()) {
-        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
-      }
-    } else {
-      bindValue(id->extent()->evaluatorIndex(), dim_size);
-    }
-  }
+  adjustEvaluatorSizes(tv, logical_sizes);
 
   // Here we bind TensorMetaData so that GetMetaData expressions can be
   // evaluated. Note that we do not bind the at::Tensor itself here since that
