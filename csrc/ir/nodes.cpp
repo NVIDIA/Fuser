@@ -6218,10 +6218,10 @@ std::string ScaledMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& mat1 = inputs[0].as<at::Tensor>();
-  const auto& mat2 = inputs[1].as<at::Tensor>();
-  const auto& scale1 = inputs[2].as<at::Tensor>();
-  const auto& scale2 = inputs[3].as<at::Tensor>();
+  [[maybe_unused]] const auto& mat1 = inputs[0].as<at::Tensor>();
+  [[maybe_unused]] const auto& mat2 = inputs[1].as<at::Tensor>();
+  [[maybe_unused]] const auto& scale1 = inputs[2].as<at::Tensor>();
+  [[maybe_unused]] const auto& scale2 = inputs[3].as<at::Tensor>();
 
   at::Tensor alpha;
   at::Tensor bias;
