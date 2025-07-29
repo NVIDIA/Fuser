@@ -260,6 +260,64 @@ TEST_F(HostIrJitTest, BroadcastTest) {
   EXPECT_EQ(out_expand.strides(), std::vector<int64_t>({0, 0, 1}));
 }
 
+TEST_F(HostIrJitTest, NHWC1d_To_NHWC4d) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int n = 31, h = 64, w = 103, c = 21;
+
+  auto tv0 = makeContigConcreteTensor({n * h * w * c});
+  fusion.addInput(tv0);
+  std::vector<IterDomain*> tv0_1d = {tv0->axis(0)};
+  tv0->setAllocationDomain(tv0_1d, true);
+  tv0->split(0, c);
+  tv0->split(0, w);
+  tv0->split(0, h);
+  tv0->reorder({{-1, 1}});
+  tv0->commitLeafToLogical();
+
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  std::vector<IterDomain*> tv1_nhwc = {
+      tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
+  tv1->setAllocationDomain(tv1_nhwc, true);
+
+  // [N, C, H, W]
+  tv1->reorder({{1, -1}});
+  // [N, H, W, C]
+  tv1->flatten();
+  // [N*H*W*C]
+  tv1->split(0, 4);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [BIDx, TIDx, V]
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor t0_wrong_format = at::randn({n, c, h, w}, options);
+  at::Tensor t0 =
+      t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+
+  EXPECT_THAT(
+      [&]() { ke.run({t0_wrong_format}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "splitting one dimension into discontiguous dimensions is not "
+          "allowed in allocation domain")));
+
+  auto cg_outputs = ke.run({t0});
+
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
+
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace hir
 
 } // namespace nvfuser
