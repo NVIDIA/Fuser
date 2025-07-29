@@ -283,7 +283,33 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& alpha) {
+    const torch::Tensor& alpha,
+    bool skip_checks) {
+  // Validate matrix dimensions
+  NVF_CHECK(a.dim() == 2, "Operand A must be a matrix.");
+  NVF_CHECK(b.dim() == 2, "Operand B must be a matrix.");
+  NVF_CHECK(
+      a.sizes()[1] == b.sizes()[1],
+      "A and B shapes cannot be multiplied (",
+      a.sizes()[0],
+      ",",
+      a.sizes()[1],
+      " and ",
+      b.sizes()[0],
+      ",",
+      b.sizes()[1],
+      ")");
+
+  std::tuple<int64_t, int64_t, int64_t> ret = {m, n, k};
+
+  if (skip_checks) {
+    return ret;
+  }
+
+  const int64_t m = a.sizes()[0];
+  const int64_t n = b.sizes()[0];
+  const int64_t k = a.sizes()[1] * 2;
+
   // Check CUDA device and contiguity for all input tensors
   for (const torch::Tensor& t : {a, b, scales_a, scales_b, alpha}) {
     NVF_CHECK(
@@ -307,25 +333,6 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
   NVF_CHECK(
       alpha.scalar_type() == at::ScalarType::Float,
       "Expected FP32 for alpha scalar.")
-
-  // Validate matrix dimensions
-  NVF_CHECK(a.dim() == 2, "Operand A must be a matrix.");
-  NVF_CHECK(b.dim() == 2, "Operand B must be a matrix.");
-  NVF_CHECK(
-      a.sizes()[1] == b.sizes()[1],
-      "A and B shapes cannot be multiplied (",
-      a.sizes()[0],
-      ",",
-      a.sizes()[1],
-      " and ",
-      b.sizes()[0],
-      ",",
-      b.sizes()[1],
-      ")");
-
-  const int64_t m = a.sizes()[0];
-  const int64_t n = b.sizes()[0];
-  const int64_t k = a.sizes()[1] * 2;
 
   // Check alignment requirements
   constexpr int64_t alignment = 32;
@@ -377,7 +384,7 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
       scales_b.sizes()[1],
       ")");
 
-  return {m, n, k};
+  return ret;
 }
 
 torch::Tensor nvfp4_scaled_mm(
@@ -386,9 +393,10 @@ torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
     const torch::Tensor& alpha,
-    const at::ScalarType out_dtype) {
+    const at::ScalarType out_dtype,
+    bool skip_checks) {
   // Validate all inputs and get matrix dimensions
-  auto [m, n, k] = validateInputsNvfp4ScaledMm(a, b, scales_a, scales_b, alpha);
+  auto [m, n, k] = validateInputsNvfp4ScaledMm(a, b, scales_a, scales_b, alpha, skip_checks);
 
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());
