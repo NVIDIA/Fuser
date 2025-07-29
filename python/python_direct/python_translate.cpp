@@ -971,6 +971,35 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map ScanOp to python frontend
+  void handle(const ScanOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names_no_init = {"dim"};
+    std::string opname;
+    if (sop->opType() == BinaryOpType::Add) {
+      opname = "fd.ops.cumsum";
+    } else if (sop->opType() == BinaryOpType::Mul) {
+      opname = "fd.ops.cumprod";
+    } else if (sop->opType() == BinaryOpType::Min) {
+      opname = "fd.ops.cummin";
+    } else if (sop->opType() == BinaryOpType::Max) {
+      opname = "fd.ops.cummax";
+    } else {
+      NVF_ERROR(
+          false,
+          "Only cumsum (Add), cumprod (Mul), cummin (Min), and cummax (Max) "
+          "supported");
+    }
+    printer_.generateKwargsOperation(
+        opname,
+        std::make_tuple(sop->in()),
+        std::vector<std::string>{"dim"},
+        std::make_tuple(sop->scanDim()),
+        {out_tv});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;
