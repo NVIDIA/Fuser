@@ -452,16 +452,22 @@ void unpackInputs(
 
   // Get the cacheId from the main function's first argument
   llvm::Value* cache_id = func->getArg(0);
-
-  auto launch_kernel_it = std::find_if(
-      container->topLevelExprs().begin(),
-      container->topLevelExprs().end(),
-      [](Expr* expr) { return expr->isA<hir::LaunchKernel>(); });
-
-  if (launch_kernel_it != container->topLevelExprs().end()) {
-    auto* launch_kernel = (*launch_kernel_it)->as<hir::LaunchKernel>();
-    val_to_value[launch_kernel->cacheId()] = cache_id;
+  // NOTE: Currently we can only grab cacheId by traversing all vals
+  // In the future we should add a cacheId to the host ir container or fusion
+  bool found_cache_id = false;
+  Val* cache_id_val = nullptr;
+  for (Val* val : container->deterministic_vals()) {
+    if (auto* named_scalar = dynamic_cast<NamedScalar*>(val)) {
+      if (named_scalar->name() == "cacheId") {
+        if (found_cache_id) {
+          NVF_ERROR(named_scalar != cache_id_val, "cacheId is not the first deterministic val");
+        }
+        cache_id_val = named_scalar;
+        found_cache_id = true;
+      }
+    }
   }
+  val_to_value[cache_id_val] = cache_id;
 
   // Get the current function (main) and its input tensor array
   llvm::Value* aten_tensor_array = func->getArg(1);
@@ -544,7 +550,6 @@ void compileFunctionDeclarations(
   auto* int64_ptr_type = getInt64PtrType(context);
   auto* int32_type = llvm::Type::getInt32Ty(context);
   auto* tensor_type = getTensorPtrType(context);
-  auto* void_ptr_type = getInt8PtrType(context);
 
   // tensor_size function: int64_t tensor_size(at::Tensor* tensor, int64_t dim)
   auto* tensor_size_type =
