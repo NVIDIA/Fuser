@@ -190,25 +190,26 @@ TensorView* scatterOp(
             .build());
   }
 
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_logical,
-          TensorDomain::getContiguityFilledWith(out_logical, true)),
-      self->getDataType().value());
-
-  // Set the loop domain same as the logical domain of the index
+  // Create the loop domain based on the logical domain of the index
   // tensor.
-  // Note: the loop IDs are disconnected from the logical IDs. Revisit
-  // if they should be connected with some IterDomain exprs.
   std::vector<IterDomain*> out_loop;
   out_loop.reserve(idx_dom.size());
   std::ranges::transform(
       idx_dom, std::back_inserter(out_loop), [](IterDomain* id) {
         return IterDomainBuilder(id).build();
       });
-  out_tensor->domain()->setLoopDomain(
-      out_loop,
-      /*skip_validation=*/true);
+
+  // Create the output tensor. The validation of the loop domain needs
+  // to be skipped as it is not guaranteed to be equivalent to the
+  // logical domain.
+  TensorView* out_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*logical_domain=*/out_logical,
+          /*loop_domain=*/out_loop,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_logical, true),
+          /*skip_loop_validation=*/true),
+      self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
   return out_tensor->as<TensorView>();
