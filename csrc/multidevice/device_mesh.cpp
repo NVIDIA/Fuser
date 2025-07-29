@@ -101,13 +101,6 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   return out;
 }
 
-int64_t DeviceMesh::size(const ParallelType parallel_type) const {
-  NVF_ERROR(
-      parallel_type == ParallelType::DIDx,
-      "We support only 1-D sharding for now.");
-  return size();
-}
-
 std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
   auto global_idx = idxOf(device);
   if (global_idx == -1) {
@@ -126,29 +119,45 @@ DeviceIdxType DeviceMesh::maxDeviceId() const {
   return *std::max_element(vector_.begin(), vector_.end());
 }
 
-namespace {
-int64_t ptypeToAxis(ParallelType ptype, int64_t ndims) {
+int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
   NVF_ERROR(
-      isParallelTypeDeviceDim(ptype),
+      isParallelTypeDeviceDim(parallel_type),
       "Attempting to index into DeviceMesh with a non-device parallel type",
-      ptype);
-  int64_t offset =
-      static_cast<int64_t>(ptype) - static_cast<int64_t>(ParallelType::DIDx);
-
-  NVF_ERROR(
-      offset < ndims,
-      "DeviceMesh has ",
-      ndims,
-      " dimensions, but requesting slice for ",
-      ptype);
+      parallel_type);
+  int64_t offset = static_cast<int64_t>(parallel_type) -
+      static_cast<int64_t>(ParallelType::DIDx);
+  int64_t ndims = rank();
+  if (offset > ndims - 1) {
+    return -1;
+  }
   return ndims - 1 - offset;
 }
-} // namespace
+
+bool DeviceMesh::hasParallelType(ParallelType parallel_type) const {
+  return parallelTypeToAxis(parallel_type) != -1;
+}
+
+int64_t DeviceMesh::size(const ParallelType parallel_type) const {
+  int64_t axis = parallelTypeToAxis(parallel_type);
+  NVF_ERROR(
+      axis != -1,
+      "DeviceMesh of rank ",
+      rank(),
+      " does not have parallel type ",
+      parallel_type);
+  return size(axis);
+}
 
 std::vector<DeviceIdxType> DeviceMesh::getSlice(
     DeviceIdxType deviceId,
     ParallelType ptype) const {
-  int64_t axis = ptypeToAxis(ptype, rank());
+  int64_t axis = parallelTypeToAxis(ptype);
+  NVF_ERROR(
+      axis != -1,
+      "DeviceMesh of rank ",
+      rank(),
+      " does not have parallel type ",
+      ptype);
   auto indices = getIndices(deviceId);
   NVF_ERROR(
       !indices.empty(), "Device ", deviceId, " is not in DeviceMesh ", vector_);

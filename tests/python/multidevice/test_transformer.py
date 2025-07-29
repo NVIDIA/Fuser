@@ -14,10 +14,6 @@ from benchmark_utils import get_benchmark_fns
 
 @pytest.mark.mpi
 def test_grouped_mlp(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
@@ -102,51 +98,442 @@ def test_grouped_mlp(multidevice_test):
     torch.testing.assert_close(out.cpu(), expected_out, rtol=1.0, atol=float("inf"))
 
 
-def _sharded_linear_all_reduce(
-    fd: FusionDefinition,
-    inp: nvfuser.Tensor,
-    weight: nvfuser.Tensor,
-    bias: nvfuser.Tensor,
-    d: int,
-    b: int,
-    s: int,
-    e_in: int,
-    e_out: int,
-) -> nvfuser.Tensor:
-    assert inp.ndim == 4
-    assert weight.ndim == 3
-    assert bias.ndim == 1
+# The following benchmarks the fusion generated from NanoGPTBlockBenchmark in Thunder.
+# To generate the fusion, use the following snippet which turns on the necessary options
+# to get a single nvfuser definition.
+# ```
+#   bench = NanoGPTBlockBenchmark(
+#     config="gpt2", device="cuda:0", dtype=thunder.bfloat16, requires_grad=True
+#   )
+#   args, kwargs = bench.make_batch()
+#
+#   jfn = thunder.jit(
+#       bench.fn(),
+#       executors=[nvfuserex],
+#       nv_enable_sdpa=True,
+#       nv_enable_matmul=True,
+#       nv_enable_linear=True,
+#       disable_replace_uniform=True,
+#   )
+#   out = jfn(*args, **kwargs)
+#   print (thunder.last_traces(jfn)[-1].python_ctx()['nvFusion0'].last_used)
+# ```
+#
+class TransformerForwardFusion(FusionDefinition):
+    def __init__(self, num_devices, batch, sequence, head, hidden):
+        super().__init__()
+        self._num_devices = num_devices
+        self._batch = batch
+        self._sequence = sequence
+        self._head = head
+        self._hidden = hidden
 
-    # TODO(#3125): nvFuser is missing an API to construct a sharded linear
-    # like this. Therefore, I decomposed it by hand.
-    #
-    # inp: [d,b,s,e_in]
-    # weight: [d,e_out,e_in]
-    # bias: [e_out]
-    # out: [b,s,e_out] = ops.linear(inp, weight, bias)
-    if d == 1:
-        # Fast path where allreduce isn't needed.
-        return fd.ops.linear(
-            fd.ops.squeeze(inp, [0]), fd.ops.squeeze(weight, [0]), bias
+    def definition(self) -> None:
+        # Same notations as in test_multidevice_transformer.cpp.
+        b, s, h, e = (
+            self._batch,
+            self._sequence,
+            self._head,
+            self._hidden,
+        )
+        self.inp = self.define_tensor(
+            shape=[b, s, e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        self.layernorm0_weight = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.layernorm0_bias = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.mha_linear0_weight = self.define_tensor(
+            shape=[e * 3, e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        self.mha_linear0_bias = self.define_tensor(
+            shape=[e * 3],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.mha_linear1_weight = self.define_tensor(
+            shape=[e, e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        self.mha_linear1_bias = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.layernorm1_weight = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.layernorm1_bias = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.mlp_linear0_weight = self.define_tensor(
+            shape=[e * 4, e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        self.mlp_linear0_bias = self.define_tensor(
+            shape=[e * 4],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
+        )
+        self.mlp_linear1_weight = self.define_tensor(
+            shape=[e, e * 4],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        self.mlp_linear1_bias = self.define_tensor(
+            shape=[e],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[0],
         )
 
-    local_matmul = fd.ops.matmul(
-        inp,
-        fd.ops.broadcast_in_dim(
-            fd.ops.permute(weight, [0, 2, 1]),
-            [d, 1, e_in, e_out],
-            [0, 2, 3],
-        ),
-    )
-    matmul = fd.ops.sum(local_matmul, [0])  # allreduce
-    biasadd = fd.ops.add(
-        matmul,
-        fd.ops.broadcast_in_dim(bias, [1, 1, e_out], [2]),
-    )
-    return fd.ops.cast(biasadd, dtype=DataType.BFloat16)
+        T13 = self.ops.cast(self.inp, dtype=DataType.Float)
+        T14, layernorm0_mean = self.ops.var_mean(
+            T13, dims=[2], correction=0, keepdim=False
+        )
+        T20 = self.ops.broadcast_in_dim(T14, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T25 = self.ops.broadcast_in_dim(
+            layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+        )
+        S26 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
+        T27 = self.ops.add(T20, S26)
+        layernorm0_rstd = self.ops.rsqrt(T27)
+        T33 = self.ops.broadcast_in_dim(T25, shape=[b, s, e], broadcast_dims=[0, 1, 2])
+        T34 = self.ops.sub(T13, T33)
+        T39 = self.ops.broadcast_in_dim(
+            layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T40 = self.ops.mul(T34, T39)
+        T45 = self.ops.broadcast_in_dim(
+            self.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T46 = self.ops.cast(T45, dtype=DataType.Float)
+        T47 = self.ops.mul(T40, T46)
+        T52 = self.ops.broadcast_in_dim(
+            self.layernorm0_bias, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T53 = self.ops.cast(T52, dtype=DataType.Float)
+        T54 = self.ops.add(T47, T53)
+        T55 = self.ops.cast(T54, dtype=DataType.BFloat16)
+        mha_linear0_out = self.ops.linear(
+            T55, self.mha_linear0_weight, self.mha_linear0_bias
+        )
+
+        # Reshape before slice to avoid slicing a tensor along sharded dimension.
+        # This is different from the single-GPU definition obtained from Thunder.
+        T57 = self.ops.reshape(mha_linear0_out, new_shape=[b, s, h, 3 * e // h])
+        T69 = self.ops.slice(
+            T57, start_indices=[0, 0, 0, 0], end_indices=[b, s, h, e // h]
+        )
+        T82 = self.ops.slice(
+            T57, start_indices=[0, 0, 0, e // h], end_indices=[b, s, h, 2 * e // h]
+        )
+        T95 = self.ops.slice(
+            T57, start_indices=[0, 0, 0, 2 * e // h], end_indices=[b, s, h, 3 * e // h]
+        )
+
+        T102 = self.ops.permute(T82, dims=[0, 2, 1, 3])
+        T109 = self.ops.permute(T69, dims=[0, 2, 1, 3])
+        T116 = self.ops.permute(T95, dims=[0, 2, 1, 3])
+
+        S117 = self.define_scalar(0.100000, dtype=DataType.Double)
+        S118 = self.define_scalar(True, dtype=DataType.Bool)
+        sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = self.ops.sdpfa_fwd(
+            T109, T102, T116, S117, S118, None
+        )
+        T123 = self.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
+        T124 = self.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
+        T129 = self.ops.reshape(T124, new_shape=[b, s, e])
+        mha_linear1_out = self.ops.linear(
+            T129, self.mha_linear1_weight, self.mha_linear1_bias
+        )
+        S131 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S132 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T137 = self.ops.uniform(S131, S132, shape=[b, s, e], dtype=DataType.BFloat16)
+        S138 = self.define_scalar(0.900000, dtype=DataType.Double)
+        mha_dropout_mask = self.ops.lt(T137, S138)
+        T140 = self.ops.cast(mha_linear1_out, dtype=DataType.Float)
+        T141 = self.ops.cast(mha_dropout_mask, dtype=DataType.Float)
+        T142 = self.ops.mul(T140, T141)
+        S143 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T144 = self.ops.mul(T142, S143)
+        T145 = self.ops.add(T13, T144)
+        T146, layernorm1_mean = self.ops.var_mean(
+            T145, dims=[2], correction=0, keepdim=False
+        )
+        T152 = self.ops.broadcast_in_dim(T146, shape=[b, s, 1], broadcast_dims=[0, 1])
+        T157 = self.ops.broadcast_in_dim(
+            layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
+        )
+        S158 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
+        T159 = self.ops.add(T152, S158)
+        layernorm1_rstd = self.ops.rsqrt(T159)
+        T165 = self.ops.broadcast_in_dim(
+            T157, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T166 = self.ops.sub(T145, T165)
+        T171 = self.ops.broadcast_in_dim(
+            layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
+        )
+        T172 = self.ops.mul(T166, T171)
+        T177 = self.ops.broadcast_in_dim(
+            self.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T178 = self.ops.cast(T177, dtype=DataType.Float)
+        T179 = self.ops.mul(T172, T178)
+        T184 = self.ops.broadcast_in_dim(
+            self.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2]
+        )
+        T185 = self.ops.cast(T184, dtype=DataType.Float)
+        T186 = self.ops.add(T179, T185)
+        T187 = self.ops.cast(T186, dtype=DataType.BFloat16)
+        mlp_linear0_out = self.ops.linear(
+            T187, self.mlp_linear0_weight, self.mlp_linear0_bias
+        )
+        T189 = self.ops.cast(mlp_linear0_out, dtype=DataType.Float)
+        T190 = self.ops.mul(T189, T189)
+        T191 = self.ops.mul(T190, T189)
+        S192 = self.define_scalar(0.500000, dtype=DataType.Double)
+        T193 = self.ops.mul(S192, T189)
+        S194 = self.define_scalar(0.0447150, dtype=DataType.Double)
+        T195 = self.ops.mul(S194, T191)
+        T196 = self.ops.add(T189, T195)
+        S197 = self.define_scalar(0.797885, dtype=DataType.Double)
+        T198 = self.ops.mul(S197, T196)
+        T199 = self.ops.tanh(T198)
+        S200 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T201 = self.ops.add(S200, T199)
+        T202 = self.ops.mul(T193, T201)
+        T203 = self.ops.cast(T202, dtype=DataType.BFloat16)
+        mlp_linear1_out = self.ops.linear(
+            T203, self.mlp_linear1_weight, self.mlp_linear1_bias
+        )
+        S205 = self.define_scalar(0.00000, dtype=DataType.Double)
+        S206 = self.define_scalar(1.00000, dtype=DataType.Double)
+        T211 = self.ops.uniform(S205, S206, shape=[b, s, e], dtype=DataType.BFloat16)
+        S212 = self.define_scalar(0.900000, dtype=DataType.Double)
+        mlp_dropout_mask = self.ops.lt(T211, S212)
+        T214 = self.ops.cast(mlp_linear1_out, dtype=DataType.Float)
+        T215 = self.ops.cast(mlp_dropout_mask, dtype=DataType.Float)
+        T216 = self.ops.mul(T214, T215)
+        S217 = self.define_scalar(1.11111, dtype=DataType.Double)
+        T218 = self.ops.mul(T216, S217)
+        T219 = self.ops.add(T145, T218)
+        out = self.ops.cast(T219, dtype=DataType.BFloat16)
+        self.add_output(layernorm0_mean)
+        self.add_output(layernorm0_rstd)
+        self.add_output(mha_linear0_out)
+        self.add_output(sdpa_out)
+        self.add_output(sdpa_logsum_exp)
+        self.add_output(sdpa_seed)
+        self.add_output(sdpa_offset)
+        self.add_output(mha_linear1_out)
+        self.add_output(mha_dropout_mask)
+        self.add_output(layernorm1_mean)
+        self.add_output(layernorm1_rstd)
+        self.add_output(mlp_linear0_out)
+        self.add_output(mlp_dropout_mask)
+        self.add_output(out)
+
+    def multidevice_schedule(self):
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
+        for tv in [
+            self.inp,
+            self.layernorm0_weight,
+            self.layernorm0_bias,
+            self.mha_linear0_weight,
+            self.mha_linear0_bias,
+            self.mha_linear1_weight,
+            self.mha_linear1_bias,
+            self.layernorm1_weight,
+            self.layernorm1_bias,
+            self.mlp_linear0_weight,
+            self.mlp_linear0_bias,
+            self.mlp_linear1_weight,
+            self.mlp_linear1_bias,
+        ]:
+            self.sched._set_device_mesh(tv, mesh)
+
+        for tv in [
+            self.mha_linear0_weight,
+            self.mha_linear0_bias,
+            self.mlp_linear0_weight,
+            self.mlp_linear0_bias,
+        ]:
+            self.sched.split(tv, 0, self._num_devices, False)
+            self.sched.parallelize(tv, 0, nvfuser.ParallelType.mesh_x)
+
+        for tv in [
+            self.mha_linear1_weight,
+            self.mlp_linear1_weight,
+        ]:
+            self.sched.split(tv, -1, self._num_devices, False)
+            self.sched.parallelize(tv, -2, nvfuser.ParallelType.mesh_x)
 
 
-# The following two benchmarks micro-benchmarks the forward pass and the
+# TODO(#2962): validate the numbers as well. Currently, the numbers are off
+# by a lot, making comparison infeasible.
+def _assert_shape_dtype(
+    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
+) -> None:
+    assert t.shape == torch.Size(expected_sizes)
+    assert t.dtype == expected_dtype
+
+
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+@pytest.mark.mpi
+def test_transformer_forward(multidevice_test, benchmark):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    b, s, h, e = 1, 2048, 96, 12288
+
+    assert (
+        e % h == 0
+    ), f"The hidden size ({e}) has to be divisible by the number of heads ({h})."
+
+    if h % d != 0:
+        pytest.skip(
+            f"We only support even DID split, so the number of heads ({h}) has to be divisible by the number of GPUs ({d})."
+        )
+
+    assert e * 4 % d == 0, (
+        "This is required to evenly DID split MLP. This condition is implied "
+        "by the previous two checks; a fail would indicate a programming "
+        "error. So I use `assert` instead of `pytest.skip`."
+    )
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    # To reduce memory footprint, create unsharded data on CPU and copy only
+    # the needed slice to GPU.
+    mha_linear0_weight = torch.testing.make_tensor(
+        e * 3, e, dtype=torch.bfloat16, device="cpu"
+    )
+    mha_linear0_bias = torch.testing.make_tensor(
+        e * 3, dtype=torch.bfloat16, device="cpu"
+    )
+    mha_linear1_weight = torch.testing.make_tensor(
+        e, e, dtype=torch.bfloat16, device="cpu"
+    )
+    mlp_linear0_weight = torch.testing.make_tensor(
+        e * 4, e, dtype=torch.bfloat16, device="cpu"
+    )
+    mlp_linear0_bias = torch.testing.make_tensor(
+        e * 4, dtype=torch.bfloat16, device="cpu"
+    )
+    mlp_linear1_weight = torch.testing.make_tensor(
+        e, e * 4, dtype=torch.bfloat16, device="cpu"
+    )
+
+    # See TransformerForwardFusion.definition for the meanings of these
+    # arguments. They are passed in in the same order as the `define_scalar`s
+    # and `define_tensor`s.
+    ins = [
+        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
+        multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
+    ]
+
+    fd = TransformerForwardFusion(d, b, s, h, e)
+
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+
+    # Warm up and validate.
+    outs, _ = warmup_fn()
+    (
+        layernorm0_mean,
+        layernorm0_rstd,
+        mha_linear0_out,
+        sdpa_out,
+        sdpa_logsum_exp,
+        sdpa_seed,
+        sdpa_offset,
+        mha_linear1_out,
+        mha_dropout_mask,
+        layernorm1_mean,
+        layernorm1_rstd,
+        mlp_linear0_out,
+        mlp_dropout_mask,
+        out,
+    ) = outs
+
+    _assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
+    _assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mha_linear0_out, [b, s, e * 3 // d], torch.bfloat16)
+    _assert_shape_dtype(sdpa_out, [b, h // d, s, e // h], torch.bfloat16)
+    _assert_shape_dtype(sdpa_logsum_exp, [b, h // d, s], torch.float32)
+    ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
+    _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
+    _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
+    _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(mha_dropout_mask, [b, s, e], torch.bool)
+    _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
+    _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mlp_linear0_out, [b, s, e * 4 // d], torch.bfloat16)
+    _assert_shape_dtype(mlp_dropout_mask, [b, s, e], torch.bool)
+    _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
+
+    # Benchmark and profile. The profile can be collected and displayed using
+    # `nsys`. See instructions in test_transformer_engine.py.
+    benchmark.pedantic(benchmark_fn, rounds=5)
+
+
+# The following micro-benchmarks the
 # backprop of a sharded Transformer block used in GPT-3.
 #
 # The single-GPU nvFusions are
@@ -173,428 +560,6 @@ def _sharded_linear_all_reduce(
 # 2. Split device dimensions and parallelize them.
 # 3. Decompose the second linear layer in MLP so the matmul result can be allreduced.
 # 4. Rename the inputs and outputs for readability.
-class TransformerForwardFusion(FusionDefinition):
-    def __init__(self, num_devices, batch, sequence, head, hidden):
-        super().__init__()
-        self._num_devices = num_devices
-        self._batch = batch
-        self._sequence = sequence
-        self._head = head
-        self._hidden = hidden
-
-    def definition(self) -> None:
-        # Same notations as in test_multidevice_transformer.cpp.
-        d, b, s, h, e = (
-            self._num_devices,
-            self._batch,
-            self._sequence,
-            self._head,
-            self._hidden,
-        )
-
-        self.inp = self.define_tensor(
-            shape=[b, s, e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.layernorm0_weight = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.layernorm0_bias = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mha_linear0_weight = self.define_tensor(
-            shape=[d, e * 3 // d, e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mha_linear0_bias = self.define_tensor(
-            shape=[d, e * 3 // d],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mha_linear1_weight = self.define_tensor(
-            shape=[d, e, e // d],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mha_linear1_bias = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        mha_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
-        mha_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
-        self.layernorm1_weight = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.layernorm1_bias = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mlp_linear0_weight = self.define_tensor(
-            shape=[d, e * 4 // d, e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mlp_linear0_bias = self.define_tensor(
-            shape=[d, e * 4 // d],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mlp_linear1_weight = self.define_tensor(
-            shape=[d, e, e * 4 // d],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        self.mlp_linear1_bias = self.define_tensor(
-            shape=[e],
-            contiguity=True,
-            dtype=DataType.BFloat16,
-        )
-        mlp_dropout_offset = self.define_scalar(None, dtype=DataType.Int)
-        mlp_dropout_seed = self.define_scalar(None, dtype=DataType.Int)
-        T17 = self.ops.cast(self.inp, dtype=DataType.Float)
-        T18, layernorm0_mean = self.ops.var_mean(
-            T17, dims=[2], correction=0, keepdim=False
-        )
-        T24 = self.ops.broadcast_in_dim(T18, shape=[b, s, 1], broadcast_dims=[0, 1])
-        T29 = self.ops.broadcast_in_dim(
-            layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
-        S30 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
-        T31 = self.ops.add(T24, S30)
-        layernorm0_rstd = self.ops.rsqrt(T31)
-        T37 = self.ops.broadcast_in_dim(T29, shape=[b, s, e], broadcast_dims=[0, 1, 2])
-        T38 = self.ops.sub(T17, T37)
-        T43 = self.ops.broadcast_in_dim(
-            layernorm0_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-        )
-        T44 = self.ops.mul(T38, T43)
-        T49 = self.ops.broadcast_in_dim(
-            self.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T50 = self.ops.cast(T49, dtype=DataType.Float)
-        T51 = self.ops.mul(T44, T50)
-        T56 = self.ops.broadcast_in_dim(
-            self.layernorm0_bias, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T57 = self.ops.cast(T56, dtype=DataType.Float)
-        T58 = self.ops.add(T51, T57)
-        T59 = self.ops.cast(T58, dtype=DataType.BFloat16)
-        mha_linear0_out = self.ops.linear(
-            T59, self.mha_linear0_weight, self.mha_linear0_bias
-        )
-        T73 = self.ops.slice(
-            mha_linear0_out,
-            start_indices=[0, 0, 0, 0],
-            end_indices=[d, b, s, e // d],
-        )
-        T86 = self.ops.slice(
-            mha_linear0_out,
-            start_indices=[0, 0, 0, e // d],
-            end_indices=[d, b, s, e * 2 // d],
-        )
-        T99 = self.ops.slice(
-            mha_linear0_out,
-            start_indices=[0, 0, 0, e * 2 // d],
-            end_indices=[d, b, s, e * 3 // d],
-        )
-        T105 = self.ops.reshape(T86, new_shape=[d, b, s, h // d, e // h])
-        T106 = self.ops.permute(T105, dims=[0, 1, 3, 2, 4])
-        T112 = self.ops.reshape(T73, new_shape=[d, b, s, h // d, e // h])
-        T113 = self.ops.permute(T112, dims=[0, 1, 3, 2, 4])
-        T119 = self.ops.reshape(T99, new_shape=[d, b, s, h // d, e // h])
-        T120 = self.ops.permute(T119, dims=[0, 1, 3, 2, 4])
-        S121 = self.define_scalar(0.100000, dtype=DataType.Double)
-        S122 = self.define_scalar(True, dtype=DataType.Bool)
-        sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = self.ops.sdpfa_fwd(
-            T113, T106, T120, S121, S122, None
-        )
-        T127 = self.ops.permute(sdpa_out, dims=[0, 1, 3, 2, 4])
-        T128 = self.ops.stride_order(T127, stride_order=[4, 3, 2, 1, 0])
-        T133 = self.ops.reshape(T128, new_shape=[d, b, s, e // d])
-        mha_linear1_out = _sharded_linear_all_reduce(
-            self,
-            T133,
-            self.mha_linear1_weight,
-            self.mha_linear1_bias,
-            d,
-            b,
-            s,
-            e // d,
-            e,
-        )
-        S135 = self.define_scalar(0.00000, dtype=DataType.Double)
-        S136 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T141 = self.ops.uniform(
-            S135,
-            S136,
-            shape=[b, s, e],
-            rng_seed=mha_dropout_seed,
-            rng_offset=mha_dropout_offset,
-            dtype=DataType.BFloat16,
-        )
-        S142 = self.define_scalar(0.900000, dtype=DataType.Double)
-        T143 = self.ops.lt(T141, S142)
-        T144 = self.ops.cast(mha_linear1_out, dtype=DataType.Float)
-        T145 = self.ops.cast(T143, dtype=DataType.Float)
-        T146 = self.ops.mul(T144, T145)
-        S147 = self.define_scalar(1.11111, dtype=DataType.Double)
-        T148 = self.ops.mul(T146, S147)
-        T149 = self.ops.add(T17, T148)
-        T150, layernorm1_mean = self.ops.var_mean(
-            T149, dims=[2], correction=0, keepdim=False
-        )
-        T156 = self.ops.broadcast_in_dim(T150, shape=[b, s, 1], broadcast_dims=[0, 1])
-        T161 = self.ops.broadcast_in_dim(
-            layernorm1_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
-        )
-        S162 = self.define_scalar(1.00000e-05, dtype=DataType.Double)
-        T163 = self.ops.add(T156, S162)
-        layernorm1_rstd = self.ops.rsqrt(T163)
-        T169 = self.ops.broadcast_in_dim(
-            T161, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-        )
-        T170 = self.ops.sub(T149, T169)
-        T175 = self.ops.broadcast_in_dim(
-            layernorm1_rstd, shape=[b, s, e], broadcast_dims=[0, 1, 2]
-        )
-        T176 = self.ops.mul(T170, T175)
-        T181 = self.ops.broadcast_in_dim(
-            self.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T182 = self.ops.cast(T181, dtype=DataType.Float)
-        T183 = self.ops.mul(T176, T182)
-        T188 = self.ops.broadcast_in_dim(
-            self.layernorm1_bias, shape=[b, s, e], broadcast_dims=[2]
-        )
-        T189 = self.ops.cast(T188, dtype=DataType.Float)
-        T190 = self.ops.add(T183, T189)
-        T191 = self.ops.cast(T190, dtype=DataType.BFloat16)
-        mlp_linear0_out = self.ops.linear(
-            T191, self.mlp_linear0_weight, self.mlp_linear0_bias
-        )
-        T193 = self.ops.cast(mlp_linear0_out, dtype=DataType.Float)
-        T194 = self.ops.mul(T193, T193)
-        T195 = self.ops.mul(T194, T193)
-        S196 = self.define_scalar(0.500000, dtype=DataType.Double)
-        T197 = self.ops.mul(S196, T193)
-        S198 = self.define_scalar(0.0447150, dtype=DataType.Double)
-        T199 = self.ops.mul(S198, T195)
-        T200 = self.ops.add(T193, T199)
-        S201 = self.define_scalar(0.797885, dtype=DataType.Double)
-        T202 = self.ops.mul(S201, T200)
-        T203 = self.ops.tanh(T202)
-        S204 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T205 = self.ops.add(S204, T203)
-        T206 = self.ops.mul(T197, T205)
-        T207 = self.ops.cast(T206, dtype=DataType.BFloat16)
-        T208 = _sharded_linear_all_reduce(
-            self,
-            T207,
-            self.mlp_linear1_weight,
-            self.mlp_linear1_bias,
-            d,
-            b,
-            s,
-            e * 4 // d,
-            e,
-        )
-        S209 = self.define_scalar(0.00000, dtype=DataType.Double)
-        S210 = self.define_scalar(1.00000, dtype=DataType.Double)
-        T215 = self.ops.uniform(
-            S209,
-            S210,
-            shape=[b, s, e],
-            rng_seed=mlp_dropout_seed,
-            rng_offset=mlp_dropout_offset,
-            dtype=DataType.BFloat16,
-        )
-        S216 = self.define_scalar(0.900000, dtype=DataType.Double)
-        T217 = self.ops.lt(T215, S216)
-        T218 = self.ops.cast(T208, dtype=DataType.Float)
-        T219 = self.ops.cast(T217, dtype=DataType.Float)
-        T220 = self.ops.mul(T218, T219)
-        S221 = self.define_scalar(1.11111, dtype=DataType.Double)
-        T222 = self.ops.mul(T220, S221)
-        T223 = self.ops.add(T149, T222)
-        out = self.ops.cast(T223, dtype=DataType.BFloat16)
-
-        self.add_output(layernorm0_mean)
-        self.add_output(layernorm0_rstd)
-        self.add_output(mha_linear0_out)
-        self.add_output(sdpa_out)
-        self.add_output(sdpa_logsum_exp)
-        self.add_output(sdpa_seed)
-        self.add_output(sdpa_offset)
-        self.add_output(mha_linear1_out)
-        self.add_output(layernorm1_mean)
-        self.add_output(layernorm1_rstd)
-        self.add_output(mlp_linear0_out)
-        self.add_output(out)
-
-    def multidevice_schedule(self):
-        mesh = nvfuser.DeviceMesh(range(self._num_devices))
-        # Assign the mesh to inputs and weights. nvFuser will propagate it to
-        # downstream tensors.
-        for in_tv in [
-            self.inp,
-            self.layernorm0_weight,
-            self.layernorm0_bias,
-            self.mha_linear0_weight,
-            self.mha_linear0_bias,
-            self.mha_linear1_weight,
-            self.mha_linear1_bias,
-            self.layernorm1_weight,
-            self.layernorm1_bias,
-            self.mlp_linear0_weight,
-            self.mlp_linear0_bias,
-            self.mlp_linear1_weight,
-            self.mlp_linear1_bias,
-        ]:
-            self.sched._set_device_mesh(in_tv, mesh)
-
-        # Parallelize the device dimension of certain weights. nvFuser will try
-        # to propagate shardings to downstream tensors.
-        for in_tv in [
-            self.mha_linear0_weight,
-            self.mha_linear0_bias,
-            self.mha_linear1_weight,
-            self.mlp_linear0_weight,
-            self.mlp_linear0_bias,
-            self.mlp_linear1_weight,
-        ]:
-            self.sched.parallelize(in_tv, 0, nvfuser.ParallelType.mesh_x)
-
-
-# TODO(#2962): validate the numbers as well. Currently, the numbers are off
-# by a lot, making comparison infeasible.
-def _assert_shape_dtype(
-    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
-) -> None:
-    assert t.shape == torch.Size(expected_sizes)
-    assert t.dtype == expected_dtype
-
-
-@pytest.mark.skipif(
-    is_pre_ampere(),
-    reason="Flash Attention is only supported on Ampere and newer devices.",
-)
-@pytest.mark.mpi
-def test_transformer_forward(multidevice_test, benchmark):
-    d = multidevice_test.size
-    rank = multidevice_test.rank
-
-    b, s, h, e = 1, 2048, 96, 12288
-
-    assert (
-        e % h == 0
-    ), f"The hidden size ({e}) has to be divisible by the number of heads ({h})."
-
-    if h % d != 0:
-        pytest.skip(
-            f"We only support even DID split, so the number of heads ({h}) has to be divisible by the number of GPUs ({d})."
-        )
-
-    assert e * 4 % d == 0, (
-        "This is required to evenly DID split MLP. This condition is implied "
-        "by the previous two checks; a fail would indicate a programming "
-        "error. So I use `assert` instead of `pytest.skip`."
-    )
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    # To reduce memory footprint, create unsharded data on CPU and copy only
-    # the needed slice to GPU.
-    mha_linear0_weight = torch.testing.make_tensor(
-        d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
-    )
-    mha_linear0_bias = torch.testing.make_tensor(
-        d, e * 3 // d, dtype=torch.bfloat16, device="cpu"
-    )
-    mha_linear1_weight = torch.testing.make_tensor(
-        d, e, e // d, dtype=torch.bfloat16, device="cpu"
-    )
-    mlp_linear0_weight = torch.testing.make_tensor(
-        d, e * 4 // d, e, dtype=torch.bfloat16, device="cpu"
-    )
-    mlp_linear0_bias = torch.testing.make_tensor(
-        d, e * 4 // d, dtype=torch.bfloat16, device="cpu"
-    )
-    mlp_linear1_weight = torch.testing.make_tensor(
-        d, e, e * 4 // d, dtype=torch.bfloat16, device="cpu"
-    )
-    # See TransformerForwardFusion.definition for the meanings of these
-    # arguments. They are passed in in the same order as the `define_scalar`s
-    # and `define_tensor`s.
-    ins = [
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        mha_linear0_weight[rank : rank + 1].cuda(),
-        mha_linear0_bias[rank : rank + 1].cuda(),
-        mha_linear1_weight[rank : rank + 1].cuda(),
-        torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
-        29,
-        8338718769759788,
-        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        mlp_linear0_weight[rank : rank + 1].cuda(),
-        mlp_linear0_bias[rank : rank + 1].cuda(),
-        mlp_linear1_weight[rank : rank + 1].cuda(),
-        torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
-        30,
-        8338718769759788,
-    ]
-
-    fd = TransformerForwardFusion(d, b, s, h, e)
-
-    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
-
-    # Warm up and validate.
-    outs, _ = warmup_fn()
-    (
-        layernorm0_mean,
-        layernorm0_rstd,
-        mha_linear0_out,
-        sdpa_out,
-        sdpa_logsum_exp,
-        sdpa_seed,
-        sdpa_offset,
-        mha_linear1_out,
-        layernorm1_mean,
-        layernorm1_rstd,
-        mlp_linear0_out,
-        out,
-    ) = outs
-
-    _assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
-    _assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
-    _assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
-    _assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
-    ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
-    _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
-    _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
-    _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
-    _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
-    _assert_shape_dtype(mlp_linear0_out, [1, b, s, e * 4 // d], torch.bfloat16)
-    _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
-
-    # Benchmark and profile. The profile can be collected and displayed using
-    # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, rounds=5)
-
-
 # All tensors are replicated to all devices at this moment; future PRs will try
 # to shard them.
 class TransformerBackwardFusion(FusionDefinition):

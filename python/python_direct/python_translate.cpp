@@ -19,6 +19,7 @@
 
 #include <ranges>
 #include <type_traits>
+#include <utility>
 
 namespace nvfuser::python {
 
@@ -33,6 +34,14 @@ struct is_optional<std::optional<T>> : std::true_type {};
 
 template <typename T>
 inline constexpr bool is_optional_v = is_optional<T>::value;
+
+// A struct to hold default values for keyword arguments.
+template <typename T>
+struct KeywordArgument {
+  using type = T; // The data type of the argument
+  std::string name;
+  std::optional<T> default_value;
+};
 
 class PythonPrinter {
  public:
@@ -187,7 +196,10 @@ class PythonPrinter {
       std::tuple<Ts...> const& args) {
     NVF_ERROR(
         argument_names.size() == sizeof...(Ts),
-        "Input argument names and inputs must have the same size.");
+        "Input argument names and args must have the same size.");
+    // Use std::apply to unpack tuple of arguments into a lambda. The lambda
+    // contains a C++17 fold expression on a comma operator that writes each
+    // argument to stringstream and increments argument position.
     std::stringstream ss;
     std::apply(
         [this, &ss, &argument_names](Ts const&... tuple_args) {
@@ -201,6 +213,48 @@ class PythonPrinter {
     return ss.str();
   }
 
+  // Generate a python list of values with string keyword arguments.
+  //  * A tuple of default argument values is provided to the function.
+  //  * If the default argument is optional and equal to the provided argument,
+  //    then skip printing the keyword-argument pair.
+  template <typename... Ds, typename... Ts>
+  std::string generateNamedList(
+      std::tuple<Ds...> const& default_args,
+      std::tuple<Ts...> const& args) {
+    NVF_ERROR(
+        sizeof...(Ds) == sizeof...(Ts),
+        "The default and given arguments must have the same size.");
+    // This immediately-invoked generic lambda uses a C++17 fold expression
+    // to emulate a loop over the tuple elements.
+    //
+    // 1. `std::make_index_sequence` generates a compile-time sequence of
+    // indices (0, 1, 2...).
+    // 2. The lambda accepts this sequence, deducing the indices into the
+    // template pack `Is...`.
+    // 3. A fold expression over the comma operator expands the code for each
+    // index.
+    // 4. A ternary operator `(condition ? ... : ...)` performs the conditional
+    // logic.
+    // 5. If condition is true, another comma operator
+    // `(write_to_stream, increment_counters)` chains the side effects of
+    // writing to the stringstream and advancing the counters.
+    // 6. If condition is false, increment `printed_arg_pos` counter by zero.
+    std::stringstream ss;
+    [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+      size_t printed_arg_pos = 0;
+      (((!std::get<Is>(default_args).default_value.has_value() ||
+         std::get<Is>(default_args).default_value.value() != std::get<Is>(args))
+            ? ((ss << toString(
+                    std::get<Is>(default_args).name,
+                    std::get<Is>(args),
+                    (printed_arg_pos > 0 ? ", " : ""))),
+               ++printed_arg_pos)
+            : (printed_arg_pos += 0)),
+       ...);
+    }(std::make_index_sequence<sizeof...(Ts)>{}); // Generate indices 0..N-1
+    return ss.str();
+  }
+
   // Generate a python operation with a list of inputs and outputs.
   void generateOperation(
       const std::string& op_name,
@@ -211,6 +265,26 @@ class PythonPrinter {
       os_ << toString(outputs, /*is_list=*/false) << " = ";
     }
     os_ << op_name << "(" << toString(inputs, /*is_list=*/false) << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
+  // A string keyword argument is added for each input. The default_kwargs
+  // argument allows skipping arguments if it isn't strictly necessary.
+  template <
+      typename... arg_types,
+      typename... default_kwarg_types,
+      typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::tuple<arg_types...>& args,
+      const std::tuple<default_kwarg_types...>& default_kwargs,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string kwargs_str = generateNamedList(default_kwargs, kwargs);
+    constexpr bool any_arguments = sizeof...(arg_types) == 0;
+    std::string connect = (any_arguments || kwargs_str.empty()) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << generateList(args) << connect << kwargs_str << ")\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -228,6 +302,8 @@ class PythonPrinter {
         << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
+  // Generate a python operation with a list of inputs and a single output.
+  // A string keyword argument is added for each input.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
@@ -666,6 +742,16 @@ class PythonTranslator : public OptInConstDispatch {
         {bop->out()});
   }
 
+  // Map TernaryOp to python frontend
+  void handle(const TernaryOp* top) final {
+    NVF_ERROR(top != nullptr);
+    visited_vals_.insert(top->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(top),
+        {top->in1(), top->in2(), top->in3()},
+        {top->out()});
+  }
+
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
@@ -678,15 +764,20 @@ class PythonTranslator : public OptInConstDispatch {
                       rop->getReductionOpType() == BinaryOpType::Max)
         ? DataType::Null
         : rop->out()->dtype();
+    std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
 
-    static const std::vector<std::string> argument_names = {
-        "dims", "keep_dim", "dtype"};
+    // TODO: keep_dim is always False in ReductionOp because a separate
+    // BroadcastOp node exists if keep_dim is True. Detect this pattern to
+    // minify the python definition.
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(dims)>{"dims", std::nullopt},
+        KeywordArgument<bool>{"keep_dim", false},
+        KeywordArgument<DataType>{"dtype", DataType::Null});
     printer_.generateKwargsOperation(
         "fd.ops." + nvfuser::python::toString(rop),
         std::make_tuple(rop->in()),
-        argument_names,
-        std::make_tuple(
-            getReductionAxes(rop->out()->as<TensorView>()), false, dtype),
+        default_args,
+        std::make_tuple(dims, false, dtype),
         {rop->out()});
   }
 
@@ -720,13 +811,50 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(lop != nullptr);
     visited_vals_.insert(lop->out());
 
-    if (lop->bias() != nullptr) {
-      printer_.generateOperation(
-          "fd.ops.linear", {lop->inA(), lop->inB(), lop->bias()}, {lop->out()});
-    } else {
-      printer_.generateOperation(
-          "fd.ops.linear", {lop->inA(), lop->inB()}, {lop->out()});
+    static const auto default_args =
+        std::make_tuple(KeywordArgument<TensorView*>{"bias", nullptr});
+    printer_.generateKwargsOperation(
+        "fd.ops.linear",
+        std::make_tuple(lop->inA(), lop->inB()),
+        default_args,
+        std::make_tuple(lop->bias()),
+        {lop->out()});
+  }
+
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    auto filter_range = std::views::iota(0UL, is_squeeze_dims.size()) |
+        std::views::filter([&is_squeeze_dims](int64_t dim) {
+                          return is_squeeze_dims.at(dim);
+                        });
+    std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
+
+    TensorView* in_tv = sop->in()->as<TensorView>();
+    NVF_ERROR(in_tv != nullptr);
+
+    // TODO: Use std::ranges::zip_view AND std::ranges::any_of with cpp23
+    bool squeeze_expanded = false;
+    for (auto [squeeze_dim, id] :
+         zip(is_squeeze_dims, in_tv->getLogicalDomain())) {
+      if (!squeeze_dim) {
+        continue;
+      }
+      squeeze_expanded |= (id->isBroadcast() && id->hasExpandedExtent());
     }
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(squeeze_dims)>{"dims", std::nullopt},
+        KeywordArgument<bool>{"squeeze_expanded", false});
+    printer_.generateKwargsOperation(
+        "fd.ops.squeeze",
+        std::make_tuple(sop->in()),
+        default_args,
+        std::make_tuple(squeeze_dims, squeeze_expanded),
+        {sop->out()});
   }
 
   // Map ViewOp to python frontend
@@ -753,6 +881,27 @@ class PythonTranslator : public OptInConstDispatch {
         reshape_argument_names,
         std::make_tuple(new_shape),
         {vop->out()});
+  }
+
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    std::vector<Val*> shape = getShape(out_tv);
+
+    static const std::vector<std::string> expand_argument_names = {"shape"};
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(
+        shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+    visited_vals_.insert(eop->out());
+    printer_.generateKwargsOperation(
+        "fd.ops.expand",
+        std::make_tuple(eop->in()),
+        expand_argument_names,
+        std::make_tuple(shape),
+        {eop->out()});
   }
 
   // If input and output values share the same type, a LoadStoreOp will be
@@ -792,6 +941,34 @@ class PythonTranslator : public OptInConstDispatch {
         argument_names,
         std::make_tuple(new2old.value()),
         {lsop->out()});
+  }
+
+  // Map IndexSelectOp to IndexSelectOpRecord
+  void handle(const IndexSelectOp* isop) final {
+    NVF_ERROR(isop != nullptr);
+    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.index_select",
+        std::make_tuple(isop->lookupTv(), isop->indexTv()),
+        argument_names,
+        std::make_tuple(isop->dim()),
+        {out_tv});
+  }
+
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.select",
+        std::make_tuple(sop->lookupTv(), sop->input(1)),
+        argument_names,
+        std::make_tuple(sop->dim()),
+        {out_tv});
   }
 
  private:
