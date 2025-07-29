@@ -261,13 +261,12 @@ TEST_F(HostIrJitTest, BroadcastTest) {
 }
 
 TEST_F(HostIrJitTest, NHWC1d_To_NHWC4d) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
   int n = 31, h = 64, w = 103, c = 21;
 
   auto tv0 = makeContigConcreteTensor({n * h * w * c});
-  fusion.addInput(tv0);
+  hic->addInput(tv0);
   std::vector<IterDomain*> tv0_1d = {tv0->axis(0)};
   tv0->setAllocationDomain(tv0_1d, true);
   tv0->split(0, c);
@@ -277,7 +276,7 @@ TEST_F(HostIrJitTest, NHWC1d_To_NHWC4d) {
   tv0->commitLeafToLogical();
 
   auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
+  hic->addOutput(tv1);
 
   std::vector<IterDomain*> tv1_nhwc = {
       tv1->axis(0), tv1->axis(2), tv1->axis(3), tv1->axis(1)};
@@ -301,21 +300,14 @@ TEST_F(HostIrJitTest, NHWC1d_To_NHWC4d) {
   at::Tensor t0 =
       t0_wrong_format.as_strided({n, c, h, w}, {h * w * c, 1, w * c, c});
 
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
+  HostIrJit jit(std::move(hic));
 
-  EXPECT_THAT(
-      [&]() { ke.run({t0_wrong_format}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-          "splitting one dimension into discontiguous dimensions is not "
-          "allowed in allocation domain")));
-
-  auto cg_outputs = ke.run({t0});
-
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
-      at::MemoryFormat::ChannelsLast));
-
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  KernelArgumentHolder in_args;
+  in_args.setCacheId(0);
+  in_args.push(t0);
+  auto outputs = jit.runWithInputs(in_args);
+  auto out = outputs[0].as<at::Tensor>();
+  EXPECT_TRUE(out.is_contiguous(at::MemoryFormat::ChannelsLast));
 }
 
 } // namespace hir
