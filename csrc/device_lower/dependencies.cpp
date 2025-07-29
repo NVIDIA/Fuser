@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/dependencies.h>
 
+#include <algorithm>
 #include <kernel_ir_dispatch.h>
 
 namespace nvfuser {
@@ -15,7 +16,7 @@ DependencyMapper::DependencyMapper(const std::vector<Expr*>& top_level_exprs)
     : top_level_exprs_(top_level_exprs) {
   current_pos_ = 0;
   current_coords_ = {-1};
-  nontrivial_expr_stack_ = {&nontrivial_exprs_};
+  nontrivial_expr_stack_ = {nontrivial_expr_tree_.getBaseNode()};
 
   handle(top_level_exprs_);
 }
@@ -73,7 +74,7 @@ void DependencyMapper::dispatch(Expr* expr) {
   ExprPosition& expr_pos = getExprPosition(expr);
   expr_pos.pos = current_pos_;
   expr_pos.coords = current_coords_;
-  auto& this_nontriv_expr = nontrivial_expr_stack_.back().members.emplace_back(
+  nontrivial_expr_stack_.back()->members.emplace_back(
       std::make_shared<NonTrivialExprOrScope>(expr));
 
   auto recurse_to_scope = [&](const Scope& scope, bool then_branch = false) {
@@ -84,15 +85,15 @@ void DependencyMapper::dispatch(Expr* expr) {
     exprs_.push_back(nullptr);
     expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
     current_coords_.pop_back();
-    nontrivial_expr_stack_.pop_back()
+    nontrivial_expr_stack_.pop_back();
   };
 
   if (auto* ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-    nontrivial_expr_stack_.back().members.push_back(
+    nontrivial_expr_stack_.back()->members.push_back(
         std::make_shared<NonTrivialExprOrScope>(
             expr, /*is_else_branch=*/false));
     recurse_to_scope(ite->thenBody(), /*else_branch=*/false);
-    nontrivial_expr_stack_.back().members.push_back(
+    nontrivial_expr_stack_.back()->members.push_back(
         std::make_shared<NonTrivialExprOrScope>(expr, /*is_else_branch=*/true));
     recurse_to_scope(ite->elseBody(), /*else_branch=*/true);
 
@@ -121,6 +122,46 @@ void DependencyMapper::dispatch(Expr* expr) {
       accesses.writes.push_back(&expr_pos);
     }
   }
+}
+
+DependencyMapper::Coords centerCoord(
+    const DependencyMapper::Coords& coord1,
+    const DependencyMapper::Coords& coord2) {
+  auto ancestor = nearestCommonAncestor(coord1, coord2);
+  
+  // Handle case where one coordinate is empty
+  if (coord1.empty() && !coord2.empty()) {
+    // Return {1} when coord1 is empty and coord2 is not
+    return {1};
+  } else if (!coord1.empty() && coord2.empty()) {
+    // Return {1} when coord2 is empty and coord1 is not
+    return {1};
+  }
+  
+  // If one coord is a prefix of the other, extend the ancestor
+  if (coord1.size() > ancestor.size() && coord2.size() > ancestor.size()) {
+    // Both coords extend beyond the ancestor, compute midpoint
+    int64_t mid_val = (coord1[ancestor.size()] + coord2[ancestor.size()]) / 2;
+    ancestor.push_back(mid_val);
+  } else if (coord1.size() > ancestor.size()) {
+    // coord1 extends beyond ancestor, coord2 doesn't
+    // Consider coord2 as having implicit -1 values, but ensure result is non-negative
+    int64_t coord2_implicit = -1; // implicit value for coord2
+    int64_t mid_val = (coord1[ancestor.size()] + coord2_implicit) / 2;
+    // Ensure the result is non-negative
+    mid_val = std::max(0L, mid_val);
+    ancestor.push_back(mid_val);
+  } else if (coord2.size() > ancestor.size()) {
+    // coord2 extends beyond ancestor, coord1 doesn't
+    // Consider coord1 as having implicit -1 values, but ensure result is non-negative
+    int64_t coord1_implicit = -1; // implicit value for coord1
+    int64_t mid_val = (coord1_implicit + coord2[ancestor.size()]) / 2;
+    // Ensure the result is non-negative
+    mid_val = std::max(0L, mid_val);
+    ancestor.push_back(mid_val);
+  }
+  
+  return ancestor;
 }
 
 } // namespace nvfuser

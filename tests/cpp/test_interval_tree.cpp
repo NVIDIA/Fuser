@@ -494,7 +494,7 @@ TEST_F(IntervalTreeTest, StressTest) {
 //! Test with DependencyMapper::Coords coordinate type
 TEST_F(IntervalTreeTest, DependencyMapperCoords) {
   using Coords = DependencyMapper::Coords;
-  using CoordsTree = CenteredIntervalTree<Coords, std::string>;
+  using CoordsTree = CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
   using CoordsNaive = NaiveIntervalTree<Coords, std::string>;
   using CoordsInterval = CoordsTree::Interval;
 
@@ -582,7 +582,7 @@ TEST_F(IntervalTreeTest, DependencyMapperCoords) {
 //! Test edge cases with DependencyMapper::Coords
 TEST_F(IntervalTreeTest, DependencyMapperCoordsEdgeCases) {
   using Coords = DependencyMapper::Coords;
-  using CoordsIntTree = CenteredIntervalTree<Coords, int>;
+  using CoordsIntTree = CenteredIntervalTree<Coords, int, CoordsCenterFunc>;
   using CoordsIntNaive = NaiveIntervalTree<Coords, int>;
 
   CoordsIntTree tree;
@@ -800,6 +800,72 @@ TEST_F(IntervalTreeTest, SameCenterOverlaps) {
     EXPECT_EQ(tree_result, naive_result)
         << "Same center query failed for point " << point;
   }
+}
+
+//! Test the nearest common ancestor functionality
+TEST_F(IntervalTreeTest, NearestCommonAncestor) {
+  using Coords = DependencyMapper::Coords;
+  
+  // Test basic cases
+  EXPECT_EQ(nearestCommonAncestor({2, 3, 1, 5}, {2, 3, 3}), Coords({2, 3}));
+  EXPECT_EQ(nearestCommonAncestor({2, 3, 1}, {2, 3, 1}), Coords({2, 3, 1}));
+  EXPECT_EQ(nearestCommonAncestor({2, 3}, {2, 3, 1, 5}), Coords({2, 3}));
+  EXPECT_EQ(nearestCommonAncestor({2, 3, 1, 5}, {2, 3}), Coords({2, 3}));
+  
+  // Test edge cases
+  EXPECT_EQ(nearestCommonAncestor({}, {2, 3}), Coords({}));
+  EXPECT_EQ(nearestCommonAncestor({2, 3}, {}), Coords({}));
+  EXPECT_EQ(nearestCommonAncestor({}, {}), Coords({}));
+  
+  // Test no common ancestor
+  EXPECT_EQ(nearestCommonAncestor({1, 2, 3}, {4, 5, 6}), Coords({}));
+}
+
+//! Test the center coordinate functionality
+TEST_F(IntervalTreeTest, CenterCoord) {
+  using Coords = DependencyMapper::Coords;
+  
+  // Test basic cases
+  EXPECT_EQ(centerCoord({2, 3, 1, 5}, {2, 3, 3}), Coords({2, 3, 2}));
+  EXPECT_EQ(centerCoord({2, 3, 1}, {2, 3, 1}), Coords({2, 3, 1}));
+  
+  // Test when one coord is a prefix of the other
+  EXPECT_EQ(centerCoord({2, 3}, {2, 3, 1, 5}), Coords({2, 3, 0}));
+  EXPECT_EQ(centerCoord({2, 3, 1, 5}, {2, 3}), Coords({2, 3, 0}));
+  
+  // Test edge cases
+  EXPECT_EQ(centerCoord({}, {2, 3}), Coords({1}));
+  EXPECT_EQ(centerCoord({2, 3}, {}), Coords({1}));
+  EXPECT_EQ(centerCoord({}, {}), Coords({}));
+}
+
+//! Test interval tree with custom center function for Coords
+TEST_F(IntervalTreeTest, CoordsWithCustomCenter) {
+  using Coords = DependencyMapper::Coords;
+  using CoordsTree = CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
+  using CoordsNaive = NaiveIntervalTree<Coords, std::string>;
+  
+  CoordsTree tree;
+  CoordsNaive naive;
+  
+  // Insert intervals with Coords
+  tree.insert({0, 1, 2}, {0, 1, 5}, "A");
+  tree.insert({0, 2, 1}, {0, 2, 4}, "B");
+  tree.insert({1, 0, 0}, {1, 0, 3}, "C");
+  
+  naive.insert({0, 1, 2}, {0, 1, 5}, "A");
+  naive.insert({0, 2, 1}, {0, 2, 4}, "B");
+  naive.insert({1, 0, 0}, {1, 0, 3}, "C");
+  
+  // Test queries
+  auto tree_result = tree.query({0, 1, 3});
+  auto naive_result = naive.query({0, 1, 3});
+  
+  std::sort(tree_result.begin(), tree_result.end());
+  std::sort(naive_result.begin(), naive_result.end());
+  
+  EXPECT_EQ(tree_result, naive_result);
+  EXPECT_EQ(tree_result, std::vector<std::string>{"A"});
 }
 
 } // namespace nvfuser
