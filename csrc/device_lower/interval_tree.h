@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <stack>
+#include <type_traits>
 #include <vector>
 
 #include <exceptions.h>
@@ -55,23 +56,110 @@ class CenteredIntervalTree {
     }
 
     //! Get the center point of this interval
+    //! For numeric types, use arithmetic mean; otherwise use start point
     CoordT center() const {
-      return (start + end) / 2;
+      if constexpr (std::is_arithmetic_v<CoordT>) {
+        return (start + end) / 2;
+      } else {
+        // For non-numeric types, use start point as a fallback
+        return start;
+      }
     }
   };
 
   //! Node in the interval tree
   struct Node {
-    std::vector<Interval> intervals;
+    std::vector<Interval> intervals;  // All intervals at this node
+    std::vector<Interval> forward_sorted;  // Sorted by start point (ascending)
+    std::vector<Interval> reverse_sorted;  // Sorted by end point (descending)
     CoordT center;
     std::unique_ptr<Node> left;
     std::unique_ptr<Node> right;
 
     Node(CoordT center) : center(center), left(nullptr), right(nullptr) {}
+    
+    //! Add an interval and maintain sorted vectors
+    void addInterval(const Interval& interval) {
+      intervals.push_back(interval);
+      
+      // Add to forward sorted (by start point)
+      auto forward_it = std::lower_bound(
+          forward_sorted.begin(), forward_sorted.end(), interval,
+          [](const Interval& a, const Interval& b) {
+            return a.start < b.start;
+          });
+      forward_sorted.insert(forward_it, interval);
+      
+      // Add to reverse sorted (by end point, descending)
+      auto reverse_it = std::lower_bound(
+          reverse_sorted.begin(), reverse_sorted.end(), interval,
+          [](const Interval& a, const Interval& b) {
+            return a.end > b.end;  // Reverse order
+          });
+      reverse_sorted.insert(reverse_it, interval);
+    }
+    
+    //! Remove an interval and maintain sorted vectors
+    void removeInterval(const Interval& interval) {
+      // Remove from main intervals
+      auto it = std::find_if(
+          intervals.begin(), intervals.end(),
+          [&](const Interval& existing) {
+            return existing.start == interval.start &&
+                existing.end == interval.end &&
+                existing.data == interval.data;
+          });
+      if (it != intervals.end()) {
+        intervals.erase(it);
+      }
+      
+      // Remove from forward sorted
+      auto forward_it = std::find_if(
+          forward_sorted.begin(), forward_sorted.end(),
+          [&](const Interval& existing) {
+            return existing.start == interval.start &&
+                existing.end == interval.end &&
+                existing.data == interval.data;
+          });
+      if (forward_it != forward_sorted.end()) {
+        forward_sorted.erase(forward_it);
+      }
+      
+      // Remove from reverse sorted
+      auto reverse_it = std::find_if(
+          reverse_sorted.begin(), reverse_sorted.end(),
+          [&](const Interval& existing) {
+            return existing.start == interval.start &&
+                existing.end == interval.end &&
+                existing.data == interval.data;
+          });
+      if (reverse_it != reverse_sorted.end()) {
+        reverse_sorted.erase(reverse_it);
+      }
+    }
   };
 
   CenteredIntervalTree() = default;
   ~CenteredIntervalTree() = default;
+  
+  //! Copy constructor
+  CenteredIntervalTree(const CenteredIntervalTree& other) {
+    if (other.root_) {
+      root_ = copyTree(other.root_.get());
+    }
+  }
+  
+  //! Copy assignment operator
+  CenteredIntervalTree& operator=(const CenteredIntervalTree& other) {
+    if (this != &other) {
+      if (other.root_) {
+        root_ = copyTree(other.root_.get());
+      } else {
+        root_.reset();
+      }
+    }
+    return *this;
+  }
 
   //! Insert an interval into the tree
   void insert(CoordT start, CoordT end, const PayloadT& data) {
@@ -133,13 +221,13 @@ class CenteredIntervalTree {
       const Interval& interval) {
     if (!root) {
       auto new_node = std::make_unique<Node>(interval.center());
-      new_node->intervals.push_back(interval);
+      new_node->addInterval(interval);
       return new_node;
     }
 
     std::stack<Node*> stack;
     Node* current = root.get();
-    
+
     // Find the appropriate position for the interval
     while (current) {
       if (interval.center() < current->center) {
@@ -160,7 +248,7 @@ class CenteredIntervalTree {
         current = current->right.get();
       } else {
         // Same center, add to this node's intervals
-        current->intervals.push_back(interval);
+        current->addInterval(interval);
         return root;
       }
     }
@@ -176,44 +264,32 @@ class CenteredIntervalTree {
       return nullptr;
     }
 
-    std::stack<std::pair<Node*, std::unique_ptr<Node>*>> stack;
-    Node* current = root.get();
-    std::unique_ptr<Node>* parent_ptr = &root;
+    // Use a recursive approach to traverse the entire tree
+    return removeRecursive(std::move(root), interval);
+  }
 
-    // Find the node containing the interval
-    while (current) {
-      if (interval.center() < current->center) {
-        if (!current->left) {
-          return root; // Interval not found
-        }
-        stack.push({current, &current->left});
-        current = current->left.get();
-      } else if (interval.center() > current->center) {
-        if (!current->right) {
-          return root; // Interval not found
-        }
-        stack.push({current, &current->right});
-        current = current->right.get();
-      } else {
-        // Found the node with matching center
-        auto it = std::find_if(
-            current->intervals.begin(),
-            current->intervals.end(),
-            [&](const Interval& existing) {
-              return existing.start == interval.start &&
-                  existing.end == interval.end &&
-                  existing.data == interval.data;
-            });
-        if (it != current->intervals.end()) {
-          current->intervals.erase(it);
-        }
+  //! Recursive helper for remove
+  std::unique_ptr<Node> removeRecursive(
+      std::unique_ptr<Node> root,
+      const Interval& interval) {
+    if (!root) {
+      return nullptr;
+    }
 
-        // If no intervals left and no children, remove the node
-        if (current->intervals.empty() && !current->left && !current->right) {
-          *parent_ptr = nullptr;
-        }
-        return root;
-      }
+    // Check if this node contains the interval
+    root->removeInterval(interval);
+
+    // Recursively check left and right subtrees
+    if (root->left) {
+      root->left = removeRecursive(std::move(root->left), interval);
+    }
+    if (root->right) {
+      root->right = removeRecursive(std::move(root->right), interval);
+    }
+
+    // If no intervals left and no children, remove the node
+    if (root->intervals.empty() && !root->left && !root->right) {
+      return nullptr;
     }
 
     return root;
@@ -246,13 +322,12 @@ class CenteredIntervalTree {
         }
       }
 
-      // Add left subtree if point could be in left intervals
-      if (point < current->center && current->left) {
+      // Always traverse both subtrees since intervals can overlap
+      // regardless of their center points
+      if (current->left) {
         stack.push(current->left.get());
       }
-
-      // Add right subtree if point could be in right intervals
-      if (point > current->center && current->right) {
+      if (current->right) {
         stack.push(current->right.get());
       }
     }
@@ -286,13 +361,12 @@ class CenteredIntervalTree {
         }
       }
 
-      // Add left subtree if range could overlap left intervals
-      if (start < current->center && current->left) {
+      // Always traverse both subtrees since intervals can overlap
+      // regardless of their center points
+      if (current->left) {
         stack.push(current->left.get());
       }
-
-      // Add right subtree if range could overlap right intervals
-      if (end > current->center && current->right) {
+      if (current->right) {
         stack.push(current->right.get());
       }
     }
@@ -328,6 +402,27 @@ class CenteredIntervalTree {
 
     return count;
   }
+
+  //! Helper method to copy a tree node and its children
+  std::unique_ptr<Node> copyTree(const Node* node) const {
+    if (!node) {
+      return nullptr;
+    }
+    
+    auto new_node = std::make_unique<Node>(node->center);
+    new_node->intervals = node->intervals;
+    new_node->forward_sorted = node->forward_sorted;
+    new_node->reverse_sorted = node->reverse_sorted;
+    
+    if (node->left) {
+      new_node->left = copyTree(node->left.get());
+    }
+    if (node->right) {
+      new_node->right = copyTree(node->right.get());
+    }
+    
+    return new_node;
+  }
 };
 
-} // namespace nvfuser 
+} // namespace nvfuser

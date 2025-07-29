@@ -1073,6 +1073,9 @@ if(BUILD_TEST)
     list(APPEND TEST_BINARIES test_profiler)
   endif()
 
+  add_test(test_interval_tree "${NVFUSER_ROOT}/tests/cpp/test_interval_tree.cpp" "")
+  list(APPEND TEST_BINARIES test_interval_tree)
+
   add_custom_target(tests DEPENDS ${TEST_BINARIES})
 endif()
 
