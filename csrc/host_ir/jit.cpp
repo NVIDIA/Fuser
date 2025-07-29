@@ -460,14 +460,16 @@ void unpackInputs(
     if (auto* named_scalar = dynamic_cast<NamedScalar*>(val)) {
       if (named_scalar->name() == "cacheId") {
         if (found_cache_id) {
-          NVF_ERROR(named_scalar != cache_id_val, "cacheId is not the first deterministic val");
+          NVF_ERROR(
+              named_scalar != cache_id_val,
+              "cacheId is not the first deterministic val");
         }
         cache_id_val = named_scalar;
+        val_to_value[cache_id_val] = cache_id;
         found_cache_id = true;
       }
     }
   }
-  val_to_value[cache_id_val] = cache_id;
 
   // Get the current function (main) and its input tensor array
   llvm::Value* aten_tensor_array = func->getArg(1);
