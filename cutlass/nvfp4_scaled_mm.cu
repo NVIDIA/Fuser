@@ -396,7 +396,8 @@ torch::Tensor nvfp4_scaled_mm(
     const at::ScalarType out_dtype,
     bool skip_checks) {
   // Validate all inputs and get matrix dimensions
-  auto [m, n, k] = validateInputsNvfp4ScaledMm(a, b, scales_a, scales_b, alpha, skip_checks);
+  auto [m, n, k] =
+      validateInputsNvfp4ScaledMm(a, b, scales_a, scales_b, alpha, skip_checks);
 
   at::cuda::CUDAGuard device_guard{(int8_t)a.get_device()};
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream(a.get_device());

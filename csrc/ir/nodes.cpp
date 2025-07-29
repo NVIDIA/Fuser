@@ -6280,7 +6280,13 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
       if (cutlass_can_run) {
         result = cutlass_kernels::nvfp4_scaled_mm(
-            mat1_view, mat2_view, scale1, scale2, alpha, out_scalar_type, /*skip_checks=*/true);
+            mat1_view,
+            mat2_view,
+            scale1,
+            scale2,
+            alpha,
+            out_scalar_type,
+            /*skip_checks=*/true);
       }
     }
   }
