@@ -85,9 +85,9 @@ def test_scaled_mm(
             scale1,
             scale2,
             alpha,
-            None,
-            None,
-            torch_dtype_to_nvfuser_dtype(out_dtype),
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
         )
         fd.add_output(out)
 
