@@ -147,6 +147,23 @@ class DependencyMapper : public kir::IrVisitor {
   //! endfor
   //!
   // TODO: finish examples
+  class NonTrivialExprOrScope {
+   public:
+    explicit NonTrivialExprOrScope(Expr* expr, bool is_else_branch = false)
+        : expr_(expr), is_else_branch_(is_else_branch) {}
+
+    Expr* expr() const {
+      return expr_;
+    }
+    bool isElseBranch() const {
+      return is_else_branch_;
+    }
+
+   private:
+    Expr* expr_;
+    bool is_else_branch_;
+  };
+
   class NonTrivialExprTree {
    public:
     NonTrivialExprTree() {
@@ -159,10 +176,12 @@ class DependencyMapper : public kir::IrVisitor {
       std::vector<std::shared_ptr<NonTrivialExprOrScope>> members;
     };
 
-    Node* insertNode(expr, bool is_else_branch = false) {
-      return &nodes_up_.emplace_back(
-          std::make_unique<Node>(expr, is_else_branch));
+    Node* insertNode(Expr* expr, bool is_else_branch = false) {
+      nodes_up_.emplace_back(std::make_unique<Node>(expr, is_else_branch));
+      return nodes_up_.back().get();
     }
+
+    Node* getBaseNode() const { return base_node_; }
 
    private:
     std::vector<std::unique_ptr<Node>> nodes_up_;
@@ -174,5 +193,30 @@ class DependencyMapper : public kir::IrVisitor {
   int64_t current_pos_;
   Coords current_coords_;
 };
+
+//! Compute the nearest common ancestor between two DependencyMapper::Coords
+//! The nearest common ancestor is the innermost scope that is common between two Coords
+//! For example, the nearest common ancestor between {2, 3, 1, 5} and {2, 3, 3} is {2, 3}
+inline DependencyMapper::Coords nearestCommonAncestor(
+    const DependencyMapper::Coords& coord1,
+    const DependencyMapper::Coords& coord2) {
+  DependencyMapper::Coords result;
+  
+  for (auto [val1, val2] : views::zip(coord1, coord2)) {
+    if (val1 == val2) {
+      result.push_back(val1);
+    } else {
+      break;
+    }
+  }
+  
+  return result;
+}
+
+//! Compute the center point between two DependencyMapper::Coords using their nearest common ancestor
+//! For example, for {2, 3, 1, 5} and {2, 3, 3}, we return {2, 3, 2}
+DependencyMapper::Coords centerCoord(
+    const DependencyMapper::Coords& coord1,
+    const DependencyMapper::Coords& coord2);
 
 } // namespace nvfuser

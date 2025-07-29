@@ -15,8 +15,28 @@
 #include <vector>
 
 #include <exceptions.h>
+#include <device_lower/dependencies.h>
 
 namespace nvfuser {
+
+//! Default center function for numeric types
+template <typename T>
+T defaultCenter(const T& start, const T& end) {
+  if constexpr (std::is_arithmetic_v<T>) {
+    return (start + end) / 2;
+  } else {
+    return start;
+  }
+}
+
+//! Custom center function for DependencyMapper::Coords
+struct CoordsCenterFunc {
+  DependencyMapper::Coords operator()(
+      const DependencyMapper::Coords& start,
+      const DependencyMapper::Coords& end) const {
+    return centerCoord(start, end);
+  }
+};
 
 //! Centered Interval Tree implementation
 //!
@@ -33,7 +53,8 @@ namespace nvfuser {
 //! Template parameters:
 //! - CoordT: Type for start/end coordinates (must be comparable)
 //! - PayloadT: Type of object associated with each interval
-template <typename CoordT, typename PayloadT>
+//! - CenterFunc: Function type for computing center points (optional)
+template <typename CoordT, typename PayloadT, typename CenterFunc = void>
 class CenteredIntervalTree {
  public:
   //! Represents an interval with associated data
@@ -56,13 +77,19 @@ class CenteredIntervalTree {
     }
 
     //! Get the center point of this interval
-    //! For numeric types, use arithmetic mean; otherwise use start point
+    //! Uses custom center function if provided, otherwise uses default behavior
     CoordT center() const {
-      if constexpr (std::is_arithmetic_v<CoordT>) {
-        return (start + end) / 2;
+      if constexpr (!std::is_same_v<CenterFunc, void>) {
+        // Use custom center function
+        return CenterFunc()(start, end);
       } else {
-        // For non-numeric types, use start point as a fallback
-        return start;
+        // Use default behavior
+        if constexpr (std::is_arithmetic_v<CoordT>) {
+          return (start + end) / 2;
+        } else {
+          // For non-numeric types, use start point as a fallback
+          return start;
+        }
       }
     }
   };
