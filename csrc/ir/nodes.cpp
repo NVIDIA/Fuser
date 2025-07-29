@@ -3982,12 +3982,8 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
   return TransformRFactor::runReplay(this, axes_);
 }
 
-void TensorDomain::setLoopDomain(
-    std::vector<IterDomain*> new_loop_domain,
-    bool skip_validation) {
-  if (!skip_validation) {
-    validateLoopDomain(logical(), new_loop_domain, additionalIDs());
-  }
+void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();

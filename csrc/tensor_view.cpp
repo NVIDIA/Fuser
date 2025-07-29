@@ -1094,17 +1094,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getLogicalDomain(),
-          getAllocationDomain(),
-          getLogicalDomain(),
-          getContiguity()),
+      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
-
-  // Loop domain may not fully retain the logical domain (e.g., scatter)
-  producer->domain()->setLoopDomain(getLoopDomain(), /*skip_validation=*/true);
 
   // Set domain of consumer
   TensorView* consumer = this;
