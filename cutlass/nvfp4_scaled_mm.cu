@@ -300,15 +300,15 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
       b.sizes()[1],
       ")");
 
+  const int64_t m = a.sizes()[0];
+  const int64_t n = b.sizes()[0];
+  const int64_t k = a.sizes()[1] * 2;
+
   std::tuple<int64_t, int64_t, int64_t> ret = {m, n, k};
 
   if (skip_checks) {
     return ret;
   }
-
-  const int64_t m = a.sizes()[0];
-  const int64_t n = b.sizes()[0];
-  const int64_t k = a.sizes()[1] * 2;
 
   // Check CUDA device and contiguity for all input tensors
   for (const torch::Tensor& t : {a, b, scales_a, scales_b, alpha}) {
