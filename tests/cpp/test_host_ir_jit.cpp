@@ -310,7 +310,6 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   EXPECT_TRUE(at::equal(output, t0));
 }
 
-
 TEST_F(HostIrJitTest, Matmul) {
   constexpr int64_t H = 32;
   constexpr int64_t M = 64;
@@ -371,8 +370,10 @@ TEST_F(HostIrJitTest, Linear) {
   TensorView* out_with_bias = makeContigTensor(3);
   TensorView* out_without_bias = makeContigTensor(3);
 
-  auto linear_op_with_bias = IrBuilder::create<LinearOp>(out_with_bias, in, weight, bias);
-  auto linear_op_without_bias = IrBuilder::create<LinearOp>(out_without_bias, in, weight, nullptr);
+  auto linear_op_with_bias =
+      IrBuilder::create<LinearOp>(out_with_bias, in, weight, bias);
+  auto linear_op_without_bias =
+      IrBuilder::create<LinearOp>(out_without_bias, in, weight, nullptr);
 
   hic->addInput(in);
   hic->addInput(weight);
