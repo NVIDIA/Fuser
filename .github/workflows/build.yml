@@ -29,8 +29,8 @@ jobs:
         run: |
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
-          source tools/setup-env.sh
           wait
+          source tools/setup-env.sh
           cd python
           python setup.py build --no-cutlass --cpp=23
 
