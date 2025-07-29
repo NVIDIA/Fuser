@@ -300,8 +300,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
         {"insertGridSerializationSyncs", insertGridSerializationSyncs},
 
         {"insertAllocations", insertAllocations},
+        {"reuseMemoryAllocations", reuseMemoryAllocations},
 
-        // {"reuseMemoryAllocations", reuseMemoryAllocations},
         //{"CircularBufferPass", CircularBufferPass::run},
         //{"insertRawThreadSynchronization", insertRawThreadSynchronization},
         //{"insertWarThreadSynchronization", insertWarThreadSynchronization},

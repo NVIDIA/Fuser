@@ -17,6 +17,20 @@
 #include <kernel_ir_dispatch.h>
 #include <options.h>
 
+// Hash function for std::vector<int64_t> to use as key in unordered_map
+namespace std {
+template <>
+struct hash<std::vector<int64_t>> {
+  size_t operator()(const std::vector<int64_t>& vec) const {
+    size_t hash = 0;
+    for (const auto& val : vec) {
+      hash = hash * 31 + std::hash<int64_t>{}(val);
+    }
+    return hash;
+  }
+};
+} // namespace std
+
 namespace nvfuser {
 
 namespace {
