@@ -20,6 +20,9 @@
 #   NVFUSER_BUILD_NO_PYTHON
 #     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
 #
+#   NVFUSER_BUILD_NO_CUTLASS
+#     Skips `nvf_cutlass` of `nvfuser_direct`
+#
 #   NVFUSER_BUILD_NO_TEST
 #     Skips cpp tests `test_nvfuser`
 #
