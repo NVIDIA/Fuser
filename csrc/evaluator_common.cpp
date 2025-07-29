@@ -152,7 +152,8 @@ void adjustEvaluatorSizes(
   NVF_ERROR(
       last_id_index != -1,
       "could not find the last ID in allocation for sub byte data types.");
-  unsharded_sizes[last_id_index] = adjust_last_dim.fromATenToNVF(last_dim);
+  unsharded_sizes[last_id_index] =
+      adjust_last_dim.fromATenToNVF(unsharded_sizes[last_id_index]);
 }
 
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
