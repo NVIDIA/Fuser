@@ -125,6 +125,58 @@ class IntervalTreeTest : public ::testing::Test {
   }
 
   std::vector<CenteredIntervalTree<int, std::string>::Interval> test_intervals_;
+  
+  // Additional test data for complex scenarios
+  std::vector<CenteredIntervalTree<int, std::string>::Interval> complex_intervals_ = {
+    // Many overlapping intervals at different centers
+    {10, 20, "I1"},   // center: 15
+    {15, 25, "I2"},   // center: 20  
+    {20, 30, "I3"},   // center: 25
+    {25, 35, "I4"},   // center: 30
+    {30, 40, "I5"},   // center: 35
+    {35, 45, "I6"},   // center: 40
+    {40, 50, "I7"},   // center: 45
+    {45, 55, "I8"},   // center: 50
+    
+    // Intervals with same centers but different ranges
+    {100, 120, "J1"}, // center: 110
+    {105, 115, "J2"}, // center: 110
+    {110, 130, "J3"}, // center: 120
+    {115, 125, "J4"}, // center: 120
+    {120, 140, "J5"}, // center: 130
+    {125, 135, "J6"}, // center: 130
+    
+    // Nested intervals
+    {200, 300, "K1"}, // center: 250
+    {220, 280, "K2"}, // center: 250
+    {240, 260, "K3"}, // center: 250
+    {250, 250, "K4"}, // center: 250 (single point)
+    
+    // Disjoint intervals that should create deep trees
+    {1000, 1010, "L1"}, // center: 1005
+    {2000, 2010, "L2"}, // center: 2005
+    {3000, 3010, "L3"}, // center: 3005
+    {4000, 4010, "L4"}, // center: 4005
+    {5000, 5010, "L5"}, // center: 5005
+    
+    // Many small overlapping intervals
+    {500, 510, "M1"}, {505, 515, "M2"}, {510, 520, "M3"},
+    {515, 525, "M4"}, {520, 530, "M5"}, {525, 535, "M6"},
+    {530, 540, "M7"}, {535, 545, "M8"}, {540, 550, "M9"},
+    {545, 555, "M10"}, {550, 560, "M11"}, {555, 565, "M12"},
+    
+    // Intervals with extreme values
+    {0, 1000, "N1"},   // very wide
+    {1, 999, "N2"},    // slightly smaller
+    {2, 998, "N3"},    // even smaller
+    {500, 501, "N4"},  // very narrow
+    
+    // Edge cases
+    {0, 0, "O1"},      // single point at 0
+    {100, 100, "O2"},  // single point at 100
+    {1000, 1000, "O3"}, // single point at 1000
+    {0, 1000, "O4"},   // spans entire range
+  };
 };
 
 //! Test basic insertion and querying
@@ -561,6 +613,193 @@ TEST_F(IntervalTreeTest, DependencyMapperCoordsEdgeCases) {
 
   EXPECT_TRUE(tree.query({15, 15, 15}).empty());
   EXPECT_TRUE(naive.query({15, 15, 15}).empty());
+}
+
+//! Test complex scenarios with many intervals and deep trees
+TEST_F(IntervalTreeTest, ComplexScenarios) {
+  CenteredIntervalTree<int, std::string> tree;
+  NaiveIntervalTree<int, std::string> naive;
+
+  // Insert all complex intervals
+  for (const auto& interval : complex_intervals_) {
+    tree.insert(interval.start, interval.end, interval.data);
+    naive.insert(interval.start, interval.end, interval.data);
+  }
+
+  // Verify sizes match
+  EXPECT_EQ(tree.size(), complex_intervals_.size());
+  EXPECT_EQ(tree.size(), naive.size());
+
+  // Test point queries at various positions
+  std::vector<int> test_points = {
+    0, 15, 20, 25, 30, 35, 40, 45, 50, 55,  // I-series
+    100, 110, 115, 120, 125, 130, 135, 140,  // J-series  
+    200, 220, 240, 250, 260, 280, 300,       // K-series
+    1000, 1005, 1010,                         // L-series
+    500, 505, 510, 515, 520, 525, 530, 535, 540, 545, 550, 555, 560, 565, // M-series
+    0, 1, 2, 500, 501, 999, 1000,            // N-series
+    0, 100, 1000                              // O-series
+  };
+
+  for (int point : test_points) {
+    auto tree_result = tree.query(point);
+    auto naive_result = naive.query(point);
+
+    std::sort(tree_result.begin(), tree_result.end());
+    std::sort(naive_result.begin(), naive_result.end());
+
+    EXPECT_EQ(tree_result, naive_result)
+        << "Complex point query failed for point " << point;
+    EXPECT_EQ(tree_result.size(), naive_result.size())
+        << "Complex result size mismatch for point " << point;
+  }
+
+  // Test range queries that span multiple intervals
+  std::vector<std::pair<int, int>> test_ranges = {
+    {10, 55},    // Should match all I-series
+    {100, 140},  // Should match all J-series
+    {200, 300},  // Should match all K-series
+    {500, 565},  // Should match all M-series
+    {0, 1000},   // Should match N and O series
+    {15, 25},    // Should match I1, I2, I3
+    {110, 130},  // Should match J1, J2, J3, J4, J5, J6
+    {240, 260},  // Should match K1, K2, K3, K4
+    {1000, 1010}, // Should match L1
+    {0, 0},      // Should match O1, O4
+    {100, 100},  // Should match O2, O4
+    {1000, 1000}, // Should match O3, O4
+  };
+
+  for (const auto& [start, end] : test_ranges) {
+    auto tree_result = tree.query(start, end);
+    auto naive_result = naive.query(start, end);
+
+    std::sort(tree_result.begin(), tree_result.end());
+    std::sort(naive_result.begin(), naive_result.end());
+
+    EXPECT_EQ(tree_result, naive_result)
+        << "Complex range query failed for range [" << start << ", " << end << "]";
+    EXPECT_EQ(tree_result.size(), naive_result.size())
+        << "Complex range result size mismatch for range [" << start << ", " << end << "]";
+  }
+
+  // Test removal of intervals and verify tree integrity
+  std::vector<CenteredIntervalTree<int, std::string>::Interval> to_remove = {
+    {10, 20, "I1"},   // Remove from I-series
+    {100, 120, "J1"}, // Remove from J-series
+    {200, 300, "K1"}, // Remove from K-series
+    {500, 510, "M1"}, // Remove from M-series
+    {0, 1000, "N1"},  // Remove wide interval
+    {0, 0, "O1"},     // Remove single point
+  };
+
+  for (const auto& interval : to_remove) {
+    tree.remove(interval.start, interval.end, interval.data);
+    naive.remove(interval.start, interval.end, interval.data);
+  }
+
+  // Verify sizes still match after removal
+  EXPECT_EQ(tree.size(), naive.size());
+
+  // Test queries after removal
+  std::vector<int> post_removal_points = {15, 110, 250, 505, 500, 0};
+  for (int point : post_removal_points) {
+    auto tree_result = tree.query(point);
+    auto naive_result = naive.query(point);
+
+    std::sort(tree_result.begin(), tree_result.end());
+    std::sort(naive_result.begin(), naive_result.end());
+
+    EXPECT_EQ(tree_result, naive_result)
+        << "Post-removal query failed for point " << point;
+  }
+}
+
+//! Test deep tree scenarios with many disjoint intervals
+TEST_F(IntervalTreeTest, DeepTreeScenarios) {
+  CenteredIntervalTree<int, std::string> tree;
+  NaiveIntervalTree<int, std::string> naive;
+
+  // Create many disjoint intervals that will create a deep tree
+  for (int i = 0; i < 100; ++i) {
+    int start = i * 1000;
+    int end = start + 10;
+    std::string data = "DEEP" + std::to_string(i);
+    
+    tree.insert(start, end, data);
+    naive.insert(start, end, data);
+  }
+
+  // Verify sizes match
+  EXPECT_EQ(tree.size(), 100);
+  EXPECT_EQ(tree.size(), naive.size());
+
+  // Test queries at various positions
+  for (int i = 0; i < 100; ++i) {
+    int point = i * 1000 + 5; // Middle of each interval
+    auto tree_result = tree.query(point);
+    auto naive_result = naive.query(point);
+
+    EXPECT_EQ(tree_result.size(), 1);
+    EXPECT_EQ(tree_result, naive_result)
+        << "Deep tree query failed for point " << point;
+  }
+
+  // Test queries between intervals (should be empty)
+  for (int i = 0; i < 99; ++i) {
+    int point = i * 1000 + 500; // Between intervals
+    auto tree_result = tree.query(point);
+    auto naive_result = naive.query(point);
+
+    EXPECT_EQ(tree_result.size(), 0);
+    EXPECT_EQ(tree_result, naive_result)
+        << "Deep tree empty query failed for point " << point;
+  }
+}
+
+//! Test overlapping intervals at same center points
+TEST_F(IntervalTreeTest, SameCenterOverlaps) {
+  CenteredIntervalTree<int, std::string> tree;
+  NaiveIntervalTree<int, std::string> naive;
+
+  // Insert many intervals with the same center point
+  for (int i = 0; i < 20; ++i) {
+    int center = 1000;
+    int start = center - i;
+    int end = center + i;
+    std::string data = "SAME" + std::to_string(i);
+    
+    tree.insert(start, end, data);
+    naive.insert(start, end, data);
+  }
+
+  // Verify sizes match
+  EXPECT_EQ(tree.size(), 20);
+  EXPECT_EQ(tree.size(), naive.size());
+
+  // Test query at the center point
+  auto tree_result = tree.query(1000);
+  auto naive_result = naive.query(1000);
+
+  std::sort(tree_result.begin(), tree_result.end());
+  std::sort(naive_result.begin(), naive_result.end());
+
+  EXPECT_EQ(tree_result.size(), 20);
+  EXPECT_EQ(tree_result, naive_result)
+      << "Same center query failed";
+
+  // Test queries at various distances from center
+  for (int i = 0; i <= 19; ++i) {
+    int point = 1000 + i;
+    auto tree_result = tree.query(point);
+    auto naive_result = naive.query(point);
+
+    std::sort(tree_result.begin(), tree_result.end());
+    std::sort(naive_result.begin(), naive_result.end());
+
+    EXPECT_EQ(tree_result, naive_result)
+        << "Same center query failed for point " << point;
+  }
 }
 
 } // namespace nvfuser
