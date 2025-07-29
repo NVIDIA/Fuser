@@ -107,11 +107,15 @@ __device__ float fmax(float a, float b) {
 }
 
 __device__ __half fmax(__half a, __half b) {
-  return __half2float(a) > __half2float(b) ? a : b;
+  auto a_float = __half2float(a);
+  auto b_float = __half2float(b);
+  return __float2half(fmax(a_float, b_float));
 }
 
 __device__ __bfloat fmax(__bfloat a, __bfloat b) {
-  return __bfloat2float(a) > __bfloat2float(b) ? a : b;
+  auto a_float = __bfloat2float(a);
+  auto b_float = __bfloat2float(b);
+  return __float2bfloat(fmax(a_float, b_float));
 }
 
 template <typename T>
