@@ -42,7 +42,7 @@ class InplaceAliasInfoBuilder : public kir::IrVisitor {
     auto out_tv = sop->out()->as<TensorView>();
 
     // Note that in_tv and out_tv are already validated to be safe to
-    // alias each other by validateInplaceScatter
+    // alias each other by validateScatter
 
     NVF_ERROR(
         info_.alloc_map.find(in_tv) != info_.alloc_map.end(),

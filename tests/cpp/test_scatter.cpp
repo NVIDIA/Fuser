@@ -18,7 +18,6 @@
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/tools/inlining.h>
-#include <scheduler/tools/scatter_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -49,11 +48,6 @@ TEST_F(ScatterTest, BlockCountingWithGmem) {
   auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   fusion.addOutput(tv4);
-
-#if 0
-  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-      tv4->definition()->as<ScatterOp>());
-#endif
 
   for (auto tv : fusion.allTvs()) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -90,11 +84,6 @@ TEST_F(ScatterTest, BlockCountingWithShmem) {
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
-
-#if 0
-  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-      tv4->definition()->as<ScatterOp>());
-#endif
 
   for (auto tv : fusion.allTvs()) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -133,11 +122,6 @@ TEST_F(ScatterTest, GridCounting) {
   auto tv3 = ones({IrBuilder::create<Val>(n)}, DataType::Int);
   auto tv4 = scatter(tv2, 0, tv1, tv3);
   fusion.addOutput(tv4);
-
-#if 0
-  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-      tv4->definition()->as<ScatterOp>());
-#endif
 
   for (auto tv : fusion.allTvs()) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -184,11 +168,6 @@ TEST_F(ScatterTest, BlockCountingWithShmem2D) {
   auto tv4 = scatter(tv2, 1, tv1, tv3);
   auto tv5 = set(tv4);
   fusion.addOutput(tv5);
-
-#if 0
-  scheduler_tools::scheduleScatterLoopDomainAsIndexDomain(
-      tv4->definition()->as<ScatterOp>());
-#endif
 
   for (auto tv : fusion.allTvs()) {
     tv->axis(0)->parallelize(ParallelType::BIDx);
@@ -278,8 +257,6 @@ TEST_F(ScatterTest, CacheAfter) {
   input_cache->setAllocationDomain(input_cache->getLogicalDomain(), true);
   tv3->setMemoryType(MemoryType::Shared);
   tv3->setAllocationDomain(tv3->getLogicalDomain(), true);
-
-  fusion.print();
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randperm(m, options).slice(0, 0, n);
