@@ -12,6 +12,7 @@
 namespace nvfuser {
 namespace scheduler_tools {
 
+#if 0
 void scheduleScatterLoopDomainAsIndexDomain(ScatterOp* sop) {
   auto index_tv = sop->index()->as<TensorView>();
   auto out_tv = sop->out()->as<TensorView>();
@@ -29,7 +30,7 @@ void scheduleScatterLoopDomainAsIndexDomain(ScatterOp* sop) {
       /*skip_validation=*/true);
   return;
 }
+#endif
 
 } // namespace scheduler_tools
 } // namespace nvfuser
-

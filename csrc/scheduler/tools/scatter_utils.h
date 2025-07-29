@@ -13,7 +13,7 @@ class ScatterOp;
 
 namespace scheduler_tools {
 
-void scheduleScatterLoopDomainAsIndexDomain(ScatterOp* sop);
+// void scheduleScatterLoopDomainAsIndexDomain(ScatterOp* sop);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

@@ -120,24 +120,6 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
-  // If acc_tv is a zero tensor and the ID of index_tv is a broadcast,
-  // just scattering is sufficient. Note that only 1D case is
-  // considered for simplicity. In the case of N-D, where N > 1, the
-  // index tensor would need to be repeated rather than just unsqueezed.
-  auto is_zero_tensor = [](TensorView* tv) -> bool {
-    auto full_op = dynamic_cast<FullOp*>(tv->definition());
-    if (full_op == nullptr) {
-      return false;
-    }
-    return full_op->getFillValue()->isZero();
-  };
-  if (acc_domain.size() == 1 && index_domain.size() == 1 &&
-      (index_domain.at(0)->isBroadcast() ||
-       index_domain.at(0)->extent()->isOne()) &&
-      is_zero_tensor(acc_tv)) {
-    return scatter(acc_tv, 0, index_tv, value_tv);
-  }
-
   NVF_CHECK(acc_domain.size() == value_domain.size());
   NVF_CHECK(index_domain.size() == 1);
 
