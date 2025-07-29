@@ -131,7 +131,7 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 } // namespace
 
 void adjustEvaluatorSizes(
-    TensorView* tv,
+    const TensorView* tv,
     std::vector<int64_t>& unsharded_sizes) {
   const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
   // Early return when no adjustment is needed.

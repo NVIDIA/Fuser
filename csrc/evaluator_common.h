@@ -26,7 +26,7 @@ struct TensorArgAbstract;
 //! This is necessary to compensate fp4, fp6, where the at::Tensor size doesn't
 //! match the logical domain of TensorView
 void adjustEvaluatorSizes(
-    TensorView* tv,
+    const TensorView* tv,
     std::vector<int64_t>& unsharded_sizes);
 
 //! NaiveValueMachine:
