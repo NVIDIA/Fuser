@@ -234,7 +234,7 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
-    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+    def execute(self, inputs: list[torch.Tensor], device: Optional[torch.device] = None, **kwargs) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
 
@@ -253,15 +253,30 @@ class FusionDefinition:
             Output tensors from the fusion
         """
 
-        if auto_schedule:
-            if not hasattr(self, "fec"):
-                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
-                # A copy of fusion is created after construction FusionExecutorCache
-                # Delete the _fusion and reference the fusion inside FusionExecutorCache
-                del self._fusion
-            return self.fec.execute(inputs, device=self._get_device_index(device))
+        if len(kwargs) > 0:
+            return self._execute_with_kwargs(inputs, device, **kwargs)
         else:
+            return self._execute_fast(inputs, device)
+
+    def _execute_fast(self, inputs: list[torch.Tensor], device: Optional[torch.device] = None) -> list[torch.Tensor]:
+        """
+        Execute the fusion with the given inputs.
+        """
+        if not hasattr(self, "fec"):
+            self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+        return self.fec.execute(inputs, device=self._get_device_index(device))
+
+    def _execute_with_kwargs(self, inputs: list[torch.Tensor], device: Optional[torch.device] = None, **kwargs) -> list[torch.Tensor]:
+        """
+        Execute the fusion with the given inputs.
+        """
+        if "auto_schedule" in kwargs:
             raise RuntimeError("Manual scheduling is not supported yet.")
+        else:
+            return self._execute_fast(inputs, device)
 
     def repro_script_for(self, inputs: list | None = None) -> str:
         """
