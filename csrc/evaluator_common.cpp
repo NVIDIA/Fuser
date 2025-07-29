@@ -381,6 +381,21 @@ void PrecomputedValues::bindTensorMetaData(
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   adjustEvaluatorSizes(tv, logical_sizes);
 
+  for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
+    IterDomain* id = logical_domain[dim];
+    const auto dim_size = logical_sizes.at(dim);
+    if (id->isBroadcast()) {
+      // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
+      // and .ExpandedBroadcast.
+      bindValue(id->extent()->evaluatorIndex(), 1L);
+      if (id->hasExpandedExtent()) {
+        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+      }
+    } else {
+      bindValue(id->extent()->evaluatorIndex(), dim_size);
+    }
+  }
+
   // Here we bind TensorMetaData so that GetMetaData expressions can be
   // evaluated. Note that we do not bind the at::Tensor itself here since that
   // would mean PrecomputedValues will own the tensor. Unlike
