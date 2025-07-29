@@ -30,7 +30,7 @@ def pointwise_ops_fusion(fd: FusionDefinition, dtype: DataType, num_iters: int):
 
 
 # NOTE: num_iters restricted due to issue #1234.
-@pytest.mark.parametrize("num_iters", [2, 4, 8, 16])
+@pytest.mark.parametrize("num_iters", [2, 8, 32, 128])
 @pytest.mark.parametrize("host_bench_mode", ["compile", "steady", "dynamic"])
 def test_pointwise_ops_benchmark(
     benchmark,
