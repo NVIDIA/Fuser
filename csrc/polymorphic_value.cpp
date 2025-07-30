@@ -43,21 +43,24 @@ bool StructHandle::operator==(const StructHandle& other) const {
 namespace PolymorphicValue_functions {
 
 size_t hash(const PolymorphicValue& v) {
+  size_t hash = 0;
   if (v.is<std::monostate>()) {
     return 0;
   } else if (v.is<std::complex<double>>()) {
     std::complex<double> val = v.as<std::complex<double>>();
     std::hash<double> hasher;
-    return hash_combine(hasher(val.real()), hasher(val.imag()));
+    hashCombine(hash, hasher(val.real()));
+    hashCombine(hash, hasher(val.imag()));
   } else if (v.is<double>()) {
-    return std::hash<double>()(v.as<double>());
+    hashCombine(hash, std::hash<double>()(v.as<double>()));
   } else if (v.is<int64_t>()) {
-    return std::hash<int64_t>()(v.as<int64_t>());
+    hashCombine(hash, std::hash<int64_t>()(v.as<int64_t>()));
   } else if (v.is<bool>()) {
-    return std::hash<bool>()(v.as<bool>());
+    hashCombine(hash, std::hash<bool>()(v.as<bool>()));
   } else {
     NVF_THROW("Cannot hash PolymorphicValue");
   }
+  return hash;
 }
 
 std::string toString(const PolymorphicValue& v) {
