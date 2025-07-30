@@ -139,7 +139,7 @@ if(BUILD_CUTLASS)
     else()
       set(NVF_LIB_SUFFIX ".pyd")
     endif()
-    
+
     target_include_directories(nvf_cutlass PUBLIC
       "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
       "$<BUILD_INTERFACE:${NVFUSER_CUTLASS}>"
@@ -506,7 +506,7 @@ if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
 endif()
 
 # Conditionally link CUTLASS using generator expression to avoid export issues
-target_link_libraries(nvfuser_codegen PRIVATE 
+target_link_libraries(nvfuser_codegen PRIVATE
   $<$<AND:$<BOOL:${BUILD_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
 )
 
