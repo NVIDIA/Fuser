@@ -50,6 +50,7 @@ constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
 constexpr std::string_view kNewTensorFuncName = "new_tensor";
 constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
+constexpr std::string_view kSetTensorOutFuncName = "set_tensor_out";
 constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
@@ -768,9 +769,15 @@ class HostIrCompileDispatcher : public OptInDispatch {
       val_to_value_[out_tv] = out_tensor;
       return;
     }
-    llvm::Function* set_tensor_func =
-        module->getFunction(kSetTensorFuncName);
-    builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
+    if(out_tensor != nullptr) {
+      llvm::Function* set_tensor_out_func =
+          module->getFunction(kSetTensorOutFuncName);
+      builder_.CreateCall(set_tensor_out_func, {out_tensor, in_tensor});
+      return;
+    }
+    out_tensor = builder_.CreateCall(
+        module->getFunction(kSetTensorFuncName), {in_tensor}, "set");
+    val_to_value_[out_tv] = out_tensor;
   }
 
 
@@ -1120,11 +1127,20 @@ void HostIrJitImpl::registerExternalFunctions() {
       +[]() -> at::Tensor* { return new at::Tensor(); });
 
   // in place tensor update
-  void* set_tensor_func_ptr =
+  void* set_tensor_out_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* out, at::Tensor* in) -> void {
         NVF_ERROR(out != nullptr, kSetTensorFuncName, " out is nullptr");
         NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
         *out = in->clone(); // Clone the input tensor
+      });
+
+  // copy and return tensor
+  void* set_tensor_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
+        NVF_ERROR(in != nullptr, kNewTensorFuncName, " in is nullptr");
+        at::Tensor* out = new at::Tensor();
+        *out = in->clone();
+        return out;
       });
 
   // delete a newed tensor
@@ -1257,6 +1273,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       new_tensor_func_ptr, name_to_symbol, mangler, kNewTensorFuncName);
   registerExternalFunction(
       delete_tensor_func_ptr, name_to_symbol, mangler, kDeleteTensorFuncName);
+  registerExternalFunction(
+      set_tensor_out_func_ptr, name_to_symbol, mangler, kSetTensorOutFuncName);
   registerExternalFunction(
       set_tensor_func_ptr, name_to_symbol, mangler, kSetTensorFuncName);
   registerExternalFunction(
