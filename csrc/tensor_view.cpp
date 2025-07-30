@@ -1094,13 +1094,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   TensorView* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getLogicalDomain(),
-          getAllocationDomain(),
-          getLoopDomain(),
-          getContiguity()),
+      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
 
   // Set domain of consumer
@@ -1139,10 +1133,13 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  // We do not want to reproduce the loop domain if it's for scatter
+  if (!producer->definition()->isA<ScatterOp>()) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  }
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());

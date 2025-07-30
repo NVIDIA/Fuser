@@ -1125,9 +1125,9 @@ class FusionTranslator : public OptInConstDispatch {
     map_val_to_fd_index_.emplace(out_tv, output());
 
     fd_->defineRecord(new ScatterOpRecord(
-        {fd_->recordingState(map_val_to_fd_index_.at(sop->selfTv())),
-         fd_->recordingState(map_val_to_fd_index_.at(sop->indexTv())),
-         fd_->recordingState(map_val_to_fd_index_.at(sop->srcTv()))},
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->index())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->src()))},
         {fd_->recordingState(output())},
         sop->dim()));
   }

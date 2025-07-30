@@ -25,12 +25,14 @@ using MoEConfig = std::tuple<
     int64_t, // num_experts
     int64_t, // num_tokens
     int64_t, // topk
-    int64_t // rounding_factor
+    int64_t, // rounding_factor
+    bool // manual_scheduling
     >;
 
 std::ostream& operator<<(std::ostream& os, const MoEConfig& config) {
   os << std::get<0>(config) << "_" << std::get<1>(config) << "_"
-     << std::get<2>(config) << "_" << std::get<3>(config);
+     << std::get<2>(config) << "_" << std::get<3>(config) << "_"
+     << (std::get<4>(config) ? "manual" : "auto");
   return os;
 }
 
@@ -43,7 +45,9 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-    std::tie(num_experts, num_tokens, topk, rounding_factor) = GetParam();
+    std::tie(
+        num_experts, num_tokens, topk, rounding_factor, manual_scheduling) =
+        GetParam();
   }
 
  protected:
@@ -51,9 +55,14 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
   int64_t num_tokens = 32;
   int64_t topk = 4;
   int64_t rounding_factor = 128;
+  bool manual_scheduling = false;
 };
 
 TEST_P(SgLangMoETest, ComputeProblemSizes) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -78,11 +87,14 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-
-  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_P(SgLangMoETest, ComputeExpertOffsets) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -109,6 +121,10 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
 }
 
 TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
+  if (manual_scheduling) {
+    GTEST_SKIP() << "No manual scheduling implemented";
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -183,8 +199,29 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randint(0, num_tokens * topk, {num_tokens, topk}, options);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  KernelArgumentHolder outputs;
+
+  if (manual_scheduling) {
+    auto tv6_cache = tv6->cacheBefore();
+
+    // Scheduling all tensors as 1D tensors
+    for (auto tv : fusion.allTvs()) {
+      tv->flatten();
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->setAllocationDomain(tv4->getLogicalDomain(), true);
+    tv6_cache->setMemoryType(MemoryType::Shared);
+    tv6_cache->setAllocationDomain(tv6_cache->getLogicalDomain(), true);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    outputs = ke.run({t0});
+  } else {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
 
   auto t2 = at::argsort(t0.flatten(), true, 0, true);
   auto t3 = at::floor(t2 / topk);
@@ -203,7 +240,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(16), // M
         testing::Values(32, 1), // N
         testing::Values(4, 1), // topk
-        testing::Values(128)), // rounding factor
+        testing::Values(128), // rounding factor,
+        testing::Bool()), // manual_scheduling
     [](const testing::TestParamInfo<MoEConfig>& info) {
       const auto& moe_config = info.param;
       std::ostringstream os;

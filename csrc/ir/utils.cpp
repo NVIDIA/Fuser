@@ -1027,14 +1027,15 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs =
-      getExprsBetween<IRBFS>(
-          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
-          .first;
+  auto dom0_to_dom1_exprs = getExprsBetween<IRBFS>(
+                                {dom0.begin(), dom0.end()},
+                                {dom1.begin(), dom1.end()},
+                                /*require_all_to_visited=*/false)
+                                .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  for (auto [expr, direction] : exprs) {
+  for (auto [expr, direction] : dom0_to_dom1_exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();

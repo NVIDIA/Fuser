@@ -233,6 +233,22 @@ class GatherOp : public Expr {
   }
 };
 
+// ScatterOp represents an out-of-place scatter operation as part of a
+// compute definition. However, its scheduling definition is always
+// based on the logical domain of the index input tensor. More
+// specifically, from the viewpoint of PyTorch/Thunder, the output
+// input and output tensors correspond to different tensors, however,
+// from the scheduling point of view, the output tensor always has a
+// loop domain that is derived from the logical domain of the index
+// logical domain.
+//
+// IMPLEMENTATION NOTE: This is currently implemented using the
+// initial loop domain of TensorDomain. To build a valid ScatterOp, the
+// TensorDomain of the output tensor must have a loop domain that is differnt
+// from the logical domain. The initial loop domain, kept tracked as
+// TensorDomain::initial_loop_, is used to augment the Exact graph by
+// adding mappings with the logical domain of the index and src input
+// tensors.
 class ScatterOp : public Expr {
  public:
   using Expr::Expr;
@@ -257,16 +273,20 @@ class ScatterOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
-  TensorView* selfTv() const {
-    return input(0)->as<TensorView>();
+  Val* in() const {
+    return input(0);
   }
 
-  TensorView* indexTv() const {
-    return input(1)->as<TensorView>();
+  Val* out() const {
+    return output(0);
   }
 
-  TensorView* srcTv() const {
-    return input(2)->as<TensorView>();
+  Val* index() const {
+    return input(1);
+  }
+
+  Val* src() const {
+    return input(2);
   }
 
   int64_t dim() const {
