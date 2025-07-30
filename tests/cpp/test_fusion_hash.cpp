@@ -127,6 +127,9 @@ TEST_F(NVFuserTest, FusionHashDifferentDefinition) {
   NVF_ERROR(
       fusion_first.hash() != fusion_second.hash(),
       "The hash values do not match.");
+  NVF_ERROR(
+      fusion_first.hash() != fusion_second.hash(),
+      "The hash values do not match.");
 
   FusionExecutorCache executor_cache(std::move(fusion_first_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
