@@ -359,6 +359,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
             !ir_utils::isMemorySharedAcross(tv->getMemoryType(), pt)) {
           continue;
         }
+
+        allocation_domains.push_back(loop_id);
       }
       // Assume Local and Shared are always fully contiguous
       contiguity =
