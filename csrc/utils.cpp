@@ -22,12 +22,6 @@
 
 namespace nvfuser {
 
-size_t hash_combine(size_t seed, size_t value) {
-  // This formula is designed to mix bits well.
-  // The magic number is derived from the golden ratio.
-  return seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2));
-}
-
 int getNumThreads() {
   const char* option_env_name = "NUM_THREADS";
   auto dump_options = getNvFuserEnv(option_env_name);

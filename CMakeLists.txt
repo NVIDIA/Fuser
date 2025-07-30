@@ -226,6 +226,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/fusion_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/global_allocator.cpp
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
+  ${NVFUSER_SRCS_DIR}/hash.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/executor.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp

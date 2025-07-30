@@ -45,9 +45,6 @@
 
 namespace nvfuser {
 
-// A helper function to combine hashes robustly
-size_t hash_combine(size_t seed, size_t value);
-
 //! Warp specialization padded threads count
 constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 

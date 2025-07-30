@@ -170,12 +170,13 @@ bool Val::sameAs(const Statement* other) const {
 }
 
 size_t Val::getHash() const {
-  return hash_combine(
-      std::hash<ValType>()(vtype_),
-      hash_combine(
-          std::hash<int>()(
-              static_cast<int>(std::get<PrimDataType>(dtype_.type))),
-          PolymorphicValue_functions::hash(value_)));
+  size_t hash = 0;
+  hashCombine(hash, std::hash<ValType>()(vtype_));
+  hashCombine(
+      hash,
+      std::hash<int>()(static_cast<int>(std::get<PrimDataType>(dtype_.type))));
+  hashCombine(hash, PolymorphicValue_functions::hash(value_));
+  return hash;
 }
 
 std::string Val::toString(int indent_size) const {
@@ -294,20 +295,20 @@ Expr* Expr::shallowCopy() const {
 
 namespace {
 size_t hashVectorOfVals(const std::vector<Val*>& vals) {
-  size_t seed = 0;
+  size_t hash = 0;
   for (const auto& val : vals) {
-    seed = hash_combine(seed, val->hash());
+    hashCombine(hash, val->hash());
   }
-  return seed;
+  return hash;
 }
 } // namespace
 
 size_t Expr::getHash() const {
-  size_t seed = 0;
-  seed = hash_combine(seed, std::hash<std::string>()(getOpString()));
-  seed = hash_combine(seed, hashVectorOfVals(inputs_));
-  seed = hash_combine(seed, hashVectorOfVals(outputs_));
-  return seed;
+  size_t hash = 0;
+  hashCombine(hash, std::hash<std::string>()(getOpString()));
+  hashCombine(hash, hashVectorOfVals(inputs_));
+  hashCombine(hash, hashVectorOfVals(outputs_));
+  return hash;
 }
 
 std::string Expr::getGraphvizLabel() const {

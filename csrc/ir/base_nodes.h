@@ -177,7 +177,10 @@ class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   virtual Statement* clone(IrCloner* ir_cloner) const;
 
   size_t hash() const {
-    return hash_combine(std::hash<StmtNameType>()(name_), getHash());
+    size_t hash = 0;
+    hashCombine(hash, std::hash<StmtNameType>()(name_));
+    hashCombine(hash, getHash());
+    return hash;
   }
 
  protected:
