@@ -6373,7 +6373,7 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
 }
 
 TEST_F(IndexingTest, BlockScalingFactor) {
-  auto fusion = std::make_unique<Fusion();
+  auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // m, k
