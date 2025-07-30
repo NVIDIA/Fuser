@@ -56,6 +56,7 @@ constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
+constexpr std::string_view kMatmulFuncName = "matmul";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kMainFuncOutputTensorName = "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
@@ -308,6 +309,16 @@ llvm::Value* getOrCreateValueForExtent(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
   return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
+}
+
+llvm::Value* getValueForTensor(
+    TensorView* tv,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  if (auto it = val_to_value.find(tv); it != val_to_value.end()) {
+    return it->second;
+  }
+  return nullptr;
 }
 
 // Simple permute transformation example:
@@ -800,42 +811,46 @@ class HostIrCompileDispatcher : public OptInDispatch {
   void handle(MatmulOp* matmul_op) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    llvm::Value* t_a =
-        getOrCreateValue(matmul_op->inA(), val_to_value_, builder_);
-    llvm::Value* t_b =
-        getOrCreateValue(matmul_op->inB(), val_to_value_, builder_);
-    llvm::Value* t_out =
-        getOrCreateValue(matmul_op->out(), val_to_value_, builder_);
-
-    builder_.CreateCall(
-        module->getFunction(kMatmulOutFuncName), {t_out, t_a, t_b});
-    val_to_value_[matmul_op->out()] = t_out;
+    llvm::Value* a =
+        getValueForTensor(matmul_op->inA(), val_to_value_, builder_);
+    llvm::Value* b =
+        getValueForTensor(matmul_op->inB(), val_to_value_, builder_);
+    llvm::Value* out =
+        getValueForTensor(matmul_op->out(), val_to_value_, builder_);
+    if(out != nullptr) {
+      builder_.CreateCall(
+          module->getFunction(kMatmulOutFuncName), {out, a, b});
+        return;
+    }
+    out = builder_.CreateCall(
+      module->getFunction(kMatmulFuncName), {a, b}, "matmul_out");
+    val_to_value_[matmul_op->out()] = out;
   }
 
   void handle(LinearOp* linear_op) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
 
-    llvm::Value* t_in =
-        getOrCreateValue(linear_op->inA(), val_to_value_, builder_);
-    llvm::Value* t_weight =
-        getOrCreateValue(linear_op->inB(), val_to_value_, builder_);
-    llvm::Value* t_out =
-        getOrCreateValue(linear_op->out(), val_to_value_, builder_);
+    llvm::Value* in =
+        getValueForTensor(linear_op->inA(), val_to_value_, builder_);
+    llvm::Value* weight =
+        getValueForTensor(linear_op->inB(), val_to_value_, builder_);
+    llvm::Value* out =
+        getValueForTensor(linear_op->out(), val_to_value_, builder_);
 
-    llvm::Value* t_bias = nullptr;
+    llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
-      t_bias = getOrCreateValue(linear_op->bias(), val_to_value_, builder_);
+      bias = getValueForTensor(linear_op->bias(), val_to_value_, builder_);
     } else {
       // Create a proper null pointer for LLVM
       auto* tensor_type = getTensorPtrType(context);
-      t_bias = llvm::ConstantPointerNull::get(
+      bias = llvm::ConstantPointerNull::get(
           llvm::cast<llvm::PointerType>(tensor_type));
     }
     builder_.CreateCall(
         module->getFunction(kLinearOutFuncName),
-        {t_out, t_in, t_weight, t_bias});
-    val_to_value_[linear_op->out()] = t_out;
+        {out, in, weight, bias});
+    val_to_value_[linear_op->out()] = out;
   }
 
   // Launch Kernel Function LLVM IR Generation
@@ -848,18 +863,22 @@ class HostIrCompileDispatcher : public OptInDispatch {
     // Convert input TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> input_tensors;
     for (auto* tv : launch_kernel->inputs()) {
-      input_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
+      llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+      NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+      input_tensors.push_back(tensor);
     }
 
     // Convert output TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> output_tensors;
     for (auto* tv : launch_kernel->outputs()) {
-      output_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
+      llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+      NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+      output_tensors.push_back(tensor);
     }
 
     // Get the cacheId from the main function's first argument
     llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+        getValueForTensor(launch_kernel->cacheId(), val_to_value_, builder_);
 
     // Create arrays to hold tensor pointers
     auto* input_array_type =
@@ -1051,6 +1070,8 @@ void HostIrJitImpl::compile() {
   // compile outputs in llvm ir
   packOutputs(container_.get(), builder, val_to_value);
 
+  insertDeleteTensors(builder);
+
   // verify the module
   std::string error;
   llvm::raw_string_ostream error_stream(error);
@@ -1184,6 +1205,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       +[](at::Tensor* t_out, at::Tensor* t_a, at::Tensor* t_b) {
         at::matmul_out(*t_out, *t_a, *t_b);
       });
+  // matmul function
+  void* matmul_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* a, at::Tensor* b) {
+        return at::matmul(*a, *b);
+      });
 
   // linear_out function
   void* linear_out_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* out,
@@ -1237,6 +1263,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
   registerExternalFunction(
       matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
+  registerExternalFunction(
+      matmul_func_ptr, name_to_symbol, mangler, kMatmulFuncName);
   registerExternalFunction(
       linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
   throwIfError(
