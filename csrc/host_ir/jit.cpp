@@ -55,10 +55,12 @@ constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
-constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kMatmulFuncName = "matmul";
+constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kLinearFuncName = "linear";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
+constexpr std::string_view kPermuteFuncName = "permute";
+constexpr std::string_view kPermuteOutFuncName = "permute_out";
 constexpr std::string_view kMainFuncOutputTensorName = "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
 
