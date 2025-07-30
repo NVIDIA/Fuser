@@ -125,58 +125,67 @@ class IntervalTreeTest : public ::testing::Test {
   }
 
   std::vector<CenteredIntervalTree<int, std::string>::Interval> test_intervals_;
-  
+
   // Additional test data for complex scenarios
-  std::vector<CenteredIntervalTree<int, std::string>::Interval> complex_intervals_ = {
-    // Many overlapping intervals at different centers
-    {10, 20, "I1"},   // center: 15
-    {15, 25, "I2"},   // center: 20  
-    {20, 30, "I3"},   // center: 25
-    {25, 35, "I4"},   // center: 30
-    {30, 40, "I5"},   // center: 35
-    {35, 45, "I6"},   // center: 40
-    {40, 50, "I7"},   // center: 45
-    {45, 55, "I8"},   // center: 50
-    
-    // Intervals with same centers but different ranges
-    {100, 120, "J1"}, // center: 110
-    {105, 115, "J2"}, // center: 110
-    {110, 130, "J3"}, // center: 120
-    {115, 125, "J4"}, // center: 120
-    {120, 140, "J5"}, // center: 130
-    {125, 135, "J6"}, // center: 130
-    
-    // Nested intervals
-    {200, 300, "K1"}, // center: 250
-    {220, 280, "K2"}, // center: 250
-    {240, 260, "K3"}, // center: 250
-    {250, 250, "K4"}, // center: 250 (single point)
-    
-    // Disjoint intervals that should create deep trees
-    {1000, 1010, "L1"}, // center: 1005
-    {2000, 2010, "L2"}, // center: 2005
-    {3000, 3010, "L3"}, // center: 3005
-    {4000, 4010, "L4"}, // center: 4005
-    {5000, 5010, "L5"}, // center: 5005
-    
-    // Many small overlapping intervals
-    {500, 510, "M1"}, {505, 515, "M2"}, {510, 520, "M3"},
-    {515, 525, "M4"}, {520, 530, "M5"}, {525, 535, "M6"},
-    {530, 540, "M7"}, {535, 545, "M8"}, {540, 550, "M9"},
-    {545, 555, "M10"}, {550, 560, "M11"}, {555, 565, "M12"},
-    
-    // Intervals with extreme values
-    {0, 1000, "N1"},   // very wide
-    {1, 999, "N2"},    // slightly smaller
-    {2, 998, "N3"},    // even smaller
-    {500, 501, "N4"},  // very narrow
-    
-    // Edge cases
-    {0, 0, "O1"},      // single point at 0
-    {100, 100, "O2"},  // single point at 100
-    {1000, 1000, "O3"}, // single point at 1000
-    {0, 1000, "O4"},   // spans entire range
-  };
+  std::vector<CenteredIntervalTree<int, std::string>::Interval>
+      complex_intervals_ = {
+          // Many overlapping intervals at different centers
+          {10, 20, "I1"}, // center: 15
+          {15, 25, "I2"}, // center: 20
+          {20, 30, "I3"}, // center: 25
+          {25, 35, "I4"}, // center: 30
+          {30, 40, "I5"}, // center: 35
+          {35, 45, "I6"}, // center: 40
+          {40, 50, "I7"}, // center: 45
+          {45, 55, "I8"}, // center: 50
+
+          // Intervals with same centers but different ranges
+          {100, 120, "J1"}, // center: 110
+          {105, 115, "J2"}, // center: 110
+          {110, 130, "J3"}, // center: 120
+          {115, 125, "J4"}, // center: 120
+          {120, 140, "J5"}, // center: 130
+          {125, 135, "J6"}, // center: 130
+
+          // Nested intervals
+          {200, 300, "K1"}, // center: 250
+          {220, 280, "K2"}, // center: 250
+          {240, 260, "K3"}, // center: 250
+          {250, 250, "K4"}, // center: 250 (single point)
+
+          // Disjoint intervals that should create deep trees
+          {1000, 1010, "L1"}, // center: 1005
+          {2000, 2010, "L2"}, // center: 2005
+          {3000, 3010, "L3"}, // center: 3005
+          {4000, 4010, "L4"}, // center: 4005
+          {5000, 5010, "L5"}, // center: 5005
+
+          // Many small overlapping intervals
+          {500, 510, "M1"},
+          {505, 515, "M2"},
+          {510, 520, "M3"},
+          {515, 525, "M4"},
+          {520, 530, "M5"},
+          {525, 535, "M6"},
+          {530, 540, "M7"},
+          {535, 545, "M8"},
+          {540, 550, "M9"},
+          {545, 555, "M10"},
+          {550, 560, "M11"},
+          {555, 565, "M12"},
+
+          // Intervals with extreme values
+          {0, 1000, "N1"}, // very wide
+          {1, 999, "N2"}, // slightly smaller
+          {2, 998, "N3"}, // even smaller
+          {500, 501, "N4"}, // very narrow
+
+          // Edge cases
+          {0, 0, "O1"}, // single point at 0
+          {100, 100, "O2"}, // single point at 100
+          {1000, 1000, "O3"}, // single point at 1000
+          {0, 1000, "O4"}, // spans entire range
+      };
 };
 
 //! Test basic insertion and querying
@@ -494,7 +503,8 @@ TEST_F(IntervalTreeTest, StressTest) {
 //! Test with DependencyMapper::Coords coordinate type
 TEST_F(IntervalTreeTest, DependencyMapperCoords) {
   using Coords = DependencyMapper::Coords;
-  using CoordsTree = CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
+  using CoordsTree =
+      CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
   using CoordsNaive = NaiveIntervalTree<Coords, std::string>;
   using CoordsInterval = CoordsTree::Interval;
 
@@ -632,13 +642,14 @@ TEST_F(IntervalTreeTest, ComplexScenarios) {
 
   // Test point queries at various positions
   std::vector<int> test_points = {
-    0, 15, 20, 25, 30, 35, 40, 45, 50, 55,  // I-series
-    100, 110, 115, 120, 125, 130, 135, 140,  // J-series  
-    200, 220, 240, 250, 260, 280, 300,       // K-series
-    1000, 1005, 1010,                         // L-series
-    500, 505, 510, 515, 520, 525, 530, 535, 540, 545, 550, 555, 560, 565, // M-series
-    0, 1, 2, 500, 501, 999, 1000,            // N-series
-    0, 100, 1000                              // O-series
+      0,    15,   20,   25,  30,  35,  40,   45,  50,  55, // I-series
+      100,  110,  115,  120, 125, 130, 135,  140, // J-series
+      200,  220,  240,  250, 260, 280, 300, // K-series
+      1000, 1005, 1010, // L-series
+      500,  505,  510,  515, 520, 525, 530,  535, 540, 545,
+      550,  555,  560,  565, // M-series
+      0,    1,    2,    500, 501, 999, 1000, // N-series
+      0,    100,  1000 // O-series
   };
 
   for (int point : test_points) {
@@ -656,18 +667,18 @@ TEST_F(IntervalTreeTest, ComplexScenarios) {
 
   // Test range queries that span multiple intervals
   std::vector<std::pair<int, int>> test_ranges = {
-    {10, 55},    // Should match all I-series
-    {100, 140},  // Should match all J-series
-    {200, 300},  // Should match all K-series
-    {500, 565},  // Should match all M-series
-    {0, 1000},   // Should match N and O series
-    {15, 25},    // Should match I1, I2, I3
-    {110, 130},  // Should match J1, J2, J3, J4, J5, J6
-    {240, 260},  // Should match K1, K2, K3, K4
-    {1000, 1010}, // Should match L1
-    {0, 0},      // Should match O1, O4
-    {100, 100},  // Should match O2, O4
-    {1000, 1000}, // Should match O3, O4
+      {10, 55}, // Should match all I-series
+      {100, 140}, // Should match all J-series
+      {200, 300}, // Should match all K-series
+      {500, 565}, // Should match all M-series
+      {0, 1000}, // Should match N and O series
+      {15, 25}, // Should match I1, I2, I3
+      {110, 130}, // Should match J1, J2, J3, J4, J5, J6
+      {240, 260}, // Should match K1, K2, K3, K4
+      {1000, 1010}, // Should match L1
+      {0, 0}, // Should match O1, O4
+      {100, 100}, // Should match O2, O4
+      {1000, 1000}, // Should match O3, O4
   };
 
   for (const auto& [start, end] : test_ranges) {
@@ -678,19 +689,21 @@ TEST_F(IntervalTreeTest, ComplexScenarios) {
     std::sort(naive_result.begin(), naive_result.end());
 
     EXPECT_EQ(tree_result, naive_result)
-        << "Complex range query failed for range [" << start << ", " << end << "]";
+        << "Complex range query failed for range [" << start << ", " << end
+        << "]";
     EXPECT_EQ(tree_result.size(), naive_result.size())
-        << "Complex range result size mismatch for range [" << start << ", " << end << "]";
+        << "Complex range result size mismatch for range [" << start << ", "
+        << end << "]";
   }
 
   // Test removal of intervals and verify tree integrity
   std::vector<CenteredIntervalTree<int, std::string>::Interval> to_remove = {
-    {10, 20, "I1"},   // Remove from I-series
-    {100, 120, "J1"}, // Remove from J-series
-    {200, 300, "K1"}, // Remove from K-series
-    {500, 510, "M1"}, // Remove from M-series
-    {0, 1000, "N1"},  // Remove wide interval
-    {0, 0, "O1"},     // Remove single point
+      {10, 20, "I1"}, // Remove from I-series
+      {100, 120, "J1"}, // Remove from J-series
+      {200, 300, "K1"}, // Remove from K-series
+      {500, 510, "M1"}, // Remove from M-series
+      {0, 1000, "N1"}, // Remove wide interval
+      {0, 0, "O1"}, // Remove single point
   };
 
   for (const auto& interval : to_remove) {
@@ -725,7 +738,7 @@ TEST_F(IntervalTreeTest, DeepTreeScenarios) {
     int start = i * 1000;
     int end = start + 10;
     std::string data = "DEEP" + std::to_string(i);
-    
+
     tree.insert(start, end, data);
     naive.insert(start, end, data);
   }
@@ -768,7 +781,7 @@ TEST_F(IntervalTreeTest, SameCenterOverlaps) {
     int start = center - i;
     int end = center + i;
     std::string data = "SAME" + std::to_string(i);
-    
+
     tree.insert(start, end, data);
     naive.insert(start, end, data);
   }
@@ -785,8 +798,7 @@ TEST_F(IntervalTreeTest, SameCenterOverlaps) {
   std::sort(naive_result.begin(), naive_result.end());
 
   EXPECT_EQ(tree_result.size(), 20);
-  EXPECT_EQ(tree_result, naive_result)
-      << "Same center query failed";
+  EXPECT_EQ(tree_result, naive_result) << "Same center query failed";
 
   // Test queries at various distances from center
   for (int i = 0; i <= 19; ++i) {
@@ -805,18 +817,18 @@ TEST_F(IntervalTreeTest, SameCenterOverlaps) {
 //! Test the nearest common ancestor functionality
 TEST_F(IntervalTreeTest, NearestCommonAncestor) {
   using Coords = DependencyMapper::Coords;
-  
+
   // Test basic cases
   EXPECT_EQ(nearestCommonAncestor({2, 3, 1, 5}, {2, 3, 3}), Coords({2, 3}));
   EXPECT_EQ(nearestCommonAncestor({2, 3, 1}, {2, 3, 1}), Coords({2, 3, 1}));
   EXPECT_EQ(nearestCommonAncestor({2, 3}, {2, 3, 1, 5}), Coords({2, 3}));
   EXPECT_EQ(nearestCommonAncestor({2, 3, 1, 5}, {2, 3}), Coords({2, 3}));
-  
+
   // Test edge cases
   EXPECT_EQ(nearestCommonAncestor({}, {2, 3}), Coords({}));
   EXPECT_EQ(nearestCommonAncestor({2, 3}, {}), Coords({}));
   EXPECT_EQ(nearestCommonAncestor({}, {}), Coords({}));
-  
+
   // Test no common ancestor
   EXPECT_EQ(nearestCommonAncestor({1, 2, 3}, {4, 5, 6}), Coords({}));
 }
@@ -824,15 +836,15 @@ TEST_F(IntervalTreeTest, NearestCommonAncestor) {
 //! Test the center coordinate functionality
 TEST_F(IntervalTreeTest, CenterCoord) {
   using Coords = DependencyMapper::Coords;
-  
+
   // Test basic cases
   EXPECT_EQ(centerCoord({2, 3, 1, 5}, {2, 3, 3}), Coords({2, 3, 2}));
   EXPECT_EQ(centerCoord({2, 3, 1}, {2, 3, 1}), Coords({2, 3, 1}));
-  
+
   // Test when one coord is a prefix of the other
   EXPECT_EQ(centerCoord({2, 3}, {2, 3, 1, 5}), Coords({2, 3, 0}));
   EXPECT_EQ(centerCoord({2, 3, 1, 5}, {2, 3}), Coords({2, 3, 0}));
-  
+
   // Test edge cases
   EXPECT_EQ(centerCoord({}, {2, 3}), Coords({1}));
   EXPECT_EQ(centerCoord({2, 3}, {}), Coords({1}));
@@ -842,28 +854,29 @@ TEST_F(IntervalTreeTest, CenterCoord) {
 //! Test interval tree with custom center function for Coords
 TEST_F(IntervalTreeTest, CoordsWithCustomCenter) {
   using Coords = DependencyMapper::Coords;
-  using CoordsTree = CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
+  using CoordsTree =
+      CenteredIntervalTree<Coords, std::string, CoordsCenterFunc>;
   using CoordsNaive = NaiveIntervalTree<Coords, std::string>;
-  
+
   CoordsTree tree;
   CoordsNaive naive;
-  
+
   // Insert intervals with Coords
   tree.insert({0, 1, 2}, {0, 1, 5}, "A");
   tree.insert({0, 2, 1}, {0, 2, 4}, "B");
   tree.insert({1, 0, 0}, {1, 0, 3}, "C");
-  
+
   naive.insert({0, 1, 2}, {0, 1, 5}, "A");
   naive.insert({0, 2, 1}, {0, 2, 4}, "B");
   naive.insert({1, 0, 0}, {1, 0, 3}, "C");
-  
+
   // Test queries
   auto tree_result = tree.query({0, 1, 3});
   auto naive_result = naive.query({0, 1, 3});
-  
+
   std::sort(tree_result.begin(), tree_result.end());
   std::sort(naive_result.begin(), naive_result.end());
-  
+
   EXPECT_EQ(tree_result, naive_result);
   EXPECT_EQ(tree_result, std::vector<std::string>{"A"});
 }
