@@ -23,8 +23,28 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
         "anyways");
   });
   std::unordered_map<TensorView*, int64_t> last_use;
+  std::unordered_set<TensorView*> non_intermediate_tensors;
+  for (auto* val : hic->inputs()) {
+    if (auto* tv = val->as<TensorView>()) {
+      non_intermediate_tensors.insert(tv);
+    }
+  }
+  for (auto* val : hic->outputs()) {
+    if (auto* tv = val->as<TensorView>()) {
+      non_intermediate_tensors.insert(tv);
+    }
+  }
+
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {
     for (auto* val : expr->inputs()) {
+      if (!val->isA<TensorView>()) {
+        continue;
+      }
+      auto tv = val->as<TensorView>();
+      last_use[tv] = i;
+    }
+
+    for (auto* val : expr->outputs()) {
       if (!val->isA<TensorView>()) {
         continue;
       }
@@ -40,6 +60,9 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   }
   std::sort(last_use_by_index.begin(), last_use_by_index.end());
   for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
+    if (non_intermediate_tensors.contains(tv)) {
+      continue;
+    }
     auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
     hic->insertExprAfter(i, deallocate);
   }

@@ -546,98 +546,14 @@ void packOutputs(
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
-    llvm::Value* tensor_from_val_to_value = val_to_value[tv];
-    builder.CreateStore(tensor_from_val_to_value, tensor_addr);
+    llvm::Value* tensor = getValueForTensor(tv, val_to_value, builder);
+    NVF_ERROR(tensor != nullptr, "packOutputs: tensor is nullptr");
+    builder.CreateStore(tensor, tensor_addr);
   }
   insertNvtxRangePop(builder);
   builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HostIrJit)) {
     printLlvmIr(func, "Main Function Outputs");
-  }
-}
-
-
-// Helper function targets to insert delete since at::Tensor at llvm level is passed by pointer,
-// we need to insert delete for following cases:
-// 1. newed tensor from allocate node, exp: at::Tensor* new_tensor()
-// allocate node from host ir will be lowered into two llvm functions: new_tensor and set_tensor.
-// which new_tensor generate a at::Tensor() wrapper, and set_tensor makes the actual allocation.
-// 2. implicit newed intermediate tensor returned by function calls, ie. at::Tensor* linear(at::Tensor* in);
-// which output tensor is allocated inside of wrapper function
-void insertDeleteTensors(llvm::IRBuilder<>& builder) {
-
-  // Map from tensor pointer to its last use instruction
-  std::unordered_map<llvm::Value*, llvm::Instruction*> last_use;
-  // Set of all tensor pointers allocated by new_tensor or returned by functions
-  std::unordered_set<llvm::Value*> tensor_ptrs;
-
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* main_func = module->getFunction(kMainFuncName);
-  llvm::Function* delete_tensor_func = module->getFunction(kDeleteTensorFuncName);
-
-  // First pass: find all new_tensor allocations and function calls that return tensor pointers
-  for (llvm::BasicBlock& bb : *main_func) {
-    for (llvm::Instruction& inst : bb) {
-      // Track function calls that return tensor pointers (including new_tensor)
-      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
-        if (auto* callee = call->getCalledFunction()) {
-          if (callee->getReturnType()->isPointerTy()) {
-            // Check if the return type is a tensor pointer
-            llvm::Type* tensor_type = getTensorPtrType(builder.getContext());
-            if (callee->getReturnType() == tensor_type) {
-              tensor_ptrs.insert(call);
-              last_use[call] = &inst;
-            }
-          }
-        }
-      }
-      // Remove from tracking if already deleted
-      // NOTE: this case is when we the newed tensor is from host ir allocate node,
-      // naturally, we should have corresponding deallocate node, which is a delete to this tensor pointer.
-      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
-        if (auto* callee = call->getCalledFunction()) {
-          if (callee->getName() == llvm::StringRef(kDeleteTensorFuncName)) {
-            llvm::Value* arg = call->getArgOperand(0);
-            tensor_ptrs.erase(arg);
-            last_use.erase(arg);
-          }
-        }
-      }
-    }
-  }
-
-  // Second pass: find last use of each tensor using LLVM's getUses()
-  for (llvm::Value* tensor : tensor_ptrs) {
-    for (const llvm::Use& use : tensor->uses()) {
-      if (auto* inst = llvm::dyn_cast<llvm::Instruction>(use.getUser())) {
-        // Update last use if this instruction comes after current last use
-        auto it = last_use.find(tensor);
-        if (it == last_use.end() || inst->comesBefore(it->second)) {
-          last_use[tensor] = inst;
-        }
-      }
-    }
-  }
-
-  // Third pass: insert delete_tensor after last use (unless output)
-  for (const auto& [tensor, inst] : last_use) {
-    // Check if tensor is stored to output array (skip deletion for outputs)
-    bool is_output = false;
-    for (const llvm::Use& use : tensor->uses()) {
-      if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(use.getUser())) {
-        const llvm::Value* ptr = store->getPointerOperand();
-        if (ptr->hasName() && ptr->getName().contains(kMainFuncOutputTensorName)) {
-          is_output = true;
-          break;
-        }
-      }
-    }
-
-    if (!is_output) {
-      // Insert delete instruction after the last use
-      builder.SetInsertPoint(inst->getNextNode());
-      builder.CreateCall(delete_tensor_func, {tensor});
-    }
   }
 }
 
@@ -800,9 +716,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
 
-  // NOTE: this is just a simple example of allocate a output tensor and set it
-  // to input tensor. The whole concept is to demonstrate llvm jit works, we
-  // will change this in the future LoadStoreOp Function LLVM IR Generation
+  // LoadStoreOp Function LLVM IR Generation
   void handle(LoadStoreOp* load_store_op) final {
     NVF_ERROR(
         load_store_op->opType() == LoadStoreOpType::Set ||
@@ -847,10 +761,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
       llvm::Value* perm_ptr = builder_.CreateBitCast(perm_array, int64_ptr_type);
       llvm::Value* perm_size = builder_.getInt64(permutation.value().size());
       if(out_tensor != nullptr) {
-        builder_.CreateCall(permute_out_func, {out_tensor, in_tensor, perm_ptr, perm_size}, "permute_in_place");
+        builder_.CreateCall(permute_out_func, {out_tensor, in_tensor, perm_ptr, perm_size});
         return;
       }
-      out_tensor = builder_.CreateCall(permute_out_func, {in_tensor, perm_ptr, perm_size}, "permute_new");
+      out_tensor = builder_.CreateCall(permute_out_func, {in_tensor, perm_ptr, perm_size}, "permute");
       val_to_value_[out_tv] = out_tensor;
       return;
     }
@@ -872,12 +786,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     if(out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(
-          module->getFunction(kMatmulOutFuncName), {out, a, b}, "matmul_in_place");
+          module->getFunction(kMatmulOutFuncName), {out, a, b});
       return;
     }
     // Output tensor doesn't exist, use matmul which returns a new tensor
     out = builder_.CreateCall(
-        module->getFunction(kMatmulFuncName), {a, b}, "matmul_new");
+        module->getFunction(kMatmulFuncName), {a, b}, "matmul");
     val_to_value_[matmul_op->out()] = out;
   }
 
@@ -905,13 +819,13 @@ class HostIrCompileDispatcher : public OptInDispatch {
       // Output tensor exists, use linear_out
       builder_.CreateCall(
           module->getFunction(kLinearOutFuncName),
-          {out, in, weight, bias}, "linear_in_place");
+          {out, in, weight, bias});
       return;
     } 
     // Output tensor doesn't exist, use linear which returns a new tensor
     out = builder_.CreateCall(
         module->getFunction(kLinearFuncName),
-        {in, weight, bias}, "linear_new");
+        {in, weight, bias}, "linear");
     val_to_value_[linear_op->out()] = out;
   }
 
@@ -1141,8 +1055,6 @@ void HostIrJitImpl::compile() {
 
   // compile outputs in llvm ir
   packOutputs(container_.get(), builder, val_to_value);
-
-  insertDeleteTensors(builder);
 
   // verify the module
   std::string error;
