@@ -558,4 +558,3 @@ Several operations in nvFuser include implicit synchronization or memory fences:
 - Various other environment variables control sync behavior and debugging
 
 This comprehensive sync system ensures correct execution across all nvFuser kernels while maintaining high performance through optimized implementations and strategic placement.
-
