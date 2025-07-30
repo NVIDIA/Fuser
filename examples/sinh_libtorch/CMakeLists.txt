@@ -15,4 +15,4 @@ add_executable(sinh_example main.cpp)
 target_link_libraries(sinh_example "-Wl,-no-as-needed ${TORCH_INSTALL_PREFIX}/lib/libc10_cuda.so")
 
 target_link_libraries(sinh_example ${TORCH_LIBRARIES})
-target_link_libraries(sinh_example nvfuser_codegen nvf_cutlass)
+target_link_libraries(sinh_example nvfuser_codegen)
