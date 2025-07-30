@@ -6373,14 +6373,14 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
 }
 
 TEST_F(IndexingTest, BlockScalingFactor) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion();
+  FusionGuard fg(fusion.get());
 
   // m, k
   auto tv0 = makeContigConcreteTensor({256, 32});
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
   auto tv1 = set(tv0);
-  fusion.addOutput(tv1);
+  fusion->addOutput(tv1);
 
   // m/32, 32, k
   tv1->split(0, 128);
@@ -6390,7 +6390,7 @@ TEST_F(IndexingTest, BlockScalingFactor) {
   tv1->split(3, 4);
   // m/32/4, k/4, 32, 4(m), 4(k)
   std::vector<IterDomain*> tv1_alloc{tv1->axis(0),tv1->axis(3),tv1->axis(2),tv1->axis(1),tv1->axis(4)};
-  tv1->setAllocationDomain(tv1_alloc);
+  tv1->setAllocationDomain(tv1_alloc, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({256, 32}, options);
