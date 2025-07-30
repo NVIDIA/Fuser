@@ -77,7 +77,7 @@ setup(
             # Assumes you have a Python package directory named 'nvfuser_extension'
             pkg="nvfuser_extension",
             include_dirs=[nvfuser_csrc_dir, dynamic_type_dir, flatbuffers_dir],
-            libraries=["nvfuser_codegen"],
+            libraries=["nvfuser_codegen", "nvf_cutlass"],
             library_dirs=[nvfuser_lib_dir],
             extra_link_args=[f"-Wl,-rpath,{nvfuser_lib_dir}"],
             sources=["main.cpp"],
