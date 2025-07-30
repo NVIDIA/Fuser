@@ -49,7 +49,7 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 - **LoadWarp**: Handles TMA loads for operands (first async warp)
 - **MmaWarp**: Handles tcgen05 utcmma operations (second async warp)
 - **EpilogueWarpGroups**: Handle epilogue computations only
-- **Circular Buffer Tensors**: 
+- **Circular Buffer Tensors**:
   - Operand circular buffer tensors (A and B) - populated by LoadWarp, consumed by MmaWarp
   - MMA result circular buffer tensor - populated by MmaWarp, consumed by EpilogueWarpGroups
 - **Synchronization**: Extended mbarriers for three-way synchronization:
@@ -324,4 +324,4 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ## Conclusion
 
-This plan provides a comprehensive approach to extending nvFuser's circular buffering support for multi-role warp specialization in Blackwell MMA operations. The implementation will maintain backward compatibility while enabling the performance benefits of the new architecture. The phased approach allows for incremental development and testing, reducing risk and ensuring quality. 
+This plan provides a comprehensive approach to extending nvFuser's circular buffering support for multi-role warp specialization in Blackwell MMA operations. The implementation will maintain backward compatibility while enabling the performance benefits of the new architecture. The phased approach allows for incremental development and testing, reducing risk and ensuring quality
