@@ -46,6 +46,41 @@ size_t Fusion::hash() const {
   return hash;
 }
 
+bool Fusion::checkDefinition(const Fusion& other) const {
+  // Check if the inputs are the same
+  if (inputs().size() != other.inputs().size()) {
+    return false;
+  }
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->sameAs(other_input)) {
+      return false;
+    }
+  }
+
+  // Check if the outputs are the same
+  if (outputs().size() != other.outputs().size()) {
+    return false;
+  }
+  for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
+    if (!output->sameAs(other_output)) {
+      return false;
+    }
+  }
+
+  // Check if the expressions are the same
+  std::vector<Expr*> this_exprs = exprs();
+  std::vector<Expr*> other_exprs = other.exprs();
+  if (this_exprs.size() != other_exprs.size()) {
+    return false;
+  }
+  for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
+    if (!expr->sameAs(other_expr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
