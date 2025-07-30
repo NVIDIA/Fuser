@@ -862,23 +862,33 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // Convert input TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> input_tensors;
-    for (auto* tv : launch_kernel->inputs()) {
-      llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
-      NVF_ERROR(tensor != nullptr, "tensor is nullptr");
-      input_tensors.push_back(tensor);
+    for (auto* in : launch_kernel->inputs()) {
+      if(auto* tv = in->as<TensorView>()) {
+        llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+        NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+        input_tensors.push_back(tensor);
+      }
+      else {
+        input_tensors.push_back(getOrCreateValue(in, val_to_value_, builder_));
+      }
     }
 
     // Convert output TensorViews to void pointers and get tensor pointers
     llvm::SmallVector<llvm::Value*, 1> output_tensors;
-    for (auto* tv : launch_kernel->outputs()) {
-      llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
-      NVF_ERROR(tensor != nullptr, "tensor is nullptr");
-      output_tensors.push_back(tensor);
+    for (auto* out : launch_kernel->outputs()) {
+      if(auto* tv = out->as<TensorView>()) {
+        llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+        NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+        output_tensors.push_back(tensor);
+      }
+      else {
+        output_tensors.push_back(getOrCreateValue(out, val_to_value_, builder_));
+      }
     }
 
     // Get the cacheId from the main function's first argument
     llvm::Value* cache_id_arg =
-        getValueForTensor(launch_kernel->cacheId(), val_to_value_, builder_);
+        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
 
     // Create arrays to hold tensor pointers
     auto* input_array_type =
@@ -1267,6 +1277,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       matmul_func_ptr, name_to_symbol, mangler, kMatmulFuncName);
   registerExternalFunction(
       linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
+  registerExternalFunction(
+      linear_func_ptr, name_to_symbol, mangler, kLinearFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
