@@ -11,7 +11,6 @@
 #include <torch/torch.h>
 
 #include <exceptions.h>
-#include <hash.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ops/all_ops.h>
@@ -34,7 +33,9 @@ TEST_F(NVFuserTest, FusionHash_CUDA) {
   auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
   fusion.addOutput(tv1);
 
-  std::cout << "Fusion hash: " << hash(fusion_ptr.get()) << std::endl;
+  size_t first_hash = fusion.hash();
+  NVF_ERROR(first_hash != 0, "Fusion hash is 0");
+  NVF_ERROR(first_hash == fusion.hash(), "Fusion hash is not stable");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

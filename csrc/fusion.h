@@ -149,6 +149,9 @@ class NVF_API Fusion : public IrContainer {
 
   void clear() noexcept;
 
+  // Hash the fusion. This is used to identify the fusion in the cache.
+  size_t hash() const;
+
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
   void removeExpr(Expr* expr) override;

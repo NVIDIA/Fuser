@@ -29,6 +29,23 @@
 
 namespace nvfuser {
 
+size_t Fusion::hash() const {
+  size_t hash = 0;
+
+  for (const Val* val : inputs()) {
+    hashCombine(hash, val->hash());
+  }
+
+  for (const Expr* expr : exprs()) {
+    hashCombine(hash, expr->hash());
+  }
+
+  for (const Val* val : outputs()) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
