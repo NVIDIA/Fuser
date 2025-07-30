@@ -105,6 +105,89 @@ namespace {
       DOCSTRING,                                                               \
       py::return_value_policy::reference);
 
+#define NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP(NAME, OP_NAME, DOCSTRING)     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+        return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
+
+#define NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP(NAME, OP_NAME, DOCSTRING) \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3, Val* arg4) -> Val* {                 \
+        return static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(OP_NAME)(         \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)      \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>(     \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, TensorView* arg2, Val* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(OP_NAME)(   \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, TensorView* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(OP_NAME)(   \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, TensorView* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
+
 #define NVFUSER_DIRECT_BINDING_REDUCTION_OP(NAME, OP_NAME, DOCSTRING)   \
   ops.def(                                                              \
       NAME,                                                             \
@@ -1395,6 +1478,53 @@ Returns
 -------
 Val or TensorView
     Elements from x if condition is True, otherwise elements from y.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("clamp", clamp, R"(
+Clamps all elements in input into the range [ min, max ]
+
+Parameters
+----------
+input : Val or TensorView
+min : Val or TensorView
+max : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Clamped values.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("threshold", threshold, R"(
+Thresholds each element of the input Tensor.
+
+Parameters
+----------
+input : Val or TensorView
+threshold : Val or TensorView
+value : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Thresholded values.
+)")
+
+  NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP("addcmul", addcmul, R"(
+Element-wise multiplication of input1 and input2,
+then adds alpha * input3 to the result.
+
+Parameters
+----------
+input1 : Val or TensorView
+input2 : Val or TensorView
+input3 : Val or TensorView
+alpha : Val
+
+Returns
+-------
+Val or TensorView
+    The result of the element-wise multiplication and addition.
 )")
 }
 

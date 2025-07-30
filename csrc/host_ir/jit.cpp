@@ -42,7 +42,8 @@
 
 namespace nvfuser {
 
-using main_func_t = void (*)(const void**, void**);
+// cacheId, inputTensors, outputTensors
+using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
@@ -53,6 +54,9 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
+constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
+constexpr std::string_view kMatmulOutFuncName = "matmul_out";
+constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr size_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
@@ -444,9 +448,31 @@ void unpackInputs(
 
   insertNvtxRangePush("unpackInputs", builder);
 
-  // Get the current function (main) and its first argument
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(0);
+
+  // Get the cacheId from the main function's first argument
+  llvm::Value* cache_id = func->getArg(0);
+  // NOTE: Currently we can only grab cacheId by traversing all vals
+  // In the future we should add a cacheId to the host ir container or fusion
+  bool found_cache_id = false;
+  Val* cache_id_val = nullptr;
+  for (Val* val : container->deterministic_vals()) {
+    if (auto* named_scalar = dynamic_cast<NamedScalar*>(val)) {
+      if (named_scalar->name() == "cacheId") {
+        if (found_cache_id) {
+          NVF_ERROR(
+              named_scalar != cache_id_val,
+              "cacheId is not the first deterministic val");
+        }
+        cache_id_val = named_scalar;
+        val_to_value[cache_id_val] = cache_id;
+        found_cache_id = true;
+      }
+    }
+  }
+
+  // Get the current function (main) and its input tensor array
+  llvm::Value* aten_tensor_array = func->getArg(1);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   llvm::Type* tensor_type = getTensorPtrType(context);
@@ -490,9 +516,9 @@ void packOutputs(
     std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   llvm::LLVMContext& context = builder.getContext();
   insertNvtxRangePush("packOutputs", builder);
-  // Get the current function (main) and its second argument
+  // Get the current function (main) and its output tensor array
   llvm::Function* func = builder.GetInsertBlock()->getParent();
-  llvm::Value* aten_tensor_array = func->getArg(1);
+  llvm::Value* aten_tensor_array = func->getArg(2);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
   // Store output tensor pointers from val_to_value into the output array
@@ -599,9 +625,48 @@ void compileFunctionDeclarations(
       kNvtxRangePopFuncName,
       module);
 
+  // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
+  // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
+  // num_outputs, void* launchKernel, void* hostIrContainer)
+  auto* launch_kernel_type = llvm::FunctionType::get(
+      void_type,
+      {int64_type,
+       tensor_type->getPointerTo(),
+       int64_type,
+       tensor_type->getPointerTo(),
+       int64_type,
+       void_ptr_type,
+       void_ptr_type},
+      false);
+  llvm::Function::Create(
+      launch_kernel_type,
+      llvm::Function::ExternalLinkage,
+      kLaunchKernelFuncName,
+      module);
+
+  // matmul_out function: void matmul_out(at::Tensor* out, at::Tensor* a,
+  // at::Tensor* b)
+  auto* matmul_out_type = llvm::FunctionType::get(
+      void_type, {tensor_type, tensor_type, tensor_type}, false);
+  llvm::Function::Create(
+      matmul_out_type,
+      llvm::Function::ExternalLinkage,
+      kMatmulOutFuncName,
+      module);
+
+  // linear_out function: void linear_out(at::Tensor* out, at::Tensor* in,
+  // at::Tensor* weight, at::Tensor* bias = nullptr)
+  auto* linear_out_type = llvm::FunctionType::get(
+      void_type, {tensor_type, tensor_type, tensor_type, tensor_type}, false);
+  llvm::Function::Create(
+      linear_out_type,
+      llvm::Function::ExternalLinkage,
+      kLinearOutFuncName,
+      module);
+
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
-      void_type, {void_array_ptr_type, void_array_ptr_type}, false);
+      void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 }
@@ -611,8 +676,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
       llvm::IRBuilder<>& builder,
-      std::unordered_map<Val*, llvm::Value*>& val_to_value)
-      : builder_(builder), val_to_value_(val_to_value) {}
+      std::unordered_map<Val*, llvm::Value*>& val_to_value,
+      hir::HostIrContainer* container)
+      : builder_(builder), val_to_value_(val_to_value), container_(container) {}
   using OptInDispatch::handle;
 
   // NOTE: this is just a simple example of allocate a output tensor and set it
@@ -642,6 +708,125 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // Bind the output tensor to val_to_value
     val_to_value_[out_tv] = out_tensor;
+  }
+
+  void handle(MatmulOp* matmul_op) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+
+    llvm::Value* t_a =
+        getOrCreateValue(matmul_op->inA(), val_to_value_, builder_);
+    llvm::Value* t_b =
+        getOrCreateValue(matmul_op->inB(), val_to_value_, builder_);
+    llvm::Value* t_out =
+        getOrCreateValue(matmul_op->out(), val_to_value_, builder_);
+
+    builder_.CreateCall(
+        module->getFunction(kMatmulOutFuncName), {t_out, t_a, t_b});
+    val_to_value_[matmul_op->out()] = t_out;
+  }
+
+  void handle(LinearOp* linear_op) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
+
+    llvm::Value* t_in =
+        getOrCreateValue(linear_op->inA(), val_to_value_, builder_);
+    llvm::Value* t_weight =
+        getOrCreateValue(linear_op->inB(), val_to_value_, builder_);
+    llvm::Value* t_out =
+        getOrCreateValue(linear_op->out(), val_to_value_, builder_);
+
+    llvm::Value* t_bias = nullptr;
+    if (linear_op->hasBias()) {
+      t_bias = getOrCreateValue(linear_op->bias(), val_to_value_, builder_);
+    } else {
+      // Create a proper null pointer for LLVM
+      auto* tensor_type = getTensorPtrType(context);
+      t_bias = llvm::ConstantPointerNull::get(
+          llvm::cast<llvm::PointerType>(tensor_type));
+    }
+    builder_.CreateCall(
+        module->getFunction(kLinearOutFuncName),
+        {t_out, t_in, t_weight, t_bias});
+    val_to_value_[linear_op->out()] = t_out;
+  }
+
+  // Launch Kernel Function LLVM IR Generation
+  void handle(hir::LaunchKernel* launch_kernel) final {
+    llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
+    llvm::LLVMContext& context = builder_.getContext();
+    auto* void_ptr_type = getInt8PtrType(context);
+    auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
+
+    // Convert input TensorViews to void pointers and get tensor pointers
+    llvm::SmallVector<llvm::Value*, 1> input_tensors;
+    for (auto* tv : launch_kernel->inputs()) {
+      input_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
+    }
+
+    // Convert output TensorViews to void pointers and get tensor pointers
+    llvm::SmallVector<llvm::Value*, 1> output_tensors;
+    for (auto* tv : launch_kernel->outputs()) {
+      output_tensors.push_back(getOrCreateValue(tv, val_to_value_, builder_));
+    }
+
+    // Get the cacheId from the main function's first argument
+    llvm::Value* cache_id_arg =
+        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+
+    // Create arrays to hold tensor pointers
+    auto* input_array_type =
+        getInt8PtrStaticArrayType(context, input_tensors.size());
+    auto* output_array_type =
+        getInt8PtrStaticArrayType(context, output_tensors.size());
+
+    llvm::Value* input_array = builder_.CreateAlloca(
+        input_array_type, nullptr, "launch_kernel_inputs");
+    llvm::Value* output_array = builder_.CreateAlloca(
+        output_array_type, nullptr, "launch_kernel_outputs");
+
+    for (size_t i = 0; i < input_tensors.size(); ++i) {
+      llvm::Value* gep = builder_.CreateInBoundsGEP(
+          input_array_type,
+          input_array,
+          {builder_.getInt32(0), builder_.getInt32(i)});
+      builder_.CreateStore(input_tensors[i], gep);
+    }
+
+    for (size_t i = 0; i < output_tensors.size(); ++i) {
+      llvm::Value* gep = builder_.CreateInBoundsGEP(
+          output_array_type,
+          output_array,
+          {builder_.getInt32(0), builder_.getInt32(i)});
+      builder_.CreateStore(output_tensors[i], gep);
+    }
+
+    llvm::Value* input_array_ptr =
+        builder_.CreateBitCast(input_array, void_array_ptr_type);
+    llvm::Value* output_array_ptr =
+        builder_.CreateBitCast(output_array, void_array_ptr_type);
+
+    llvm::Value* num_inputs_constant = builder_.getInt64(input_tensors.size());
+    llvm::Value* num_outputs_constant =
+        builder_.getInt64(output_tensors.size());
+
+    llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
+        void_ptr_type);
+
+    llvm::Value* container_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
+        void_ptr_type);
+
+    builder_.CreateCall(
+        module->getFunction(kLaunchKernelFuncName),
+        {cache_id_arg,
+         input_array_ptr,
+         num_inputs_constant,
+         output_array_ptr,
+         num_outputs_constant,
+         launch_kernel_ptr,
+         container_ptr});
   }
 
   // Create Function LLVM IR Generation
@@ -743,6 +928,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
+  hir::HostIrContainer* container_;
 };
 
 void HostIrJitImpl::compile() {
@@ -764,7 +950,7 @@ void HostIrJitImpl::compile() {
 
   // compile inputs in llvm ir
   unpackInputs(container_.get(), builder, val_to_value);
-  HostIrCompileDispatcher dispatcher(builder, val_to_value);
+  HostIrCompileDispatcher dispatcher(builder, val_to_value, container_.get());
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     insertNvtxRangePush(expr->getOpString(), builder);
@@ -849,6 +1035,10 @@ void HostIrJitImpl::registerExternalFunctions() {
         *out = in->clone(); // Clone the input tensor
       });
 
+  // delete a newed tensor
+  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* tensor) -> void { delete tensor; });
+
   // at::native::empty_strided_cuda
   void* empty_strided_cuda_func_ptr =
       reinterpret_cast<void*>(+[](const int64_t* sizes,
@@ -872,10 +1062,53 @@ void HostIrJitImpl::registerExternalFunctions() {
             c10::nullopt);
       });
 
-  // delete a newed tensor
-  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor) -> void { delete tensor; });
+  // launch kernel function
+  void* launch_kernel_func_ptr =
+      reinterpret_cast<void*>(+[](int64_t cache_id,
+                                  at::Tensor** input_tensors,
+                                  int64_t num_inputs,
+                                  at::Tensor** output_tensors,
+                                  int64_t num_outputs,
+                                  void* launch_kernel,
+                                  void* container) {
+        auto* launch_kernel_ptr =
+            static_cast<hir::LaunchKernel*>(launch_kernel);
+        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
+        KernelArgumentHolder input_args, output_args;
+        input_args.setCacheId(cache_id);
 
+        for (int64_t i = 0; i < num_inputs; i++) {
+          input_args.push(*input_tensors[i]);
+        }
+        for (int64_t i = 0; i < num_outputs; i++) {
+          output_args.push(*output_tensors[i]);
+        }
+        input_args.setDeviceIndex();
+        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
+            ->run(
+                input_args,
+                output_args,
+                launch_kernel_ptr->launchParams(),
+                launch_kernel_ptr->compileParams());
+      });
+
+  // matmul_out function
+  void* matmul_out_func_ptr = reinterpret_cast<void*>(
+      +[](at::Tensor* t_out, at::Tensor* t_a, at::Tensor* t_b) {
+        at::matmul_out(*t_out, *t_a, *t_b);
+      });
+
+  // linear_out function
+  void* linear_out_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* out,
+                                                          at::Tensor* in,
+                                                          at::Tensor* weight,
+                                                          at::Tensor* bias) {
+    std::optional<at::Tensor> bias_opt = std::nullopt;
+    if (bias != nullptr) {
+      bias_opt = *bias;
+    }
+    at::linear_out(*out, *in, *weight, bias_opt);
+  });
   // insert fuser perf scope
   void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
       +[](const char* name) -> void { nvtxRangePush(name); });
@@ -913,6 +1146,12 @@ void HostIrJitImpl::registerExternalFunctions() {
       kNvtxRangePushFuncName);
   registerExternalFunction(
       nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
+  registerExternalFunction(
+      launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
+  registerExternalFunction(
+      matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
+  registerExternalFunction(
+      linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
@@ -924,6 +1163,7 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
   NVF_ERROR(args.getCacheId().has_value(), "Cache ID is not set");
   NVF_ERROR_EQ(std::ssize(container_->inputs()), args.size());
 
+  std::unordered_set<const at::Tensor*> preserved_tensors;
   std::vector<const void*> input_aten_tensors;
   // Bind the inputs to the tensor map
   for (auto [in_val, arg] : zip(container_->inputs(), args)) {
@@ -933,12 +1173,17 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
         arg,
         " for input ",
         in_val);
-    input_aten_tensors.push_back(&arg.as<at::Tensor>());
+    const at::Tensor* aten_tensor = &arg.as<at::Tensor>();
+    preserved_tensors.insert(aten_tensor);
+    input_aten_tensors.push_back(aten_tensor);
   }
 
   // Run the main function
   std::vector<void*> output_aten_tensors(container_->outputs().size());
-  main_func_(input_aten_tensors.data(), output_aten_tensors.data());
+  main_func_(
+      args.getCacheId().value(),
+      input_aten_tensors.data(),
+      output_aten_tensors.data());
 
   // Collect the outputs
   KernelArgumentHolder outputs;
@@ -954,7 +1199,9 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
     at::Tensor* aten_tensor = static_cast<at::Tensor*>(tensor);
     outputs.push(*aten_tensor);
     // Clean up the individual tensor object (not the array)
-    delete aten_tensor;
+    if (preserved_tensors.find(aten_tensor) == preserved_tensors.end()) {
+      delete aten_tensor;
+    }
   }
   // Note: output_aten_tensors points to a global array managed by JIT, don't
   // delete the array itself

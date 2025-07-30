@@ -6347,7 +6347,7 @@ std::string ScanOp::toString(int indent_size) const {
   indent(ss, indent_size) << out()->toString();
   ss << "\n";
   indent(ss, indent_size + 1) << " = scan(" << in()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << dim() << ",\n";
   indent(ss, indent_size + 1) << "        op_type=" << opType() << ",\n";
   indent(ss, indent_size + 1)
       << "        init=" << init()->toInlineString() << ")\n";
@@ -6368,16 +6368,16 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
   at::Tensor out;
   switch (opType()) {
     case BinaryOpType::Add:
-      out = at::cumsum(input, scanDim());
+      out = at::cumsum(input, dim());
       break;
     case BinaryOpType::Max:
-      out = std::get<0>(at::cummax(input, scanDim()));
+      out = std::get<0>(at::cummax(input, dim()));
       break;
     case BinaryOpType::Min:
-      out = std::get<0>(at::cummin(input, scanDim()));
+      out = std::get<0>(at::cummin(input, dim()));
       break;
     case BinaryOpType::Mul:
-      out = at::cumprod(input, scanDim());
+      out = at::cumprod(input, dim());
       break;
     default:
       NVF_THROW("Unhandled opType() ", opType());
