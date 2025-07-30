@@ -1602,12 +1602,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& parallel_dimension_map =
         kernel_->summary().parallel_dimension_map;
 
-    // ScanOp has single output
-    NVF_ERROR(scan->out()->isA<kir::TensorIndex>());
     const auto output = scan->out()->as<kir::TensorIndex>();
     const auto input = scan->in()->as<kir::TensorIndex>();
 
     // The runtime device function assumes both input and output are
+    // in registers
     NVF_ERROR_EQ(input->view()->getMemoryType(), MemoryType::Local);
     NVF_ERROR_EQ(output->view()->getMemoryType(), MemoryType::Local);
 
@@ -1624,7 +1623,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       auto pt_extent = parallel_dimension_map.get(pt);
       NVF_ERROR(
           pt_extent->isConstInt(),
-          "Scan only supports constant dimension for now: ",
+          "Scan only supports constant block dimension for now: ",
           pt_extent->toInlineString());
       template_args.arg(pt_extent->evaluate().as<int64_t>()); // BLOCK_DIM
     }
