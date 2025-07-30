@@ -1360,7 +1360,9 @@ void validateScatter(Fusion* fusion) {
     NVF_ERROR_EQ(in_tv->getMemoryType(), out_tv->getMemoryType());
     NVF_ERROR_EQ(in_tv->getDeviceMesh(), out_tv->getDeviceMesh());
 
-    // Assumes both input and output have set allocation domains
+    // To avoid making the inference of the allocation domain further
+    // convoluted, both non-global input and output must have
+    // explicitly set allocation domains
     NVF_ERROR(
         in_tv->getMemoryType() == MemoryType::Global || in_tv->hasAllocation(),
         "Non-global scatter input must have an allocation domain");
@@ -1396,6 +1398,13 @@ void validateScatter(Fusion* fusion) {
     NVF_ERROR(
         !in_tv->isFusionInput(),
         "Scatter with fusion input not supported: ",
+        in_tv->toString());
+
+    // Fusion output as scatter input is not allowed since aliasing is
+    // not possible between the input and output of the scatter
+    NVF_ERROR(
+        !in_tv->isFusionOutput(),
+        "Scatter with fusion output not allowed: ",
         in_tv->toString());
 
     // If the scatter output is a fusion output, aliasing to a fusion

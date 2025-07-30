@@ -40,16 +40,19 @@ TensorView* scatterOp(
     TensorView* index,
     TensorView* src);
 
-// Provides torch.scatter. It is semantically ouf-of-place, i.e., the
-// returned tensor, out_tv, is defined as follows:
+// Provides torch.scatter. It is designed to represent the ouf-of-place
+// scatter operation, i.e., the returned tensor, out_tv, is defined as
+// follows:
 //
-// out_tv = self
+// out_tv = self.clone();
 // for (auto i: enumerate(index.size()) {
 //   out_tv[index[i]] = src[i]
 // }
 //
-// Internally, though, it may be implemented as an in-place op
-// whenever possible.
+// Thus, in principle, it should be legal to use the self tensor with a
+// different operation, and that should still use the original self
+// tensor. However, it is currently only supported when it is the
+// only use of the self tensor due to an implementation limitation.
 NVF_API TensorView* scatter(
     TensorView* self,
     int64_t dim,
