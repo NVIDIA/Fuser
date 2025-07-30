@@ -806,26 +806,57 @@ class HostIrCompileDispatcher : public OptInDispatch {
         load_store_op->opType() == LoadStoreOpType::Set ||
         load_store_op->opType() == LoadStoreOpType::SegmenterSet);
     NVF_ERROR(
-        load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-    auto* in_tv = load_store_op->in()->as<Val>();
-    auto* out_tv = load_store_op->out()->as<Val>();
-    auto it = val_to_value_.find(in_tv);
-    NVF_ERROR(
-        it != val_to_value_.end(), "input tensor is not found in val_to_value");
+    load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+    TensorView* in_tv = load_store_op->in()->as<TensorView>();
+    TensorView* out_tv = load_store_op->out()->as<TensorView>();
+    llvm::Value* in_tensor = getValueForTensor(in_tv, val_to_value_, builder_);
+    NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
+    // we assume all output tensors are already created, either through new or allocated
+    llvm::Value* out_tensor = getValueForTensor(out_tv, val_to_value_, builder_);
+
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
-    llvm::Value* in_tensor = it->second;
-    // Create a new tensor
-    llvm::Function* new_tensor_func = module->getFunction(kNewTensorFuncName);
-    llvm::Value* out_tensor =
-        builder_.CreateCall(new_tensor_func, {}, "out_tensor");
+    llvm::LLVMContext& context = builder_.getContext();
+  
+    if (out_tv->hasRoot()) {
+      std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              out_tv->getRootDomain(), out_tv->getLogicalDomain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The logical domain of a Set.Permute is supposed to be a permutation"
+          " of the root domain: ",
+          out_tv);
 
-    // Set the output tensor to the input tensor
-    llvm::Function* set_tensor_func = module->getFunction(kSetTensorFuncName);
+      llvm::Function* permute_out_func =
+          module->getFunction(kPermuteOutFuncName);
+      
+      // Create array of permutation values
+      llvm::ArrayType* perm_array_type = getInt64StaticArrayType(context, permutation.value().size());
+      llvm::Value* perm_array = builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
+
+      for (size_t i = 0; i < permutation.value().size(); ++i) {
+        llvm::Value* gep = builder_.CreateInBoundsGEP(
+            perm_array_type, perm_array, 
+            {builder_.getInt32(0), builder_.getInt32(i)});
+        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+      }
+      
+      llvm::Type* int64_ptr_type = getInt64PtrType(context);
+      llvm::Value* perm_ptr = builder_.CreateBitCast(perm_array, int64_ptr_type);
+      llvm::Value* perm_size = builder_.getInt64(permutation.value().size());
+      if(out_tensor != nullptr) {
+        builder_.CreateCall(permute_out_func, {out_tensor, in_tensor, perm_ptr, perm_size}, "permute_in_place");
+        return;
+      }
+      out_tensor = builder_.CreateCall(permute_out_func, {in_tensor, perm_ptr, perm_size}, "permute_new");
+      val_to_value_[out_tv] = out_tensor;
+      return;
+    }
+    llvm::Function* set_tensor_func =
+        module->getFunction(kSetTensorFuncName);
     builder_.CreateCall(set_tensor_func, {out_tensor, in_tensor});
-
-    // Bind the output tensor to val_to_value
-    val_to_value_[out_tv] = out_tensor;
   }
+
 
   void handle(MatmulOp* matmul_op) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
@@ -839,14 +870,13 @@ class HostIrCompileDispatcher : public OptInDispatch {
     if(out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(
-          module->getFunction(kMatmulOutFuncName), {out, a, b});
-      val_to_value_[matmul_op->out()] = out;
-    } else {
-      // Output tensor doesn't exist, use matmul which returns a new tensor
-      out = builder_.CreateCall(
-          module->getFunction(kMatmulFuncName), {a, b}, "matmul_out");
-      val_to_value_[matmul_op->out()] = out;
+          module->getFunction(kMatmulOutFuncName), {out, a, b}, "matmul_in_place");
+      return;
     }
+    // Output tensor doesn't exist, use matmul which returns a new tensor
+    out = builder_.CreateCall(
+        module->getFunction(kMatmulFuncName), {a, b}, "matmul_new");
+    val_to_value_[matmul_op->out()] = out;
   }
 
   void handle(LinearOp* linear_op) final {
@@ -873,15 +903,14 @@ class HostIrCompileDispatcher : public OptInDispatch {
       // Output tensor exists, use linear_out
       builder_.CreateCall(
           module->getFunction(kLinearOutFuncName),
-          {out, in, weight, bias});
-      val_to_value_[linear_op->out()] = out;
-    } else {
-      // Output tensor doesn't exist, use linear which returns a new tensor
-      out = builder_.CreateCall(
-          module->getFunction(kLinearFuncName),
-          {in, weight, bias}, "linear_out");
-      val_to_value_[linear_op->out()] = out;
-    }
+          {out, in, weight, bias}, "linear_in_place");
+      return;
+    } 
+    // Output tensor doesn't exist, use linear which returns a new tensor
+    out = builder_.CreateCall(
+        module->getFunction(kLinearFuncName),
+        {in, weight, bias}, "linear_new");
+    val_to_value_[linear_op->out()] = out;
   }
 
   // Launch Kernel Function LLVM IR Generation
@@ -1252,7 +1281,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         return new at::Tensor(at::matmul(*a, *b));
       });
 
-  // linear_out function
+  // linear function in place
   void* linear_out_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* out,
                                                           at::Tensor* in,
                                                           at::Tensor* weight,
@@ -1264,12 +1293,32 @@ void HostIrJitImpl::registerExternalFunctions() {
     at::linear_out(*out, *in, *weight, bias_opt);
   });
 
-    // linear function
+  // linear function a nd return a new tensor
   void* linear_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* in,
                                                            at::Tensor* weight,
                                                            at::Tensor* bias) -> at::Tensor* {
-    return new at::Tensor(at::linear(*in, *weight, bias));
+    std::optional<at::Tensor> bias_opt = std::nullopt;
+    if (bias != nullptr) {
+      bias_opt = *bias;
+    }
+    return new at::Tensor(at::linear(*in, *weight, bias_opt));
   });
+
+  // permute a tensor in place
+  void* permute_out_func_ptr = reinterpret_cast<void*>(
+  +[](at::Tensor* out, at::Tensor* in, const int64_t* permutation, int64_t perm_size) -> void {
+      // Convert pointer to vector for permute function
+      std::vector<int64_t> perm_vec(permutation, permutation + perm_size);
+      out->copy_(in->permute(perm_vec), /*non_blocking=*/true);
+  });
+
+  // permute a tensor and return a new tensor
+  void* permute_func_ptr = reinterpret_cast<void*>(
+    +[](at::Tensor* in, const int64_t* permutation, int64_t perm_size) -> at::Tensor* {
+        // Convert pointer to vector for permute function
+        std::vector<int64_t> perm_vec(permutation, permutation + perm_size);
+        return new at::Tensor(in->permute(perm_vec));
+    });
 
   // insert fuser perf scope
   void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
@@ -1318,6 +1367,10 @@ void HostIrJitImpl::registerExternalFunctions() {
       linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
   registerExternalFunction(
       linear_func_ptr, name_to_symbol, mangler, kLinearFuncName);
+  registerExternalFunction(
+      permute_out_func_ptr, name_to_symbol, mangler, kPermuteOutFuncName);
+  registerExternalFunction(
+      permute_func_ptr, name_to_symbol, mangler, kPermuteFuncName);
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
