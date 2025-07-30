@@ -1887,8 +1887,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
 std::vector<Val*> Index::getGlobalConsumerStridedIndices(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
-    const std::unordered_map<int, Val*>& override_index) {
+    const std::unordered_set<ForLoop*>& rotated_loops) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getGlobalConsumerIndex");
 
   auto index_from_id_graph =
@@ -1906,10 +1905,6 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
   std::vector<Val*> strided_inds(
       alloc_inds.size(), GpuLower::current()->kernel()->zeroVal());
   for (const auto i : arange(alloc_inds.size())) {
-    auto override_it = override_index.find((int)i);
-    if (override_it != override_index.end()) {
-      alloc_inds[i] = override_it->second;
-    }
     if (alloc_inds[i]->isZeroInt()) {
       continue;
     } else {
@@ -2282,7 +2277,6 @@ Val* Index::getConsumerStridedIndices(
     TensorView* consumer,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops,
-    const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer) {
   FUSER_PERF_SCOPE("GpuLower::Lower::Index::getConsumerStridedIndices");
   if (consumer->domain()->noReductions().empty()) {
@@ -2294,8 +2288,8 @@ Val* Index::getConsumerStridedIndices(
   }
 
   if (consumer->getMemoryType() == MemoryType::Global) {
-    auto index = sumVals(getGlobalConsumerStridedIndices(
-        consumer, loops, rotated_loops, override_index));
+    auto index = sumVals(
+        getGlobalConsumerStridedIndices(consumer, loops, rotated_loops));
     if (generate_pointer) {
       return SimplifyingIrBuilder::addExpr(
           IrBuilder::baseAddressExpr(consumer), index);
@@ -2355,7 +2349,7 @@ kir::TensorIndex* Index::getConsumerIndex(
         "Overriding of consumer indexing with the legacy indexer is not "
         "supported");
     index = getConsumerStridedIndices(
-        consumer, loops, rotated_loops, {}, generate_pointer);
+        consumer, loops, rotated_loops, generate_pointer);
   }
 
   index = GpuLower::current()->commonScalarMap().hoistScalar(index, loops);
