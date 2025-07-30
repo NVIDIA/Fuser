@@ -12,7 +12,9 @@
   - [5. Indexing and Synchronization Changes](#5-indexing-and-synchronization-changes)
 - [Implementation Plan](#implementation-plan)
   - [Phase 1: Analysis and Detection](#phase-1-analysis-and-detection)
+  - [Phase 1.5: Dependency DAG Analysis](#phase-15-dependency-dag-analysis)
   - [Phase 2: Code Generation](#phase-2-code-generation)
+  - [Phase 2.5: Backward Compatibility](#phase-25-backward-compatibility)
   - [Phase 3: Synchronization](#phase-3-synchronization)
   - [Phase 4: Testing and Validation](#phase-4-testing-and-validation)
 - [Key Technical Considerations](#key-technical-considerations)
@@ -23,8 +25,6 @@
   - [Unit Tests](#unit-tests)
   - [Integration Tests](#integration-tests)
 - [Success Criteria](#success-criteria)
-- [Timeline](#timeline)
-- [Risks and Mitigation](#risks-and-mitigation)
 - [Conclusion](#conclusion)
 
 ## Overview
@@ -65,13 +65,15 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 1. **Grouping async operations and circular buffered tensors** into parts that can be computed by a single warp
 2. **Determining the producer/consumer relationships** between the async warps and the epilogue compute warps
 3. **Managing multiple circular buffer chains** that may have different synchronization requirements
+4. **Building a dependency DAG** that represents all producer/consumer relationships and deriving mbarrier semantics from the graph structure
 
 ## Key Design Changes
 
 ### 1. Scheduling Changes
 
 #### Current Behavior
-- During scheduling for Hopper, warp specialization is indicated on the output tensor of the MmaOp
+- During scheduling for Hopper, circular buffering is applied only to operand tensors in shared memory (`acw_smems_` and `bcw_smems_`)
+- The circular buffer type is determined by `getCircularBufferType()` which returns `WarpSpecialized(ParallelType::TIDy)` for warp-specialized strategy
 - Circular buffer analysis detects TMA load patterns and creates single AsyncWarp
 
 #### Required Changes
@@ -80,7 +82,7 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 - **Changes**:
   - Mark `mma_results_` for circular buffering (in addition to operands)
   - Handle potential assertion issues with circular buffered tensor definitions
-  - Note: This is a key difference from Hopper, which only circular buffers operands
+  - Note: This is a key difference from Hopper, which only circular buffers operand tensors (`acw_smems_` and `bcw_smems_`) in shared memory
 
 ### 2. Circular Buffer Analysis Changes
 
@@ -93,7 +95,7 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 - **File**: `csrc/device_lower/analysis/circular_buffer.cpp`
 - **Function**: `createAsyncWarps()`
 - **Changes**:
-  - Detect both TMA loads (`cpAsyncBulkLoad`) and Blackwell MMA (`MmaOp` with `isBlackwell()`)
+  - Find all definitions of circular buffered tensors (instead of explicitly looking for specific operation types)
   - Analyze and separate async operations into different roles:
     - `LoadAsyncWarp`: Contains TMA load operations
     - `MmaAsyncWarp`: Contains tcgen05 utcmma operations
@@ -127,10 +129,11 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 - **File**: `csrc/device_lower/pass/circular_buffer.h`
 - **Class**: `HopperPingPongMbarriers`
 - **Changes**:
-  - Extend to support four-way synchronization (load → mma → epilogue)
-  - Add third and fourth mbarriers: "result slot full" and "result slot empty" for mma → epilogue synchronization
-  - Modify `createMbarrierWait()` and `createMbarrierArrive()` for multi-role pattern
-  - Update mbarrier indexing to handle four mbarriers per slot
+  - Create general DAG-based mbarrier management system
+  - Represent async warps and compute warp groups as nodes in a dependency DAG
+  - Derive mbarrier semantics from the graph structure
+  - Support arbitrary pipeline configurations (not just 2-way or 4-way)
+  - Generate appropriate mbarriers based on producer/consumer relationships
 
 ### 5. Indexing and Synchronization Changes
 
@@ -150,7 +153,7 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ### Phase 1: Analysis and Detection
 1. **Extend AsyncWarp Detection**
-   - Modify `createAsyncWarps()` to detect Blackwell MMA operations
+   - Modify `createAsyncWarps()` to find all definitions of circular buffered tensors
    - Analyze and separate async operations into different roles (load vs mma)
    - Validate stage_slice_position compatibility
    - Create utility function to identify all async operations
@@ -161,6 +164,25 @@ This document outlines the plan to extend nvFuser's circular buffering support t
    - Validate that TMA-loaded operands feed into Blackwell MMA operations
    - Update circular buffered tensor validation to accept async operations (not just LoadStoreOp)
 
+### Phase 1.5: Dependency DAG Analysis
+1. **Group Async Operations into Warps**
+   - **Stage Slice Position Analysis**: Group operations with compatible `stage_slice_position`
+   - **Operation Type Analysis**: Separate TMA loads from MMA operations
+   - **Resource Sharing Analysis**: Ensure operations in same warp can share resources
+   - **Validation**: Verify each warp group can be executed by a single warp
+
+2. **Detect Dependencies Between Warps**
+   - **Data Flow Analysis**: Track which circular buffered tensors are consumed by which operations
+   - **Producer/Consumer Mapping**: Build dependency edges between warps based on tensor usage
+   - **Circular Buffer Chain Detection**: Identify chains of circular buffered tensors
+   - **Dependency Graph Construction**: Create DAG representing all warp dependencies
+
+3. **DAG-Based MBarrier Generation**
+   - **Graph Traversal**: Analyze DAG to determine synchronization requirements
+   - **MBarrier Allocation**: Generate appropriate mbarriers for each producer/consumer edge
+   - **Wait/Arrive Pattern Generation**: Derive synchronization patterns from graph structure
+   - **Validation**: Ensure no deadlocks and proper synchronization order
+
 ### Phase 2: Code Generation
 1. **Extend Warp Specialization Pass**
    - Modify `WarpSpecializedCircularBufferInserter` to handle multiple async warps
@@ -168,9 +190,27 @@ This document outlines the plan to extend nvFuser's circular buffering support t
    - Add register sharing management for both async warps
 
 2. **Update MBarrier Management**
-   - Extend `HopperPingPongMbarriers` for three-way synchronization
-   - Add third and fourth mbarriers ("result slot full" and "result slot empty") allocation and management
-   - Update mbarrier indexing to handle four mbarriers per slot
+   - Create general DAG-based mbarrier management system
+   - Build dependency graph from async warps and compute warp groups
+   - Generate mbarriers dynamically based on producer/consumer relationships
+   - Support arbitrary pipeline configurations
+
+### Phase 2.5: Backward Compatibility
+1. **Feature Flag Implementation**
+   - Add feature flag to enable/disable multi-role warp specialization
+   - Default to current Hopper behavior for existing kernels
+   - Allow opt-in for Blackwell kernels
+
+2. **Gradual Rollout Strategy**
+   - **Phase 1**: Implement new analysis with feature flag disabled (current behavior)
+   - **Phase 2**: Enable for Blackwell kernels only
+   - **Phase 3**: Enable for all kernels after validation
+   - **Phase 4**: Remove old code paths
+
+3. **Testing and Validation**
+   - **Regression Testing**: Ensure all existing Hopper tests pass
+   - **Performance Testing**: Validate no performance regression for Hopper kernels
+   - **Compatibility Testing**: Test mixed Hopper/Blackwell kernels
 
 ### Phase 3: Synchronization
 1. **Update Sync Insertion**
@@ -198,8 +238,8 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ### 1. Async Operation Detection
 - **Current**: Only detects `cpAsyncBulkLoad` operations (TMA loads for operands)
-- **Required**: Also detect `MmaOp` with `isBlackwell()` for async operations (MMA results)
-- **Implementation**: Extend `createAsyncWarps()` filter condition and create utility function for async op detection
+- **Required**: Find all definitions of circular buffered tensors to detect any async operation
+- **Implementation**: Modify `createAsyncWarps()` to iterate over circular buffered tensors and find their definitions
 
 ### 2. Stage Slice Position Compatibility
 - **Current**: All operations in single AsyncWarp must have same `stage_slice_position`
@@ -208,8 +248,8 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ### 3. MBarrier Indexing
 - **Current**: Two mbarriers per circular buffer slot ("slot empty", "slot full")
-- **Required**: Four mbarriers per slot ("operand slot empty", "operand slot full", "result slot full", "result slot empty")
-- **Implementation**: Extend `HopperPingPongMbarriers` to support four-way sync with proper indexing
+- **Required**: Dynamic mbarrier allocation based on DAG dependencies
+- **Implementation**: Create general DAG-based system that generates mbarriers based on producer/consumer relationships
 
 ### 4. Register Sharing
 - **Current**: Single register sharing configuration for async warp
@@ -225,7 +265,7 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ### Primary Files
 1. **`csrc/device_lower/analysis/circular_buffer.cpp`**
-   - `createAsyncWarps()`: Add Blackwell MMA detection and role analysis
+   - `createAsyncWarps()`: Find all definitions of circular buffered tensors and analyze roles
    - `CircularBufferInfo`: Extend for multi-role patterns
    - Update circular buffered tensor validation
 
@@ -255,24 +295,31 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ### Unit Tests
 1. **AsyncWarp Detection and Role Analysis**
-   - Test detection of TMA loads and Blackwell MMA in separate warps
+   - Test detection of all circular buffered tensor definitions
    - Test role analysis and separation of async operations
    - Test validation of stage_slice_position compatibility
    - Test utility function for async operation detection
 
-2. **Circular Buffer Analysis**
+2. **Dependency DAG Analysis**
+   - Test grouping of async operations into warps
+   - Test dependency detection between warps
+   - Test DAG construction and validation
+   - Test mbarrier generation from dependency graph
+
+3. **Circular Buffer Analysis**
    - Test producer-consumer relationship detection
    - Test multi-role pattern validation
    - Test circular buffered tensor validation with async operations
 
-3. **MBarrier Management**
-   - Test four-mbarrier allocation and indexing per slot
-   - Test proper synchronization between load → mma → epilogue warps
-   - Test mbarrier wait/arrive patterns for multi-role setup
+4. **MBarrier Management**
+   - Test DAG-based mbarrier generation
+   - Test proper synchronization for arbitrary pipeline configurations
+   - Test mbarrier wait/arrive patterns derived from dependency graph
 
-4. **Code Generation**
-   - Test ITE branch creation for multiple async warps
-   - Test mbarrier allocation and indexing
+5. **Backward Compatibility**
+   - Test feature flag functionality
+   - Test current Hopper behavior with new code
+   - Test gradual rollout strategy
 
 ### Integration Tests
 1. **End-to-End Blackwell Matmul**
@@ -299,28 +346,9 @@ This document outlines the plan to extend nvFuser's circular buffering support t
    - Maintainable and extensible design
    - Comprehensive test coverage
 
-## Timeline
 
-- **Phase 1**: 1-2 weeks (Analysis and Detection)
-- **Phase 2**: 2-3 weeks (Code Generation)
-- **Phase 3**: 1-2 weeks (Synchronization)
-- **Phase 4**: 1-2 weeks (Testing and Validation)
 
-**Total Estimated Time**: 5-9 weeks
 
-## Risks and Mitigation
-
-### Risk 1: Complex MBarrier Management
-- **Risk**: Three-way synchronization may be complex to implement correctly
-- **Mitigation**: Start with simple two-mbarrier approach, extend to three-way
-
-### Risk 2: Performance Overhead
-- **Risk**: Additional mbarriers may introduce overhead
-- **Mitigation**: Profile and optimize mbarrier usage, ensure proper overlap
-
-### Risk 3: Backward Compatibility
-- **Risk**: Changes may break existing Hopper patterns
-- **Mitigation**: Comprehensive testing, gradual rollout with feature flags
 
 ## Conclusion
 
