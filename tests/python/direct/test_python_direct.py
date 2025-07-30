@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType, LruFusionCache
 import torch
 import pytest
 
@@ -235,3 +235,40 @@ def test_execute_with_different_device():
     outputs = fd.execute(inputs, device="cuda:1")
     assert len(outputs) == 1
     assert outputs[0].device.index == 1
+
+
+def test_lru_cache():
+    inputs = [
+        torch.randn(2, 4, device="cuda"),
+    ]
+
+    def create_fd1(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        c0 = fd.define_scalar(1.0)
+        t1 = fd.ops.mul(t0, c0)
+        fd.add_output(t1)
+
+    def create_fd2(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        c0 = fd.define_scalar(10.0)
+        t1 = fd.ops.mul(t0, c0)
+        fd.add_output(t1)
+
+    @LruFusionCache(max_fusions=10)
+    def create_fusion(select_first_fd: bool):
+        with FusionDefinition() as fd:
+            if select_first_fd:
+                create_fd1(fd)
+            else:
+                create_fd2(fd)
+        return fd
+
+    fd1 = create_fusion(select_first_fd=True)
+    outputs = fd1.execute(inputs)
+    print(create_fusion.stats())
+    assert torch.allclose(outputs[0], inputs[0] * 1.0)
+
+    fd2 = create_fusion(select_first_fd=False)
+    outputs = fd2.execute(inputs)
+    print(create_fusion.stats())
+    assert torch.allclose(outputs[0], inputs[0] * 10.0)
