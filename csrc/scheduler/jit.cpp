@@ -45,16 +45,9 @@ using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
-constexpr std::string_view kNewTensorFuncName = "new_tensor";
-constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
-constexpr std::string_view kSetTensorFuncName = "set_tensor";
-constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
-constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
-constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearOutFuncName = "linear_out";
+
 constexpr size_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
@@ -151,8 +144,6 @@ void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
   builder.CreateCall(nvtx_range_pop_func, {});
 }
 
-// Helper function to generate LLVM IR that extracts tensor size for a given
-// dimension
 llvm::Value* createTensorSize(
     llvm::Value* tensor,
     int64_t dim,
@@ -164,8 +155,6 @@ llvm::Value* createTensorSize(
   return builder.CreateCall(tensor_size_func, {tensor, dim_val});
 }
 
-// Helper function to generate LLVM IR that extracts tensor stride for a given
-// dimension
 llvm::Value* createTensorStride(
     llvm::Value* tensor,
     int64_t dim,
@@ -178,7 +167,6 @@ llvm::Value* createTensorStride(
   return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
 }
 
-// Helper function to register external functions in JIT
 void registerExternalFunction(
     void* func_ptr,
     llvm::orc::SymbolMap& symbolMap,
@@ -189,7 +177,6 @@ void registerExternalFunction(
       llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
 }
 
-// Helper function to print generated LLVM IR after each node is processed
 void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "=== LLVM IR After Generating " << msg << " ===\n";
   func->print(llvm::outs(), nullptr);
@@ -297,137 +284,6 @@ llvm::Value* getOrCreateValueForExtent(
   return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
 }
 
-// Simple permute transformation example:
-// logical domain: [a, b, c, d]
-// original logical sizes: [a, b, c, d]
-// original logical stride: [b*c*d, c*d, d, 1]
-// permute(0,1)
-// allocation domain: [b, a, c, d]
-// refined logical sizes: [a, b, c, d]
-// refined logical stride: [c*d, a*c*d, d, 1]
-// we want to propagate the allocation domain to the logical domain to get:
-// 1. correct order of sizes and strides
-// 2. refined logical sizes (divide out device/expanded broadcast dimensions)
-
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  const std::vector<IterDomain*>& logical_domain = tv->getLogicalDomain();
-  const std::vector<IterDomain*>& allocation_domain =
-      tv->getMaybeAllocationDomain();
-  LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
-
-  // push all allocation domains extents in regular order
-  for (auto [i, id] : enumerate(allocation_domain)) {
-    llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
-    if (id->isDeviceDim() || id->isBroadcast()) {
-      extent = builder.getInt64(1);
-    }
-    id_to_allocation_size.pushBack(id, extent);
-  }
-
-  // traverse backward from allocation domains to logical domains
-  for (Expr* transform :
-       DependencyCheck::getAllExprsBetween(
-           {logical_domain.begin(), logical_domain.end()},
-           {allocation_domain.begin(), allocation_domain.end()}) |
-           std::views::reverse) {
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      auto [outer_extent, outer_i] =
-          id_to_allocation_size.erase(split->outer());
-      NVF_ERROR(
-          outer_i != id_to_allocation_size.end() &&
-              outer_i->first == split->inner(),
-          split->toString(),
-          " invalid split: inner is expected to appear immediately after "
-          "outer");
-      auto [inner_extent, inner_i] =
-          id_to_allocation_size.erase(split->inner());
-
-      if (split->inner()->isBroadcast()) {
-        inner_extent = builder.getInt64(1);
-      }
-
-      if (split->outer()->isBroadcast()) {
-        outer_extent = builder.getInt64(1);
-      }
-
-      llvm::Value* in_extent = builder.CreateMul(outer_extent, inner_extent);
-      id_to_allocation_size.insert(inner_i, split->in(), in_extent);
-      // NOTE: we probably need to throw error for merge as it's not handle yet
-    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_extent, out_i] =
-          id_to_allocation_size.erase(merge->out());
-
-      // NOTE: we don't have a protocol to decide which iter domain to pad,
-      // currently we just pad inner value, so dividend is outer value
-      // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which
-      // is a ceilDiv
-      llvm::Value* outer_extent =
-          getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
-      llvm::Value* minus_one =
-          builder.CreateSub(outer_extent, builder.getInt64(1));
-      llvm::Value* plus_value = builder.CreateAdd(out_extent, minus_one);
-      llvm::Value* inner_extent = builder.CreateUDiv(plus_value, outer_extent);
-
-      id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
-      id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
-    }
-  }
-
-  auto ids = std::views::keys(id_to_allocation_size);
-  std::vector<IterDomain*> logical_domain_reordered(ids.begin(), ids.end());
-
-  auto allocation_order =
-      ir_utils::computePermutation(logical_domain, logical_domain_reordered);
-  NVF_ERROR(
-      allocation_order.has_value(),
-      "LLVM Lowering Error: Failed to compute allocation order");
-
-  // Map last level propagated allocation domains to logical domain
-  // we should be able to get the permutation between them
-  llvm::Value* allocation_order_stride = builder.getInt64(1);
-  strides.resize(logical_domain.size());
-  sizes.reserve(logical_domain.size());
-
-  for (int64_t logical_idx : allocation_order.value() | std::views::reverse) {
-    IterDomain* id = logical_domain[logical_idx];
-    if (id->isReduction()) {
-      continue;
-    }
-    if (id->isBroadcast()) {
-      strides[logical_idx] = builder.getInt64(0);
-      continue;
-    }
-    auto [extent, out_i] = id_to_allocation_size.erase(id);
-    strides[logical_idx] = allocation_order_stride;
-    allocation_order_stride =
-        builder.CreateMul(allocation_order_stride, extent);
-  }
-
-  strides.erase(
-      std::remove_if(
-          strides.begin(),
-          strides.end(),
-          [](llvm::Value* stride) { return stride == nullptr; }),
-      strides.end());
-
-  for (IterDomain* id : logical_domain) {
-    if (id->isReduction()) {
-      continue;
-    }
-    sizes.push_back(getOrCreateValueForExtent(id, val_to_value, builder));
-  }
-
-  // Check if sizes and strides are the same size as logical domain
-  NVF_ERROR_EQ(sizes.size(), TensorDomain::noReductions(logical_domain).size());
-  NVF_ERROR_EQ(
-      strides.size(), TensorDomain::noReductions(logical_domain).size());
-}
-
 void unpackInputs(
     const Fusion* fusion,
     llvm::IRBuilder<>& builder,
@@ -456,19 +312,7 @@ void packOutputs(
   llvm::Value* aten_tensor_array = func->getArg(2);
 
   llvm::Type* aten_tensor_array_type = getInt8PtrDynamicArrayType(context);
-  // Store output tensor pointers from val_to_value into the output array
-  for (const auto [i, output] : enumerate(container->outputs())) {
-    auto* tv = dynamic_cast<TensorView*>(output);
-    NVF_ERROR(tv != nullptr, "Unsupported expression type: ", output);
-    llvm::Value* tensor_addr = builder.CreateGEP(
-        aten_tensor_array_type, aten_tensor_array, {builder.getInt64(i)});
-    tensor_addr->setName("output_aten_tensor_addr");
 
-    // Get the tensor pointer from val_to_value and store it in the output
-    // array
-    llvm::Value* tensor_from_val_to_value = val_to_value[tv];
-    builder.CreateStore(tensor_from_val_to_value, tensor_addr);
-  }
   insertNvtxRangePop(builder);
   builder.CreateRetVoid();
   if (isDebugDumpEnabled(DebugDumpOption::HeuristicJit)) {
@@ -520,6 +364,55 @@ void compileFunctionDeclarations(
   llvm::Function::Create(
       main_type, llvm::Function::ExternalLinkage, kMainFuncName, module);
 }
+
+
+void compileDomainAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+
+
+void compileReferenceTensorAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+
+void compileLogicalReorderAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+
+void compileVectorizationFactorAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+void compileUnrollFactorAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+void compileBroadcastMultiplesAnalysis(
+    Fusion* fusion,
+    llvm::LLVMContext& context,
+    llvm::IRBuilder<>& builder) {
+  
+}
+
+
 
 
 // Implementation of HeuristicJitImpl
