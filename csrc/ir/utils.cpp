@@ -1552,8 +1552,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* uop) {
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* uop) {
   NVF_CHECK(uop != nullptr);
   NVF_CHECK(
       uop->getUnaryOpType() == UnaryOpType::Cast,
@@ -1578,8 +1578,7 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSizeByte(*inp_prim_type),
-      primDataTypeSizeByte(*out_prim_type));
+      primDataTypeSizeBit(*inp_prim_type), primDataTypeSizeBit(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
