@@ -36,6 +36,8 @@ TEST_F(NVFuserTest, FusionHash_CUDA) {
   size_t first_hash = fusion.hash();
   NVF_ERROR(first_hash != 0, "Fusion hash is 0");
   NVF_ERROR(first_hash == fusion.hash(), "Fusion hash is not stable");
+  NVF_ERROR(
+      fusion.checkDefinition(fusion), "Fusion definition is not the same");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
