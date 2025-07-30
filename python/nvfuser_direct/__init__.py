@@ -4,6 +4,7 @@
 
 import sys
 import warnings
+import functools
 
 if "nvfuser" in sys.modules:
     warnings.warn(
@@ -58,6 +59,42 @@ def execute_with_dtensors(fd, in_dtensors):
             placements.append(Replicate() if axis == -1 else Shard(axis))
         out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
     return out_dtensors
+
+
+class LruFusionCache:
+    """
+    A class that caches the FusionExecutorCache with the Fusion as the key.
+    The cache is a LRU cache that evicts the least recently used FusionExecutorCache.
+    The cache is used to avoid recompiling the same FusionExecutorCache.
+    """
+
+    def __init__(self, max_fusions=16384):
+        """
+        Initialize a new LruFusionCache instance.
+        """
+        self.cache = _C_DIRECT.LRUCache(max_fusions)
+
+    def __call__(self, create_fusion_definition):
+        """
+        A decorator that caches the FusionExecutorCache with the Fusion as the key.
+        It returns the compiled fusion definition.
+        The cache is a LRU cache that evicts the least recently used FusionExecutorCache.
+        The cache is used to avoid recompiling the same FusionExecutorCache.
+        """
+
+        @functools.wraps(create_fusion_definition)
+        def wrapper(*args, **kwargs):
+            fusion_definition = create_fusion_definition(*args, **kwargs)
+            fec = self.cache.get(fusion_definition.fusion())
+            if fec is not None:
+                fusion_definition.fec = fec
+                return fusion_definition
+            else:
+                fec = fusion_definition.compile()
+                self.cache.put(fusion_definition.fusion(), fec)
+                return fusion_definition
+
+        return wrapper
 
 
 class FusionDefinition:
@@ -233,6 +270,17 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
+    def compile(self):
+        """
+        Compile the fusion.
+        """
+        if not hasattr(self, "fec"):
+            self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+            # A copy of fusion is created after construction FusionExecutorCache
+            # Delete the _fusion and reference the fusion inside FusionExecutorCache
+            del self._fusion
+        return self.fec
+
     def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
@@ -253,11 +301,7 @@ class FusionDefinition:
         """
 
         if auto_schedule:
-            if not hasattr(self, "fec"):
-                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
-                # A copy of fusion is created after construction FusionExecutorCache
-                # Delete the _fusion and reference the fusion inside FusionExecutorCache
-                del self._fusion
+            self.compile()
             return self.fec.execute(inputs, device=self._get_device_index(device))
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")

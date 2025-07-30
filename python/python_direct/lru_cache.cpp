@@ -14,7 +14,7 @@ void bindLRUCache(py::module_& nvfuser) {
   py::class_<LRUCache>(nvfuser, "LRUCache")
       .def(
           py::init<size_t>(),
-          py::arg("max_fusions") = 16384,
+          py::arg("max_fusions"),
           R"(
 Create a new LRUCache.
 
