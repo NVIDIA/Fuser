@@ -588,14 +588,22 @@ void compileFunctionDeclarations(
       kNewTensorFuncName,
       module);
 
-  // set_tensor function: void set_tensor(at::Tensor* tensor, at::Tensor*
-  // other_tensor)
+  // set_tensor function: void set_tensor(at::Tensor* tensor)
   auto* set_tensor_type =
-      llvm::FunctionType::get(void_type, {tensor_type, tensor_type}, false);
+      llvm::FunctionType::get(void_type, {tensor_type}, false);
   llvm::Function::Create(
       set_tensor_type,
       llvm::Function::ExternalLinkage,
       kSetTensorFuncName,
+      module);
+
+  // set_tensor_out function: void set_tensor_out(at::Tensor* out, at::Tensor* in)
+  auto* set_tensor_out_type =
+      llvm::FunctionType::get(void_type, {tensor_type, tensor_type}, false);
+  llvm::Function::Create(
+      set_tensor_out_type,
+      llvm::Function::ExternalLinkage,
+      kSetTensorOutFuncName,
       module);
 
   // at::native::empty_strided_cuda function: void at_empty_strided_cuda(const
@@ -698,6 +706,24 @@ void compileFunctionDeclarations(
       linear_type,
       llvm::Function::ExternalLinkage,
       kLinearFuncName,
+      module);
+
+  // permute function: at::Tensor* permute(at::Tensor* in, const int64_t* permutation, int64_t perm_size)
+  auto* permute_type = llvm::FunctionType::get(
+      tensor_type, {tensor_type, int64_ptr_type, int64_type}, false);
+  llvm::Function::Create(
+      permute_type,
+      llvm::Function::ExternalLinkage,
+      kPermuteFuncName,
+      module);
+
+  // permute_out function: void permute_out(at::Tensor* out, at::Tensor* in, const int64_t* permutation, int64_t perm_size)
+  auto* permute_out_type = llvm::FunctionType::get(
+      void_type, {tensor_type, tensor_type, int64_ptr_type, int64_type}, false);
+  llvm::Function::Create(
+      permute_out_type,
+      llvm::Function::ExternalLinkage,
+      kPermuteOutFuncName,
       module);
 
   // main function: void main(void** input_tensors, void** output_tensors)
