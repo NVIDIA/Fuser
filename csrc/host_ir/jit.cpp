@@ -57,6 +57,7 @@ constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
+constexpr std::string_view kMainFuncOutputTensorName = "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
@@ -540,6 +541,92 @@ void packOutputs(
     printLlvmIr(func, "Main Function Outputs");
   }
 }
+
+
+// Helper function targets to insert delete since at::Tensor at llvm level is passed by pointer,
+// we need to insert delete for following cases:
+// 1. newed tensor from allocate node, exp: at::Tensor* new_tensor()
+// allocate node from host ir will be lowered into two llvm functions: new_tensor and set_tensor.
+// which new_tensor generate a at::Tensor() wrapper, and set_tensor makes the actual allocation.
+// 2. implicit newed intermediate tensor returned by function calls, ie. at::Tensor* linear(at::Tensor* in);
+// which output tensor is allocated inside of wrapper function
+void insertDeleteTensors(llvm::IRBuilder<>& builder) {
+
+  // Map from tensor pointer to its last use instruction
+  std::unordered_map<llvm::Value*, llvm::Instruction*> last_use;
+  // Set of all tensor pointers allocated by new_tensor or returned by functions
+  std::unordered_set<llvm::Value*> tensor_ptrs;
+
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* main_func = module->getFunction(kMainFuncName);
+  llvm::Function* delete_tensor_func = module->getFunction(kDeleteTensorFuncName);
+
+  // First pass: find all new_tensor allocations and function calls that return tensor pointers
+  for (llvm::BasicBlock& bb : *main_func) {
+    for (llvm::Instruction& inst : bb) {
+      // Track function calls that return tensor pointers (including new_tensor)
+      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+        if (auto* callee = call->getCalledFunction()) {
+          if (callee->getReturnType()->isPointerTy()) {
+            // Check if the return type is a tensor pointer
+            llvm::Type* tensor_type = getTensorPtrType(builder.getContext());
+            if (callee->getReturnType() == tensor_type) {
+              tensor_ptrs.insert(call);
+              last_use[call] = &inst;
+            }
+          }
+        }
+      }
+      // Remove from tracking if already deleted
+      // NOTE: this case is when we the newed tensor is from host ir allocate node,
+      // naturally, we should have corresponding deallocate node, which is a delete to this tensor pointer.
+      if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
+        if (auto* callee = call->getCalledFunction()) {
+          if (callee->getName() == llvm::StringRef(kDeleteTensorFuncName)) {
+            llvm::Value* arg = call->getArgOperand(0);
+            tensor_ptrs.erase(arg);
+            last_use.erase(arg);
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: find last use of each tensor using LLVM's getUses()
+  for (llvm::Value* tensor : tensor_ptrs) {
+    for (const llvm::Use& use : tensor->uses()) {
+      if (auto* inst = llvm::dyn_cast<llvm::Instruction>(use.getUser())) {
+        // Update last use if this instruction comes after current last use
+        auto it = last_use.find(tensor);
+        if (it == last_use.end() || inst->comesBefore(it->second)) {
+          last_use[tensor] = inst;
+        }
+      }
+    }
+  }
+
+  // Third pass: insert delete_tensor after last use (unless output)
+  for (const auto& [tensor, inst] : last_use) {
+    // Check if tensor is stored to output array (skip deletion for outputs)
+    bool is_output = false;
+    for (const llvm::Use& use : tensor->uses()) {
+      if (const auto* store = llvm::dyn_cast<llvm::StoreInst>(use.getUser())) {
+        const llvm::Value* ptr = store->getPointerOperand();
+        if (ptr->hasName() && ptr->getName().contains(kMainFuncOutputTensorName)) {
+          is_output = true;
+          break;
+        }
+      }
+    }
+
+    if (!is_output) {
+      // Insert delete instruction after the last use
+      builder.SetInsertPoint(inst->getNextNode());
+      builder.CreateCall(delete_tensor_func, {tensor});
+    }
+  }
+}
+
 
 void compileFunctionDeclarations(
     llvm::Module* module,
