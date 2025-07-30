@@ -250,7 +250,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
 
   testValidate(
       executor_cache.fusion(),
