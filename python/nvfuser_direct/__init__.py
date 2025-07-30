@@ -85,15 +85,22 @@ class LruFusionCache:
         @functools.wraps(create_fusion_definition)
         def wrapper(*args, **kwargs):
             fusion_definition = create_fusion_definition(*args, **kwargs)
-            fec = self.cache.get(fusion_definition.fusion())
+            fec = self.cache.get(fusion_definition.fusion)
             if fec is not None:
                 fusion_definition.fec = fec
                 return fusion_definition
             else:
                 fec = fusion_definition.compile()
-                self.cache.put(fusion_definition.fusion(), fec)
+                self.cache.put(fusion_definition.fusion, fec)
                 return fusion_definition
 
+        def stats(self):
+            """
+            Get the stats of the cache.
+            """
+            return self.cache.stats()
+
+        wrapper.stats = stats
         return wrapper
 
 
