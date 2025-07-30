@@ -57,6 +57,7 @@ constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kMatmulFuncName = "matmul";
+constexpr std::string_view kLinearFuncName = "linear";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kMainFuncOutputTensorName = "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
@@ -762,6 +763,24 @@ void compileFunctionDeclarations(
       kLinearOutFuncName,
       module);
 
+  // matmul function: at::Tensor* matmul(at::Tensor* a, at::Tensor* b)
+  auto* matmul_type = llvm::FunctionType::get(
+      tensor_type, {tensor_type, tensor_type}, false);
+  llvm::Function::Create(
+      matmul_type,
+      llvm::Function::ExternalLinkage,
+      kMatmulFuncName,
+      module);
+
+  // linear function: at::Tensor* linear(at::Tensor* in, at::Tensor* weight, at::Tensor* bias)
+  auto* linear_type = llvm::FunctionType::get(
+      tensor_type, {tensor_type, tensor_type, tensor_type}, false);
+  llvm::Function::Create(
+      linear_type,
+      llvm::Function::ExternalLinkage,
+      kLinearFuncName,
+      module);
+
   // main function: void main(void** input_tensors, void** output_tensors)
   auto* main_type = llvm::FunctionType::get(
       void_type, {int64_type, void_array_ptr_type, void_array_ptr_type}, false);
@@ -815,16 +834,19 @@ class HostIrCompileDispatcher : public OptInDispatch {
         getValueForTensor(matmul_op->inA(), val_to_value_, builder_);
     llvm::Value* b =
         getValueForTensor(matmul_op->inB(), val_to_value_, builder_);
-    llvm::Value* out =
+        llvm::Value* out =
         getValueForTensor(matmul_op->out(), val_to_value_, builder_);
     if(out != nullptr) {
+      // Output tensor exists, use matmul_out
       builder_.CreateCall(
           module->getFunction(kMatmulOutFuncName), {out, a, b});
-        return;
+      val_to_value_[matmul_op->out()] = out;
+    } else {
+      // Output tensor doesn't exist, use matmul which returns a new tensor
+      out = builder_.CreateCall(
+          module->getFunction(kMatmulFuncName), {a, b}, "matmul_out");
+      val_to_value_[matmul_op->out()] = out;
     }
-    out = builder_.CreateCall(
-      module->getFunction(kMatmulFuncName), {a, b}, "matmul_out");
-    val_to_value_[matmul_op->out()] = out;
   }
 
   void handle(LinearOp* linear_op) final {
@@ -847,10 +869,19 @@ class HostIrCompileDispatcher : public OptInDispatch {
       bias = llvm::ConstantPointerNull::get(
           llvm::cast<llvm::PointerType>(tensor_type));
     }
-    builder_.CreateCall(
-        module->getFunction(kLinearOutFuncName),
-        {out, in, weight, bias});
-    val_to_value_[linear_op->out()] = out;
+    if(out != nullptr) {
+      // Output tensor exists, use linear_out
+      builder_.CreateCall(
+          module->getFunction(kLinearOutFuncName),
+          {out, in, weight, bias});
+      val_to_value_[linear_op->out()] = out;
+    } else {
+      // Output tensor doesn't exist, use linear which returns a new tensor
+      out = builder_.CreateCall(
+          module->getFunction(kLinearFuncName),
+          {in, weight, bias}, "linear_out");
+      val_to_value_[linear_op->out()] = out;
+    }
   }
 
   // Launch Kernel Function LLVM IR Generation
@@ -1217,8 +1248,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       });
   // matmul function
   void* matmul_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* a, at::Tensor* b) {
-        return at::matmul(*a, *b);
+      +[](at::Tensor* a, at::Tensor* b) -> at::Tensor* {
+        return new at::Tensor(at::matmul(*a, *b));
       });
 
   // linear_out function
@@ -1232,6 +1263,14 @@ void HostIrJitImpl::registerExternalFunctions() {
     }
     at::linear_out(*out, *in, *weight, bias_opt);
   });
+
+    // linear function
+  void* linear_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* in,
+                                                           at::Tensor* weight,
+                                                           at::Tensor* bias) -> at::Tensor* {
+    return new at::Tensor(at::linear(*in, *weight, bias));
+  });
+
   // insert fuser perf scope
   void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
       +[](const char* name) -> void { nvtxRangePush(name); });
