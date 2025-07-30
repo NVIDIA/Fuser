@@ -262,21 +262,54 @@ class FusionDefinition:
         """
         Execute the fusion with the given inputs.
         """
-        if not hasattr(self, "fec"):
-            self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
-            # A copy of fusion is created after construction FusionExecutorCache
-            # Delete the _fusion and reference the fusion inside FusionExecutorCache
-            del self._fusion
-        return self.fec.execute(inputs, device=self._get_device_index(device))
+        try:
+            if not hasattr(self, "fec"):
+                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del self._fusion
+            return self.fec.execute(inputs, device=self._get_device_index(device))
+        except Exception as err:
+            logger.exception(self._repro_error_str("executing", inputs))
+            raise
 
     def _execute_with_kwargs(self, inputs: list[torch.Tensor], device: Optional[torch.device] = None, **kwargs) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
         """
-        if "auto_schedule" in kwargs:
-            raise RuntimeError("Manual scheduling is not supported yet.")
+        expected_kwarg_types = {
+            "auto_schedule": bool,
+            "print_repro": bool,
+            "enable_options": list[str],
+            "disable_options": list[str],
+        }
+        for kwarg, expected_type in expected_kwarg_types.items():
+            if kwarg not in kwargs:
+                raise KeyError(f"Unexpected keyword argument found in kwargs of execute: {kwarg}")
+            if not isinstance(kwargs[kwarg], expected_type):
+                raise TypeError(f"Invalid type for keyword argument found in kwargs of execute: {kwarg}")
+
+        auto_schedule = kwargs.get("auto_schedule", True)
+        print_repro = kwargs.get("print_repro", False)
+        enable_options = kwargs.get("enable_options", None)
+        disable_options = kwargs.get("disable_options", None)
+
+        if print_repro:
+            print(self.repro_script_for(inputs))
+
+        if auto_schedule:
+            try:
+                if not hasattr(self, "fec"):
+                    self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                    # A copy of fusion is created after construction FusionExecutorCache
+                    # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                    del self._fusion
+                return self.fec.execute(inputs, device=self._get_device_index(device))
+            except Exception as err:
+                logger.exception(self._repro_error_str("executing", inputs))
+                raise
         else:
-            return self._execute_fast(inputs, device)
+            raise RuntimeError("Manual scheduling is not supported yet.")
 
     def repro_script_for(self, inputs: list | None = None) -> str:
         """
