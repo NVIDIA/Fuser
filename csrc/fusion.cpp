@@ -52,7 +52,7 @@ bool Fusion::checkDefinition(const Fusion& other) const {
     return false;
   }
   for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
-    if (!input->sameAs(other_input)) {
+    if (!input->checkDefinition(other_input)) {
       return false;
     }
   }
@@ -62,10 +62,12 @@ bool Fusion::checkDefinition(const Fusion& other) const {
     return false;
   }
   for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
-    if (!output->sameAs(other_output)) {
+    if (!output->checkDefinition(other_output)) {
       return false;
     }
   }
+
+  // TODO: Check alias outputs to inputs
 
   // Check if the expressions are the same
   std::vector<Expr*> this_exprs = exprs();
@@ -74,7 +76,7 @@ bool Fusion::checkDefinition(const Fusion& other) const {
     return false;
   }
   for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
-    if (!expr->sameAs(other_expr)) {
+    if (!expr->checkDefinition(other_expr)) {
       return false;
     }
   }

@@ -74,10 +74,12 @@ TEST_F(NVFuserTest, FusionHashSameDefinition) {
   }
 
   // Check that the fusion definitions match and have the same hash value.
-  // NVF_ERROR(fusion_first.checkDefinition(fusion_second), "The fusion
-  // definitions do not match.");
-  // NVF_ERROR(fusion_second.checkDefinition(fusion_first), "The fusion
-  // definitions do not match.");
+  NVF_ERROR(
+      fusion_first.checkDefinition(fusion_second),
+      "The fusion definitions do not match.");
+  NVF_ERROR(
+      fusion_second.checkDefinition(fusion_first),
+      "The fusion definitions do not match.");
   NVF_ERROR(
       fusion_first.hash() == fusion_second.hash(),
       "The hash values do not match.");
@@ -105,7 +107,7 @@ TEST_F(NVFuserTest, FusionHashDifferentDefinition) {
     fusion_first.addOutput(fusion_first_tv1);
   }
 
-  // Create a second fusion with the same definition.
+  // Create a second fusion with a different definition.
   {
     FusionGuard fg(&fusion_second);
     auto fusion_second_tv0 = makeContigTensor(1);
@@ -116,6 +118,12 @@ TEST_F(NVFuserTest, FusionHashDifferentDefinition) {
   }
 
   // Check that the fusion definitions do not have the same hash value.
+  NVF_ERROR(
+      !fusion_first.checkDefinition(fusion_second),
+      "The fusion definitions should not match.");
+  NVF_ERROR(
+      !fusion_second.checkDefinition(fusion_first),
+      "The fusion definitions should not match.");
   NVF_ERROR(
       fusion_first.hash() != fusion_second.hash(),
       "The hash values do not match.");

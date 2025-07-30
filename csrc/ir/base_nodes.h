@@ -283,6 +283,8 @@ class NVF_API Val : public Statement {
 
   size_t getHash() const override;
 
+  virtual bool checkDefinition(const Val* other) const;
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
@@ -535,6 +537,11 @@ class NVF_API Expr : public Statement {
   // Check that if this and other are the same operator. This main difference
   // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
+
+  // Check that if this and other have same definition. This main difference
+  // from sameAs is that checkDefinition checks the inputs with checkDefinition
+  // instead of sameAs.
+  virtual bool checkDefinition(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
 
