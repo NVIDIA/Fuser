@@ -978,7 +978,7 @@ def test_transformer_backward(multidevice_test, benchmark):
 
     fd = TransformerBackwardFusion(d, b, s, h, e)
 
-    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins, _disable_options=['resize_scheduler']))
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     outs, _ = warmup_fn()
     (
@@ -1012,4 +1012,189 @@ def test_transformer_backward(multidevice_test, benchmark):
 
     benchmark.pedantic(benchmark_fn, rounds=5)
 
+from enum import Enum, auto
+class QkvFormat(Enum):
+    BHSE = auto()
+    BSHE = auto()
+    
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+@pytest.mark.parametrize("qkv_format", [QkvFormat.BSHE])
+@pytest.mark.mpi
+def test_sdpa_resize_sharded(multidevice_test, qkv_format: QkvFormat):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    b, s, h, e = 2, 1024, 12, 768
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
+    class Model(FusionDefinition):
+        def __init__(self, qkv_format: QkvFormat):
+            super().__init__()
+            self._qkv_format = qkv_format
+
+        def definition(self) -> None:
+            match self._qkv_format:
+                case QkvFormat.BHSE:
+                    stride_order = [3, 2, 1, 0]
+                case QkvFormat.BSHE:
+                    stride_order = [3, 1, 2, 0]
+
+            self.q, self.k, self.v, self.out_grad = [
+                self.define_tensor(
+                    shape=[-1, h, -1, e // h],
+                    dtype=DataType.BFloat16,
+                    stride_order=stride_order,
+                )
+                for _ in range(4)
+            ]
+
+            dropout_p = self.define_scalar(0.1, dtype=DataType.Double)
+            is_causal = self.define_scalar(True, dtype=DataType.Bool)
+            
+            attn, log_sumexp, seed, offset = self.ops.sdpfa_fwd(
+                self.q, self.k, self.v, dropout_p, is_causal, scale=None
+            )
+
+            q_grad, k_grad, v_grad = self.ops.sdpfa_bwd(
+                self.out_grad,
+                self.q,
+                self.k,
+                self.v,
+                attn,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                seed,
+                offset,
+                scale=None,
+            )
+            
+            T264 = self.ops.permute(q_grad, dims=[0, 2, 1, 3])
+            T265 = self.ops.permute(k_grad, dims=[0, 2, 1, 3])
+            T266 = self.ops.permute(v_grad, dims=[0, 2, 1, 3])
+            T270 = self.ops.cat([T264, T265, T266], dim=3)
+            T271 = self.ops.reshape(T270, new_shape=[b, s, 3 * e])            
+            T288 = self.ops.cast(T271, dtype=DataType.Float)
+            self.add_output(T271)
+            self.add_output(T288)
+
+        def multidevice_schedule(self) -> None:
+            for t in [self.q, self.k, self.v, self.out_grad]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.split(t, 1, d, False)
+                self.sched.parallelize(t, 1, nvfuser.ParallelType.mesh_x)
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    def make_unsharded_tensor() -> torch.Tensor:
+        return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cpu")
+
+    q, k, v = [make_unsharded_tensor().requires_grad_() for _ in range(3)]
+    out_grad = make_unsharded_tensor()
+    sharded_q, sharded_k, sharded_v, sharded_out_grad = [
+        multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
+    ]
+
+    fd = Model(qkv_format)
+
+    def reformat_tensor(t: torch.Tensor) -> torch.Tensor:
+        match qkv_format:
+            case QkvFormat.BHSE:
+                return t
+            case QkvFormat.BSHE:
+                return t.transpose(1, 2).contiguous().transpose(1, 2)
+
+    out, _ = fd.execute(
+    [
+        reformat_tensor(sharded_q).requires_grad_(),
+        reformat_tensor(sharded_k).requires_grad_(),
+        reformat_tensor(sharded_v).requires_grad_(),
+        reformat_tensor(sharded_out_grad),
+    ]
+    )
+
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+@pytest.mark.parametrize("qkv_format", [QkvFormat.BSHE])
+def test_sdpa_resize_single_gpu(qkv_format: QkvFormat):
+    b, s, h, e = 2, 1024, 12, 768
+
+    class Model(FusionDefinition):
+        def __init__(self, qkv_format: QkvFormat):
+            super().__init__()
+            self._qkv_format = qkv_format
+
+        def definition(self) -> None:
+            match self._qkv_format:
+                case QkvFormat.BHSE:
+                    stride_order = [3, 2, 1, 0]
+                case QkvFormat.BSHE:
+                    stride_order = [3, 1, 2, 0]
+
+            self.q, self.k, self.v, self.out_grad = [
+                self.define_tensor(
+                    shape=[-1, h, -1, e // h],
+                    dtype=DataType.BFloat16,
+                    stride_order=stride_order,
+                )
+                for _ in range(4)
+            ]
+
+            dropout_p = self.define_scalar(0.1, dtype=DataType.Double)
+            is_causal = self.define_scalar(True, dtype=DataType.Bool)
+            
+            attn, log_sumexp, seed, offset = self.ops.sdpfa_fwd(
+                self.q, self.k, self.v, dropout_p, is_causal, scale=None
+            )
+
+            q_grad, k_grad, v_grad = self.ops.sdpfa_bwd(
+                self.out_grad,
+                self.q,
+                self.k,
+                self.v,
+                attn,
+                log_sumexp,
+                dropout_p,
+                is_causal,
+                seed,
+                offset,
+                scale=None,
+            )
+            
+            T264 = self.ops.permute(q_grad, dims=[0, 2, 1, 3])
+            T265 = self.ops.permute(k_grad, dims=[0, 2, 1, 3])
+            T266 = self.ops.permute(v_grad, dims=[0, 2, 1, 3])
+            T270 = self.ops.cat([T264, T265, T266], dim=3)
+            T271 = self.ops.reshape(T270, new_shape=[b, s, 3 * e])            
+            T288 = self.ops.cast(T271, dtype=DataType.Float)
+            self.add_output(T271)
+            self.add_output(T288)
+
+    def make_tensor() -> torch.Tensor:
+        return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
+
+    q, k, v = [make_tensor().requires_grad_() for _ in range(3)]
+    out_grad = make_tensor()
+
+    fd = Model(qkv_format)
+
+    def reformat_tensor(t: torch.Tensor) -> torch.Tensor:
+        match qkv_format:
+            case QkvFormat.BHSE:
+                return t
+            case QkvFormat.BSHE:
+                return t.transpose(1, 2).contiguous().transpose(1, 2)
+
+    out, _ = fd.execute(
+    [
+        reformat_tensor(q).requires_grad_(),
+        reformat_tensor(k).requires_grad_(),
+        reformat_tensor(v).requires_grad_(),
+        reformat_tensor(out_grad),
+    ]
+    )
