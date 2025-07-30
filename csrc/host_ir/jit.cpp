@@ -588,9 +588,9 @@ void compileFunctionDeclarations(
       kNewTensorFuncName,
       module);
 
-  // set_tensor function: void set_tensor(at::Tensor* tensor)
+  // set_tensor function: at::Tensor* set_tensor(at::Tensor* tensor)
   auto* set_tensor_type =
-      llvm::FunctionType::get(void_type, {tensor_type}, false);
+      llvm::FunctionType::get(tensor_type, {tensor_type}, false);
   llvm::Function::Create(
       set_tensor_type,
       llvm::Function::ExternalLinkage,
@@ -791,9 +791,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
         builder_.CreateCall(permute_out_func, {out_tensor, in_tensor, perm_ptr, perm_size});
         return;
       }
-      out_tensor = builder_.CreateCall(permute_out_func, {in_tensor, perm_ptr, perm_size}, "permute");
-      val_to_value_[out_tv] = out_tensor;
-      return;
+             out_tensor = builder_.CreateCall(
+           module->getFunction(kPermuteFuncName), {in_tensor, perm_ptr, perm_size}, "permute");
+       val_to_value_[out_tv] = out_tensor;
+       return;
     }
     if(out_tensor != nullptr) {
       llvm::Function* set_tensor_out_func =
@@ -1160,14 +1161,14 @@ void HostIrJitImpl::registerExternalFunctions() {
         *out = in->clone(); // Clone the input tensor
       });
 
-  // copy and return tensor
-  void* set_tensor_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
-        NVF_ERROR(in != nullptr, kNewTensorFuncName, " in is nullptr");
-        at::Tensor* out = new at::Tensor();
-        *out = in->clone();
-        return out;
-      });
+     // copy and return tensor
+   void* set_tensor_func_ptr =
+       reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
+         NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
+         at::Tensor* out = new at::Tensor();
+         *out = in->clone();
+         return out;
+       });
 
   // delete a newed tensor
   void* delete_tensor_func_ptr = reinterpret_cast<void*>(
