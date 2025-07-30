@@ -61,7 +61,7 @@ Block synchronization ensures all threads in a thread block reach the same execu
 **Code Locations:**
 - **IR Node Definition**: [`csrc/kernel_ir.h:509`](https://github.com/NVIDIA/Fuser/blob/0b43ff27f42c9fbca001f656f055aeef885ebf31/csrc/kernel_ir.h#L509) - `BlockSync` class
 - **Code Generation**: [`csrc/codegen.cpp:3975`](https://github.com/NVIDIA/Fuser/blob/0b43ff27f42c9fbca001f656f055aeef885ebf31/csrc/codegen.cpp#L3975) - `handle(const kir::BlockSync* sync)`
-- **Runtime Implementation**: 
+- **Runtime Implementation**:
   - [`runtime/block_sync_default.cu`](https://github.com/NVIDIA/Fuser/blob/0b43ff27f42c9fbca001f656f055aeef885ebf31/runtime/block_sync_default.cu) - Default implementation using `__syncthreads()`
   - [`runtime/block_sync_atomic.cu`](https://github.com/NVIDIA/Fuser/blob/0b43ff27f42c9fbca001f656f055aeef885ebf31/runtime/block_sync_atomic.cu) - Atomic-based implementation for debugging
 - **Sync Insertion**: [`csrc/device_lower/pass/insert_syncs.cpp:229`](https://github.com/NVIDIA/Fuser/blob/0b43ff27f42c9fbca001f656f055aeef885ebf31/csrc/device_lower/pass/insert_syncs.cpp#L229) - `handle(kir::BlockSync*)`
@@ -557,4 +557,5 @@ Several operations in nvFuser include implicit synchronization or memory fences:
 - `USE_BLOCK_SYNC_ATOMIC`: Enables atomic-based block synchronization for debugging
 - Various other environment variables control sync behavior and debugging
 
-This comprehensive sync system ensures correct execution across all nvFuser kernels while maintaining high performance through optimized implementations and strategic placement. 
+This comprehensive sync system ensures correct execution across all nvFuser kernels while maintaining high performance through optimized implementations and strategic placement.
+
