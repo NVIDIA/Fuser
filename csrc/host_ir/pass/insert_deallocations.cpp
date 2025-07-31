@@ -45,5 +45,4 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   }
 }
 
-
 } // namespace nvfuser::hir_pass
