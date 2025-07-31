@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
-#include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
 
@@ -25,14 +24,15 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   });
   std::unordered_map<TensorView*, int64_t> last_use;
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {
-    for (auto* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (auto* val : expr->inputs()) {
+      if (!val->isA<TensorView>()) {
+        continue;
+      }
+      auto tv = val->as<TensorView>();
       last_use[tv] = i;
     }
   }
-  // Remove outputs from last_use, they should not be deallocated
-  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
-    last_use.erase(out);
-  }
+
   std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
   last_use_by_index.reserve(last_use.size());
   for (auto&& [tv, i] : last_use) {
