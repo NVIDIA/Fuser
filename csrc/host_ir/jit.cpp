@@ -1165,7 +1165,7 @@ void HostIrJitImpl::registerExternalFunctions() {
        reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
          NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
          auto* out = new at::Tensor();
-         *out = in->clone();
+         *out = *in;
          return out;
        });
 
