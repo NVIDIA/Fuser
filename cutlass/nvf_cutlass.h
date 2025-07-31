@@ -34,7 +34,8 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& alpha);
+    const torch::Tensor& alpha,
+    bool skip_checks = false);
 
 // Performs scaled matrix multiplication using NVFP4 format
 //
@@ -58,6 +59,7 @@ torch::Tensor nvfp4_scaled_mm(
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
     const torch::Tensor& alpha,
-    at::ScalarType out_dtype);
+    at::ScalarType out_dtype,
+    bool skip_checks = false);
 
 } // namespace nvfuser::cutlass_kernels

@@ -130,24 +130,36 @@ if(BUILD_CUTLASS)
         ${NVFUSER_CUTLASS}/cutlass_utils.cpp
         )
     add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
-    set_target_properties(nvf_cutlass PROPERTIES
-        CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-        CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-        POSITION_INDEPENDENT_CODE Yes
-    )
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_CUTLASS})
-    target_include_directories(nvf_cutlass PUBLIC ${NVFUSER_SRCS_DIR})
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/include)
-    target_include_directories(nvf_cutlass PUBLIC ${repo-cutlass_SOURCE_DIR}/tools/util/include)
+
+    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/include)
+    target_include_directories(nvf_cutlass PRIVATE ${repo-cutlass_SOURCE_DIR}/tools/util/include)
     target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
     if(NOT MSVC)
       set(NVF_LIB_SUFFIX ".so")
     else()
       set(NVF_LIB_SUFFIX ".pyd")
     endif()
-    set_target_properties(nvf_cutlass PROPERTIES CUDA_ARCHITECTURES "100a")
+
+    target_include_directories(nvf_cutlass PUBLIC
+      "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+      "$<BUILD_INTERFACE:${NVFUSER_CUTLASS}>"
+      "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
+    )
     target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
-    install(TARGETS nvf_cutlass DESTINATION lib)
+    set_target_properties(nvf_cutlass PROPERTIES
+      C_STANDARD ${NVFUSER_C_STANDARD}
+      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+      CXX_STANDARD_REQUIRED ON
+      CXX_VISIBILITY_PRESET hidden
+      INSTALL_RPATH
+      "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+      POSITION_INDEPENDENT_CODE Yes
+      VISIBILITY_INLINES_HIDDEN Yes
+      CUDA_ARCHITECTURES "100a"
+    )
+    install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
+
   endif()
 endif()
 
@@ -489,6 +501,15 @@ endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
+if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
+endif()
+
+# Conditionally link CUTLASS using generator expression to avoid export issues
+target_link_libraries(nvfuser_codegen PRIVATE
+  $<$<AND:$<BOOL:${BUILD_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
+)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
@@ -513,10 +534,11 @@ set_target_properties(nvfuser_codegen PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib:$ORIGIN"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
+
 install(TARGETS nvfuser_codegen EXPORT NvfuserTargets DESTINATION lib)
 
 # We are keeping fusion_cache_generated.h for the submodule build because flatc is unavailable.
