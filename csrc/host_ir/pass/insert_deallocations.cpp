@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
+#include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
 
