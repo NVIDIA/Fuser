@@ -1215,6 +1215,41 @@ def reduction_generator(
         shape, dim, keepdim, dtype = c
         yield (SampleInput(make_arg(shape), dim, keepdim, dtype=dtype))
 
+def cumsum_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    """
+    Generate valid test cases for cumsum operation.
+
+    Args:
+        op: OpInfo object for the cumsum operation
+        dtype: Data type for test tensors
+        requires_grad: Whether tensors should require gradients
+
+    Yields:
+        SampleInput objects with valid cumsum parameters
+    """
+    make_arg = partial(
+        make_tensor,
+        device="cuda",
+        dtype=dtype,
+        requires_grad=requires_grad,
+        low=-2,
+        high=3,
+    )
+
+    # shape, dim
+    cases = (
+        ((4, 4), 0),
+        ((4, 4), 1),
+        ((5,), 0),
+        ((8, 1, 6), 2),
+        ((8, 7, 5, 1), 1),
+        ((8, 7, 5, 1), -1),
+    )
+
+    for shape, dim in cases:
+        yield SampleInput(make_arg(shape), dim)
 
 def reduction_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs

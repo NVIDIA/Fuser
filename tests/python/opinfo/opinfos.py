@@ -42,6 +42,7 @@ from opinfo_input_generators import (
     random_dist_error_generator,
     reduction_error_generator,
     reshape_generator,
+    cumsum_generator,
     reshape_error_generator,
     slice_generator,
     slice_error_generator,
@@ -67,6 +68,7 @@ from opinfo_utils import (
     complex_dtypes,
     full_precision_float_dtypes,
     int_dtypes,
+    float_dtypes,
     int_float_dtypes,
     float_complex_dtypes,
     ArgumentType,
@@ -1498,6 +1500,20 @@ triu_opinfo = OpInfo(
 
 tv_val_ops.append(triu_opinfo)
 
+scan_ops = []
+
+cumsum_opinfo = OpInfo(
+    lambda fd: fd.ops.cumsum,
+    "cumsum",
+    dtypes=float_dtypes,
+    sample_input_generator=cumsum_generator,
+    # error_input_generator=cumsum_error_generator,
+    reference=torch.cumsum,
+    symbolic_parameter_list=(ArgumentType.Symbolic, ArgumentType.Constant),
+    supports_direct_bindings=True,
+)
+scan_ops.append(cumsum_opinfo)
+
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
@@ -1512,3 +1528,4 @@ opinfos.extend(tensor_creation_ops)
 opinfos.extend(matmul_ops)
 opinfos.extend(linear_ops)
 opinfos.extend(tv_val_ops)
+opinfos.extend(scan_ops)
