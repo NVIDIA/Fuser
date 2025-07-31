@@ -273,7 +273,7 @@ llvm::Value* createValue(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
   
-  if (auto* tv = dynamic_cast<TensorView*>(val)) {
+  if (val->isA<TensorView>()) {
     return nullptr;
   }
 
@@ -1157,14 +1157,14 @@ void HostIrJitImpl::registerExternalFunctions() {
       reinterpret_cast<void*>(+[](at::Tensor* out, at::Tensor* in) -> void {
         NVF_ERROR(out != nullptr, kSetTensorFuncName, " out is nullptr");
         NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
-        *out = in->clone(); // Clone the input tensor
+        out->copy_(in, /*non_blocking=*/true);
       });
 
      // copy and return tensor
    void* set_tensor_func_ptr =
        reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
          NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
-         at::Tensor* out = new at::Tensor();
+         auto* out = new at::Tensor();
          *out = in->clone();
          return out;
        });
