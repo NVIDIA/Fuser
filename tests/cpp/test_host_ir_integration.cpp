@@ -316,10 +316,8 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
 
   EXPECT_EQ(out_tensors.size(), 2);
-  EXPECT_THAT(
-      out_tensors, testing::Each(testing::Truly([](const PolymorphicValue& v) {
-        return v.as<at::Tensor>().defined();
-      })));
+  EXPECT_TRUE(std::all_of(out_tensors.begin(), out_tensors.end(), 
+                       [](const PolymorphicValue& v) { return v.as<at::Tensor>().defined(); }));
 }
 
 } // namespace hir
