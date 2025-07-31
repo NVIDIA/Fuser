@@ -35,11 +35,6 @@ MultiDeviceExecutor::MultiDeviceExecutor(
 
 KernelArgumentHolder MultiDeviceExecutor::runWithInput(
     const KernelArgumentHolder& inputs) {
-  // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
-  // etc)
-  auto error_msg = validate();
-  NVF_ERROR(error_msg.empty(), error_msg);
-
   // Stores concrete computed values,
   std::unordered_map<Val*, PolymorphicValue> val_to_PValue;
 
