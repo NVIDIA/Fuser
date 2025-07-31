@@ -787,8 +787,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
         builder_.CreateCall(permute_out_func, {out_tensor, in_tensor, perm_ptr, perm_size});
         return;
       }
-             out_tensor = builder_.CreateCall(
-           module->getFunction(kPermuteFuncName), {in_tensor, perm_ptr, perm_size}, "permute");
+      out_tensor = builder_.CreateCall(
+        module->getFunction(kPermuteFuncName), {in_tensor, perm_ptr, perm_size}, "permute");
        val_to_value_[out_tv] = out_tensor;
        return;
     }
@@ -1155,9 +1155,9 @@ void HostIrJitImpl::registerExternalFunctions() {
   // in place tensor update
   void* set_tensor_out_func_ptr =
       reinterpret_cast<void*>(+[](at::Tensor* out, at::Tensor* in) -> void {
-        NVF_ERROR(out != nullptr, kSetTensorFuncName, " out is nullptr");
-        NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
-        out->copy_(in, /*non_blocking=*/true);
+        NVF_ERROR(out != nullptr, kSetTensorOutFuncName, " out is nullptr");
+        NVF_ERROR(in != nullptr, kSetTensorOutFuncName, " in is nullptr");
+        out->copy_(*in, /*non_blocking=*/true);
       });
 
      // copy and return tensor

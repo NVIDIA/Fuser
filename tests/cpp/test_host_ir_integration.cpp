@@ -327,6 +327,8 @@ TEST_F(HostIrIntegrationTest, InsertComplexDeallocations) {
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
   
   EXPECT_EQ(out_tensors.size(), 2);
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().defined());
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().defined());
 }
 
 
