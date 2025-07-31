@@ -64,11 +64,12 @@ FusionExecutorCache
           "stats",
           &LRUCache::stats,
           R"(
-Print stats about the LRU cache.
+Get stats about the LRU cache.
 
 Returns
 ------
-None
+str
+    The stats about the LRU cache.
 )")
       .def(
           "num_fusions",

@@ -94,7 +94,7 @@ class LruFusionCache:
                 self.cache.put(fusion_definition.fusion, fec)
                 return fusion_definition
 
-        def stats(self):
+        def stats():
             """
             Get the stats of the cache.
             """

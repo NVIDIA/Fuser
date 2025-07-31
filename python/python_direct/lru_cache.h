@@ -82,22 +82,24 @@ class LRUCache {
   }
 
   // Print stats about LRU Cache
-  void stats(std::ostream& os) const {
-    os << "Total Fusions: " << items_list.size() << "\n";
+  std::string stats() const {
+    std::stringstream ss;
+    ss << "Total Fusions: " << items_list.size() << "\n";
 
     // Does not make sense to print stats if the cache is disabled.
     if (!items_list.empty()) {
-      os << "Cache Hits by LRU ordering:\n";
+      ss << "Cache Hits by LRU ordering:\n";
       for (const auto&& [index, item] : enumerate(items_list)) {
-        os << "\t" << index << " -> " << item.visits << " hits\n";
+        ss << "\t" << index << " -> " << item.visits << " hits\n";
       }
 
       float hit_rate = static_cast<float>(num_cache_hits_) /
           static_cast<float>(num_cache_lookups_) * 100.0;
-      os << "Cache Lookups: " << num_cache_lookups_ << std::endl;
-      os << "Cache Hits: " << num_cache_hits_ << std::endl;
-      os << "Hit Rate: " << hit_rate << "%" << std::endl;
+      ss << "Cache Lookups: " << num_cache_lookups_ << "\n";
+      ss << "Cache Hits: " << num_cache_hits_ << "\n";
+      ss << "Hit Rate: " << hit_rate << "%" << "\n";
     }
+    return ss.str();
   }
 
   // Number of fusions cached
