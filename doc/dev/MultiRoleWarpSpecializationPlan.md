@@ -397,6 +397,7 @@ sequenceDiagram
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
 
     OMB0_F->>MW: Wait for OperandSlot0_Full
+    RMB0_E->>MW: Wait for ResultSlot0_Empty
     loop MMA Loop Stage 0
         MW->>MW: tcgen05 utcmma(A[0], B[0]) (multiple instructions)
     end
@@ -448,6 +449,7 @@ sequenceDiagram
     Note over OLW,EW: Next tile - reusing circular buffer slots
 
         OMB1_F->>MW: Wait for OperandSlot1_Full
+    RMB1_E->>MW: Wait for ResultSlot1_Empty
     loop MMA Loop Stage 5
         MW->>MW: tcgen05 utcmma(A[5], B[5]) (multiple instructions)
     end
