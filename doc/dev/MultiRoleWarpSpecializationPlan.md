@@ -4,6 +4,8 @@
 - [Overview](#overview)
 - [Current Architecture](#current-architecture)
 - [Planned Architecture](#planned-architecture)
+  - [Hopper Implementation](#hopper-implementation)
+  - [Blackwell Implementation](#blackwell-implementation)
 - [Key Design Changes](#key-design-changes)
   - [1. Scheduling Changes](#1-scheduling-changes)
   - [2. Circular Buffer Analysis Changes](#2-circular-buffer-analysis-changes)
@@ -66,6 +68,247 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 2. **Determining the producer/consumer relationships** between the async warps and the epilogue compute warps
 3. **Managing multiple circular buffer chains** that may have different synchronization requirements
 4. **Building a dependency DAG** that represents all producer/consumer relationships and deriving mbarrier semantics from the graph structure
+
+### Example: Fused Multiply-Sum with Epilogue
+
+Consider a fusion that performs the following operations:
+1. Load two bf16 operands (A and B) via TMA
+2. Perform fusedMultiplySum(A, B) using WgMMA (Hopper) or tcgen05 utcmma (Blackwell)
+3. Add the result to a 2D tensor (bias)
+4. Cast the result back to bf16 for output
+
+**Fusion Code Sample**:
+```cpp
+// Fusion definition
+Fusion fusion;
+FusionGuard fg(&fusion);
+
+// Input tensors
+auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::BFloat16);  // M, 1, K
+auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::BFloat16);  // 1, N, K  
+auto tv2 = makeContigConcreteTensor({-1, -1}, DataType::BFloat16);  // M, N (bias)
+fusion.addInput(tv0);
+fusion.addInput(tv1);
+fusion.addInput(tv2);
+
+// Operations - separate matmul, add, and cast
+auto tv3 = fusedMultiplySum(tv0, tv1, {-1});  // WgMMA on Hopper, tcgen05 utcmma on Blackwell
+auto tv4 = add(tv3, tv2);                      // Add bias
+auto tv5 = castOp(DataType::BFloat16, tv4);    // Cast to bf16
+fusion.addOutput(tv5);
+
+// Scheduling: Split M and N dimensions by 128 to form CTA tiles
+tv3->split(1, 256);
+tv3->split(0, 128);
+// Merge outer dimensions and split by 132 for persistent dimension
+tv3->merge(0, 1);
+tv3->split(0, 132);
+// (not shown) propagate from mma result to all tensors
+
+// Parallelize persistent dimension by BIDx (distributes across 132 CTAs)
+tv0->axis(0)->parallelize(ParallelType::BIDx);
+tv1->axis(0)->parallelize(ParallelType::BIDx);
+tv2->axis(0)->parallelize(ParallelType::BIDx);
+tv3->axis(0)->parallelize(ParallelType::BIDx);
+tv4->axis(0)->parallelize(ParallelType::BIDx);
+tv5->axis(0)->parallelize(ParallelType::BIDx);
+
+// Circular buffering for operands and epilogue input
+tv0->setMemoryType(MemoryType::Shared);
+tv1->setMemoryType(MemoryType::Shared);
+tv2->setMemoryType(MemoryType::Shared);  // Epilogue input tensor
+tv0->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular buffer for operand A
+tv1->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular buffer for operand B
+tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular buffer for bias (epilogue input)
+```
+
+#### Hopper Implementation
+
+**Hopper Warp Specialization**:
+- **AsyncWarp**: Handles TMA loads for operands A and B
+- **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
+- **Circular Buffer**: Only operand tensors A and B are circular buffered
+
+**Circular Buffer Chain**:
+1. Operand circular buffer: AsyncWarp → ComputeWarpGroups (single chain)
+
+#### Warp Dependency Diagram
+
+```mermaid
+graph TD
+    OLW[OperandLoadWarp] --> CW[ComputeWarpGroups]
+    ELW[EpilogueLoadWarp] --> CW
+    
+    OLW --> |"Operand Circular Buffer"| CW
+    ELW --> |"Epilogue Input Circular Buffer"| CW
+    
+    style OLW fill:#lightblue
+    style ELW fill:#lightblue
+    style CW fill:#lightgreen
+```
+
+#### Sequence Diagram: Hopper Single-Role Warp Specialization
+
+```mermaid
+sequenceDiagram
+    participant OLW as OperandLoadWarp
+    participant ELW as EpilogueLoadWarp
+    participant CW as ComputeWarpGroups
+    participant OMB0_E as OperandSlot0_Empty
+    participant OMB0_F as OperandSlot0_Full
+    participant OMB1_E as OperandSlot1_Empty
+    participant OMB1_F as OperandSlot1_Full
+    participant EMB0_E as EpilogueSlot0_Empty
+    participant EMB0_F as EpilogueSlot0_Full
+    participant EMB1_E as EpilogueSlot1_Empty
+    participant EMB1_F as EpilogueSlot1_Full
+    
+    Note over OLW,CW: Overlapping execution across circular buffer stages
+    
+    Note over CW: Initialize - arrive at all slot empty barriers
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
+    
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
+    
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    CW->>CW: WgMMA(A[0], B[0])
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    EMB0_F->>CW: Wait for EpilogueSlot0_Full
+    CW->>CW: Add(Result[0], Bias[0])
+    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    CW->>CW: Cast to bf16
+    CW->>CW: Write output[0]
+    
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[1], B[1] (async, expect_tx)
+    
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    CW->>CW: WgMMA(A[1], B[1])
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    EMB1_F->>CW: Wait for EpilogueSlot1_Full
+    CW->>CW: Add(Result[1], Bias[1])
+    CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
+    CW->>CW: Cast to bf16
+    CW->>CW: Write output[1]
+    
+    Note over OLW,CW: Next iteration - reusing circular buffer slots
+    
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
+    
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[2] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    CW->>CW: WgMMA(A[2], B[2])
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    EMB0_F->>CW: Wait for EpilogueSlot0_Full
+    CW->>CW: Add(Result[2], Bias[2])
+    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    CW->>CW: Cast to bf16
+    CW->>CW: Write output[2]
+    
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
+    
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[3] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    CW->>CW: WgMMA(A[3], B[3])
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    EMB1_F->>CW: Wait for EpilogueSlot1_Full
+    CW->>CW: Add(Result[3], Bias[3])
+    CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
+    CW->>CW: Cast to bf16
+    CW->>CW: Write output[3]
+    
+    Note over OLW,CW: Continue overlapping pattern...
+```
+
+**Key Synchronization Points (Hopper)**:
+- **AsyncWarp**: Waits for slot empty → loads operands → arrives at slot full
+- **ComputeWarpGroups**: Waits for operand slot full → computes WgMMA + epilogue → arrives at slot empty
+
+#### Blackwell Implementation
+
+**Blackwell Multi-Role Warp Specialization**:
+- **LoadWarp**: Handles TMA loads for operands A, B and bias tensor
+- **MmaWarp**: Handles tcgen05 utcmma for fusedMultiplySum(A, B)
+- **EpilogueWarpGroups**: Handle bias addition and bf16 casting
+
+**Circular Buffer Chain**:
+1. Operand circular buffer: LoadWarp → MmaWarp
+2. Result circular buffer: MmaWarp → EpilogueWarpGroups
+3. Bias circular buffer: LoadWarp → EpilogueWarpGroups (parallel to operand chain)
+
+#### Sequence Diagram: Blackwell Multi-Role Warp Specialization
+
+```mermaid
+sequenceDiagram
+    participant LW as LoadWarp
+    participant MW as MmaWarp
+    participant EW as EpilogueWarpGroups
+    
+    Note over LW,EW: Circular Buffer Slot 0
+    
+    LW->>LW: Wait for OperandSlot0_Empty
+    LW->>LW: TMA Load A[0], B[0]
+    LW->>LW: TMA Load Bias[0]
+    LW->>LW: Arrive at OperandSlot0_Full
+    LW->>LW: Arrive at BiasSlot0_Full
+    
+    MW->>MW: Wait for OperandSlot0_Full
+    MW->>MW: tcgen05 utcmma(A[0], B[0])
+    MW->>MW: Arrive at ResultSlot0_Full
+    
+    EW->>EW: Wait for ResultSlot0_Full
+    EW->>EW: Wait for BiasSlot0_Full
+    EW->>EW: Add(Result[0], Bias[0])
+    EW->>EW: Cast to bf16
+    EW->>EW: Arrive at OperandSlot0_Empty
+    EW->>EW: Arrive at BiasSlot0_Empty
+    
+    Note over LW,EW: Circular Buffer Slot 1
+    
+    LW->>LW: Wait for OperandSlot1_Empty
+    LW->>LW: TMA Load A[1], B[1]
+    LW->>LW: TMA Load Bias[1]
+    LW->>LW: Arrive at OperandSlot1_Full
+    LW->>LW: Arrive at BiasSlot1_Full
+    
+    MW->>MW: Wait for OperandSlot1_Full
+    MW->>MW: tcgen05 utcmma(A[1], B[1])
+    MW->>MW: Arrive at ResultSlot1_Full
+    
+    EW->>EW: Wait for ResultSlot1_Full
+    EW->>EW: Wait for BiasSlot1_Full
+    EW->>EW: Add(Result[1], Bias[1])
+    EW->>EW: Cast to bf16
+    EW->>EW: Arrive at OperandSlot1_Empty
+    EW->>EW: Arrive at BiasSlot1_Empty
+    
+    Note over LW,EW: Continue for all slots...
+```
+
+**Key Synchronization Points (Blackwell)**:
+- **LoadWarp**: Waits for slot empty → loads data → arrives at slot full
+- **MmaWarp**: Waits for operand slot full → computes MMA → arrives at result slot full  
+- **EpilogueWarpGroups**: Waits for both result and bias slots full → computes epilogue → arrives at slots empty1, 
 
 ## Key Design Changes
 
