@@ -32,6 +32,11 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
       last_use[tv] = i;
     }
   }
+  
+  // Remove outputs from last_use, they should not be deallocated
+  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
+    last_use.erase(out);
+  }
 
   std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
   last_use_by_index.reserve(last_use.size());
