@@ -400,6 +400,9 @@ sequenceDiagram
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
 
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     RMB0_E->>MW: Wait for ResultSlot0_Empty
     loop MMA Loop Stage 0
@@ -451,6 +454,9 @@ sequenceDiagram
     EW->>EW: Write output[0]
 
     Note over OLW,EW: Next tile - reusing circular buffer slots
+
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[2] (async, expect_tx)
 
         OMB1_F->>MW: Wait for OperandSlot1_Full
     RMB1_E->>MW: Wait for ResultSlot1_Empty
