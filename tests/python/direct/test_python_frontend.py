@@ -830,3 +830,27 @@ def test_where_dtypes(nvfuser_direct_test):
     assert ncf.dtype == torch.complex64
     assert ncd.dtype == torch.complex128
     assert nb.dtype == torch.bool
+
+
+def test_addcmul(nvfuser_direct_test):
+    inputs = [
+        torch.randn(4, device="cuda", dtype=torch.float32),
+        torch.randn(4, device="cuda", dtype=torch.float32),
+        torch.randn(4, device="cuda", dtype=torch.float32),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.from_pytorch(inputs[2])
+        c0 = fd.define_scalar(0.1)
+
+        t3 = fd.ops.addcmul(t0, t1, t2, c0)
+
+        fd.add_output(t3)
+
+    nvfout, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+    torch_out = torch.addcmul(*inputs, value=0.1)
+
+    nvfuser_direct_test.assertEqual(nvfout[0], torch_out)
