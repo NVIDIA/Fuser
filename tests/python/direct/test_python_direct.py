@@ -263,12 +263,14 @@ def test_lru_cache():
                 create_fd2(fd)
         return fd
 
-    fd1 = create_fusion(select_first_fd=True)
-    outputs = fd1.execute(inputs)
-    assert create_fusion.num_fusions() == 1
-    assert torch.allclose(outputs[0], inputs[0] * 1.0)
+    # Test LRU cache compilation
+    for i in range(2):
+        fd1 = create_fusion(select_first_fd=True)
+        outputs = fd1.execute(inputs)
+        assert create_fusion.num_fusions() == i + 1
+        assert torch.allclose(outputs[0], inputs[0] * 1.0)
 
-    fd2 = create_fusion(select_first_fd=False)
-    outputs = fd2.execute(inputs)
-    assert create_fusion.num_fusions() == 2
-    assert torch.allclose(outputs[0], inputs[0] * 10.0)
+        fd2 = create_fusion(select_first_fd=False)
+        outputs = fd2.execute(inputs)
+        assert create_fusion.num_fusions() == 2
+        assert torch.allclose(outputs[0], inputs[0] * 10.0)
