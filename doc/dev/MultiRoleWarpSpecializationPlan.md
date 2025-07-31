@@ -395,7 +395,7 @@ sequenceDiagram
     MW->>OMB0_E: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 1
         MW->>MW: tcgen05 utcmma(A[1], B[1]) (multiple instructions)
@@ -403,7 +403,7 @@ sequenceDiagram
     MW->>OMB1_E: tcgen05.commit.mbarrier::arrive
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 2
         MW->>MW: tcgen05 utcmma(A[2], B[2]) (multiple instructions)
@@ -411,7 +411,7 @@ sequenceDiagram
     MW->>OMB0_E: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[4], B[4] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 3
         MW->>MW: tcgen05 utcmma(A[3], B[3]) (multiple instructions)
@@ -419,7 +419,7 @@ sequenceDiagram
     MW->>OMB1_E: tcgen05.commit.mbarrier::arrive
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 4
         MW->>MW: tcgen05 utcmma(A[4], B[4]) (multiple instructions)
@@ -445,7 +445,7 @@ sequenceDiagram
     MW->>OMB1_E: tcgen05.commit.mbarrier::arrive
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[7], B[7] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 6
         MW->>MW: tcgen05 utcmma(A[6], B[6]) (multiple instructions)
@@ -453,7 +453,7 @@ sequenceDiagram
     MW->>OMB0_E: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[8], B[8] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 7
         MW->>MW: tcgen05 utcmma(A[7], B[7]) (multiple instructions)
@@ -461,7 +461,7 @@ sequenceDiagram
     MW->>OMB1_E: tcgen05.commit.mbarrier::arrive
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[9], B[9] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 8
         MW->>MW: tcgen05 utcmma(A[8], B[8]) (multiple instructions)
@@ -469,7 +469,7 @@ sequenceDiagram
     MW->>OMB0_E: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[10], B[10] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
         MW->>MW: tcgen05 utcmma(A[9], B[9]) (multiple instructions)
