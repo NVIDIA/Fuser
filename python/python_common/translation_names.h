@@ -25,5 +25,4 @@ std::string toString(const ReductionOp* rop);
 // Get string name for ScanOp
 std::string toString(const ScanOp* sop);
 
-
 } // namespace nvfuser::python
