@@ -371,18 +371,18 @@ Each edge in this dependency graph represents a group of circular buffered tenso
 sequenceDiagram
     participant OLW as OperandLoadWarp
     participant OMB0_E as OperandSlot0_Empty
-    participant OMB0_F as OperandSlot0_Full
     participant OMB1_E as OperandSlot1_Empty
+    participant OMB0_F as OperandSlot0_Full
     participant OMB1_F as OperandSlot1_Full
     participant MW as MmaWarp
     participant RMB0_E as ResultSlot0_Empty
-    participant RMB0_F as ResultSlot0_Full
     participant RMB1_E as ResultSlot1_Empty
+    participant RMB0_F as ResultSlot0_Full
     participant RMB1_F as ResultSlot1_Full
     participant EW as EpilogueWarpGroups
     participant EMB0_E as EpilogueSlot0_Empty
-    participant EMB0_F as EpilogueSlot0_Full
     participant EMB1_E as EpilogueSlot1_Empty
+    participant EMB0_F as EpilogueSlot0_Full
     participant EMB1_F as EpilogueSlot1_Full
     participant ELW as EpilogueLoadWarp
 
