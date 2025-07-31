@@ -138,7 +138,6 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 
 #### Current Hopper Single-Role Warp Specialization
 
-**Hopper Single-Role Warp Specialization**:
 - **AsyncWarp**: Handles TMA loads for operands A and B
 - **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
 - **Circular Buffer**: Only operand tensors A and B are circular buffered
@@ -148,7 +147,6 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 
 #### Planned Hopper Multi-Role Warp Specialization
 
-**Hopper Single-Role Warp Specialization**:
 - **OperandLoadWarp**: Handles TMA loads for operands A and B
 - **EpilogueLoadWarp**: Handles TMA loads for bias
 - **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
@@ -174,7 +172,7 @@ graph TD
 
 Each edge in this dependency graph represents a group of circular buffered tensors (A/B operands or Bias) that flow between async warps and compute warp groups. These edges correspond to pairs of full/empty mbarriers that synchronize the data flow, as shown in the detailed sequence diagram below.
 
-#### Sequence Diagram: Hopper Single-Role Warp Specialization
+#### Sequence Diagram: Hopper Multi-Role Warp Specialization
 
 ```mermaid
 sequenceDiagram
