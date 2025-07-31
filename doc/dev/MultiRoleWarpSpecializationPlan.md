@@ -11,10 +11,7 @@
   - [Sequence Diagrams](#sequence-diagrams)
     - [Hopper Single-Role Warp Specialization](#sequence-diagram-hopper-single-role-warp-specialization)
     - [Blackwell Multi-Role Warp Specialization](#sequence-diagram-blackwell-multi-role-warp-specialization)
-  - [Mbarrier Synchronization Problem](#mbarrier-synchronization-problem)
-    - [Option 1: Separate Mbarriers with Explicit Polling](#option-1-separate-mbarriers-with-explicit-polling)
-    - [Option 2: Single Mbarrier with Parity](#option-2-single-mbarrier-with-parity)
-    - [Evidence from CUTLASS Implementation](#evidence-from-cutlass-implementation)
+  
 - [Key Design Changes](#key-design-changes)
   - [1. Scheduling Changes](#1-scheduling-changes)
   - [2. Circular Buffer Analysis Changes](#2-circular-buffer-analysis-changes)
@@ -61,21 +58,32 @@ This document outlines the plan to extend nvFuser's circular buffering support t
 
 ## Planned Architecture
 
-### Blackwell Architecture (Target)
-- **LoadWarp**: Handles TMA loads for operands (first async warp)
+### Multi-Role Warp Specialization (Both Hopper and Blackwell)
+
+#### Hopper Multi-Role Architecture (Target)
+- **OperandLoadWarp**: Handles TMA loads for operands A and B
+- **EpilogueLoadWarp**: Handles TMA loads for epilogue inputs (bias)
+- **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
+- **Circular Buffer Tensors**:
+  - Operand circular buffer tensors (A and B) - populated by OperandLoadWarp, consumed by ComputeWarpGroups
+  - Epilogue input circular buffer tensors (bias) - populated by EpilogueLoadWarp, consumed by ComputeWarpGroups
+- **Synchronization**: Two parallel 2-way synchronization patterns:
+  - **Operand Path**: OperandLoadWarp ↔ ComputeWarpGroups
+  - **Epilogue Input Path**: EpilogueLoadWarp ↔ ComputeWarpGroups
+
+#### Blackwell Multi-Role Architecture (Target)
+- **OperandLoadWarp**: Handles TMA loads for operands A and B (first async warp)
+- **EpilogueLoadWarp**: Handles TMA loads for epilogue inputs (bias)
 - **MmaWarp**: Handles tcgen05 utcmma operations (second async warp)
 - **EpilogueWarpGroups**: Handle epilogue computations only
 - **Circular Buffer Tensors**:
-  - Operand circular buffer tensors (A and B) - populated by LoadWarp, consumed by MmaWarp
+  - Operand circular buffer tensors (A and B) - populated by OperandLoadWarp, consumed by MmaWarp
   - MMA result circular buffer tensor - populated by MmaWarp, consumed by EpilogueWarpGroups
-- **Synchronization**: Extended mbarriers for three-way synchronization:
-  - **"Operand Slot Empty" mbarrier**: Indicates operand slot is available for loading
-  - **"Operand Slot Full" mbarrier**: Indicates operand slot contains valid operands for MMA
-  - **"Result Slot Empty" mbarrier**: Indicates result slot is available for MMA results
-  - **"Result Slot Full" mbarrier**: Indicates result slot contains valid MMA results for epilogue
-  - **LoadWarp**: Waits for "operand slot empty" → issues TMA loads → arrives at "operand slot full"
-  - **MmaWarp**: Waits for "operand slot full" → issues tcgen05 utcmma → arrives at "result slot full"
-  - **EpilogueWarpGroups**: Wait for "result slot full" → consume results → arrive at "result slot empty"
+  - Epilogue input circular buffer tensors (bias) - populated by EpilogueLoadWarp, consumed by EpilogueWarpGroups
+- **Synchronization**: Three-way synchronization with multiple paths:
+  - **Operand Path**: OperandLoadWarp → MmaWarp
+  - **Result Path**: MmaWarp → EpilogueWarpGroups
+  - **Epilogue Input Path**: EpilogueLoadWarp → EpilogueWarpGroups (parallel to operand/result chain)
 
 **Note**: The above describes a simple case with a single pipeline of chained circular buffers. In general, we might have multiple pipelines of chained circular buffers. For example, the epilogue warp group might also consume a circular buffer of epilogue inputs which is filled by another async warp. One of the key challenges to the analysis is:
 1. **Grouping async operations and circular buffered tensors** into parts that can be computed by a single warp
@@ -99,7 +107,7 @@ FusionGuard fg(&fusion);
 
 // Input tensors
 auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::BFloat16);  // M, 1, K
-auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::BFloat16);  // 1, N, K
+auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::BFloat16);  // 1, N, K  
 auto tv2 = makeContigConcreteTensor({-1, -1}, DataType::BFloat16);  // M, N (bias)
 fusion.addInput(tv0);
 fusion.addInput(tv1);
@@ -153,8 +161,8 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 - **Circular Buffer**: Operand tensors A and B as well as bias are circular buffered
 
 **Circular Buffer Chains**:
-1. Operand circular buffer: AsyncWarp → ComputeWarpGroups
-1. Epilogue input circular buffer: AsyncWarp → ComputeWarpGroups (parallel to operand chain)
+1. Operand circular buffer: OperandLoadWarp → ComputeWarpGroups
+2. Epilogue input circular buffer: EpilogueLoadWarp → ComputeWarpGroups (parallel to operand chain)
 
 #### Warp Dependency Diagram
 
@@ -162,10 +170,10 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 graph TD
     OLW[OperandLoadWarp] --> |"A, B"| CW[ComputeWarpGroups]
     ELW[EpilogueLoadWarp] --> |"Bias"| CW
-
+    
     classDef asyncWarp fill:#lightblue
     classDef computeWarp fill:#lightgreen
-
+    
     class OLW,ELW asyncWarp
     class CW computeWarp
 ```
@@ -187,16 +195,16 @@ sequenceDiagram
     participant EMB0_E as EpilogueSlot0_Empty
     participant EMB1_E as EpilogueSlot1_Empty
     participant ELW as EpilogueLoadWarp
-
+    
     Note over CW: Initialize - arrive at all slot empty barriers
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
-
+    
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
-
+    
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
 
@@ -241,7 +249,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
-
+    
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 4
         CW->>CW: WgMMA(A[4], B[4]) (multiple instructions)
@@ -256,12 +264,12 @@ sequenceDiagram
     CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     CW->>CW: Cast to bf16
     CW->>CW: Write output[0]
-
+    
     Note over OLW,ELW: Next tile - reusing circular buffer slots
-
+    
     EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
     ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
-
+    
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 5
         CW->>CW: WgMMA(A[5], B[5]) (multiple instructions)
@@ -288,7 +296,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[8], B[8] (async, expect_tx)
-
+    
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 8
         CW->>CW: WgMMA(A[8], B[8]) (multiple instructions)
@@ -297,7 +305,7 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[9], B[9] (async, expect_tx)
-
+    
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
         CW->>CW: WgMMA(A[9], B[9]) (multiple instructions)
@@ -312,7 +320,7 @@ sequenceDiagram
     CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     CW->>CW: Cast to bf16
     CW->>CW: Write output[1]
-
+    
     Note over OLW,ELW: Continue overlapping pattern...
 ```
 
@@ -373,7 +381,7 @@ sequenceDiagram
     participant EMB1_E as EpilogueSlot1_Empty
     participant EMB1_F as EpilogueSlot1_Full
     participant ELW as EpilogueLoadWarp
-
+    
     Note over EW: Initialize - arrive at all slot empty barriers
     EW->>OMB0_E: Arrive at OperandSlot0_Empty
     EW->>OMB1_E: Arrive at OperandSlot1_Empty
@@ -381,14 +389,14 @@ sequenceDiagram
     EW->>RMB1_E: Arrive at ResultSlot1_Empty
     EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
-
+    
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
-
+    
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
-
-        OMB0_F->>MW: Wait for OperandSlot0_Full
+    
+    OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 0
         MW->>MW: tcgen05 utcmma(A[0], B[0]) (multiple instructions)
     end
@@ -428,14 +436,15 @@ sequenceDiagram
     MW->>RMB0_F: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[6], B[6] (async, expect_tx)
-
+    
     RMB0_F->>EW: Wait for ResultSlot0_Full
     EMB0_F->>EW: Wait for EpilogueSlot0_Full
     EW->>EW: Add(Result[0], Bias[0])
     EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    EW->>RMB0_E: Arrive at ResultSlot0_Empty
     EW->>EW: Cast to bf16
     EW->>EW: Write output[0]
-
+    
     Note over OLW,EW: Next tile - reusing circular buffer slots
 
         OMB1_F->>MW: Wait for OperandSlot1_Full
@@ -469,7 +478,7 @@ sequenceDiagram
     MW->>OMB0_E: tcgen05.commit.mbarrier::arrive
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[10], B[10] (async, expect_tx)
-
+    
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
         MW->>MW: tcgen05 utcmma(A[9], B[9]) (multiple instructions)
@@ -478,14 +487,15 @@ sequenceDiagram
     MW->>RMB1_F: tcgen05.commit.mbarrier::arrive
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[11], B[11] (async, expect_tx)
-
+    
     RMB1_F->>EW: Wait for ResultSlot1_Full
     EMB1_F->>EW: Wait for EpilogueSlot1_Full
     EW->>EW: Add(Result[1], Bias[1])
     EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
+    EW->>RMB1_E: Arrive at ResultSlot1_Empty
     EW->>EW: Cast to bf16
     EW->>EW: Write output[1]
-
+    
     Note over OLW,EW: Continue overlapping pattern...
 ```
 
@@ -595,23 +605,8 @@ sequenceDiagram
    - Update circular buffered tensor validation to accept async operations (not just LoadStoreOp)
 
 ### Phase 1.5: Dependency DAG Analysis
-1. **Group Async Operations into Warps**
-   - **Stage Slice Position Analysis**: Group operations with compatible `stage_slice_position`
-   - **Operation Type Analysis**: Separate TMA loads from MMA operations
-   - **Resource Sharing Analysis**: Ensure operations in same warp can share resources
-   - **Validation**: Verify each warp group can be executed by a single warp
 
-2. **Detect Dependencies Between Warps**
-   - **Data Flow Analysis**: Track which circular buffered tensors are consumed by which operations
-   - **Producer/Consumer Mapping**: Build dependency edges between warps based on tensor usage
-   - **Circular Buffer Chain Detection**: Identify chains of circular buffered tensors
-   - **Dependency Graph Construction**: Create DAG representing all warp dependencies
-
-3. **DAG-Based MBarrier Generation**
-   - **Graph Traversal**: Analyze DAG to determine synchronization requirements
-   - **MBarrier Allocation**: Generate appropriate mbarriers for each producer/consumer edge
-   - **Wait/Arrive Pattern Generation**: Derive synchronization patterns from graph structure
-   - **Validation**: Ensure no deadlocks and proper synchronization order
+The dependency analysis will build a directed acyclic graph (DAG) representing producer/consumer relationships between warps. First, we'll group async operations by stage slice position and operation type (TMA loads vs MMA operations) to form warp roles. Then, we'll analyze data flow through circular buffered tensors to detect dependencies - tracking which tensors are produced by load warps and consumed by compute warps, and which results flow from MMA warps to epilogue warps. Finally, we'll traverse this dependency DAG to automatically generate the appropriate mbarriers for each producer/consumer edge, deriving wait/arrive patterns that ensure proper synchronization without deadlocks. This approach will support arbitrary pipeline configurations beyond the simple 2-way and 3-way patterns shown in the examples.
 
 ### Phase 2: Code Generation
 1. **Extend Warp Specialization Pass**
