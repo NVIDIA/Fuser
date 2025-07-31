@@ -272,6 +272,12 @@ llvm::Value* createValue(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
+  
+  if (auto* tv = dynamic_cast<TensorView*>(val)) {
+    return nullptr;
+  }
+
+  
   if (val->isConst()) {
     return builder.getInt64(val->value().as<int64_t>());
   }
@@ -537,7 +543,7 @@ void packOutputs(
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
-    llvm::Value* tensor = getOrDefault(val_to_value, static_cast<Val*>(tv));
+    llvm::Value* tensor = getOrCreateValue(tv, val_to_value, builder);
     NVF_ERROR(tensor != nullptr, "packOutputs: tensor is nullptr");
     builder.CreateStore(tensor, tensor_addr);
   }
@@ -742,10 +748,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
     load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
     TensorView* in_tv = load_store_op->in()->as<TensorView>();
     TensorView* out_tv = load_store_op->out()->as<TensorView>();
-    llvm::Value* in_tensor = getOrDefault(val_to_value_, static_cast<Val*>(in_tv));
+    llvm::Value* in_tensor = getOrCreateValue(in_tv, val_to_value_, builder_);
     NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
     // we assume all output tensors are already created, either through new or allocated
-    llvm::Value* out_tensor = getOrDefault(val_to_value_, static_cast<Val*>(out_tv));
+    llvm::Value* out_tensor = getOrCreateValue(out_tv, val_to_value_, builder_);
 
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
@@ -802,11 +808,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
     llvm::Value* a =
-        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->inA()));
+        getOrCreateValue(matmul_op->inA(), val_to_value_, builder_);
     llvm::Value* b =
-        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->inB()));
+        getOrCreateValue(matmul_op->inB(), val_to_value_, builder_);
         llvm::Value* out =
-        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->out()));
+        getOrCreateValue(matmul_op->out(), val_to_value_, builder_);
     if(out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(
@@ -824,15 +830,15 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::LLVMContext& context = builder_.getContext();
 
     llvm::Value* in =
-        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->inA()));
+        getOrCreateValue(linear_op->inA(), val_to_value_, builder_);
     llvm::Value* weight =
-        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->inB()));
+        getOrCreateValue(linear_op->inB(), val_to_value_, builder_);
     llvm::Value* out =
-        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->out()));
+        getOrCreateValue(linear_op->out(), val_to_value_, builder_);
 
     llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
-      bias = getOrDefault(val_to_value_, static_cast<Val*>(linear_op->bias()));
+      bias = getOrCreateValue(linear_op->bias(), val_to_value_, builder_);
     } else {
       // Create a proper null pointer for LLVM
       auto* tensor_type = getTensorPtrType(context);
@@ -861,28 +867,28 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
 
     // Convert input TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> input_tensors;
+    llvm::SmallVector<llvm::Value*, 1> inputs;
     for (auto* in : launch_kernel->inputs()) {
-      if(auto* tv = in->as<TensorView>()) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, static_cast<Val*>(tv));
+      if(auto* tv = dynamic_cast<TensorView*>(in)) {
+        llvm::Value* tensor = getOrCreateValue(tv, val_to_value_, builder_);
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
-        input_tensors.push_back(tensor);
+        inputs.push_back(tensor);
       }
       else {
-        input_tensors.push_back(getOrCreateValue(in, val_to_value_, builder_));
+        inputs.push_back(getOrCreateValue(in, val_to_value_, builder_));
       }
     }
 
     // Convert output TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> output_tensors;
+    llvm::SmallVector<llvm::Value*, 1> outputs;
     for (auto* out : launch_kernel->outputs()) {
-      if(auto* tv = out->as<TensorView>()) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, static_cast<Val*>(tv));
+      if(auto* tv = dynamic_cast<TensorView*>(out)) {
+        llvm::Value* tensor = getOrCreateValue(tv, val_to_value_, builder_);
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
-        output_tensors.push_back(tensor);
+        outputs.push_back(tensor);
       }
       else {
-        output_tensors.push_back(getOrCreateValue(out, val_to_value_, builder_));
+        outputs.push_back(getOrCreateValue(out, val_to_value_, builder_));
       }
     }
 
@@ -892,29 +898,29 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     // Create arrays to hold tensor pointers
     auto* input_array_type =
-        getInt8PtrStaticArrayType(context, input_tensors.size());
+        getInt8PtrStaticArrayType(context, inputs.size());
     auto* output_array_type =
-        getInt8PtrStaticArrayType(context, output_tensors.size());
+        getInt8PtrStaticArrayType(context, outputs.size());
 
     llvm::Value* input_array = builder_.CreateAlloca(
         input_array_type, nullptr, "launch_kernel_inputs");
     llvm::Value* output_array = builder_.CreateAlloca(
         output_array_type, nullptr, "launch_kernel_outputs");
 
-    for (size_t i = 0; i < input_tensors.size(); ++i) {
+    for (size_t i = 0; i < inputs.size(); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           input_array_type,
           input_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(input_tensors[i], gep);
+      builder_.CreateStore(inputs[i], gep);
     }
 
-    for (size_t i = 0; i < output_tensors.size(); ++i) {
+    for (size_t i = 0; i < outputs.size(); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           output_array_type,
           output_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(output_tensors[i], gep);
+      builder_.CreateStore(outputs[i], gep);
     }
 
     llvm::Value* input_array_ptr =
@@ -922,9 +928,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* output_array_ptr =
         builder_.CreateBitCast(output_array, void_array_ptr_type);
 
-    llvm::Value* num_inputs_constant = builder_.getInt64(input_tensors.size());
+    llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
     llvm::Value* num_outputs_constant =
-        builder_.getInt64(output_tensors.size());
+        builder_.getInt64(outputs.size());
 
     llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
