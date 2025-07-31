@@ -250,7 +250,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(2));
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
 
   testValidate(
       executor_cache.fusion(),
@@ -318,7 +318,7 @@ TEST_F(HostIrIntegrationTest, InsertComplexDeallocations) {
   at::Tensor in_tensor = at::randn(
       input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
-  
+
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   const std::vector<Expr*>& hicExprs =
