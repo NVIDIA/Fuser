@@ -44,5 +44,4 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
     hic->insertExprAfter(i, deallocate);
   }
 }
-
 } // namespace nvfuser::hir_pass

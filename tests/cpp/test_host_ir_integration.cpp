@@ -288,5 +288,4 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 }
 
 } // namespace hir
-
 } // namespace nvfuser
