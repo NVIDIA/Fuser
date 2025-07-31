@@ -397,6 +397,9 @@ sequenceDiagram
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
 
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[1], B[1] (async, expect_tx)
+
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
 
