@@ -188,65 +188,121 @@ sequenceDiagram
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
     
-    OMB0_F->>CW: Wait for OperandSlot0_Full
-    CW->>CW: WgMMA(A[0], B[0])
-    CW->>CW: wgmma.wait
-    CW->>OMB0_E: Arrive at OperandSlot0_Empty
-    EMB0_F->>CW: Wait for EpilogueSlot0_Full
-    CW->>CW: Add(Result[0], Bias[0])
-    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
-    CW->>CW: Cast to bf16
-    CW->>CW: Write output[0]
-    
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[1], B[1] (async, expect_tx)
     
     EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
     ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
     
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    loop MMA Loop Stage 0
+        CW->>CW: WgMMA(A[0], B[0]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
+    
     OMB1_F->>CW: Wait for OperandSlot1_Full
-    CW->>CW: WgMMA(A[1], B[1])
+    loop MMA Loop Stage 1
+        CW->>CW: WgMMA(A[1], B[1]) (multiple instructions)
+    end
     CW->>CW: wgmma.wait
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    loop MMA Loop Stage 2
+        CW->>CW: WgMMA(A[2], B[2]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[4], B[4] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    loop MMA Loop Stage 3
+        CW->>CW: WgMMA(A[3], B[3]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    loop MMA Loop Stage 4
+        CW->>CW: WgMMA(A[4], B[4]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[6], B[6] (async, expect_tx)
+    
+    EMB0_F->>CW: Wait for EpilogueSlot0_Full
+    CW->>CW: Add(Result[0], Bias[0])
+    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    CW->>CW: Cast to bf16
+    CW->>CW: Write output[0]
+    
+    Note over OLW,ELW: Next tile - reusing circular buffer slots
+    
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
+    
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    loop MMA Loop Stage 5
+        CW->>CW: WgMMA(A[5], B[5]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[6], B[6] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    loop MMA Loop Stage 6
+        CW->>CW: WgMMA(A[6], B[6]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[7], B[7] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    loop MMA Loop Stage 7
+        CW->>CW: WgMMA(A[7], B[7]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[8], B[8] (async, expect_tx)
+    
+    OMB0_F->>CW: Wait for OperandSlot0_Full
+    loop MMA Loop Stage 8
+        CW->>CW: WgMMA(A[8], B[8]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB0_E: Arrive at OperandSlot0_Empty
+    OMB0_E->>OLW: Wait for OperandSlot0_Empty
+    OLW->>OMB0_F: TMA Load A[9], B[9] (async, expect_tx)
+    
+    OMB1_F->>CW: Wait for OperandSlot1_Full
+    loop MMA Loop Stage 9
+        CW->>CW: WgMMA(A[9], B[9]) (multiple instructions)
+    end
+    CW->>CW: wgmma.wait
+    CW->>OMB1_E: Arrive at OperandSlot1_Empty
+    OMB1_E->>OLW: Wait for OperandSlot1_Empty
+    OLW->>OMB1_F: TMA Load A[10], B[10] (async, expect_tx)
+    
     EMB1_F->>CW: Wait for EpilogueSlot1_Full
     CW->>CW: Add(Result[1], Bias[1])
     CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     CW->>CW: Cast to bf16
     CW->>CW: Write output[1]
-    
-    Note over OLW,ELW: Next iteration - reusing circular buffer slots
-    
-    OMB0_E->>OLW: Wait for OperandSlot0_Empty
-    OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
-    
-    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
-    ELW->>EMB0_F: TMA Load Bias[2] (async, expect_tx)
-    
-    OMB0_F->>CW: Wait for OperandSlot0_Full
-    CW->>CW: WgMMA(A[2], B[2])
-    CW->>CW: wgmma.wait
-    CW->>OMB0_E: Arrive at OperandSlot0_Empty
-    EMB0_F->>CW: Wait for EpilogueSlot0_Full
-    CW->>CW: Add(Result[2], Bias[2])
-    CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
-    CW->>CW: Cast to bf16
-    CW->>CW: Write output[2]
-    
-    OMB1_E->>OLW: Wait for OperandSlot1_Empty
-    OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
-    
-    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
-    ELW->>EMB1_F: TMA Load Bias[3] (async, expect_tx)
-    
-    OMB1_F->>CW: Wait for OperandSlot1_Full
-    CW->>CW: WgMMA(A[3], B[3])
-    CW->>CW: wgmma.wait
-    CW->>OMB1_E: Arrive at OperandSlot1_Empty
-    EMB1_F->>CW: Wait for EpilogueSlot1_Full
-    CW->>CW: Add(Result[3], Bias[3])
-    CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
-    CW->>CW: Cast to bf16
-    CW->>CW: Write output[3]
     
     Note over OLW,ELW: Continue overlapping pattern...
 ```
