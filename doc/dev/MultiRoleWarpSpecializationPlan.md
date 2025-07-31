@@ -150,15 +150,14 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 
 ```mermaid
 graph TD
-    OLW[OperandLoadWarp] --> CW[ComputeWarpGroups]
-    ELW[EpilogueLoadWarp] --> CW
+    OLW[OperandLoadWarp] --> |"A[0,1], B[0,1] Circular Buffer"| CW[ComputeWarpGroups]
+    ELW[EpilogueLoadWarp] --> |"Bias[0,1] Circular Buffer"| CW
     
-    OLW --> |"Operand Circular Buffer"| CW
-    ELW --> |"Epilogue Input Circular Buffer"| CW
+    classDef asyncWarp fill:#lightblue
+    classDef computeWarp fill:#lightgreen
     
-    style OLW fill:#lightblue
-    style ELW fill:#lightblue
-    style CW fill:#lightgreen
+    class OLW,ELW asyncWarp
+    class CW computeWarp
 ```
 
 #### Sequence Diagram: Hopper Single-Role Warp Specialization
