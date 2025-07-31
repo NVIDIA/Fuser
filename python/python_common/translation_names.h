@@ -22,4 +22,8 @@ std::string toString(const TernaryOp* bop);
 // Get string name for ReductionOp
 std::string toString(const ReductionOp* rop);
 
+// Get string name for ScanOp
+std::string toString(const ScanOp* sop);
+
+
 } // namespace nvfuser::python

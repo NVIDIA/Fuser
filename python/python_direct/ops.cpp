@@ -171,6 +171,24 @@ namespace {
       DOCSTRING,                                                        \
       py::return_value_policy::reference);
 
+#define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
+  ops.def(                                                                \
+      NAME,                                                               \
+      [](TensorView* arg,                                                 \
+         int dim,                                                         \
+         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
+        BinaryOpType op_type = OP_TYPE;                                   \
+        Val* init_val = init.has_value() ? init.value() : nullptr;        \
+        return static_cast<                                               \
+            TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
+            OP_NAME)(arg, dim, op_type, init_val);                        \
+      },                                                                  \
+      py::arg("arg"),                                                     \
+      py::arg("dim"),                                                     \
+      py::arg("init").none(true) = py::none(),                            \
+      DOCSTRING,                                                          \
+      py::return_value_policy::reference);
+
 void bindUnaryOps(py::module_& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP(
       "abs",
@@ -1540,6 +1558,104 @@ TensorView
 )")
 }
 
+void bindScanOps(py::module_& ops) {
+  // cumsum (prefix sum) along a dimension
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cumsum",
+      scan,
+      BinaryOpType::Add,
+      R"(
+Scan (prefix sum) along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to scan.
+dim : int
+    Dimension to scan over.
+op : str, optional
+    Operation to use for scan ("add"). Default is "add".
+dtype : PrimDataType, optional
+    This argument is not used for scan currently.
+
+Returns
+-------
+TensorView
+    A new tensor containing the scan result along the specified dimension.
+)");
+
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cumprod",
+      scan,
+      BinaryOpType::Mul,
+      R"(
+Scan (prefix product) along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to scan.
+dim : int
+    Dimension to scan over.
+op : str, optional
+    Operation to use for scan ("mul"). Default is "mul".
+dtype : PrimDataType, optional
+    This argument is not used for scan currently.
+
+Returns
+-------
+TensorView
+    A new tensor containing the scan result along the specified dimension.
+)");
+
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cummin",
+      scan,
+      BinaryOpType::Min,
+      R"(
+Scan (prefix minimum) along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to scan.
+dim : int
+    Dimension to scan over.
+op : str, optional
+    Operation to use for scan ("min"). Default is "min".
+dtype : PrimDataType, optional
+    This argument is not used for scan currently.
+
+Returns
+-------
+TensorView
+    A new tensor containing the scan result along the specified dimension.
+)");
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cummax",
+      scan,
+      BinaryOpType::Max,
+      R"(
+Scan (prefix maximum) along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to scan.
+dim : int
+    Dimension to scan over.
+op : str, optional
+    Operation to use for scan ("max"). Default is "max".
+dtype : PrimDataType, optional
+    This argument is not used for scan currently.
+
+Returns
+-------
+TensorView
+    A new tensor containing the scan result along the specified dimension.
+)");
+}
+
 void bindCastOps(py::module_& ops) {
   ops.def(
       "cast",
@@ -1988,121 +2104,6 @@ Returns
 -------
 TensorView
     The selected tensor.
-)");
-}
-
-#define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
-  ops.def(                                                                \
-      NAME,                                                               \
-      [](TensorView* arg,                                                 \
-         int dim,                                                         \
-         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
-        BinaryOpType op_type = OP_TYPE;                                   \
-        Val* init_val = init.has_value() ? init.value() : nullptr;        \
-        return static_cast<                                               \
-            TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
-            OP_NAME)(arg, dim, op_type, init_val);                        \
-      },                                                                  \
-      py::arg("arg"),                                                     \
-      py::arg("dim"),                                                     \
-      py::arg("init") = std::nullopt,                                     \
-      DOCSTRING,                                                          \
-      py::return_value_policy::reference);
-void bindScanOps(py::module_& ops) {
-  // cumsum (prefix sum) along a dimension
-  NVFUSER_DIRECT_BINDING_SCAN_OP(
-      "cumsum",
-      scan,
-      BinaryOpType::Add,
-      R"(
-Scan (prefix sum) along a dimension.
-
-Parameters
-----------
-arg : TensorView
-    Input tensor to scan.
-dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("add"). Default is "add".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
-
-Returns
--------
-TensorView
-    A new tensor containing the scan result along the specified dimension.
-)");
-
-  NVFUSER_DIRECT_BINDING_SCAN_OP(
-      "cumprod",
-      scan,
-      BinaryOpType::Mul,
-      R"(
-Scan (prefix product) along a dimension.
-
-Parameters
-----------
-arg : TensorView
-    Input tensor to scan.
-dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("mul"). Default is "mul".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
-
-Returns
--------
-TensorView
-    A new tensor containing the scan result along the specified dimension.
-)");
-
-  NVFUSER_DIRECT_BINDING_SCAN_OP(
-      "cummin",
-      scan,
-      BinaryOpType::Min,
-      R"(
-Scan (prefix minimum) along a dimension.
-
-Parameters
-----------
-arg : TensorView
-    Input tensor to scan.
-dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("min"). Default is "min".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
-
-Returns
--------
-TensorView
-    A new tensor containing the scan result along the specified dimension.
-)");
-  NVFUSER_DIRECT_BINDING_SCAN_OP(
-      "cummax",
-      scan,
-      BinaryOpType::Max,
-      R"(
-Scan (prefix maximum) along a dimension.
-
-Parameters
-----------
-arg : TensorView
-    Input tensor to scan.
-dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("max"). Default is "max".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
-
-Returns
--------
-TensorView
-    A new tensor containing the scan result along the specified dimension.
 )");
 }
 
