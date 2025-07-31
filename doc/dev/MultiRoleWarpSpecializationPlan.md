@@ -271,8 +271,8 @@ sequenceDiagram
 
     Note over OLW,ELW: Next tile - reusing circular buffer slots
 
-    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
-    ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[2] (async, expect_tx)
 
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 5
