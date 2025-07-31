@@ -366,40 +366,28 @@ void compileFunctionDeclarations(
 }
 
 
-void compileReferenceTensorAnalysis(
+void getVectorizationFactor(
     Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+  std::unordered_map<Val*, llvm::Value*>& val_to_value) {
+
   
 }
 
-
-void compileLogicalReorderAnalysis(
+// TODO: check out getEmpiricalUnrollFactor function
+void getUnrollFactor(
     Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value) {
+
+  
   
 }
 
-
-void compileVectorizationFactorAnalysis(
+void getBlockParams(
     Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
-  
-}
-
-void compileUnrollFactorAnalysis(
-    Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
-  
-}
-
-void compileBroadcastMultiplesAnalysis(
-    Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
+    llvm::IRBuilder<>& builder,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value) {
   
 }
 
