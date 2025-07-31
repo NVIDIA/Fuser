@@ -29,60 +29,16 @@ class LRUCache {
   LRUCache(const LRUCache&) = delete;
   LRUCache& operator=(const LRUCache&) = delete;
 
-  // Put a key-value pair into the cache.
-  FusionExecutorCache* cacheCompile(std::shared_ptr<Fusion> fusion) {
-    auto it = items_map.find(fusion);
-
-    // Key already exists
-    if (it != items_map.end()) {
-      // Move the item to the front of the list (most recently used)
-      items_list.splice(items_list.begin(), items_list, it->second);
-      return it->second->executor_cache.get();
-    }
-
-    // Key is new, check for capacity
-    if (items_map.size() == max_fusions_) {
-      // Evict the least recently used item (the one at the back)
-      std::shared_ptr<Fusion> lru_key = items_list.back().fusion;
-      items_list.pop_back();
-      items_map.erase(lru_key);
-    }
-
-    // Insert the new item at the front of the list
-    items_list.push_front(
-        {fusion,
-         std::make_unique<FusionExecutorCache>(
-             std::make_unique<Fusion>(*fusion), num_fusions_compiled_),
-         /*visits=*/0});
-    num_fusions_compiled_++;
-    // Store the iterator to the new item in the map
-    items_map.emplace(fusion, items_list.begin());
-
-    return items_list.front().executor_cache.get();
-  }
+  // Create a FusionExecutorCache for given fusion.
+  // If the fusion is already in the cache, it will be moved to the front of the
+  // cache and returned immediately.
+  // If the cache is full, the least recently used fusion will be evicted.
+  FusionExecutorCache* cacheCompile(std::shared_ptr<Fusion> fusion);
 
   // Print stats about LRU Cache
-  std::string stats() const {
-    std::stringstream ss;
-    ss << "Total Fusions: " << items_list.size() << "\n";
+  std::string stats() const;
 
-    // Does not make sense to print stats if the cache is disabled.
-    if (!items_list.empty()) {
-      ss << "Cache Hits by LRU ordering:\n";
-      for (const auto&& [index, item] : enumerate(items_list)) {
-        ss << "\t" << index << " -> " << item.visits << " hits\n";
-      }
-
-      float hit_rate = static_cast<float>(num_cache_hits_) /
-          static_cast<float>(num_cache_lookups_) * 100.0;
-      ss << "Cache Lookups: " << num_cache_lookups_ << "\n";
-      ss << "Cache Hits: " << num_cache_hits_ << "\n";
-      ss << "Hit Rate: " << hit_rate << "%" << "\n";
-    }
-    return ss.str();
-  }
-
-  // Number of fusions cached
+  // Get the number of fusions cached
   size_t numFusions() const {
     return items_list.size();
   }

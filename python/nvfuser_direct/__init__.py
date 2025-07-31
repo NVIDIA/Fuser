@@ -89,6 +89,9 @@ class LruFusionCache:
                 fusion_definition.fec = self.cache.cache_compile(
                     fusion_definition.fusion
                 )
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del fusion_definition._fusion
             return fusion_definition
 
         def stats():
@@ -281,17 +284,6 @@ class FusionDefinition:
         ), "If device argument is passed it must be a CUDA device"
         return device.index
 
-    def compile(self):
-        """
-        Compile the fusion.
-        """
-        if not hasattr(self, "fec"):
-            self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
-            # A copy of fusion is created after construction FusionExecutorCache
-            # Delete the _fusion and reference the fusion inside FusionExecutorCache
-            del self._fusion
-        return self.fec
-
     def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
         """
         Execute the fusion with the given inputs.
@@ -312,7 +304,11 @@ class FusionDefinition:
         """
 
         if auto_schedule:
-            self.compile()
+            if not hasattr(self, "fec"):
+                self.fec = _C_DIRECT.FusionExecutorCache(self._fusion)
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del self._fusion
             return self.fec.execute(inputs, device=self._get_device_index(device))
         else:
             raise RuntimeError("Manual scheduling is not supported yet.")
