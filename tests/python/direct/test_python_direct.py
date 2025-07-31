@@ -265,10 +265,10 @@ def test_lru_cache():
 
     fd1 = create_fusion(select_first_fd=True)
     outputs = fd1.execute(inputs)
-    print(create_fusion.stats())
+    assert create_fusion.num_fusions() == 1
     assert torch.allclose(outputs[0], inputs[0] * 1.0)
 
     fd2 = create_fusion(select_first_fd=False)
     outputs = fd2.execute(inputs)
-    print(create_fusion.stats())
+    assert create_fusion.num_fusions() == 2
     assert torch.allclose(outputs[0], inputs[0] * 10.0)

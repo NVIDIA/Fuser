@@ -24,42 +24,28 @@ max_fusions : int
     The maximum number of fusions to cache.
 )")
       .def(
-          "put",
-          &LRUCache::put,
+          "cache_compile",
+          &LRUCache::cacheCompile,
           py::arg("fusion"),
-          py::arg("fusion_executor_cache"),
           R"(
-Put a fusion and its executor cache into the cache.
+Compile a fusion and its executor cache into the cache.
+
+If the fusion is already in the cache, it will be moved to the front of the
+cache.
+
+If the cache is full, the least recently used fusion will be evicted.
 
 Parameters
 ----------
 fusion : Fusion
     The fusion to cache.
 
-fusion_executor_cache : FusionExecutorCache
-    The executor cache to cache.
-
-Returns
-------
-None
-)")
-      .def(
-          "get",
-          &LRUCache::get,
-          py::arg("fusion"),
-          R"(
-Get executor cache for a fusion.
-
-Parameters
-----------
-fusion : Fusion
-    The fusion to get.
-
 Returns
 ------
 FusionExecutorCache
     The executor cache for the fusion.
-)")
+)",
+          py::return_value_policy::reference)
       .def(
           "stats",
           &LRUCache::stats,

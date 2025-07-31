@@ -9,11 +9,14 @@
 
 #include <fusion.h>
 #include <runtime/fusion_executor_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 #include <iostream>
 #include <list>
 #include <optional>
 #include <unordered_map>
+
+class FusionKernelRuntime; // Forward declaration
 
 namespace nvfuser::python {
 
@@ -27,58 +30,35 @@ class LRUCache {
   LRUCache& operator=(const LRUCache&) = delete;
 
   // Put a key-value pair into the cache.
-  void put(
-      std::shared_ptr<Fusion> key,
-      std::shared_ptr<FusionExecutorCache> value) {
-    auto it = items_map.find(key);
+  FusionExecutorCache* cacheCompile(std::shared_ptr<Fusion> fusion) {
+    auto it = items_map.find(fusion);
 
     // Key already exists
     if (it != items_map.end()) {
-      // Update the value
-      it->second->value = value;
       // Move the item to the front of the list (most recently used)
       items_list.splice(items_list.begin(), items_list, it->second);
-      return;
+      return it->second->executor_cache.get();
     }
 
     // Key is new, check for capacity
     if (items_map.size() == max_fusions_) {
       // Evict the least recently used item (the one at the back)
-      std::shared_ptr<Fusion> lru_key = items_list.back().key;
+      std::shared_ptr<Fusion> lru_key = items_list.back().fusion;
       items_list.pop_back();
       items_map.erase(lru_key);
     }
 
     // Insert the new item at the front of the list
-    items_list.push_front({key, value, /*visits=*/0});
+    items_list.push_front(
+        {fusion,
+         std::make_unique<FusionExecutorCache>(
+             std::make_unique<Fusion>(*fusion), num_fusions_compiled_),
+         /*visits=*/0});
+    num_fusions_compiled_++;
     // Store the iterator to the new item in the map
-    items_map.emplace(key, items_list.begin());
-  }
+    items_map.emplace(fusion, items_list.begin());
 
-  // Get a value from the cache by its key.
-  std::shared_ptr<FusionExecutorCache> get(std::shared_ptr<Fusion> key) {
-    // Increment the overall visits count
-    num_cache_lookups_++;
-
-    // Find the item in the map
-    auto it = items_map.find(key);
-
-    // Key not found
-    if (it == items_map.end()) {
-      return nullptr;
-    }
-
-    // Increment the number of total cache hits
-    num_cache_hits_++;
-
-    // Increment the visits count per key
-    it->second->visits++;
-
-    // Key found, move its item to the front of the list
-    items_list.splice(items_list.begin(), items_list, it->second);
-
-    // Return the value
-    return it->second->value;
+    return items_list.front().executor_cache.get();
   }
 
   // Print stats about LRU Cache
@@ -116,8 +96,8 @@ class LRUCache {
  private:
   // Item is a tuple of key, value, and visits per key
   struct Item {
-    std::shared_ptr<Fusion> key;
-    std::shared_ptr<FusionExecutorCache> value;
+    std::shared_ptr<Fusion> fusion;
+    std::unique_ptr<FusionExecutorCache> executor_cache;
     size_t visits;
   };
 
@@ -154,6 +134,9 @@ class LRUCache {
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_;
+
+  // Cummulative number of fusions compiled
+  size_t num_fusions_compiled_ = 0;
 
   // Number of visits to the cache
   size_t num_cache_lookups_ = 0;
