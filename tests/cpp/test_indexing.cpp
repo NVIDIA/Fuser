@@ -6382,15 +6382,19 @@ TEST_F(IndexingTest, BlockScalingFactor) {
   auto tv1 = set(tv0);
   fusion->addOutput(tv1);
 
-  // m/32, 32, k
+  std::vector<IterDomain*> initial_loop = {tv1->axis(0), tv1->axis(1)};
+  // m, k
   tv1->split(0, 128);
-  // m/32/4, 4(m), 32, k
-  tv1->split(1, 4);
-  // m/32/4, 4(m), 32, k/4, 4(k)
+  // m/128, 128, k
+  tv1->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
   tv1->split(3, 4);
-  // m/32/4, k/4, 32, 4(m), 4(k)
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
   std::vector<IterDomain*> tv1_alloc{tv1->axis(0),tv1->axis(3),tv1->axis(2),tv1->axis(1),tv1->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
   tv1->setAllocationDomain(tv1_alloc, true);
+
+  tv1->setLoopDomain(initial_loop);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({256, 32}, options);
