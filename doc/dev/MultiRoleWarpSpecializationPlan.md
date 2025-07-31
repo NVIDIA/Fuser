@@ -307,38 +307,41 @@ sequenceDiagram
 ```
 
 **Key Synchronization Points (Hopper)**:
-- **AsyncWarp**: Waits for slot empty → loads operands → arrives at slot full
+- **OperandLoadWarp**: Waits for slot empty → loads operands → arrives at slot full
+- **EpilogueLoadWarp**: Waits for slot empty → loads epilogue input → arrives at slot full
 - **ComputeWarpGroups**: Waits for operand slot full → computes WgMMA + epilogue → arrives at slot empty
 
 #### Blackwell Implementation
 
 **Blackwell Multi-Role Warp Specialization**:
-- **LoadWarp**: Handles TMA loads for operands A, B and bias tensor
+- **OperandLoadWarp**: Handles TMA loads for operands A, B
+- **EpilogueLoadWarp**: Handles TMA loads for epilogue inputs (bias)
 - **MmaWarp**: Handles tcgen05 utcmma for fusedMultiplySum(A, B)
-- **EpilogueWarpGroups**: Handle bias addition and bf16 casting
+- **EpilogueWarpGroups**: Handle bias addition and bf16 casting, TMA store
 
 **Circular Buffer Chain**:
-1. Operand circular buffer: LoadWarp → MmaWarp
+1. Operand circular buffer: OperandLoadWarp → MmaWarp
 2. Result circular buffer: MmaWarp → EpilogueWarpGroups
-3. Bias circular buffer: LoadWarp → EpilogueWarpGroups (parallel to operand chain)
+3. Bias circular buffer: EpilogueLoadWarp → EpilogueWarpGroups (parallel to operand chain)
 
 #### Warp Dependency Diagram
 
 ```mermaid
 graph TD
-    OLW[OperandLoadWarp] --> MW[MmaWarp]
-    ELW[EpilogueLoadWarp] --> EW[EpilogueWarpGroups]
-    MW --> EW
+    OLW[OperandLoadWarp] --> |"A, B"| MW[MmaWarp]
+    ELW[EpilogueLoadWarp] --> |"Bias"| EW[EpilogueWarpGroups]
+    MW --> |"Result"| EW
     
-    OLW --> |"Operand Circular Buffer"| MW
-    ELW --> |"Epilogue Input Circular Buffer"| EW
-    MW --> |"Result Circular Buffer"| EW
+    classDef asyncWarp fill:#lightblue
+    classDef mmaWarp fill:#lightyellow
+    classDef epilogueWarp fill:#lightgreen
     
-    style OLW fill:#lightblue
-    style ELW fill:#lightblue
-    style MW fill:#lightyellow
-    style EW fill:#lightgreen
+    class OLW,ELW asyncWarp
+    class MW mmaWarp
+    class EW epilogueWarp
 ```
+
+Each edge in this dependency graph represents a group of circular buffered tensors (A/B operands, Bias, or Result) that flow between different warp types. These edges correspond to pairs of full/empty mbarriers that synchronize the data flow, as shown in the detailed sequence diagram below.
 
 #### Sequence Diagram: Blackwell Multi-Role Warp Specialization
 
