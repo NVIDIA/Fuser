@@ -2157,6 +2157,19 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
+MemoryProxy getMemoryProxy(Expr* expr) {
+  if (ir_utils::isCpAsyncOp(expr) || ir_utils::isCpAsyncBulk(expr) ||
+      expr->isOneOf<kir::AsyncCommit, kir::AsyncWait>()) {
+    return MemoryProxy::Async;
+  }
+
+  // TODO: Any operation that accesses a TensorMap should return
+  // MemoryProxy::TensorMap. I don't think we every explicitly access these
+  // currently.
+
+  return MemoryProxy::Generic;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
