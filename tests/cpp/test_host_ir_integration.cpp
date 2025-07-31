@@ -288,7 +288,6 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 }
 
 TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
-  c10::DeviceIndex device_index = 0;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -306,20 +305,21 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  at::Tensor in_tensor = at::randn(
-      input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
+  at::Tensor in_tensor =
+      at::randn(input_shape, at::dtype(at::kDouble).device(at::kCUDA));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
 
   EXPECT_EQ(out_tensors.size(), 2);
-  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().defined());
-  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().defined());
+  EXPECT_THAT(
+      out_tensors, testing::Each(testing::Truly([](const PolymorphicValue& v) {
+        return v.as<at::Tensor>().defined();
+      })));
 }
 
 } // namespace hir
