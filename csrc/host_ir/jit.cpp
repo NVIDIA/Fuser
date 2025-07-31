@@ -789,7 +789,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       }
              out_tensor = builder_.CreateCall(
            module->getFunction(kPermuteFuncName), {in_tensor, perm_ptr, perm_size}, "permute");
-       val_to_value_[static_cast<Val*>(out_tv)] = out_tensor;
+       val_to_value_[out_tv] = out_tensor;
        return;
     }
     if(out_tensor != nullptr) {
@@ -800,7 +800,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
     out_tensor = builder_.CreateCall(
         module->getFunction(kSetTensorFuncName), {in_tensor}, "set");
-    val_to_value_[static_cast<Val*>(out_tv)] = out_tensor;
+    val_to_value_[out_tv] = out_tensor;
   }
 
 
@@ -822,7 +822,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     // Output tensor doesn't exist, use matmul which returns a new tensor
     out = builder_.CreateCall(
         module->getFunction(kMatmulFuncName), {a, b}, "matmul");
-    val_to_value_[static_cast<Val*>(matmul_op->out())] = out;
+    val_to_value_[matmul_op->out()] = out;
   }
 
   void handle(LinearOp* linear_op) final {
@@ -856,7 +856,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     out = builder_.CreateCall(
         module->getFunction(kLinearFuncName),
         {in, weight, bias}, "linear");
-    val_to_value_[static_cast<Val*>(linear_op->out())] = out;
+    val_to_value_[linear_op->out()] = out;
   }
 
   // Launch Kernel Function LLVM IR Generation
