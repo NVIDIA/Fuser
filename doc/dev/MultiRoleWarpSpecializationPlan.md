@@ -277,7 +277,7 @@ sequenceDiagram
     CW->>CW: wgmma.wait
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
-    OLW->>OMB1_F: TMA Load A[6], B[6] (async, expect_tx)
+    OLW->>OMB1_F: TMA Load A[7], B[7] (async, expect_tx)
 
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 6
@@ -286,7 +286,7 @@ sequenceDiagram
     CW->>CW: wgmma.wait
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
-    OLW->>OMB0_F: TMA Load A[7], B[7] (async, expect_tx)
+    OLW->>OMB0_F: TMA Load A[8], B[8] (async, expect_tx)
 
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 7
@@ -295,7 +295,7 @@ sequenceDiagram
     CW->>CW: wgmma.wait
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
-    OLW->>OMB1_F: TMA Load A[8], B[8] (async, expect_tx)
+    OLW->>OMB1_F: TMA Load A[9], B[9] (async, expect_tx)
 
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 8
@@ -304,7 +304,7 @@ sequenceDiagram
     CW->>CW: wgmma.wait
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
-    OLW->>OMB0_F: TMA Load A[9], B[9] (async, expect_tx)
+    OLW->>OMB0_F: TMA Load A[10], B[10] (async, expect_tx)
 
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
@@ -313,7 +313,7 @@ sequenceDiagram
     CW->>CW: wgmma.wait
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
-    OLW->>OMB1_F: TMA Load A[10], B[10] (async, expect_tx)
+    OLW->>OMB1_F: TMA Load A[11], B[11] (async, expect_tx)
 
     EMB1_F->>CW: Wait for EpilogueSlot1_Full
     CW->>CW: Add(Result[1], Bias[1])
