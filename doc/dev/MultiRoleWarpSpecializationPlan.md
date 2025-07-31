@@ -3,9 +3,18 @@
 ## Table of Contents
 - [Overview](#overview)
 - [Current Architecture](#current-architecture)
+  - [Hopper Architecture (Current)](#hopper-architecture-current)
 - [Planned Architecture](#planned-architecture)
-  - [Hopper Implementation](#hopper-implementation)
-  - [Blackwell Implementation](#blackwell-implementation)
+  - [Blackwell Architecture (Target)](#blackwell-architecture-target)
+  - [Example: Fused Multiply-Sum with Epilogue](#example-fused-multiply-sum-with-epilogue)
+  - [Warp Dependency Diagrams](#warp-dependency-diagrams)
+  - [Sequence Diagrams](#sequence-diagrams)
+    - [Hopper Single-Role Warp Specialization](#sequence-diagram-hopper-single-role-warp-specialization)
+    - [Blackwell Multi-Role Warp Specialization](#sequence-diagram-blackwell-multi-role-warp-specialization)
+  - [Mbarrier Synchronization Problem](#mbarrier-synchronization-problem)
+    - [Option 1: Separate Mbarriers with Explicit Polling](#option-1-separate-mbarriers-with-explicit-polling)
+    - [Option 2: Single Mbarrier with Parity](#option-2-single-mbarrier-with-parity)
+    - [Evidence from CUTLASS Implementation](#evidence-from-cutlass-implementation)
 - [Key Design Changes](#key-design-changes)
   - [1. Scheduling Changes](#1-scheduling-changes)
   - [2. Circular Buffer Analysis Changes](#2-circular-buffer-analysis-changes)
@@ -20,6 +29,11 @@
   - [Phase 3: Synchronization](#phase-3-synchronization)
   - [Phase 4: Testing and Validation](#phase-4-testing-and-validation)
 - [Key Technical Considerations](#key-technical-considerations)
+  - [1. Async Operation Detection](#1-async-operation-detection)
+  - [2. Stage Slice Position Compatibility](#2-stage-slice-position-compatibility)
+  - [3. MBarrier Indexing](#3-mbarrier-indexing)
+  - [4. Register Sharing](#4-register-sharing)
+  - [5. Backward Compatibility](#5-backward-compatibility)
 - [Code Locations to Modify](#code-locations-to-modify)
   - [Primary Files](#primary-files)
   - [Supporting Files](#supporting-files)
@@ -417,8 +431,11 @@ The Blackwell multi-role warp specialization introduces a complex synchronizatio
 - **Pros**: No polling required, automatic state transitions
 - **Cons**: More complex parity management, potential for confusion
 
+**Evidence from CUTLASS Implementation:**
+CUTLASS uses **Option 1: Separate Mbarriers with Explicit Polling** for Blackwell. The implementation can be found in [`cutlass/arch/barrier.h`](https://github.com/NVIDIA/cutlass/blob/664c4f7b3ed1959414905025728eef5568209479/include/cutlass/arch/barrier.h#L762-L778), where they use `tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64` for automatic arrival and separate `umma_arrive` functions for explicit synchronization. The usage pattern is demonstrated in [`examples/cute/tutorial/blackwell/02_mma_tma_sm100.cu`](https://github.com/NVIDIA/cutlass/blob/664c4f7b3ed1959414905025728eef5568209479/examples/cute/tutorial/blackwell/02_mma_tma_sm100.cu#L332-L334), where after the tcgen05.mma operation completes, a thread calls `cutlass::arch::umma_arrive(&shared_storage.mma_barrier)` to explicitly arrive at the mbarrier, followed by `cute::wait_barrier(shared_storage.mma_barrier, mma_barrier_phase_bit)` to wait for the barrier before reusing the shared memory buffers.
+
 **Recommendation:**
-Option 2 (Single Mbarrier with Parity) appears most promising for optimal pipelining, but requires careful parity management to ensure correct state transitions and prevent race conditions.
+Option 2 (Single Mbarrier with Parity) appears most promising for optimal pipelining, but requires careful parity management to ensure correct state transitions and prevent race conditions. However, CUTLASS's choice of Option 1 suggests it may be the more practical approach for production systems.
 
 #### Sequence Diagram: Option 2 - Single Mbarrier with Parity
 
