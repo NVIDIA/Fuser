@@ -5,13 +5,17 @@
 - [Current Architecture](#current-architecture)
   - [Hopper Architecture (Current)](#hopper-architecture-current)
 - [Planned Architecture](#planned-architecture)
-  - [Blackwell Architecture (Target)](#blackwell-architecture-target)
+  - [Multi-Role Warp Specialization (Both Hopper and Blackwell)](#multi-role-warp-specialization-both-hopper-and-blackwell)
+    - [Hopper Multi-Role Architecture (Target)](#hopper-multi-role-architecture-target)
+    - [Blackwell Multi-Role Architecture (Target)](#blackwell-multi-role-architecture-target)
   - [Example: Fused Multiply-Sum with Epilogue](#example-fused-multiply-sum-with-epilogue)
-  - [Warp Dependency Diagrams](#warp-dependency-diagrams)
-  - [Sequence Diagrams](#sequence-diagrams)
-    - [Hopper Single-Role Warp Specialization](#sequence-diagram-hopper-single-role-warp-specialization)
-    - [Blackwell Multi-Role Warp Specialization](#sequence-diagram-blackwell-multi-role-warp-specialization)
-
+  - [Current Hopper Single-Role Warp Specialization](#current-hopper-single-role-warp-specialization)
+  - [Planned Hopper Multi-Role Warp Specialization](#planned-hopper-multi-role-warp-specialization)
+  - [Warp Dependency Diagram](#warp-dependency-diagram)
+  - [Sequence Diagram: Hopper Multi-Role Warp Specialization](#sequence-diagram-hopper-multi-role-warp-specialization)
+  - [Blackwell Implementation](#blackwell-implementation)
+  - [Blackwell Warp Dependency Diagram](#blackwell-warp-dependency-diagram)
+  - [Sequence Diagram: Blackwell Multi-Role Warp Specialization](#sequence-diagram-blackwell-multi-role-warp-specialization)
 - [Key Design Changes](#key-design-changes)
   - [1. Scheduling Changes](#1-scheduling-changes)
   - [2. Circular Buffer Analysis Changes](#2-circular-buffer-analysis-changes)
@@ -342,7 +346,7 @@ sequenceDiagram
 2. Result circular buffer: MmaWarp → EpilogueWarpGroups
 3. Bias circular buffer: EpilogueLoadWarp → EpilogueWarpGroups (parallel to operand chain)
 
-#### Warp Dependency Diagram
+#### Blackwell Warp Dependency Diagram
 
 ```mermaid
 graph TD
