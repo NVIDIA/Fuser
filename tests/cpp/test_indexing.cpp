@@ -6385,7 +6385,7 @@ TEST_F(IndexingTest, BlockScalingFactor) {
   // m/32, 32, k
   tv1->split(0, 128);
   // m/32/4, 4(m), 32, k
-  tv1->split(0, 4);
+  tv1->split(1, 4);
   // m/32/4, 4(m), 32, k/4, 4(k)
   tv1->split(3, 4);
   // m/32/4, k/4, 32, 4(m), 4(k)
