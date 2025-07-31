@@ -2566,4 +2566,122 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+// Test for multi-role warp specialization with circular buffered inputs
+TEST_F(NVFuserTest, MultiRoleWarpSpecializationCircularBuffered) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigConcreteTensor({-1, 1, -1}); // [M, 1, K]
+  TensorView* tv1 = makeContigConcreteTensor({-1, 1, -1}); // [1, N, K]
+  TensorView* tv2 = makeContigTensor(2); // [M, N]
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+
+  TensorView* tv3 = mul(tv0, tv1); // [M, N, K]
+  TensorView* tv4 = sum(tv3, {-1}); // [M, N, rK]
+
+  TensorView* tv5 = mul(tv2, tv4); // [M, N]
+  fusion->addOutput(tv5);
+
+  TensorView* tv6 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv6->setMemoryType(MemoryType::Shared);
+
+  TensorView* tv7;
+  bool tma_load_bias = false;
+  if (tma_load_bias) {
+    tv7 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+    tv7->setMemoryType(MemoryType::Shared);
+  }
+
+  TensorView* reference = tv4;
+
+  constexpr int64_t cta_m = 192;
+  constexpr int64_t cta_n = 128;
+  constexpr int64_t cta_k = 64;
+  constexpr int64_t warp_m = 192;
+  constexpr int64_t warp_n = 128;
+  // constexpr int64_t warp_k = 64;
+  constexpr int64_t instr_m = 64;
+  constexpr int64_t instr_n = 128;
+  constexpr int64_t instr_k = 16;
+
+  // Split into CTA tiles
+  // [M, N, K] -> [M/cta_m, cta_m, N/cta_n, cta_n, K/cta_k, cta_k]
+  reference->split(2, cta_k);
+  reference->split(1, cta_n);
+  reference->split(0, cta_m);
+
+  constexpr int64_t num_ctas = 112;
+  // Merge outer then split to form persistent loop
+  // [M/cm, cm, N/cn, cn, K/ck, ck]
+  //    -> [ persistent_loop, num_ctas, K/ck, cm, cn, ck]
+  reference->merge(0, 2);
+  reference->split(0, num_ctas);
+  reference->reorder({{4, 2}});
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Parallelize across SMs
+  reference->axis(1)->parallelize(ParallelType::BIDx);
+
+  scheduler_utils::parallelizeAllLike(reference);
+
+  for (auto* tv : {tv3, tv4}) {
+    // Split into warp tiles
+    // [ persistent_loop, num_ctas, K/ck, cm, cn, ck]
+    //    -> [ persistent_loop, num_ctas, K/ck, cm/wm, wm, cn/wn, wn, ck]
+    tv->split(-3, warp_m);
+    tv->split(-2, warp_n);
+
+    // Split into instruction tiles
+    //       [ persistent_loop, num_ctas, K/ck, cm/wm, wm, cn/wn, wn, ck]
+    //    -> [ persistent_loop, num_ctas, K/ck, cm/wm, wm/im, im, cn/wn, wn/in,
+    //    in, ck/ik, ik]
+    tv->split(-4, instr_m);
+    tv->split(-2, instr_n);
+    tv->split(-1, instr_k);
+
+    // Merge warpgroup loop and parallelize as TIDy
+    //       [ persistent_loop, num_ctas, K/ck, cm/wm, wm/im, im, cn/wn, wn/in,
+    //       in, ck/ik, ik]
+    //    -> [ persistent_loop, num_ctas, K/ck, cm/wm * cn/wn, wm/im, im, wn/in,
+    //    in, ck/ik, ik]
+    tv->merge(-8, -5);
+    tv->axis(-7)->parallelize(ParallelType::TIDy);
+    tv->axis(-3)->parallelize(ParallelType::TIDx);
+  }
+
+  // InlineMost automatically handles vectorize and tma dimensions
+  inlineMost();
+
+  // Circular Buffer with TMA loads
+  // tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv6->axis(-1)->parallelize(ParallelType::Bulk);
+  tv6->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+
+  if (tma_load_bias) {
+    // tv5->axis(0)->parallelize(ParallelType::BIDx);
+    tv7->axis(-1)->parallelize(ParallelType::Bulk);
+    tv7->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+  }
+
+  fusion->print();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int64_t M = 4096;
+  int64_t N = 1024;
+  int64_t K = 512;
+  at::Tensor t0 = at::randn({M, 1, K}, options);
+  at::Tensor t1 = at::randn({1, N, K}, options);
+  at::Tensor t2 = at::randn({M, N}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1, t2});
+  auto cg_outputs = ke.run({t0, t1, t2});
+  testValidate(fusion.get(), cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
