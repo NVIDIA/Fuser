@@ -287,7 +287,6 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
       << ") was higher than expected << (" << kExpectedPeakMemory << ")";
 }
 
-
 TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
   c10::DeviceIndex device_index = 0;
   auto fusion = std::make_unique<Fusion>();
@@ -317,7 +316,7 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
   EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
-  
+
   EXPECT_EQ(out_tensors.size(), 2);
   EXPECT_TRUE(out_tensors[0].as<at::Tensor>().defined());
   EXPECT_TRUE(out_tensors[1].as<at::Tensor>().defined());
