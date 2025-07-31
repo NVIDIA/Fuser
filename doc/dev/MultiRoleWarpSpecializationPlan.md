@@ -165,18 +165,16 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant OLW as OperandLoadWarp
-    participant ELW as EpilogueLoadWarp
-    participant CW as ComputeWarpGroups
     participant OMB0_E as OperandSlot0_Empty
-    participant OMB0_F as OperandSlot0_Full
     participant OMB1_E as OperandSlot1_Empty
+    participant OMB0_F as OperandSlot0_Full
     participant OMB1_F as OperandSlot1_Full
-    participant EMB0_E as EpilogueSlot0_Empty
+    participant CW as ComputeWarpGroups
     participant EMB0_F as EpilogueSlot0_Full
-    participant EMB1_E as EpilogueSlot1_Empty
     participant EMB1_F as EpilogueSlot1_Full
-    
-    Note over OLW,CW: Overlapping execution across circular buffer stages
+    participant EMB0_E as EpilogueSlot0_Empty
+    participant EMB1_E as EpilogueSlot1_Empty
+    participant ELW as EpilogueLoadWarp
     
     Note over CW: Initialize - arrive at all slot empty barriers
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
@@ -216,7 +214,7 @@ sequenceDiagram
     CW->>CW: Cast to bf16
     CW->>CW: Write output[1]
     
-    Note over OLW,CW: Next iteration - reusing circular buffer slots
+    Note over OLW,ELW: Next iteration - reusing circular buffer slots
     
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
@@ -250,7 +248,7 @@ sequenceDiagram
     CW->>CW: Cast to bf16
     CW->>CW: Write output[3]
     
-    Note over OLW,CW: Continue overlapping pattern...
+    Note over OLW,ELW: Continue overlapping pattern...
 ```
 
 **Key Synchronization Points (Hopper)**:
