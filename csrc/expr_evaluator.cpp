@@ -147,19 +147,7 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-
-  // Adjust the last dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (!logical_sizes.empty()) {
-    auto& last_dim = logical_sizes.back();
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  } else {
-    NVF_ERROR(
-        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
-        "DataType not supported");
-  }
+  adjustEvaluatorSizes(tv, logical_sizes);
 
   for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];

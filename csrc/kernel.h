@@ -143,6 +143,9 @@ struct KernelSummary {
 
   //! Do we have any topk op?
   bool has_topk = false;
+
+  //! Do we have any scan op?
+  bool has_scan = false;
 };
 
 class KernelPerformanceProfile {

@@ -130,6 +130,32 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 
 } // namespace
 
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes) {
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  // Early return when no adjustment is needed.
+  if (adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1) {
+    return;
+  }
+  // Adjust the inner most dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  NVF_ERROR(!unsharded_sizes.empty(), "DataType not supported");
+  int64_t last_id_index = -1;
+  for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
+    if (id == tv->getMaybeAllocationDomain().back()) {
+      last_id_index = i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      last_id_index != -1,
+      "could not find the last ID in allocation for sub byte data types.");
+  unsharded_sizes[last_id_index] =
+      adjust_last_dim.fromATenToNVF(unsharded_sizes[last_id_index]);
+}
+
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
@@ -353,19 +379,7 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-
-  // Adjust the last dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (!logical_sizes.empty()) {
-    auto& last_dim = logical_sizes.back();
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  } else {
-    NVF_ERROR(
-        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
-        "DataType not supported");
-  }
+  adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
