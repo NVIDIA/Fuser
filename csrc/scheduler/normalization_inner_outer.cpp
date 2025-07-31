@@ -81,7 +81,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
-  int64_t max_outer_reduction_dtype_size = 1;
+  int64_t max_outer_reduction_dtype_size_bit = 1;
   int64_t n_inner_reduction_tvs = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
@@ -89,9 +89,9 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       first_inner_reduction_tv = tv;
       n_inner_reduction_tvs++;
     } else {
-      max_outer_reduction_dtype_size = std::max(
-          max_outer_reduction_dtype_size,
-          dataTypeSizeByte(tv->getDataType().value()));
+      max_outer_reduction_dtype_size_bit = std::max(
+          max_outer_reduction_dtype_size_bit,
+          dataTypeSizeBit(tv->getDataType().value()));
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;
@@ -165,6 +165,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       preferWarpSpecialized(
           fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
     auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
+
     // Current implementation assumes persistent buffers are projected to
     // inputs, making TMA loading beneficial. If not, shared memory persistent
     // buffers cannot use TMA since their producers are not inputs.
@@ -176,10 +177,10 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
           rparams.get(),
           properties.total_iteration_numel,
           properties.total_reduction_numel,
-          buffer_params.regs_buffer_size,
-          buffer_params.circular_buffered_smem_size,
-          buffer_params.non_circular_buffered_smem_size,
-          max_outer_reduction_dtype_size,
+          buffer_params.regs_buffer_size_bit,
+          buffer_params.circular_buffered_smem_size_bit,
+          buffer_params.non_circular_buffered_smem_size_bit,
+          max_outer_reduction_dtype_size_bit,
           hp.vectorize_factor,
           hp.threads_per_block_min,
           hp.threads_per_block_max,
@@ -202,10 +203,10 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       rparams.get(),
       properties.total_iteration_numel,
       properties.total_reduction_numel,
-      buffer_params.regs_buffer_size,
-      buffer_params.smem_buffer_size,
-      buffer_params.smem_overhead,
-      max_outer_reduction_dtype_size,
+      buffer_params.regs_buffer_size_bit,
+      buffer_params.smem_buffer_size_bit,
+      buffer_params.smem_overhead_bit,
+      max_outer_reduction_dtype_size_bit,
       hp.vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max,
@@ -221,6 +222,16 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   FUSER_PERF_SCOPE(
       "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
+
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, schedulerType())) {
@@ -454,7 +465,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           ->maxThreadsPerMultiProcessor;
 
   const int64_t required_sm_per_norm = ceilDiv(
-      buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
+      buffer_params.regs_buffer_size_bit,
+      scheduler_utils::register_file_size_bit);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.

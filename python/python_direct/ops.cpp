@@ -21,7 +21,8 @@ namespace {
       [](TensorView* tv) -> TensorView* {                              \
         return static_cast<TensorView* (*)(TensorView*)>(OP_NAME)(tv); \
       },                                                               \
-      DOCSTRING);
+      DOCSTRING,                                                       \
+      py::return_value_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)             \
   ops.def(NAME, [](Val* lhs, Val* rhs) -> Val* {                               \
@@ -39,7 +40,153 @@ namespace {
         return static_cast<TensorView* (*)(TensorView*, TensorView*)>(         \
             OP_NAME)(lhs, rhs);                                                \
       },                                                                       \
-      DOCSTRING);
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
+
+#define NVFUSER_DIRECT_BINDING_TERNARY_OP(NAME, OP_NAME, DOCSTRING)            \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+        return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1,                                                     \
+         TensorView* arg2,                                                     \
+         TensorView* arg3) -> TensorView* {                                    \
+        return static_cast<                                                    \
+            TensorView* (*)(TensorView*, TensorView*, TensorView*)>(OP_NAME)(  \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, TensorView* arg2, Val* arg3) -> TensorView* {       \
+        return static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(   \
+            OP_NAME)(arg1, arg2, arg3);                                        \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, TensorView* arg3) -> TensorView* {       \
+        return static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(   \
+            OP_NAME)(arg1, arg2, arg3);                                        \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, TensorView* arg3) -> TensorView* {       \
+        return static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(   \
+            OP_NAME)(arg1, arg2, arg3);                                        \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, TensorView* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, Val* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(Val*, TensorView*, Val*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
+
+#define NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP(NAME, OP_NAME, DOCSTRING)     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3) -> Val* {                            \
+        return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3) -> TensorView* {              \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
+            arg1, arg2, arg3);                                                 \
+      },                                                                       \
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
+
+#define NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP(NAME, OP_NAME, DOCSTRING) \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, Val* arg3, Val* arg4) -> Val* {                 \
+        return static_cast<Val* (*)(Val*, Val*, Val*, Val*)>(OP_NAME)(         \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)      \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>(     \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, TensorView* arg2, Val* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(OP_NAME)(   \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, TensorView* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, TensorView* arg3, Val* arg4)             \
+          -> TensorView* {                                                     \
+        return static_cast<                                                    \
+            TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(OP_NAME)(   \
+            arg1, arg2, arg3, arg4);                                           \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, Val* arg2, TensorView* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(Val*, Val*, TensorView*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](TensorView* arg1, Val* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      py::return_value_policy::reference);                                     \
+  ops.def(                                                                     \
+      NAME,                                                                    \
+      [](Val* arg1, TensorView* arg2, Val* arg3, Val* arg4) -> TensorView* {   \
+        return static_cast<TensorView* (*)(Val*, TensorView*, Val*, Val*)>(    \
+            OP_NAME)(arg1, arg2, arg3, arg4);                                  \
+      },                                                                       \
+      DOCSTRING,                                                               \
+      py::return_value_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_REDUCTION_OP(NAME, OP_NAME, DOCSTRING)   \
   ops.def(                                                              \
@@ -87,6 +234,7 @@ namespace {
       py::arg("dims"),                                                  \
       py::arg("keep_dim") = false,                                      \
       py::arg("dtype") = DataType::Null,                                \
+      DOCSTRING,                                                        \
       py::return_value_policy::reference);
 
 void bindUnaryOps(py::module_& ops) {
@@ -1301,6 +1449,85 @@ Val or TensorView
 )")
 };
 
+void bindTernaryOps(py::module_& ops) {
+  NVFUSER_DIRECT_BINDING_TERNARY_OP("lerp", lerp, R"(
+Element-wise linear interpolation.
+
+Parameters
+----------
+x : Val or TensorView
+y : Val or TensorView
+weight : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Linear interpolation of the inputs.
+)")
+
+  NVFUSER_DIRECT_BINDING_TERNARY_OP("where", where, R"(
+Select elements from either input or other tensors based on condition.
+
+Parameters
+----------
+condition : Val or TensorView
+x : Val or TensorView
+y : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Elements from x if condition is True, otherwise elements from y.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("clamp", clamp, R"(
+Clamps all elements in input into the range [ min, max ]
+
+Parameters
+----------
+input : Val or TensorView
+min : Val or TensorView
+max : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Clamped values.
+)")
+
+  NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP("threshold", threshold, R"(
+Thresholds each element of the input Tensor.
+
+Parameters
+----------
+input : Val or TensorView
+threshold : Val or TensorView
+value : Val or TensorView
+
+Returns
+-------
+Val or TensorView
+    Thresholded values.
+)")
+
+  NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP("addcmul", addcmul, R"(
+Element-wise multiplication of input1 and input2,
+then adds alpha * input3 to the result.
+
+Parameters
+----------
+input1 : Val or TensorView
+input2 : Val or TensorView
+input3 : Val or TensorView
+alpha : Val
+
+Returns
+-------
+Val or TensorView
+    The result of the element-wise multiplication and addition.
+)")
+}
+
 void bindReductionOps(py::module_& ops) {
   NVFUSER_DIRECT_BINDING_REDUCTION_OP(
       "max",
@@ -1396,6 +1623,564 @@ TensorView
 )")
 }
 
+void bindCastOps(py::module_& ops) {
+  ops.def(
+      "cast",
+      [](TensorView* arg, PrimDataType dtype) -> TensorView* {
+        return static_cast<TensorView* (*)(DataType, TensorView*)>(castOp)(
+            dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "cast",
+      [](Val* arg, PrimDataType dtype) -> Val* {
+        return static_cast<Val* (*)(DataType, Val*)>(castOp)(dtype, arg);
+      },
+      py::arg("arg"),
+      py::arg("dtype"),
+      R"(
+Cast a scalar value to a different data type.
+
+Parameters
+----------
+arg : Val
+    Input scalar value to cast.
+dtype : PrimDataType
+    Target data type for the cast operation.
+
+Returns
+-------
+Val
+    A new scalar value with the specified data type.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindMatmulOps(py::module_& ops) {
+  ops.def(
+      "matmul",
+      static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul),
+      py::arg("arg1"),
+      py::arg("arg2"),
+      R"(
+The matrix product of two tensors.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+
+Returns
+-------
+TensorView
+    The result of the matrix multiplication.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "linear",
+      [](TensorView* arg1,
+         TensorView* arg2,
+         std::optional<TensorView*> bias = std::nullopt) -> TensorView* {
+        return static_cast<
+            TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
+            arg1, arg2, bias.has_value() ? bias.value() : nullptr);
+      },
+      py::arg("arg1"),
+      py::arg("arg2"),
+      py::arg("bias") = std::nullopt,
+      R"(
+Applies an affine linear transformation to the incoming data:
+output = arg1 @ transpose(arg2) + bias.
+
+Parameters
+----------
+arg1 : TensorView
+arg2 : TensorView
+bias : TensorView, optional
+    The bias vector to add to the output. If not provided, the bias is not added.
+
+Returns
+-------
+TensorView
+    The result of the affine linear transformation.
+)",
+      py::return_value_policy::reference);
+}
+
+template <class ITERABLE>
+std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
+  std::vector<Val*> args;
+  size_t idx = 0;
+  for (const auto& item : values) {
+    if (py::isinstance<py::int_>(item)) {
+      auto int_value = py::cast<int64_t>(item);
+      NVF_CHECK(
+          !shape_check || int_value >= -1,
+          "The value ",
+          int_value,
+          " at index ",
+          idx,
+          " was neither symbolic(-1), zero_element(0), broadcast(1), or "
+          "static(>1).");
+      args.emplace_back(IrBuilder::create<Val>(int_value, DataType::Int));
+    } else if (py::isinstance<Val>(item)) {
+      args.emplace_back(py::cast<Val*>(item));
+    } else {
+      NVF_CHECK(
+          false,
+          "Unsupported iterable object type for define_vector! Index:",
+          idx);
+    }
+    ++idx;
+  }
+  return args;
+}
+
+template <class ShapeType>
+std::vector<Val*> SequenceAsVector(ShapeType shape, bool shape_check = true) {
+  static_assert(
+      std::is_same_v<ShapeType, py::list> ||
+      std::is_same_v<ShapeType, py::tuple>);
+  return define_vector_fn<ShapeType>(shape, /*shape_check=*/shape_check);
+}
+
+template <class ShapeType>
+TensorView* reshape_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return reshape(arg, SequenceAsVector(generic_new_shape));
+}
+
+template <class ShapeType>
+TensorView* expand_fn(TensorView* arg, ShapeType generic_new_shape) {
+  return expand(arg, SequenceAsVector(generic_new_shape));
+}
+
+template <class ShapeType>
+TensorView* broadcast_in_dim_fn(
+    TensorView* arg,
+    ShapeType generic_output_shape,
+    std::vector<int64_t>& broadcast_dims) {
+  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  NVF_CHECK(
+      output_shape.size() >= broadcast_dims.size(),
+      "broadcast_dims vector size is too big for output shape!");
+
+  const auto arg_ndims = arg->domain()->noReductions().size();
+  NVF_CHECK(
+      output_shape.size() >= broadcast_dims.size(),
+      "The new shape is expected to be greater-then-or-equal to the input: ",
+      output_shape.size(),
+      " vs ",
+      arg_ndims);
+  NVF_CHECK(
+      arg_ndims == broadcast_dims.size(),
+      "The broadcast dimensions should match the input dimensions: ",
+      arg_ndims,
+      " vs ",
+      broadcast_dims.size(),
+      ". arg = ",
+      arg->toString());
+
+  std::vector<bool> is_broadcast_dim(output_shape.size(), true);
+  for (const auto idx : arange(broadcast_dims.size())) {
+    if (idx > 0) {
+      NVF_CHECK(
+          broadcast_dims[idx - 1] < broadcast_dims[idx],
+          "Broadcast dimension is not greater than the previous value.");
+    }
+    NVF_CHECK(
+        broadcast_dims[idx] < static_cast<int>(output_shape.size()),
+        "Invalid broadcast_dims value.");
+    is_broadcast_dim.at(broadcast_dims[idx]) = false;
+  }
+
+  auto bcast_output = broadcast(arg, is_broadcast_dim);
+  return expand(bcast_output, output_shape);
+}
+
+template <class ShapeType>
+TensorView* slice_fn(
+    TensorView* arg,
+    ShapeType start,
+    ShapeType end,
+    std::optional<ShapeType> strides,
+    bool manual_normalization) {
+  std::vector<Val*> start_vec = SequenceAsVector(start, /*shape_check=*/false);
+  std::vector<Val*> end_vec = SequenceAsVector(end, /*shape_check=*/false);
+
+  std::vector<Val*> stride_vec;
+  if (strides.has_value()) {
+    stride_vec = SequenceAsVector(strides.value(), /*shape_check=*/false);
+    NVF_CHECK(
+        start_vec.size() == stride_vec.size(),
+        "Slice start_indices and strides don't match! Start Indices: ",
+        start_vec.size(),
+        " Strides: ",
+        stride_vec.size());
+  } else {
+    // set stride with default value;
+    stride_vec.reserve(start_vec.size());
+    for ([[maybe_unused]] auto i : arange(start_vec.size())) {
+      stride_vec.push_back(IrBuilder::create<Val>(1, DataType::Int));
+    }
+  }
+
+  NVF_CHECK(
+      arg->nDims() == (int64_t)start_vec.size(),
+      "Number of tensor dimensions does not match slice dimensions! "
+      "Tensor-dims: ",
+      arg->nDims(),
+      " Slice-dims: ",
+      start_vec.size());
+  NVF_CHECK(
+      start_vec.size() == end_vec.size(),
+      "Slice indexing attribute dimensions don't match! Start Indices: ",
+      start_vec.size(),
+      " End Indices: ",
+      end_vec.size());
+
+  std::vector<Slice> vec_slice;
+  for (const auto idx : arange(arg->domain()->noReductions().size())) {
+    // NOTE: there's an extra move, we can use emplace_back if we go write
+    // some constructors for Slice.
+    Val* start_idx = start_vec.at(idx);
+    Val* end_idx = end_vec.at(idx);
+    Val* stride_idx = stride_vec.at(idx);
+    NVF_CHECK(
+        !start_idx->isConstInt() || start_idx->evaluate().as<int64_t>() >= 0,
+        "Slice operation start_indices must be greater than or equal to 0. "
+        "Start Indices: ",
+        start_idx->evaluate().as<int64_t>());
+    NVF_CHECK(
+        !start_idx->isConstInt() || !end_idx->isConstInt() ||
+            end_idx->evaluate().as<int64_t>() >=
+                start_idx->evaluate().as<int64_t>(),
+        "Slice operation end_indices must be greater than or equal to "
+        "start_indices. Start Indices: ",
+        start_idx->evaluate().as<int64_t>(),
+        " End Indices: ",
+        end_idx->evaluate().as<int64_t>());
+    NVF_CHECK(
+        stride_idx->isConstInt() && stride_idx->evaluate().as<int64_t>() == 1,
+        "nvFuser Limitation: All slice operation strides must be of const "
+        "size 1.");
+    vec_slice.push_back({start_idx, end_idx, stride_idx});
+  }
+  return slice(arg, vec_slice, manual_normalization);
+}
+
+void bindMetadataOps(py::module_& ops) {
+  ops.def(
+      "broadcast",
+      [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
+        return broadcast(arg, is_broadcast_dim);
+      },
+      py::arg("arg"),
+      py::arg("is_broadcast_dim"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+is_broadcast_dim : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      py::return_value_policy::reference);
+  ops.def(
+      "broadcast_in_dim",
+      broadcast_in_dim_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
+      py::arg("broadcast_dims"),
+      R"(
+Broadcast a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+broadcast_dims : list or tuple
+    The dimensions to broadcast.
+
+Returns
+-------
+TensorView
+    The broadcasted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "reshape",
+      reshape_fn<py::list>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "reshape",
+      reshape_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("new_shape"),
+      R"(
+Reshape a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+new_shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The reshaped tensor.
+      )",
+      py::return_value_policy::reference);
+  ops.def(
+      "permute",
+      [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
+        NVF_CHECK(
+            arg->nDims() == (int64_t)dims.size(),
+            "Operator permute expects `dims` argument to have the same length "
+            "as input!");
+        return permute(arg, dims);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Permute a tensor.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    Permutation order.
+
+Returns
+-------
+TensorView
+    The permuted tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "expand",
+      expand_fn<py::list>,
+      py::arg("arg"),
+      py::arg("shape"),
+      R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "expand",
+      expand_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("shape"),
+      R"(
+Expand a tensor to a new shape.
+
+Parameters
+----------
+arg : TensorView
+shape : list or tuple
+    The new shape of the tensor.
+
+Returns
+-------
+TensorView
+    The expanded tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "squeeze",
+      [](TensorView* arg,
+         std::vector<int64_t> dims,
+         const bool squeeze_expanded) -> TensorView* {
+        return squeeze(arg, dims, squeeze_expanded);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      py::arg("squeeze_expanded") = false,
+      py::return_value_policy::reference,
+      R"(
+Reduce a tensor by removing specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+dims : list or tuple
+    The dimensions to remove.
+squeeze_expanded : bool, optional
+    Whether to squeeze expanded dimensions. Default is False.
+
+Returns
+-------
+TensorView
+    The squeezed tensor.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "slice",
+      slice_fn<py::list>,
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides") = py::none(),
+      py::arg("manual_normalization") = false,
+      py::return_value_policy::reference);
+  ops.def(
+      "slice",
+      slice_fn<py::tuple>,
+      py::arg("arg"),
+      py::arg("start_indices"),
+      py::arg("end_indices"),
+      py::arg("strides") = py::none(),
+      py::arg("manual_normalization") = false,
+      R"(
+Slice a tensor.
+
+Parameters
+----------
+arg : TensorView
+start_indices : list or tuple
+end_indices : list or tuple
+strides : list or tuple, optional
+    The strides of the slice. Default is None.
+manual_normalization : bool, optional
+    Whether to normalize the slice. Default is False.
+
+Returns
+-------
+TensorView
+    The sliced tensor.
+      )",
+      py::return_value_policy::reference);
+}
+
+void bindTensorUtilityOps(py::module_& ops) {
+  ops.def(
+      "size",
+      [](TensorView* arg, int64_t dim) -> Val* { return size(arg, dim); },
+      py::arg("arg"),
+      py::arg("dim"),
+      R"(
+Get the size of a tensor.
+
+Parameters
+----------
+arg : TensorView
+dim : int
+    The dimension to get the size of.
+
+Returns
+-------
+int
+    The size of the dimension.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "shape",
+      [](TensorView* arg) { return shape(arg); },
+      py::return_value_policy::reference,
+      R"(
+Get the shape of a tensor.
+
+Returns
+-------
+list of Val
+    The shape of the tensor.
+)");
+}
+
+void bindIndexingOps(py::module_& ops) {
+  ops.def(
+         "index_select",
+         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+           return indexSelect(arg, dim, index);
+         },
+         py::arg("arg"),
+         py::arg("index"),
+         py::arg("dim"),
+         py::return_value_policy::reference,
+         R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : TensorView
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)")
+      .def(
+          "select",
+          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+            return select(arg, dim, index);
+          },
+          py::arg("arg"),
+          py::arg("index"),
+          py::arg("dim"),
+          py::return_value_policy::reference,
+          R"(
+Select elements from a tensor along a specified dimension.
+
+Parameters
+----------
+arg : TensorView
+index : Scalar
+dim : int
+    The dimension to select along.
+
+Returns
+-------
+TensorView
+    The selected tensor.
+)");
+}
+
 } // namespace
 
 void bindOperations(py::module& nvfuser) {
@@ -1403,7 +2188,13 @@ void bindOperations(py::module& nvfuser) {
       "ops", "This submodule contains all operations for NvFuser.");
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);
+  bindTernaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindCastOps(nvf_ops);
+  bindMatmulOps(nvf_ops);
+  bindMetadataOps(nvf_ops);
+  bindTensorUtilityOps(nvf_ops);
+  bindIndexingOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

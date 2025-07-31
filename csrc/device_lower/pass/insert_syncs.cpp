@@ -539,14 +539,17 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      std::vector<Expr*> sync_exprs;
       if (async_type != AsyncOpType::WgMma) {
-        sync_exprs.push_back(getAsyncCommit(async_type));
+        insertSyncExpr(ops, expr, getAsyncCommit(async_type), nullptr);
       }
-      sync_exprs.push_back(getAsyncWait(async_type, /*keep_stages=*/0));
-      for (auto sync_expr : sync_exprs) {
-        insertSyncExpr(ops, expr, sync_expr, nullptr);
+      Expr* wait_expr = getAsyncWait(async_type, /*keep_stages=*/0);
+      ForLoop* sync_within_fl = insertSyncExpr(ops, expr, wait_expr, nullptr);
+
+      if (async_type == AsyncOpType::WgMma && sync_within_fl != nullptr) {
+        // Add TensorCore Arrive and Epilogue Wait after wgmma::wait_all
+        insertPingPongMbarrierAfterWgmma(wait_expr, sync_within_fl);
       }
+
       for (auto op : ops) {
         // Already waited for the write to complete, so no need to wait again
         // before exiting the kernel.
@@ -585,15 +588,22 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-      if (!sync_bitmap.hasBID() &&
-          std::all_of(
-              expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
-                return !val->isA<TensorView>() ||
-                    !isSharedMemory(val->as<TensorView>()) ||
-                    ir_utils::isCpAsyncBulkLoad(val->definition());
-              })) {
-        // RAW of TMA is handled separately, so skip it here.
-        return;
+      if (!sync_bitmap.hasBID()) {
+        // Inconsistent TID access detected. So needed a block sync.
+        // But not all block syncs are handled in this pass. For example,
+        // some ops, such as TMA, uses mbarrier based completion mechanism,
+        // and the wait of mbarrier will automatically makes block in sync.
+        // So we need to skip the block sync in this case.
+        if (std::all_of(
+                expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
+                  return !val->isA<TensorView>() ||
+                      !ir_utils::isMemorySharedAcross(
+                          val->as<TensorView>()->getMemoryType(),
+                          ParallelType::TIDx) ||
+                      ir_utils::isCpAsyncBulkLoad(val->definition());
+                })) {
+          return;
+        }
       }
 
       // TODO: Explicitly test the 3 cases below
@@ -615,12 +625,42 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
   }
 
+  // For Hopper Ping-Pong Warp-Specialization, insert a mbarrier::arrive
+  // to next warp group to release TensorCores and mbarrier::wait for CUDA
+  // epilogue for this warp group.
+  void insertPingPongMbarrierAfterWgmma(
+      Expr* wait_expr,
+      ForLoop* sync_within_fl) {
+    auto compute_warp_iter =
+        std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+          return fl->circularBufferLoopStage() ==
+              CircularBufferLoopStage::ComputeWarp;
+        });
+    if (compute_warp_iter == for_loops_.end()) {
+      return;
+    }
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            (*compute_warp_iter)->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return;
+    }
+    Expr* mbarrier_arrive = ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/false);
+    Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
+        /*next_warp_group=*/false, /*is_epilogue=*/true);
+    kir::ExprMutator::registerInsertAfter(
+        wait_expr, mbarrier_arrive, &sync_within_fl->body());
+    kir::ExprMutator::registerInsertAfter(
+        mbarrier_arrive, mbarrier_wait, &sync_within_fl->body());
+  }
+
   // Find where a sync needs to be inserted and insert the given sync.
   // This is very similar to how allocations are placed, simply place sync
   // before the expression at the common alloc point of producers (really
   // last_writes because we may have other exprs we're syncing besides the
   // producers of this one)
-  void insertSyncExpr(
+  ForLoop* insertSyncExpr(
       const std::unordered_set<Expr*>& last_writes,
       Expr* insert_before_expr,
       Expr* sync_expr,
@@ -683,6 +723,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         registerInsertBefore(place_before, maybe_alloc, nullptr);
       }
       registerInsertBefore(*(place_before_it), sync_expr, nullptr);
+      return nullptr;
     } else {
       auto sync_within_loop_it =
           std::find(for_loops_.begin(), for_loops_.end(), sync_within_fl);
@@ -701,6 +742,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       if (maybe_alloc != nullptr) {
         registerInsertBefore(place_before, maybe_alloc, &place_in->body());
       }
+      return place_in;
     }
   }
 
@@ -1292,6 +1334,16 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     kir::ExprMutator::handle(for_loop);
 
     // Short-circuit: special handling of ComputeWarp for-loop
+    // Add Ping-Pong Arrive Mbar
+    if (for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp) {
+      Expr* mbarrier_arrive = insertPingPongEpilogueArriveMBarrier(for_loop);
+      if (mbarrier_arrive != nullptr) {
+        for_loop->body().push_back(mbarrier_arrive);
+      }
+    }
+
+    // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
     if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
       return handleComputeWarp(for_loop);
@@ -1385,6 +1437,22 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     within_iter_loop_ = prev_within_iter_loop_;
     for_loop_stack_.pop_back();
     closeScope(prev_async_inputs);
+  }
+
+  // For Hopper Ping-Pong Warp-Specialization, insert
+  // a mbarrier::arrive to next warp group to release CUDA Epilogue.
+  Expr* insertPingPongEpilogueArriveMBarrier(ForLoop* compute_for_loop) {
+    NVF_ERROR(
+        compute_for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp);
+    HopperPingPongMbarriers* ping_pong_mbarriers =
+        GpuLower::current()->circularBufferInfo().getPingPongMbarriersFor(
+            compute_for_loop->iter_domain());
+    if (ping_pong_mbarriers == nullptr) {
+      return nullptr;
+    }
+    return ping_pong_mbarriers->createMbarrierArrive(
+        /*next_warp_group=*/true, /*is_epilogue=*/true);
   }
 };
 

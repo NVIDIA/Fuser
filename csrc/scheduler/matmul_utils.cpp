@@ -505,19 +505,19 @@ bool fillDefaultHopperHeuristic(
     // TODO: When this does not divide num_sms evenly, we should penalize using
     // large CGAs because they will leave some SMs idle.
     int64_t largest_cga = -1L;
-    MatmulParams::ClusterDims largest_cga_cfg{1, 1, 1};
+    MatmulParams::ClusterDims largest_cga_cfg{1, 1};
     // Allow CGAs larger than 2 only for small problems
     const int64_t max_cga_size =
         Mtiles * Ntiles > ((double)num_sms * .75) ? 2L : 4L;
-    for (int64_t cx : arange(1L, 9L)) {
-      for (int64_t cy : arange(1L, 9L)) {
-        int64_t cga_size = cx * cy;
-        if (Mtiles % cx != 0 || Ntiles % cy != 0 || cga_size > max_cga_size) {
+    for (int64_t cm : arange(1L, 9L)) {
+      for (int64_t cn : arange(1L, 9L)) {
+        int64_t cga_size = cm * cn;
+        if (Mtiles % cm != 0 || Ntiles % cn != 0 || cga_size > max_cga_size) {
           continue;
         }
         if (largest_cga == -1L || cga_size > largest_cga) {
           largest_cga = cga_size;
-          largest_cga_cfg = {cx, cy, 1};
+          largest_cga_cfg = {cm, cn};
         }
       }
     }
@@ -796,10 +796,11 @@ class VectorizationCalculator {
     // However, we might be provided an output tensor. We should verify once
     // preallocated outputs are fully plumbed in that misaligned pointers are
     // respected in this calculation.
-    const int64_t data_ptr_int = (int64_t)runtime_info_.ptrOf(tv);
-    int64_t vec_size = scheduler_utils::maxVectorizationWidth(data_ptr_int);
-    vec_size = std::min(vec_size, 16l);
-    vec_size /= dataTypeSizeByte(tv->dtype());
+    const int64_t data_ptr_byte = (int64_t)runtime_info_.ptrOf(tv);
+    const int64_t data_ptr_bit = data_ptr_byte * 8;
+    int64_t vec_size_bit = scheduler_utils::maxVectorizationWidth(data_ptr_bit);
+    vec_size_bit = std::min(vec_size_bit, 128l);
+    int64_t vec_size = vec_size_bit / dataTypeSizeBit(tv->dtype());
     vec_size = std::max(vec_size, 1l);
     return vec_size;
   }
@@ -1102,7 +1103,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   // space for 8 just to future-proof this
   thread_local std::array<int64_t, 16> cached_results;
 
-  const int64_t cluster_size = cluster_dims.x * cluster_dims.y * cluster_dims.z;
+  const int64_t cluster_size = cluster_dims.m * cluster_dims.n;
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
@@ -1247,9 +1248,9 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
       if (mparams->tiling_strategy !=
               MatmulParams::TilingStrategy::OneTilePerCTA ||
           computeHopperBIDxTiles(mparams.get(), problem_shape) % 2 == 0) {
-        mparams->cluster_dims = {2, 1, 1};
+        mparams->cluster_dims = {2, 1};
       } else {
-        mparams->cluster_dims = {1, 1, 1};
+        mparams->cluster_dims = {1, 1};
       }
     }
 

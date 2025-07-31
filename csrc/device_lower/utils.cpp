@@ -803,7 +803,7 @@ bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   }
 
   // These ops currently use CUB, which uses syncthreads internally
-  if (expr->isOneOf<ArgsortOp, TopKOp>()) {
+  if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
     return true;
   }
 

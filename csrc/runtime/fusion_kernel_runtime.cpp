@@ -11,7 +11,6 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
@@ -372,6 +371,28 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
   return all_runtime_inputs;
 }
 
+namespace {
+// Ideally, recomputation should be done automatically in TensorView's cloner.
+// But I'm hitting #4849 when trying that.
+void recomputeTv(const TensorView* tv, IrCloner& ir_cloner) {
+  for (Expr* e : StmtSort::getExprsTo(
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
+    ir_cloner.clone(e);
+  }
+  for (IterDomain* id : tv->getLoopDomain()) {
+    for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
+      ir_cloner.clone(e);
+    }
+  }
+}
+
+void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
+  for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+    recomputeTv(out, ir_cloner);
+  }
+}
+} // namespace
+
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
@@ -477,6 +498,14 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionGuard::setCurFusion(hic.get());
     auto* cache_id =
         IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+
+    for (const Val* in : segmented_fusion_->inputs()) {
+      hic->addInput(ir_cloner.clone(in));
+      if (auto* tv = in->as<TensorView>()) {
+        recomputeTv(tv, ir_cloner);
+      }
+    }
+
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       SegmentedGroup* group_to_run =
           runtime_workspace_.group_run_order.at(run_order_id);
@@ -487,14 +516,17 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               group_to_run->exprs().size(),
               1,
               "Communication segments must contain only one Expr.");
-          for (auto* e : convertSingleOpToCommunication(
-                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          Expr* e = group_to_run->exprs().at(0);
+          Expr* e_clone = ir_cloner.clone(e);
+          recomputeOutputTvs(e, ir_cloner);
+
+          for (auto* c : convertSingleOpToCommunication(e_clone, deviceid)) {
             NVF_ERROR(
-                e->isA<Communication>(),
+                c->isA<Communication>(),
                 "Exprs in a Communication group should be Communication: ",
-                e);
+                c);
             // Allocate the recv buffers of communications
-            auto* communication = e->as<Communication>();
+            auto* communication = c->as<Communication>();
             TensorView* tv = communication->out();
             if (tv->getDeviceMesh().has(deviceid)) {
               auto* allocate =
@@ -509,9 +541,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         case SchedulerType::ExprEval: {
           // push back segment's exprs into the container as top level
           // expressions
-          for (auto* expr : group_to_run->stablyOrderedExprs()) {
-            auto cloned_expr = ir_cloner.clone(expr);
-            hic->pushBackTopLevelExprs(cloned_expr);
+          for (auto* e : group_to_run->stablyOrderedExprs()) {
+            auto* e_clone = ir_cloner.clone(e);
+            recomputeOutputTvs(e, ir_cloner);
+            hic->pushBackTopLevelExprs(e_clone);
           }
         } break;
         default:
@@ -522,6 +555,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               group_id);
           auto in_clone = ir_cloner.clone(group_to_run->inputs());
           auto out_clone = ir_cloner.clone(group_to_run->outputs());
+          for (auto* out :
+               ir_utils::filterByType<TensorView>(group_to_run->outputs())) {
+            recomputeTv(out, ir_cloner);
+          }
           auto heuristic_params = schedulers().at(group_id).get();
           auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
               group_id,
@@ -552,9 +589,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       }
     }
 
-    for (const Val* in : segmented_fusion_->inputs()) {
-      hic->addInput(ir_cloner.clone(in));
-    }
     for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
     }

@@ -66,6 +66,7 @@
 #include <nvfuser_resources/casts.h>
 #include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
+#include <nvfuser_resources/cub_utils.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp4_support.h>
 #include <nvfuser_resources/fp8_support.h>
@@ -81,6 +82,7 @@
 #include <nvfuser_resources/mbarrier.h>
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
+#include <nvfuser_resources/scan.h>
 #include <nvfuser_resources/tensor.h>
 #include <nvfuser_resources/tensor_memory.h>
 #include <nvfuser_resources/topk.h>
@@ -751,8 +753,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
           dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
     }
     if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
-      std::string sass_str =
-          disassembleBinary(compiled_kernel->cubin, "-fun 1 -c");
+      std::string sass_str = disassembleBinary(compiled_kernel->cubin, "-c");
       compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
       compiled_kernel->sass_filename =
           dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
@@ -1151,18 +1152,40 @@ std::string _getStructuredCode(
     PrimDataType index_type,
     std::string kernel_name,
     bool has_argsort = false,
-    bool has_topk = false) {
+    bool has_topk = false,
+    bool has_scan = false) {
   // generating cuda code;
   std::string code = "";
+
+  if (has_argsort || has_scan || has_topk) {
+    // Internally, CUB uses std::is_pointer, not
+    // cuda::std::is_pointer, and it fails to compile as nvrtc does not
+    // have <type_traits>. This doesn't seem to be the case with nvcc. A
+    // WAR for nvrtc is to provide std::is_pointer as an alias of
+    // cuda::std::is_pointer.
+    code += "#ifndef __NVCC__\n";
+    code += "#include <cuda/std/type_traits>\n";
+    code += "namespace std {\n";
+    code += "using cuda::std::is_pointer;\n";
+    code += "} // namespace std\n";
+    code += "#endif\n";
+  }
+
   code += defineStdComplex();
   code += std::string("namespace ") + CompiledKernel::kernelNamespace() +
       "{\n" + defineTypes() + defineIndexType(index_type) + kernelPreamble() +
       "} // namespace " + CompiledKernel::kernelNamespace() + "\n";
 
+  if (has_argsort || has_topk || has_scan) {
+    code += nvfuser_resources::cub_utils_cu;
+  }
+
   if (has_argsort) {
     code += nvfuser_resources::argsort_cu;
   }
-
+  if (has_scan) {
+    code += nvfuser_resources::scan_cu;
+  }
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
   }
@@ -1228,6 +1251,7 @@ NVF_API CompiledKernel::CompiledKernel(
   // this is a temporary measure. CUB header files need to be
   // installed as part of the nvFuser installation.
   if (lowered_->kernel()->summary().has_argsort ||
+      lowered_->kernel()->summary().has_scan ||
       lowered_->kernel()->summary().has_topk) {
     compile_params_.include_paths.push_back("/usr/local/cuda/include");
     // As of CUDA 13, the CUB header files are moved to the cccl
@@ -1409,11 +1433,12 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->indexType(),
       kernelName(),
       kernel()->summary().has_argsort,
-      kernel()->summary().has_topk);
+      kernel()->summary().has_topk,
+      kernel()->summary().has_scan);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {
-  return disassembleBinary(compiled_kernel_->cubin, "-fun 1 -c");
+  return disassembleBinary(compiled_kernel_->cubin, "-c");
 }
 
 void CompiledKernel::createKernelId() {

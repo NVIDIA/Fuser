@@ -7,12 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
+#include <iostream>
 
 #include <dispatch.h>
-
-#include <iostream>
+#include <exceptions.h>
+#include <visibility.h>
 
 namespace nvfuser {
 

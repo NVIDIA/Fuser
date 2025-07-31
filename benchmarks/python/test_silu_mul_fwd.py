@@ -64,7 +64,10 @@ def test_silu_mul_fwd_baseline_benchmark(
 ):
     if executor == "torchcompile":
         clear_dynamo_cache()
-    inputs = [torch.randn(*size, device="cuda", dtype=dtype) for _ in range(2)]
+    inputs = [
+        torch.randn(*size, device="cuda", dtype=dtype, requires_grad=True)
+        for _ in range(2)
+    ]
 
     benchmark_fn = with_executor(executor, silu_mul)
 

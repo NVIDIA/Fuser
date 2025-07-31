@@ -338,10 +338,6 @@ def test_row_parallel_matmul(multidevice_test):
 
 @pytest.mark.mpi
 def test_column_parallel_grouped_mm(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
@@ -373,8 +369,8 @@ def test_column_parallel_grouped_mm(multidevice_test):
     inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
     w = torch.randn(g, k, n, dtype=torch.bfloat16)
     sharded_w = multidevice_test.shard_tensor(w, -1, mesh)
-    assert m % g == 0
-    group_sizes = [m // g] * g
+    group_sizes = [5, 7, 9, 11]
+    assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
@@ -393,10 +389,6 @@ def test_column_parallel_grouped_mm(multidevice_test):
 
 @pytest.mark.mpi
 def test_row_parallel_grouped_mm(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
     g = 4
@@ -432,8 +424,8 @@ def test_row_parallel_grouped_mm(multidevice_test):
     sharded_inp = multidevice_test.shard_tensor(inp, -1, mesh)
     w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
     sharded_w = multidevice_test.shard_tensor(w, 1, mesh)
-    assert m % g == 0
-    group_sizes = [m // g] * g
+    group_sizes = [5, 7, 9, 11]
+    assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
@@ -479,7 +471,6 @@ def test_issue4729(multidevice_test):
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
 
     x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
     y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)

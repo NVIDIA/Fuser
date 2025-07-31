@@ -12,18 +12,45 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/container.h>
+#include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <type.h>
 #include <utils.h>
+
 #include <ranges>
+#include <type_traits>
+#include <utility>
 
 namespace nvfuser::python {
 
 namespace {
 
+// Check if a type is an optional via type_traits
+template <typename T>
+struct is_optional : std::false_type {};
+
+template <typename T>
+struct is_optional<std::optional<T>> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
+
+// A struct to hold default values for keyword arguments.
+template <typename T>
+struct KeywordArgument {
+  using type = T; // The data type of the argument
+  std::string name;
+  std::optional<T> default_value;
+};
+
 class PythonPrinter {
  public:
   PythonPrinter(std::ostream& os) : os_(os) {}
+
+  // Generate a python string for a string value.
+  std::string toString(const std::string& s) {
+    return s;
+  }
 
   // Generate a python string for a boolean value.
   std::string toString(bool b) {
@@ -32,6 +59,11 @@ class PythonPrinter {
 
   // Generate a python string for an int64_t value.
   std::string toString(int64_t i) {
+    return std::to_string(i);
+  }
+
+  // Generate a python string for an size_t value.
+  std::string toString(size_t i) {
     return std::to_string(i);
   }
 
@@ -75,6 +107,8 @@ class PythonPrinter {
       return toString(pv.as<std::complex<double>>());
     } else if (pv.is<double>()) {
       return toString(pv.as<double>());
+    } else if (pv.is<std::monostate>()) {
+      return "None";
     } else {
       NVF_THROW("Unsupported PolymorphicValue type");
     }
@@ -124,7 +158,11 @@ class PythonPrinter {
       ss << "[";
     }
     for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val);
+      if constexpr (is_optional_v<T>) {
+        ss << toString(val, /*skip_none=*/false);
+      } else {
+        ss << toString(val);
+      }
       if (i < vec.size() - 1) {
         ss << ", ";
       }
@@ -158,7 +196,10 @@ class PythonPrinter {
       std::tuple<Ts...> const& args) {
     NVF_ERROR(
         argument_names.size() == sizeof...(Ts),
-        "Input argument names and inputs must have the same size.");
+        "Input argument names and args must have the same size.");
+    // Use std::apply to unpack tuple of arguments into a lambda. The lambda
+    // contains a C++17 fold expression on a comma operator that writes each
+    // argument to stringstream and increments argument position.
     std::stringstream ss;
     std::apply(
         [this, &ss, &argument_names](Ts const&... tuple_args) {
@@ -169,6 +210,48 @@ class PythonPrinter {
            ...);
         },
         args);
+    return ss.str();
+  }
+
+  // Generate a python list of values with string keyword arguments.
+  //  * A tuple of default argument values is provided to the function.
+  //  * If the default argument is optional and equal to the provided argument,
+  //    then skip printing the keyword-argument pair.
+  template <typename... Ds, typename... Ts>
+  std::string generateNamedList(
+      std::tuple<Ds...> const& default_args,
+      std::tuple<Ts...> const& args) {
+    NVF_ERROR(
+        sizeof...(Ds) == sizeof...(Ts),
+        "The default and given arguments must have the same size.");
+    // This immediately-invoked generic lambda uses a C++17 fold expression
+    // to emulate a loop over the tuple elements.
+    //
+    // 1. `std::make_index_sequence` generates a compile-time sequence of
+    // indices (0, 1, 2...).
+    // 2. The lambda accepts this sequence, deducing the indices into the
+    // template pack `Is...`.
+    // 3. A fold expression over the comma operator expands the code for each
+    // index.
+    // 4. A ternary operator `(condition ? ... : ...)` performs the conditional
+    // logic.
+    // 5. If condition is true, another comma operator
+    // `(write_to_stream, increment_counters)` chains the side effects of
+    // writing to the stringstream and advancing the counters.
+    // 6. If condition is false, increment `printed_arg_pos` counter by zero.
+    std::stringstream ss;
+    [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+      size_t printed_arg_pos = 0;
+      (((!std::get<Is>(default_args).default_value.has_value() ||
+         std::get<Is>(default_args).default_value.value() != std::get<Is>(args))
+            ? ((ss << toString(
+                    std::get<Is>(default_args).name,
+                    std::get<Is>(args),
+                    (printed_arg_pos > 0 ? ", " : ""))),
+               ++printed_arg_pos)
+            : (printed_arg_pos += 0)),
+       ...);
+    }(std::make_index_sequence<sizeof...(Ts)>{}); // Generate indices 0..N-1
     return ss.str();
   }
 
@@ -185,6 +268,26 @@ class PythonPrinter {
   }
 
   // Generate a python operation with a list of inputs and outputs.
+  // A string keyword argument is added for each input. The default_kwargs
+  // argument allows skipping arguments if it isn't strictly necessary.
+  template <
+      typename... arg_types,
+      typename... default_kwarg_types,
+      typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::tuple<arg_types...>& args,
+      const std::tuple<default_kwarg_types...>& default_kwargs,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string kwargs_str = generateNamedList(default_kwargs, kwargs);
+    constexpr bool any_arguments = sizeof...(arg_types) == 0;
+    std::string connect = (any_arguments || kwargs_str.empty()) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << generateList(args) << connect << kwargs_str << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
   // A string keyword argument is added for each input.
   template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
@@ -197,6 +300,20 @@ class PythonPrinter {
     os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
         << "(" << generateList(args) << connect
         << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and a single output.
+  // A string keyword argument is added for each input.
+  template <typename... arg_types, typename... kwargs_types>
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::tuple<arg_types...>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::tuple<kwargs_types...>& kwargs,
+      const std::string& output_name) {
+    std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
+    os_ << kTab << output_name << " = " << op_name << "(" << generateList(args)
+        << connect << generateNamedList(kwargs_names, kwargs) << ")\n";
   }
 
   // Generate a python definition for a FusionDefinition.
@@ -239,26 +356,86 @@ class PythonTranslator : public OptInConstDispatch {
   PythonTranslator(std::ostream& os, Fusion* fusion)
       : printer_(os), fusion_(fusion) {}
 
-  bool isScheduledTensorView(TensorView* tv) const {
-    NVF_ERROR(tv != nullptr);
-    const std::vector<IterDomain*>& logical = tv->domain()->logical();
-    const std::vector<IterDomain*>& loop = tv->domain()->loop();
-    // short-circuit: check same length
-    if (logical.size() != loop.size()) {
-      return true;
+  // The new shape for view operation can be dynamic. Check that all dynamic
+  // scalar dependencies are handled before the ViewOp.
+  bool checkViewShapeDependency(const ViewOp* vop) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        vop->out()->as<TensorView>()->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return std::all_of(
+        logical_domain_extents.begin(),
+        logical_domain_extents.end(),
+        [&](Val* v) {
+          return v->definition() == nullptr || visited_vals_.count(v) > 0;
+        });
+  }
+
+  // Gather the expressions necessary to create a scalar value.
+  std::vector<Expr*> gatherScalarExpressions(Val* v) {
+    NVF_ERROR(v != nullptr);
+    NVF_ERROR(v->isScalar());
+
+    // short-circuit: v does not have a definition.
+    if (v->definition() == nullptr) {
+      return {};
     }
 
-    for (size_t idx : c10::irange(logical.size())) {
-      if (logical.at(idx) != loop.at(idx)) {
-        return true;
+    std::vector<Expr*> expression_chain;
+    std::unordered_set<Expr*> visited;
+    std::vector<Expr*> to_visit = {v->definition()};
+    while (!to_visit.empty()) {
+      Expr* e = to_visit.back();
+      to_visit.pop_back();
+
+      expression_chain.push_back(e);
+      visited.insert(e);
+
+      for (Val* input : e->inputs()) {
+        // short-circuit: input does not have a definition.
+        if (input->definition() == nullptr) {
+          continue;
+        }
+
+        // short-circuit: input definition is already visited.
+        if (visited.count(input->definition()) > 0) {
+          continue;
+        }
+
+        to_visit.push_back(input->definition());
       }
     }
-    return false;
+    return expression_chain;
+  }
+
+  // Gather the scalar expressions necessary to create the logical domain for a
+  // TensorView.
+  std::vector<Expr*> gatherScalarExpressions(TensorView* tv) {
+    NVF_ERROR(tv != nullptr);
+    std::vector<Expr*> logical_domain_expressions;
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    for (IterDomain* id : logical_out_domain) {
+      std::vector<Expr*> extent_definitions =
+          gatherScalarExpressions(id->getMaybeExpandedExtent());
+      logical_domain_expressions.insert(
+          logical_domain_expressions.end(),
+          extent_definitions.begin(),
+          extent_definitions.end());
+    }
+    return logical_domain_expressions;
   }
 
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
-    // TODO Add check_view_dependency
+    // short-circuit: Found a view operation without all its shape dependencies.
+    if (e->isA<ViewOp>() && !checkViewShapeDependency(e->as<ViewOp>())) {
+      return false;
+    }
     return std::all_of(
         e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
           return visited_vals_.count(v) > 0;
@@ -278,8 +455,18 @@ class PythonTranslator : public OptInConstDispatch {
     std::deque<nvfuser::Expr*> to_visit(
         fusion_exprs.begin(), fusion_exprs.end());
 
-    // TODO: Scalar expressions are not handled by Fusion::exprs, so gather them
+    // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
+    for (Expr* e : to_visit) {
+      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+        std::vector<Expr*> extent_definitions =
+            gatherScalarExpressions(e->output(0)->as<TensorView>());
+        to_visit.insert(
+            to_visit.end(),
+            extent_definitions.begin(),
+            extent_definitions.end());
+      }
+    }
 
     // Topological search of Fusion expressions
     size_t skip_count = 0;
@@ -300,15 +487,7 @@ class PythonTranslator : public OptInConstDispatch {
       // TODO: short-circuit: skip Split and Merge expressions created by
       // Reshape
       // TODO: short-circuit: skip Resize expressions created by Slice
-
-      bool is_expr_inputs_valid =
-          std::all_of(e->inputs().begin(), e->inputs().end(), [this](Val* v) {
-            return !v->isA<TensorView>() ||
-                !isScheduledTensorView(v->as<TensorView>());
-          });
-      NVF_ERROR(
-          is_expr_inputs_valid,
-          "Found a TensorView with scheduled loop domain.");
+      // TODO: direct bindings does not support scheduled expressions.
 
       // Handle scalars and constants not generated by separate expression.
       std::vector<Val*> scalars;
@@ -329,7 +508,7 @@ class PythonTranslator : public OptInConstDispatch {
         continue;
       }
 
-      // Create RecordFunctor given inputs, outputs, and attributes.
+      // Create string representation given inputs, outputs, and attributes.
       visited.insert(e);
       dispatch(e);
       skip_count = 0;
@@ -356,11 +535,24 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
+  // Filter Functions
+
+  // Gather all TensorViews and FusionDefinition indices
+  std::vector<const nvfuser::Val*> tensors() {
+    std::vector<const nvfuser::Val*> tensors;
+    std::copy_if(
+        visited_vals_.begin(),
+        visited_vals_.end(),
+        std::back_inserter(tensors),
+        [](const nvfuser::Val* v) { return v->isA<TensorView>(); });
+    return tensors;
+  }
+
+  // =================================================================================
+
   // Create scalar for given nvfuser value. The nvfuser value must not already
   // exist and have a definition. It can be a fusion input, a constant, or a
   // tensor's extent.
-
-  // Add scalar value to Fusion Definition
   void handle(const Val* v) final {
     NVF_ERROR(v != nullptr);
     // short-circuit: scalar definition has a definition
@@ -372,6 +564,40 @@ class PythonTranslator : public OptInConstDispatch {
       return;
     }
     visited_vals_.insert(v);
+
+    // Since scalars can come from TensorView dimension sizes, search through
+    // all TensorViews for an iterDomain whose extent matches the desired
+    // value and then use size op.
+    for (const nvfuser::Val* tv_val : tensors()) {
+      const TensorView* tv = tv_val->as<TensorView>();
+
+      // Get extents for each IterDomain
+      std::vector<IterDomain*> filtered_logical_domain =
+          TensorDomain::noReductions(tv->domain()->logical());
+      std::vector<Val*> extents;
+      extents.reserve(filtered_logical_domain.size());
+      std::transform(
+          filtered_logical_domain.begin(),
+          filtered_logical_domain.end(),
+          std::back_inserter(extents),
+          [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+
+      // Check if value matches iterdomain extent
+      auto iter = std::find(extents.begin(), extents.end(), v);
+      if (iter == extents.end()) {
+        continue;
+      }
+
+      int64_t dim = std::distance(extents.begin(), iter);
+      static const std::vector<std::string> argument_names = {"dim"};
+      printer_.generateKwargsOperation(
+          "fd.ops.size",
+          std::make_tuple(tv),
+          argument_names,
+          std::make_tuple(dim),
+          {v});
+      return;
+    }
 
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
@@ -426,29 +652,21 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   // =================================================================================
-  // Handle add_output variants
+  // Utility functions
 
-  // Add Tensor output to FusionDefinition
-  void handleOutput(const TensorView* tv) {
-    NVF_ERROR(tv != nullptr);
-    printer_.generateOperation("fd.add_output", {tv}, {});
-  }
-
-  // =================================================================================
-  // Map CPP Expression classes to corresponding RecordFunctors in
-  // python_frontend
-
-  // Map BinaryOp to python_frontend OpRecord
-  void handle(const BinaryOp* bop) final {
-    NVF_ERROR(bop != nullptr);
-    if (visited_vals_.count(bop->out()) > 0) {
-      return;
-    }
-    visited_vals_.insert(bop->out());
-    printer_.generateOperation(
-        "fd.ops." + nvfuser::python::toString(bop),
-        {bop->lhs(), bop->rhs()},
-        {bop->out()});
+  // Create a vector for the logical domain of TensorView.
+  // Used with ViewOp and ExpandOp handlers
+  std::vector<Val*> getShape(TensorView* tv) {
+    const std::vector<IterDomain*>& logical_out_domain =
+        tv->domain()->logical();
+    std::vector<Val*> logical_domain_extents;
+    // Use expanded extent if available for IterDomain.
+    std::transform(
+        logical_out_domain.begin(),
+        logical_out_domain.end(),
+        std::back_inserter(logical_domain_extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+    return logical_domain_extents;
   }
 
   // Find integer index corresponding with reduction iterDomains
@@ -463,10 +681,82 @@ class PythonTranslator : public OptInConstDispatch {
     return axes;
   }
 
+  // =================================================================================
+  // Handle add_output variants
+
+  // Add Tensor output to FusionDefinition
+  void handleOutput(const TensorView* tv) {
+    NVF_ERROR(tv != nullptr);
+    printer_.generateOperation("fd.add_output", {tv}, {});
+  }
+
+  // =================================================================================
+  // Map CPP Expression classes to corresponding RecordFunctors in
+  // python_frontend
+
+  // Map UnaryOp to python_frontend OpRecord
+  void handle(const UnaryOp* uop) final {
+    NVF_ERROR(uop != nullptr);
+    // short-circuit: Handle cast operation separately
+    if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+      return handleCastOp(uop);
+    }
+
+    // Map remaining UnaryOp to python_frontend OpRecord
+    visited_vals_.insert(uop->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(uop), {uop->in()}, {uop->out()});
+  }
+
+  // Map cast UnaryOp to CastOpRecord
+  void handleCastOp(const UnaryOp* uop) {
+    NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
+    visited_vals_.insert(uop->out());
+
+    // DataType::Index does not exist in python_frontend, so convert to
+    // DataType::Int
+    DataType scalar_dtype = uop->out()->dtype();
+    if (scalar_dtype == DataType::Index) {
+      scalar_dtype = DataType::Int;
+    }
+
+    static const std::vector<std::string> argument_names = {"dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cast",
+        std::make_tuple(uop->in()),
+        argument_names,
+        std::make_tuple(scalar_dtype),
+        {uop->out()});
+  }
+
+  // Map BinaryOp to python_frontend OpRecord
+  void handle(const BinaryOp* bop) final {
+    NVF_ERROR(bop != nullptr);
+    if (visited_vals_.count(bop->out()) > 0) {
+      return;
+    }
+    visited_vals_.insert(bop->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(bop),
+        {bop->lhs(), bop->rhs()},
+        {bop->out()});
+  }
+
+  // Map TernaryOp to python frontend
+  void handle(const TernaryOp* top) final {
+    NVF_ERROR(top != nullptr);
+    visited_vals_.insert(top->out());
+    printer_.generateOperation(
+        "fd.ops." + nvfuser::python::toString(top),
+        {top->in1(), top->in2(), top->in3()},
+        {top->out()});
+  }
+
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
     NVF_ERROR(rop != nullptr);
     NVF_ERROR(rop->out()->isA<TensorView>());
+    visited_vals_.insert(rop->out());
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
@@ -474,16 +764,249 @@ class PythonTranslator : public OptInConstDispatch {
                       rop->getReductionOpType() == BinaryOpType::Max)
         ? DataType::Null
         : rop->out()->dtype();
+    std::vector<int64_t> dims = getReductionAxes(rop->out()->as<TensorView>());
 
-    static const std::vector<std::string> argument_names = {
-        "dims", "keep_dim", "dtype"};
+    // TODO: keep_dim is always False in ReductionOp because a separate
+    // BroadcastOp node exists if keep_dim is True. Detect this pattern to
+    // minify the python definition.
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(dims)>{"dims", std::nullopt},
+        KeywordArgument<bool>{"keep_dim", false},
+        KeywordArgument<DataType>{"dtype", DataType::Null});
     printer_.generateKwargsOperation(
         "fd.ops." + nvfuser::python::toString(rop),
         std::make_tuple(rop->in()),
-        argument_names,
-        std::make_tuple(
-            getReductionAxes(rop->out()->as<TensorView>()), false, dtype),
+        default_args,
+        std::make_tuple(dims, false, dtype),
         {rop->out()});
+  }
+
+  // Add Broadcast operation to FusionDefinition
+  void handle(const BroadcastOp* bcast_op) final {
+    NVF_ERROR(bcast_op != nullptr);
+    visited_vals_.insert(bcast_op->out());
+    static const std::vector<std::string> broadcast_argument_names = {
+        "is_broadcast_dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.broadcast",
+        std::make_tuple(bcast_op->in()),
+        broadcast_argument_names,
+        std::make_tuple(bcast_op->getBroadcastDimFlags()),
+        {bcast_op->out()});
+  }
+
+  // Map MatmulOp to TensorView-Only OpRecord
+  void handle(const MatmulOp* matmul_op) final {
+    NVF_ERROR(matmul_op != nullptr);
+    visited_vals_.insert(matmul_op->out());
+
+    printer_.generateOperation(
+        "fd.ops.matmul",
+        {matmul_op->inA(), matmul_op->inB()},
+        {matmul_op->out()});
+  }
+
+  // Map LinearOp to python frontend
+  void handle(const LinearOp* lop) final {
+    NVF_ERROR(lop != nullptr);
+    visited_vals_.insert(lop->out());
+
+    static const auto default_args =
+        std::make_tuple(KeywordArgument<TensorView*>{"bias", nullptr});
+    printer_.generateKwargsOperation(
+        "fd.ops.linear",
+        std::make_tuple(lop->inA(), lop->inB()),
+        default_args,
+        std::make_tuple(lop->bias()),
+        {lop->out()});
+  }
+
+  // Map SqueezeOp to python frontend
+  void handle(const SqueezeOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+
+    const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
+    auto filter_range = std::views::iota(0UL, is_squeeze_dims.size()) |
+        std::views::filter([&is_squeeze_dims](int64_t dim) {
+                          return is_squeeze_dims.at(dim);
+                        });
+    std::vector<int64_t> squeeze_dims(filter_range.begin(), filter_range.end());
+
+    TensorView* in_tv = sop->in()->as<TensorView>();
+    NVF_ERROR(in_tv != nullptr);
+
+    // TODO: Use std::ranges::zip_view AND std::ranges::any_of with cpp23
+    bool squeeze_expanded = false;
+    for (auto [squeeze_dim, id] :
+         zip(is_squeeze_dims, in_tv->getLogicalDomain())) {
+      if (!squeeze_dim) {
+        continue;
+      }
+      squeeze_expanded |= (id->isBroadcast() && id->hasExpandedExtent());
+    }
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(squeeze_dims)>{"dims", std::nullopt},
+        KeywordArgument<bool>{"squeeze_expanded", false});
+    printer_.generateKwargsOperation(
+        "fd.ops.squeeze",
+        std::make_tuple(sop->in()),
+        default_args,
+        std::make_tuple(squeeze_dims, squeeze_expanded),
+        {sop->out()});
+  }
+
+  // Map ViewOp to python frontend
+  void handle(const ViewOp* vop) final {
+    NVF_ERROR(vop != nullptr);
+
+    // Get extent's for output's logical domain
+    TensorView* out_tv = vop->out()->as<TensorView>();
+    std::vector<Val*> new_shape = getShape(out_tv);
+
+    // TODO Check if new_shape is a vector of symbolic fusion inputs
+    // TODO Use define_vector to create more pythonic syntax
+
+    // Add CPP values to Fusion Definition if necessary
+    static const std::vector<std::string> reshape_argument_names = {
+        "new_shape"};
+    std::for_each(new_shape.begin(), new_shape.end(), [this](const Val* v) {
+      dispatch(v);
+    });
+    visited_vals_.insert(vop->out());
+    printer_.generateKwargsOperation(
+        "fd.ops.reshape",
+        std::make_tuple(vop->in()),
+        reshape_argument_names,
+        std::make_tuple(new_shape),
+        {vop->out()});
+  }
+
+  // Map ExpandOp to python frontend
+  void handle(const ExpandOp* eop) final {
+    NVF_ERROR(eop != nullptr);
+    TensorView* in_tv = eop->in()->as<TensorView>();
+    TensorView* out_tv = eop->out()->as<TensorView>();
+    NVF_ERROR(in_tv->nDims() == out_tv->nDims());
+    std::vector<Val*> shape = getShape(out_tv);
+
+    static const std::vector<std::string> expand_argument_names = {"shape"};
+    // Add CPP values to Fusion Definition if necessary
+    std::for_each(
+        shape.begin(), shape.end(), [this](const Val* v) { dispatch(v); });
+    visited_vals_.insert(eop->out());
+    printer_.generateKwargsOperation(
+        "fd.ops.expand",
+        std::make_tuple(eop->in()),
+        expand_argument_names,
+        std::make_tuple(shape),
+        {eop->out()});
+  }
+
+  // Map SliceOp to python frontend
+  void handle(const SliceOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    std::vector<nvfuser::Slice> slices = sop->getRanges();
+
+    std::vector<Val*> start_indices;
+    start_indices.reserve(slices.size());
+
+    std::vector<Val*> stop_indices;
+    stop_indices.reserve(slices.size());
+
+    std::vector<Val*> strides;
+    strides.reserve(slices.size());
+
+    for (const nvfuser::Slice& s : slices) {
+      start_indices.push_back(s.start);
+      stop_indices.push_back(s.stop);
+      strides.push_back(s.step);
+    }
+
+    visited_vals_.insert(sop->out());
+    // Since the normalization operations are expressed in the Fusion IR,
+    // manual_normalization argument is always true and default arguments is not
+    // used here.
+    static const std::vector<std::string> slice_argument_names = {
+        "start_indices", "end_indices", "strides", "manual_normalization"};
+    printer_.generateKwargsOperation(
+        "fd.ops.slice",
+        std::make_tuple(sop->in()),
+        slice_argument_names,
+        std::make_tuple(
+            start_indices,
+            stop_indices,
+            strides,
+            /*manual_normalization=*/true),
+        {sop->out()});
+  }
+
+  // If input and output values share the same type, a LoadStoreOp will be
+  // created instead of a CastOp.
+  void handle(const LoadStoreOp* lsop) final {
+    // TODO short-circuit: lsop is a permutation.
+    if (lsop->out()->isA<TensorView>() &&
+        lsop->out()->as<TensorView>()->hasRoot()) {
+      return handlePermute(lsop);
+    }
+
+    NVF_ERROR(
+        lsop->in()->dtype() == lsop->out()->dtype(),
+        "Expected the dtype for input and output to be the same");
+    visited_vals_.insert(lsop->out());
+    static const std::vector<std::string> argument_names = {"dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.cast",
+        std::make_tuple(lsop->in()),
+        argument_names,
+        std::make_tuple(lsop->out()->dtype()),
+        {lsop->out()});
+  }
+
+  void handlePermute(const LoadStoreOp* lsop) {
+    TensorView* out_tv = lsop->out()->as<TensorView>();
+
+    std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(new2old.has_value(), "Expected permutation");
+
+    visited_vals_.insert(lsop->out());
+    static const std::vector<std::string> argument_names = {"dims"};
+    printer_.generateKwargsOperation(
+        "fd.ops.permute",
+        std::make_tuple(lsop->in()),
+        argument_names,
+        std::make_tuple(new2old.value()),
+        {lsop->out()});
+  }
+
+  // Map IndexSelectOp to IndexSelectOpRecord
+  void handle(const IndexSelectOp* isop) final {
+    NVF_ERROR(isop != nullptr);
+    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.index_select",
+        std::make_tuple(isop->lookupTv(), isop->indexTv()),
+        argument_names,
+        std::make_tuple(isop->dim()),
+        {out_tv});
+  }
+
+  // Map SelectOp to IndexSelectOpRecord
+  void handle(const SelectOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+    static const std::vector<std::string> argument_names = {"dim"};
+    printer_.generateKwargsOperation(
+        "fd.ops.select",
+        std::make_tuple(sop->lookupTv(), sop->input(1)),
+        argument_names,
+        std::make_tuple(sop->dim()),
+        {out_tv});
   }
 
  private:
