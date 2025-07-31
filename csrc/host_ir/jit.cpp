@@ -315,16 +315,6 @@ llvm::Value* getOrCreateValueForExtent(
   return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
 }
 
-llvm::Value* getValueForTensor(
-    TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  if (auto it = val_to_value.find(tv); it != val_to_value.end()) {
-    return it->second;
-  }
-  return nullptr;
-}
-
 // Simple permute transformation example:
 // logical domain: [a, b, c, d]
 // original logical sizes: [a, b, c, d]
@@ -547,7 +537,7 @@ void packOutputs(
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
-    llvm::Value* tensor = getValueForTensor(tv, val_to_value, builder);
+    llvm::Value* tensor = getOrDefault(val_to_value, static_cast<Val*>(tv));
     NVF_ERROR(tensor != nullptr, "packOutputs: tensor is nullptr");
     builder.CreateStore(tensor, tensor_addr);
   }
@@ -752,10 +742,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
     load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
     TensorView* in_tv = load_store_op->in()->as<TensorView>();
     TensorView* out_tv = load_store_op->out()->as<TensorView>();
-    llvm::Value* in_tensor = getValueForTensor(in_tv, val_to_value_, builder_);
+    llvm::Value* in_tensor = getOrDefault(val_to_value_, static_cast<Val*>(in_tv));
     NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
     // we assume all output tensors are already created, either through new or allocated
-    llvm::Value* out_tensor = getValueForTensor(out_tv, val_to_value_, builder_);
+    llvm::Value* out_tensor = getOrDefault(val_to_value_, static_cast<Val*>(out_tv));
 
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
@@ -793,7 +783,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       }
              out_tensor = builder_.CreateCall(
            module->getFunction(kPermuteFuncName), {in_tensor, perm_ptr, perm_size}, "permute");
-       val_to_value_[out_tv] = out_tensor;
+       val_to_value_[static_cast<Val*>(out_tv)] = out_tensor;
        return;
     }
     if(out_tensor != nullptr) {
@@ -804,7 +794,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
     out_tensor = builder_.CreateCall(
         module->getFunction(kSetTensorFuncName), {in_tensor}, "set");
-    val_to_value_[out_tv] = out_tensor;
+    val_to_value_[static_cast<Val*>(out_tv)] = out_tensor;
   }
 
 
@@ -812,11 +802,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
     llvm::Value* a =
-        getValueForTensor(matmul_op->inA(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->inA()));
     llvm::Value* b =
-        getValueForTensor(matmul_op->inB(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->inB()));
         llvm::Value* out =
-        getValueForTensor(matmul_op->out(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(matmul_op->out()));
     if(out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(
@@ -826,7 +816,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     // Output tensor doesn't exist, use matmul which returns a new tensor
     out = builder_.CreateCall(
         module->getFunction(kMatmulFuncName), {a, b}, "matmul");
-    val_to_value_[matmul_op->out()] = out;
+    val_to_value_[static_cast<Val*>(matmul_op->out())] = out;
   }
 
   void handle(LinearOp* linear_op) final {
@@ -834,15 +824,15 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::LLVMContext& context = builder_.getContext();
 
     llvm::Value* in =
-        getValueForTensor(linear_op->inA(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->inA()));
     llvm::Value* weight =
-        getValueForTensor(linear_op->inB(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->inB()));
     llvm::Value* out =
-        getValueForTensor(linear_op->out(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, static_cast<Val*>(linear_op->out()));
 
     llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
-      bias = getValueForTensor(linear_op->bias(), val_to_value_, builder_);
+      bias = getOrDefault(val_to_value_, static_cast<Val*>(linear_op->bias()));
     } else {
       // Create a proper null pointer for LLVM
       auto* tensor_type = getTensorPtrType(context);
@@ -860,7 +850,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     out = builder_.CreateCall(
         module->getFunction(kLinearFuncName),
         {in, weight, bias}, "linear");
-    val_to_value_[linear_op->out()] = out;
+    val_to_value_[static_cast<Val*>(linear_op->out())] = out;
   }
 
   // Launch Kernel Function LLVM IR Generation
@@ -874,7 +864,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> input_tensors;
     for (auto* in : launch_kernel->inputs()) {
       if(auto* tv = in->as<TensorView>()) {
-        llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+        llvm::Value* tensor = getOrDefault(val_to_value_, static_cast<Val*>(tv));
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
         input_tensors.push_back(tensor);
       }
@@ -887,7 +877,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> output_tensors;
     for (auto* out : launch_kernel->outputs()) {
       if(auto* tv = out->as<TensorView>()) {
-        llvm::Value* tensor = getValueForTensor(tv, val_to_value_, builder_);
+        llvm::Value* tensor = getOrDefault(val_to_value_, static_cast<Val*>(tv));
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
         output_tensors.push_back(tensor);
       }
