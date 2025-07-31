@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
+#include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
 
@@ -23,36 +24,15 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
         "anyways");
   });
   std::unordered_map<TensorView*, int64_t> last_use;
-  std::unordered_set<TensorView*> non_intermediate_tensors;
-  for (auto* val : hic->inputs()) {
-    if (auto* tv = val->as<TensorView>()) {
-      non_intermediate_tensors.insert(tv);
-    }
-  }
-  for (auto* val : hic->outputs()) {
-    if (auto* tv = val->as<TensorView>()) {
-      non_intermediate_tensors.insert(tv);
-    }
-  }
-
   for (auto&& [i, expr] : enumerate(top_level_exprs)) {
-    for (auto* val : expr->inputs()) {
-      if (!val->isA<TensorView>()) {
-        continue;
-      }
-      auto tv = val->as<TensorView>();
-      last_use[tv] = i;
-    }
-
-    for (auto* val : expr->outputs()) {
-      if (!val->isA<TensorView>()) {
-        continue;
-      }
-      auto tv = val->as<TensorView>();
+    for (auto* tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
       last_use[tv] = i;
     }
   }
-
+  // Remove outputs from last_use, they should not be deallocated
+  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
+    last_use.erase(out);
+  }
   std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
   last_use_by_index.reserve(last_use.size());
   for (auto&& [tv, i] : last_use) {
@@ -60,9 +40,6 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   }
   std::sort(last_use_by_index.begin(), last_use_by_index.end());
   for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
-    if (non_intermediate_tensors.contains(tv)) {
-      continue;
-    }
     auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
     hic->insertExprAfter(i, deallocate);
   }
