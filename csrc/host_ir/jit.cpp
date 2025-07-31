@@ -746,8 +746,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
         load_store_op->opType() == LoadStoreOpType::SegmenterSet);
     NVF_ERROR(
     load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
-    TensorView* in_tv = load_store_op->in()->as<TensorView>();
-    TensorView* out_tv = load_store_op->out()->as<TensorView>();
+    auto* in_tv = load_store_op->in()->as<TensorView>();
+    auto* out_tv = load_store_op->out()->as<TensorView>();
     llvm::Value* in_tensor = getOrCreateValue(in_tv, val_to_value_, builder_);
     NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
     // we assume all output tensors are already created, either through new or allocated
