@@ -282,7 +282,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
   std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
-    if (auto def = value->definition()) {
+    if (auto* def = value->definition()) {
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
