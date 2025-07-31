@@ -256,59 +256,169 @@ sequenceDiagram
 2. Result circular buffer: MmaWarp → EpilogueWarpGroups
 3. Bias circular buffer: LoadWarp → EpilogueWarpGroups (parallel to operand chain)
 
+#### Warp Dependency Diagram
+
+```mermaid
+graph TD
+    LW[LoadWarp] --> MW[MmaWarp]
+    ELW[EpilogueLoadWarp] --> EW[EpilogueWarpGroups]
+    MW --> EW
+    
+    LW --> |"Operand Circular Buffer"| MW
+    ELW --> |"Epilogue Input Circular Buffer"| EW
+    MW --> |"Result Circular Buffer"| EW
+    
+    style LW fill:#lightblue
+    style ELW fill:#lightblue
+    style MW fill:#lightyellow
+    style EW fill:#lightgreen
+```
+
 #### Sequence Diagram: Blackwell Multi-Role Warp Specialization
 
 ```mermaid
 sequenceDiagram
     participant LW as LoadWarp
+    participant ELW as EpilogueLoadWarp
     participant MW as MmaWarp
     participant EW as EpilogueWarpGroups
+    participant OMB0_E as OperandSlot0_Empty
+    participant OMB0_F as OperandSlot0_Full
+    participant OMB1_E as OperandSlot1_Empty
+    participant OMB1_F as OperandSlot1_Full
+    participant RMB0_E as ResultSlot0_Empty
+    participant RMB0_F as ResultSlot0_Full
+    participant RMB1_E as ResultSlot1_Empty
+    participant RMB1_F as ResultSlot1_Full
+    participant EMB0_E as EpilogueSlot0_Empty
+    participant EMB0_F as EpilogueSlot0_Full
+    participant EMB1_E as EpilogueSlot1_Empty
+    participant EMB1_F as EpilogueSlot1_Full
     
-    Note over LW,EW: Circular Buffer Slot 0
+    Note over LW,EW: Overlapping execution across circular buffer stages
     
-    LW->>LW: Wait for OperandSlot0_Empty
-    LW->>LW: TMA Load A[0], B[0]
-    LW->>LW: TMA Load Bias[0]
-    LW->>LW: Arrive at OperandSlot0_Full
-    LW->>LW: Arrive at BiasSlot0_Full
+    Note over MW: Initialize - arrive at all slot empty barriers
+    MW->>OMB0_E: Arrive at OperandSlot0_Empty
+    MW->>OMB1_E: Arrive at OperandSlot1_Empty
+    MW->>RMB0_E: Arrive at ResultSlot0_Empty
+    MW->>RMB1_E: Arrive at ResultSlot1_Empty
+    EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     
-    MW->>MW: Wait for OperandSlot0_Full
+    OMB0_E->>LW: Wait for OperandSlot0_Empty
+    LW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
+    
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
+    
+    OMB0_F->>MW: Wait for OperandSlot0_Full
     MW->>MW: tcgen05 utcmma(A[0], B[0])
-    MW->>MW: Arrive at ResultSlot0_Full
+    MW->>RMB0_F: tcgen05.commit.mbarrier::arrive
+    MW->>OMB0_E: Arrive at OperandSlot0_Empty
     
-    EW->>EW: Wait for ResultSlot0_Full
-    EW->>EW: Wait for BiasSlot0_Full
+    RMB0_F->>EW: Wait for ResultSlot0_Full
+    EMB0_F->>EW: Wait for EpilogueSlot0_Full
     EW->>EW: Add(Result[0], Bias[0])
+    EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     EW->>EW: Cast to bf16
-    EW->>EW: Arrive at OperandSlot0_Empty
-    EW->>EW: Arrive at BiasSlot0_Empty
+    EW->>RMB0_E: Arrive at ResultSlot0_Empty
+    EW->>EW: Write output[0]
     
-    Note over LW,EW: Circular Buffer Slot 1
+    OMB1_E->>LW: Wait for OperandSlot1_Empty
+    LW->>OMB1_F: TMA Load A[1], B[1] (async, expect_tx)
     
-    LW->>LW: Wait for OperandSlot1_Empty
-    LW->>LW: TMA Load A[1], B[1]
-    LW->>LW: TMA Load Bias[1]
-    LW->>LW: Arrive at OperandSlot1_Full
-    LW->>LW: Arrive at BiasSlot1_Full
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
     
-    MW->>MW: Wait for OperandSlot1_Full
+    OMB1_F->>MW: Wait for OperandSlot1_Full
     MW->>MW: tcgen05 utcmma(A[1], B[1])
-    MW->>MW: Arrive at ResultSlot1_Full
+    MW->>RMB1_F: tcgen05.commit.mbarrier::arrive
+    MW->>OMB1_E: Arrive at OperandSlot1_Empty
     
-    EW->>EW: Wait for ResultSlot1_Full
-    EW->>EW: Wait for BiasSlot1_Full
+    RMB1_F->>EW: Wait for ResultSlot1_Full
+    EMB1_F->>EW: Wait for EpilogueSlot1_Full
     EW->>EW: Add(Result[1], Bias[1])
+    EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     EW->>EW: Cast to bf16
-    EW->>EW: Arrive at OperandSlot1_Empty
-    EW->>EW: Arrive at BiasSlot1_Empty
+    EW->>RMB1_E: Arrive at ResultSlot1_Empty
+    EW->>EW: Write output[1]
     
-    Note over LW,EW: Continue for all slots...
+    Note over LW,EW: Next iteration - reusing circular buffer slots
+    
+    OMB0_E->>LW: Wait for OperandSlot0_Empty
+    LW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
+    
+    EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
+    ELW->>EMB0_F: TMA Load Bias[2] (async, expect_tx)
+    
+    OMB0_F->>MW: Wait for OperandSlot0_Full
+    MW->>MW: tcgen05 utcmma(A[2], B[2])
+    MW->>RMB0_F: tcgen05.commit.mbarrier::arrive
+    MW->>OMB0_E: Arrive at OperandSlot0_Empty
+    
+    RMB0_F->>EW: Wait for ResultSlot0_Full
+    EMB0_F->>EW: Wait for EpilogueSlot0_Full
+    EW->>EW: Add(Result[2], Bias[2])
+    EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
+    EW->>EW: Cast to bf16
+    EW->>RMB0_E: Arrive at ResultSlot0_Empty
+    EW->>EW: Write output[2]
+    
+    OMB1_E->>LW: Wait for OperandSlot1_Empty
+    LW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
+    
+    EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
+    ELW->>EMB1_F: TMA Load Bias[3] (async, expect_tx)
+    
+    OMB1_F->>MW: Wait for OperandSlot1_Full
+    MW->>MW: tcgen05 utcmma(A[3], B[3])
+    MW->>RMB1_F: tcgen05.commit.mbarrier::arrive
+    MW->>OMB1_E: Arrive at OperandSlot1_Empty
+    
+    RMB1_F->>EW: Wait for ResultSlot1_Full
+    EMB1_F->>EW: Wait for EpilogueSlot1_Full
+    EW->>EW: Add(Result[3], Bias[3])
+    EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
+    EW->>EW: Cast to bf16
+    EW->>RMB1_E: Arrive at ResultSlot1_Empty
+    EW->>EW: Write output[3]
+    
+    Note over LW,EW: Continue overlapping pattern...
 ```
 
 **Key Synchronization Points (Blackwell)**:
 - **LoadWarp**: Waits for slot empty → loads data → arrives at slot full
 - **MmaWarp**: Waits for operand slot full → computes MMA → arrives at result slot full  
-- **EpilogueWarpGroups**: Waits for both result and bias slots full → computes epilogue → arrives at slots empty1, 
+- **EpilogueWarpGroups**: Waits for both result and bias slots full → computes epilogue → arrives at slots empty
+
+#### Mbarrier Synchronization Problem
+
+The Blackwell multi-role warp specialization introduces a complex synchronization challenge with tcgen05 operations. The `tcgen05.commit.mbarrier::arrive` instruction automatically arrives at a result mbarrier upon completion, but we also need to signal that the operand slot is now empty for reuse.
+
+**The Problem:**
+- **OperandLoadWarp** needs to wait for operand slot empty (should start false)
+- **EpilogueWarpGroups** needs to wait for result slot full (should start false)
+- **MmaWarp** needs to signal both events after tcgen05 completion
+- Explicit polling for operand slot release interferes with pipelining
+
+**Potential Solutions:**
+
+**Option 1: Separate Mbarriers with Explicit Polling**
+- Keep separate `OperandSlot_Empty` and `ResultSlot_Full` mbarriers
+- MmaWarp explicitly arrives at operand slot empty after tcgen05
+- **Pros**: Clear separation of concerns, proper initialization
+- **Cons**: Requires polling/threading for explicit arrive, may interfere with pipelining
+
+**Option 2: Single Mbarrier with Parity**
+- Use a single mbarrier that alternates between "operand empty" and "result full" states
+- Initialize to "operand empty" (parity 0)
+- MmaWarp arrives once, flipping parity to "result full" (parity 1)
+- EpilogueWarpGroups waits for parity 1, LoadWarp waits for parity 0
+- **Pros**: No polling required, automatic state transitions
+- **Cons**: More complex parity management, potential for confusion
+
+**Recommendation:**
+Option 2 (Single Mbarrier with Parity) appears most promising for optimal pipelining, but requires careful parity management to ensure correct state transitions and prevent race conditions. 
 
 ## Key Design Changes
 
