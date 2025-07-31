@@ -93,6 +93,8 @@ TEST_F(HostIrJitTest, PointwiseScheduler) {
     auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
     testValidate(fusion, cg_outputs, {t0}, __LINE__, __FILE__);
   }
+
+}
 TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());

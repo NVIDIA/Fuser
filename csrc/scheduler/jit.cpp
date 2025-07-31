@@ -366,15 +366,6 @@ void compileFunctionDeclarations(
 }
 
 
-void compileDomainAnalysis(
-    Fusion* fusion,
-    llvm::LLVMContext& context,
-    llvm::IRBuilder<>& builder) {
-  
-}
-
-
-
 void compileReferenceTensorAnalysis(
     Fusion* fusion,
     llvm::LLVMContext& context,
