@@ -150,8 +150,8 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 
 ```mermaid
 graph TD
-    OLW[OperandLoadWarp] --> |"A[0,1], B[0,1] Circular Buffer"| CW[ComputeWarpGroups]
-    ELW[EpilogueLoadWarp] --> |"Bias[0,1] Circular Buffer"| CW
+    OLW[OperandLoadWarp] --> |"A, B"| CW[ComputeWarpGroups]
+    ELW[EpilogueLoadWarp] --> |"Bias"| CW
     
     classDef asyncWarp fill:#lightblue
     classDef computeWarp fill:#lightgreen
@@ -159,6 +159,8 @@ graph TD
     class OLW,ELW asyncWarp
     class CW computeWarp
 ```
+
+Each edge in this dependency graph represents a group of circular buffered tensors (A/B operands or Bias) that flow between async warps and compute warp groups. These edges correspond to pairs of full/empty mbarriers that synchronize the data flow, as shown in the detailed sequence diagram below.
 
 #### Sequence Diagram: Hopper Single-Role Warp Specialization
 
