@@ -117,10 +117,6 @@ class HostIrEvaluator final : public OptOutDispatch {
     return streams_;
   }
 
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string canRun() const;
-
  private:
   using OptOutDispatch::handle;
   void handle(SetCurrentStream* set_current_stream) override;
@@ -162,6 +158,8 @@ class HostIrEvaluator final : public OptOutDispatch {
         ? expr_evaluator_.evaluate(val).as<at::Tensor>()
         : at::Tensor();
   }
+
+  void validate() const;
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
