@@ -99,7 +99,7 @@ FusionGuard fg(&fusion);
 
 // Input tensors
 auto tv0 = makeContigConcreteTensor({-1, 1, -1}, DataType::BFloat16);  // M, 1, K
-auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::BFloat16);  // 1, N, K  
+auto tv1 = makeContigConcreteTensor({1, -1, -1}, DataType::BFloat16);  // 1, N, K
 auto tv2 = makeContigConcreteTensor({-1, -1}, DataType::BFloat16);  // M, N (bias)
 fusion.addInput(tv0);
 fusion.addInput(tv1);
@@ -136,9 +136,9 @@ tv1->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular buffer for bias (epilogue input)
 ```
 
-#### Hopper Implementation
+#### Current Hopper Single-Role Warp Specialization
 
-**Hopper Warp Specialization**:
+**Hopper Single-Role Warp Specialization**:
 - **AsyncWarp**: Handles TMA loads for operands A and B
 - **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
 - **Circular Buffer**: Only operand tensors A and B are circular buffered
@@ -146,16 +146,28 @@ tv2->circularBuffer(2, WarpSpecialized(ParallelType::TIDy));  // 2-slot circular
 **Circular Buffer Chain**:
 1. Operand circular buffer: AsyncWarp → ComputeWarpGroups (single chain)
 
+#### Planned Hopper Multi-Role Warp Specialization
+
+**Hopper Single-Role Warp Specialization**:
+- **OperandLoadWarp**: Handles TMA loads for operands A and B
+- **EpilogueLoadWarp**: Handles TMA loads for bias
+- **ComputeWarpGroups**: Handle WgMMA operations and epilogue computations together
+- **Circular Buffer**: Operand tensors A and B as well as bias are circular buffered
+
+**Circular Buffer Chains**:
+1. Operand circular buffer: AsyncWarp → ComputeWarpGroups
+1. Epilogue input circular buffer: AsyncWarp → ComputeWarpGroups (parallel to operand chain)
+
 #### Warp Dependency Diagram
 
 ```mermaid
 graph TD
     OLW[OperandLoadWarp] --> |"A, B"| CW[ComputeWarpGroups]
     ELW[EpilogueLoadWarp] --> |"Bias"| CW
-    
+
     classDef asyncWarp fill:#lightblue
     classDef computeWarp fill:#lightgreen
-    
+
     class OLW,ELW asyncWarp
     class CW computeWarp
 ```
@@ -177,25 +189,25 @@ sequenceDiagram
     participant EMB0_E as EpilogueSlot0_Empty
     participant EMB1_E as EpilogueSlot1_Empty
     participant ELW as EpilogueLoadWarp
-    
+
     Note over CW: Initialize - arrive at all slot empty barriers
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
-    
+
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
-    
+
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
-    
+
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[1], B[1] (async, expect_tx)
-    
+
     EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
     ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
-    
+
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 0
         CW->>CW: WgMMA(A[0], B[0]) (multiple instructions)
@@ -204,7 +216,7 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
-    
+
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 1
         CW->>CW: WgMMA(A[1], B[1]) (multiple instructions)
@@ -213,7 +225,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
-    
+
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 2
         CW->>CW: WgMMA(A[2], B[2]) (multiple instructions)
@@ -222,7 +234,7 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[4], B[4] (async, expect_tx)
-    
+
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 3
         CW->>CW: WgMMA(A[3], B[3]) (multiple instructions)
@@ -231,7 +243,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
-    
+
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 4
         CW->>CW: WgMMA(A[4], B[4]) (multiple instructions)
@@ -240,18 +252,18 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[6], B[6] (async, expect_tx)
-    
+
     EMB0_F->>CW: Wait for EpilogueSlot0_Full
     CW->>CW: Add(Result[0], Bias[0])
     CW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     CW->>CW: Cast to bf16
     CW->>CW: Write output[0]
-    
+
     Note over OLW,ELW: Next tile - reusing circular buffer slots
-    
+
     EMB1_E->>ELW: Wait for EpilogueSlot1_Empty
     ELW->>EMB1_F: TMA Load Bias[1] (async, expect_tx)
-    
+
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 5
         CW->>CW: WgMMA(A[5], B[5]) (multiple instructions)
@@ -260,7 +272,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[6], B[6] (async, expect_tx)
-    
+
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 6
         CW->>CW: WgMMA(A[6], B[6]) (multiple instructions)
@@ -269,7 +281,7 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[7], B[7] (async, expect_tx)
-    
+
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 7
         CW->>CW: WgMMA(A[7], B[7]) (multiple instructions)
@@ -278,7 +290,7 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[8], B[8] (async, expect_tx)
-    
+
     OMB0_F->>CW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 8
         CW->>CW: WgMMA(A[8], B[8]) (multiple instructions)
@@ -287,7 +299,7 @@ sequenceDiagram
     CW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[9], B[9] (async, expect_tx)
-    
+
     OMB1_F->>CW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
         CW->>CW: WgMMA(A[9], B[9]) (multiple instructions)
@@ -296,13 +308,13 @@ sequenceDiagram
     CW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[10], B[10] (async, expect_tx)
-    
+
     EMB1_F->>CW: Wait for EpilogueSlot1_Full
     CW->>CW: Add(Result[1], Bias[1])
     CW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     CW->>CW: Cast to bf16
     CW->>CW: Write output[1]
-    
+
     Note over OLW,ELW: Continue overlapping pattern...
 ```
 
@@ -331,11 +343,11 @@ graph TD
     OLW[OperandLoadWarp] --> |"A, B"| MW[MmaWarp]
     ELW[EpilogueLoadWarp] --> |"Bias"| EW[EpilogueWarpGroups]
     MW --> |"Result"| EW
-    
+
     classDef asyncWarp fill:#lightblue
     classDef mmaWarp fill:#lightyellow
     classDef epilogueWarp fill:#lightgreen
-    
+
     class OLW,ELW asyncWarp
     class MW mmaWarp
     class EW epilogueWarp
@@ -363,7 +375,7 @@ sequenceDiagram
     participant EMB0_F as EpilogueSlot0_Full
     participant EMB1_E as EpilogueSlot1_Empty
     participant EMB1_F as EpilogueSlot1_Full
-    
+
     Note over EW: Initialize - arrive at all slot empty barriers
     EW->>OMB0_E: Arrive at OperandSlot0_Empty
     EW->>OMB1_E: Arrive at OperandSlot1_Empty
@@ -371,13 +383,13 @@ sequenceDiagram
     EW->>RMB1_E: Arrive at ResultSlot1_Empty
     EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
-    
+
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[0], B[0] (async, expect_tx)
-    
+
     EMB0_E->>ELW: Wait for EpilogueSlot0_Empty
     ELW->>EMB0_F: TMA Load Bias[0] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 0
         MW->>MW: tcgen05 utcmma(A[0], B[0]) (multiple instructions)
@@ -386,7 +398,7 @@ sequenceDiagram
     MW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[2], B[2] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 1
         MW->>MW: tcgen05 utcmma(A[1], B[1]) (multiple instructions)
@@ -395,7 +407,7 @@ sequenceDiagram
     MW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[3], B[3] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 2
         MW->>MW: tcgen05 utcmma(A[2], B[2]) (multiple instructions)
@@ -404,7 +416,7 @@ sequenceDiagram
     MW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[4], B[4] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 3
         MW->>MW: tcgen05 utcmma(A[3], B[3]) (multiple instructions)
@@ -413,7 +425,7 @@ sequenceDiagram
     MW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[5], B[5] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 4
         MW->>MW: tcgen05 utcmma(A[4], B[4]) (multiple instructions)
@@ -422,7 +434,7 @@ sequenceDiagram
     MW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[6], B[6] (async, expect_tx)
-    
+
     RMB0_F->>EW: Wait for ResultSlot0_Full
     EMB0_F->>EW: Wait for EpilogueSlot0_Full
     box Epilogue Computation
@@ -431,9 +443,9 @@ sequenceDiagram
     EW->>EW: Cast to bf16
     EW->>EW: Write output[0]
     end
-    
+
     Note over OLW,EW: Next tile - reusing circular buffer slots
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 5
         MW->>MW: tcgen05 utcmma(A[5], B[5]) (multiple instructions)
@@ -442,7 +454,7 @@ sequenceDiagram
     MW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[7], B[7] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 6
         MW->>MW: tcgen05 utcmma(A[6], B[6]) (multiple instructions)
@@ -451,7 +463,7 @@ sequenceDiagram
     MW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[8], B[8] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 7
         MW->>MW: tcgen05 utcmma(A[7], B[7]) (multiple instructions)
@@ -460,7 +472,7 @@ sequenceDiagram
     MW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[9], B[9] (async, expect_tx)
-    
+
     OMB0_F->>MW: Wait for OperandSlot0_Full
     loop MMA Loop Stage 8
         MW->>MW: tcgen05 utcmma(A[8], B[8]) (multiple instructions)
@@ -469,7 +481,7 @@ sequenceDiagram
     MW->>OMB0_E: Arrive at OperandSlot0_Empty
     OMB0_E->>OLW: Wait for OperandSlot0_Empty
     OLW->>OMB0_F: TMA Load A[10], B[10] (async, expect_tx)
-    
+
     OMB1_F->>MW: Wait for OperandSlot1_Full
     loop MMA Loop Stage 9
         MW->>MW: tcgen05 utcmma(A[9], B[9]) (multiple instructions)
@@ -478,7 +490,7 @@ sequenceDiagram
     MW->>OMB1_E: Arrive at OperandSlot1_Empty
     OMB1_E->>OLW: Wait for OperandSlot1_Empty
     OLW->>OMB1_F: TMA Load A[11], B[11] (async, expect_tx)
-    
+
     RMB1_F->>EW: Wait for ResultSlot1_Full
     EMB1_F->>EW: Wait for EpilogueSlot1_Full
     box Epilogue Computation
@@ -487,7 +499,7 @@ sequenceDiagram
     EW->>EW: Cast to bf16
     EW->>EW: Write output[1]
     end
-    
+
     Note over OLW,EW: Continue overlapping pattern...
 ```
 
@@ -497,7 +509,7 @@ sequenceDiagram
 - **MmaWarp**: Waits for operand slot full → computes tcgen05 utcmma → arrives at result slot full
 - **EpilogueWarpGroups**: Waits for both result and bias slots full → computes epilogue → arrives at slots empty
 
- 
+
 
 ## Key Design Changes
 
