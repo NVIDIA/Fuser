@@ -435,12 +435,10 @@ sequenceDiagram
 
     RMB0_F->>EW: Wait for ResultSlot0_Full
     EMB0_F->>EW: Wait for EpilogueSlot0_Full
-    box Epilogue Computation
     EW->>EW: Add(Result[0], Bias[0])
     EW->>EMB0_E: Arrive at EpilogueSlot0_Empty
     EW->>EW: Cast to bf16
     EW->>EW: Write output[0]
-    end
 
     Note over OLW,EW: Next tile - reusing circular buffer slots
 
@@ -491,12 +489,10 @@ sequenceDiagram
 
     RMB1_F->>EW: Wait for ResultSlot1_Full
     EMB1_F->>EW: Wait for EpilogueSlot1_Full
-    box Epilogue Computation
     EW->>EW: Add(Result[1], Bias[1])
     EW->>EMB1_E: Arrive at EpilogueSlot1_Empty
     EW->>EW: Cast to bf16
     EW->>EW: Write output[1]
-    end
 
     Note over OLW,EW: Continue overlapping pattern...
 ```
