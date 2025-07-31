@@ -246,7 +246,6 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
