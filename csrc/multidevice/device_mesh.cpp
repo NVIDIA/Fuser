@@ -55,15 +55,13 @@ void DeviceMesh::validate() const {
 
 std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   out << "DeviceMesh";
-  int64_t ndevices = std::accumulate(
-      mesh.shape().begin(), mesh.shape().end(), 1, std::multiplies<>());
   int64_t ndims = mesh.rank();
   std::vector<int64_t> strides = mesh.shape().vec();
   for (auto i = ndims - 2; i >= 0; --i) {
     strides[i] *= strides[i + 1];
   }
 
-  for (auto i = 0; i < ndevices; i++) {
+  for (auto i : arange(mesh.size())) {
     for (auto axis = 0; axis < ndims; axis++) {
       if (i % strides[axis] == 0) {
         out << "{";
@@ -99,6 +97,15 @@ int64_t DeviceMesh::idxOf(const DeviceIdxType device) const {
   return indices.item<int64_t>();
 }
 
+namespace {
+template <typename T>
+std::vector<T> flattenToVector(at::Tensor t) {
+  t = t.flatten().contiguous();
+  const auto* data = t.data_ptr<T>();
+  return std::vector<T>(data, data + t.numel());
+}
+} // namespace
+
 std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_ == device);
   if (indices.numel() == 0) {
@@ -106,7 +113,7 @@ std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
   }
 
   NVF_ERROR_EQ(
-      indices.numel(),
+      indices.size(0),
       1,
       "Expect device ",
       device,
@@ -116,8 +123,7 @@ std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
   at::Tensor index = indices[0];
   NVF_ERROR_EQ(index.dim(), 1);
 
-  const auto* data = index.data_ptr<int64_t>();
-  return std::vector<int64_t>(data, data + index.numel());
+  return flattenToVector<int64_t>(index);
 }
 
 DeviceIdxType DeviceMesh::maxDeviceId() const {
@@ -131,8 +137,8 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
       parallel_type);
   int64_t offset = static_cast<int64_t>(parallel_type) -
       static_cast<int64_t>(ParallelType::DIDx);
-  int64_t ndims = rank();
-  if (offset > ndims - 1) {
+  const int64_t ndims = rank();
+  if (offset >= ndims) {
     return -1;
   }
   return ndims - 1 - offset;
@@ -176,9 +182,8 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
       indices.push_back(index.at(i));
     }
   }
-  at::Tensor slice = devices_.index(indices).flatten();
-  const auto* data = slice.data_ptr<DeviceIdxType>();
-  return std::vector<DeviceIdxType>(data, data + slice.numel());
+  at::Tensor slice = devices_.index(indices);
+  return flattenToVector<DeviceIdxType>(slice);
 }
 
 } // namespace nvfuser
