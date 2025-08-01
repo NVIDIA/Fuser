@@ -28,23 +28,37 @@ class NVFuserTest(TestCase):
         expected_fd_str=None,
         device=None,
     ):
+        torch.manual_seed(0)
         # Copy inputs because aliased outputs can modify inputs when running
         # FusionDefinition
         inputs_captured = deepcopy(inputs)
 
-        # Execute a fusion function and capture the string python definition
-        with FusionDefinition() as fd:
-            fusion_func(fd)
+        if self.cache is None:
+            # Execute a fusion function and capture the string python definition
+            with FusionDefinition() as fd:
+                fusion_func(fd)
 
-        if self.cache is not None and not hasattr(fd, "fec"):
-            fd.fec = self.cache.cache_compile(fd.fusion)
-            del fd._fusion
+            out = fd.execute(
+                inputs,
+                device=device,
+            )
+        else:
+            # Run twice to test lru cache
+            # The number of fusions should not increase during the second round
+            prev_size = self.cache.num_fusions()
+            for _ in range(2):
+                with FusionDefinition() as fd:
+                    fusion_func(fd)
 
-        torch.manual_seed(0)
-        out = fd.execute(
-            inputs,
-            device=device,
-        )
+                if self.cache is not None and not hasattr(fd, "fec"):
+                    fd.fec = self.cache.cache_compile(fd.fusion)
+                    del fd._fusion
+
+                out = fd.execute(
+                    inputs,
+                    device=device,
+                )
+                assert self.cache.num_fusions() == prev_size + 1
 
         assert check_captured_python_definition(out, fd, inputs_captured, device)
         assert expected_fd_str is None or expected_fd_str in repr(fd)
