@@ -278,17 +278,17 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
       NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
       ##__VA_ARGS__)
 
-#define NVF_CHECK_MSG(cond, type, ...) \
-  (nvfuser::nvfCheckMsgImpl(           \
+#define NVF_CHECK_MSG(cond, ...) \
+  (nvfuser::nvfCheckMsgImpl(     \
       "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))
 
-#define NVF_CHECK(cond, ...)                     \
-  if ((!(cond))) {                               \
-    nvfuser::nvfCheckFail(                       \
-        __func__,                                \
-        __FILE__,                                \
-        static_cast<uint32_t>(__LINE__),         \
-        NVF_CHECK_MSG(cond, "", ##__VA_ARGS__)); \
+#define NVF_CHECK(cond, ...)                 \
+  if ((!(cond))) {                           \
+    nvfuser::nvfCheckFail(                   \
+        __func__,                            \
+        __FILE__,                            \
+        static_cast<uint32_t>(__LINE__),     \
+        NVF_CHECK_MSG(cond, ##__VA_ARGS__)); \
   }
 
 #define NVF_CHECK_EQ(lhs, rhs, ...)               \
