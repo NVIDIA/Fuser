@@ -6457,13 +6457,13 @@ TEST_F(IndexingTest, BlockScalingFactorPadding) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   // reference manual swizzle
-  auto t1 = cg_outputs.reshape({2, 8, 32, 4, 4});
+  auto t1 = cg_outputs[0].reshape({2, 8, 32, 4, 4});
   auto t2 = t1.transpose(1, 3);
   auto t3 = t2.contiguous().reshape({256, 32});
   auto t_ref = t3.slice(0, 0, 175).slice(1, 0, 30);
 
   
-  ASSERT_TRUE(t_ref.as<at::Tensor>().equal(t0));
+  ASSERT_TRUE(t_ref.equal(t0));
 }
 
 } // namespace nvfuser
