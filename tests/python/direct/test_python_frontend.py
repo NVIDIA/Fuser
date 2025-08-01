@@ -392,8 +392,9 @@ def test_execute_with_tuple_and_list(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
     inputs_with_tuple = [tensor, tuple(new_shape)]
-    # expect to reuse fusion
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs_with_tuple)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs_with_tuple, new_fusion_expected=False
+    )
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 

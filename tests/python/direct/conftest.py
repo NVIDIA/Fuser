@@ -25,6 +25,7 @@ class NVFuserTest(TestCase):
         fusion_func,
         inputs,
         *,
+        new_fusion_expected=True,
         expected_fd_str=None,
         device=None,
     ):
@@ -58,7 +59,7 @@ class NVFuserTest(TestCase):
                     inputs,
                     device=device,
                 )
-                assert self.cache.num_fusions() == prev_size + 1
+                assert self.cache.num_fusions() == prev_size + int(new_fusion_expected)
 
         assert check_captured_python_definition(out, fd, inputs_captured, device)
         assert expected_fd_str is None or expected_fd_str in repr(fd)
