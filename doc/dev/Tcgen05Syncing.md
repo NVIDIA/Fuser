@@ -243,26 +243,25 @@ Specifically refer to the **"Implicitly pipelined tcgen05 instructions"** subsec
 The following matrix shows pipelining relationships between tcgen05 instructions. Each cell indicates whether the Producer → Consumer relationship is automatically pipelined or requires explicit synchronization.
 
 **Legend:**
-- ✅ **Pipelined**: Operations are automatically pipelined (no fence needed)
+- ✅ **Pipelined**: Operations are automatically pipelined (no fence needed) - Links point to PTX ISA documentation that confirms the relationship
 - ❌ **Manual Sync**: Requires explicit synchronization (fence or wait)
 - ⚠️ **Conditional**: Pipelining depends on specific conditions
 - ❓ **Unknown**: Needs verification from PTX ISA documentation
-- `--` **Same Type**: Diagonal entries (same instruction type, reordering unlikely)
 - `NA` **Not Applicable**: Code motion fences have different semantics than data dependencies
 
 |            | **alloc** | **ld** | **st** | **shift** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
 |------------|-----------|--------|--------|-----------|--------|---------|--------------|--------------|------------|-------------|-----------|
-| **alloc**  | `--`      | ✅     | ✅     | ✅        | ✅     | ✅      | ❓ | ❓ | ❓ | ❓ | `NA` |
-| **ld**     | ❌        | `--`   | ❌     | ✅        | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | `NA` |
-| **st**     | ❌        | ❌     | `--`   | ❌        | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | `NA` |
-| **shift**  | ❌        | ❌     | ✅     | `--`      | ✅     | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **cp**     | ❌        | ❌     | ✅     | ✅        | `--`   | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **mma**    | ❌        | ❌     | ✅     | ✅        | ✅     | `--`    | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **wait::ld** | ❌      | ❓ | ❌ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
-| **wait::st** | ❌      | ❌     | ❓ | ❌ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
-| **commit** | ❌        | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | `--`       | ❌          | `NA` |
-| **dealloc** | ❌       | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | ❌         | `--`        | `NA` |
-| **fence**  | `NA`      | `NA`   | `NA`   | `NA`      | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `--` |
+| **alloc**  | ❌      | ❓     | ❓     | ❓        | ❓     | ❓      | ❓ | ❓ | ❓ | ❓ | `NA` |
+| **ld**     | ❌        | ❌   | ❌     | ❓        | ❓     | ❓      | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-direct-wait-completion)           | ❌           | ❌         | ❌          | `NA` |
+| **st**     | ❌        | ❌     | ❌   | ❌        | ❌     | ❌      | ❌           | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-direct-wait-completion)           | ❌         | ❓          | `NA` |
+| **shift**  | ❌        | ❌     | ❌     | ❌      | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)     | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)      | ❌           | ❌           | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-mbarrier-completion)         | ❌          | `NA` |
+| **cp**     | ❌        | ❌     | ❌     | ❌        | ❌   | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)      | ❌           | ❌           | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-mbarrier-completion)         | ❌          | `NA` |
+| **mma**    | ❌        | ❌     | ❌     | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)        | ❌     | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)    | ❌           | ❌           | [✅](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-mbarrier-completion)         | ❌          | `NA` |
+| **wait::ld** | ❌      | ❓ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | `NA` |
+| **wait::st** | ❌      | ❌     | ❓ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | `NA` |
+| **commit** | ❌        | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | ❌       | ❌          | `NA` |
+| **dealloc** | ❌       | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | ❌         | ❌        | `NA` |
+| **fence**  | `NA`      | `NA`   | `NA`   | `NA`      | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `NA` |
 
 **How to Read the Matrix:**
 - **Row** = Producer instruction (executes first)
@@ -271,36 +270,39 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 
 **Matrix Analysis:**
 
-**✅ Confident Pipelined (likely correct):**
-- `alloc` → `{ld, st, cp, mma}`: Allocation makes tensor memory available to operations
-- `ld` → `{cp, mma}`: Load completion feeds directly into async proxy operations
-- `cp` → `{st, mma}`: Copy completion feeds into store or MMA operations
-- `mma` → `{st, cp}`: MMA results available for store or copy operations
-- `{ld, st}` → `wait::{ld, st}`: Wait instructions designed to track specific operation completion
-- `st` → `dealloc`: Store completion required before memory deallocation
+**✅ Explicitly Documented Pipelined Relationships:**
+- **Completion Mechanisms** (with PTX ISA links):
+  - `ld` → `wait::ld`: Direct wait completion for loads
+  - `st` → `wait::st`: Direct wait completion for stores
+  - `shift` → `commit`: MBarrier completion for shift operations
+  - `cp` → `commit`: MBarrier completion for copy operations
+  - `mma` → `commit`: MBarrier completion for MMA operations
 
-**⚠️ Conditional Dependencies:**
-- `{cp, mma}` → `commit`: Only mbarrier-based operations can be completed by tcgen05.commit
-- `{ld, st}` → `commit`: ❌ **INCORRECT** - ld/st operations use tcgen05.wait::ld/st, not commit
-
-**❌ Manual Synchronization Required (likely correct):**
-- Any operation → `alloc`: Cannot pipeline into memory allocation
-- Operations across different memory resources
-- Cross-proxy transitions without documented pipelining
+- **Async Operation Pipelining** (PTX ISA Section 9.7.16.6.2.1 - exactly 5 relationships):
+  1. `shift` → `cp`: shift operations pipeline to copy operations (`tcgen05.shift.cta_group::N` → `tcgen05.cp.4x256b.cta_group::N`)
+  2. `shift` → `mma`: shift operations pipeline to MMA operations (`tcgen05.shift.cta_group::N` → `tcgen05.mma.cta_group::N`)
+  3. `cp` → `mma`: copy operations pipeline to MMA operations (`tcgen05.copy.cta_group::N` → `tcgen05.mma.cta_group::N`)
+  4. `mma` → `shift`: MMA operations pipeline to shift operations (`tcgen05.mma.cta_group::N` → `tcgen05.shift.cta_group::N`)
+  5. `mma` → `mma`: MMA operations pipeline to MMA operations with same accumulator (`tcgen05.mma.cta_group::N` → `tcgen05.mma.cta_group::N`)
 
 **❓ Unknown/Verification Needed:**
-- `wait` instruction interactions: Unclear how wait operations interact with each other
-- `alloc` completion dependencies: Need verification of synchronization requirements
+- All `alloc` relationships: No explicit pipelining documentation found
+- `st` → `dealloc`: Not explicitly documented
+- `wait` instruction interactions: Limited documentation on wait-to-wait dependencies
+- Most other operation pairs not explicitly documented in PTX ISA Section 9.7.16.6.2.1
+
+**❌ Manual Synchronization Required:**
+- Most operation pairs not explicitly listed above
+- Cross-proxy transitions without documented pipelining
+- Operations requiring explicit waits or commit mechanisms
 
 **`NA` Not Applicable:**
 - All `fence` relationships: Code motion fences control instruction reordering, not data dependencies
 
-**Critical Gaps:**
-- Missing verification from [PTX ISA "Implicitly pipelined tcgen05 instructions"](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)
-- Resource-specific rules (same vs. different tensor memory)
-- Proxy context transitions (Generic ↔ Async)
-
-**Note:** Diagonal entries (`--`) represent same instruction types, which are unlikely to be reordered by the compiler as they have identical execution characteristics.
+**Key Findings:**
+1. Only relationships explicitly documented in PTX ISA Section 9.7.16.6.2.1 and completion mechanism sections are marked as pipelined (✅)
+2. **Critical diagonal analysis**: Only `mma` → `mma` is explicitly documented as pipelined (same accumulator and shape). All other same-type operations (`alloc` → `alloc`, `ld` → `ld`, `st` → `st`, etc.) are marked as ❌ since they lack explicit pipelining documentation
+3. The absence of explicit pipelining documentation for same-type operations suggests they require explicit synchronization
 
 ### 4.2. Automatic Pipelining
 
