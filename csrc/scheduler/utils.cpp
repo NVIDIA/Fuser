@@ -3106,5 +3106,111 @@ bool isSymbolicTensor(const TensorView* tv) {
       [](IterDomain* id) { return !id->extent()->isConst(); });
 }
 
+// This function requires the allocation domain to be a permutation of the
+// logical domain.
+// For each allocation domain ID (which is a logical domain ID),
+// replace it with all the loop domain IDs that were derived from it.
+void buildAllocationDomainFromLoopIds(TensorView* tv) {
+  const auto& logical = tv->getLogicalDomain();
+  const auto& alloc = tv->getMaybeAllocationDomain();
+  NVF_ERROR(
+      std::is_permutation(
+          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
+      "buildAllocationDomainFromLoopIds expects the allocation domain to be a "
+      "permutation of the logical domain");
+  const auto& loop = tv->getLoopDomain();
+
+  // Get all transformation expressions from allocation domain to loop domain
+  // Equvalent to logical to loop domain since the allocation domain is a
+  // permutation of the logical domain
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc.begin(), alloc.end()}, {loop.begin(), loop.end()});
+
+  // Follow transformations, build map from ID to the original allocation IDs
+  std::unordered_map<IterDomain*, std::vector<IterDomain*>> id_to_alloc_ids;
+  for (auto alloc_id : alloc) {
+    id_to_alloc_ids[alloc_id] = {alloc_id};
+  }
+  for (auto expr : transform_exprs) {
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      NVF_ERROR(
+          id_to_alloc_ids.contains(split->in()),
+          "Split input ",
+          split->in()->toString(),
+          " not found in id_to_alloc_ids");
+      id_to_alloc_ids[split->outer()] = id_to_alloc_ids[split->in()];
+      id_to_alloc_ids[split->inner()] = id_to_alloc_ids[split->in()];
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      NVF_ERROR(
+          id_to_alloc_ids.contains(merge->outer()),
+          "Merge input ",
+          merge->outer()->toString(),
+          " not found in id_to_alloc_ids");
+      NVF_ERROR(
+          id_to_alloc_ids.contains(merge->inner()),
+          "Merge input ",
+          merge->inner()->toString(),
+          " not found in id_to_alloc_ids");
+      // merge alloc ids of two merge inputs
+      id_to_alloc_ids[merge->out()] = id_to_alloc_ids[merge->outer()];
+      id_to_alloc_ids[merge->out()].insert(
+          id_to_alloc_ids[merge->out()].end(),
+          id_to_alloc_ids[merge->inner()].begin(),
+          id_to_alloc_ids[merge->inner()].end());
+    } else {
+      NVF_ERROR(false, "Unsupported expression type: ", expr->toString());
+    }
+  }
+
+  // Build map from allocation ID to its derived loop IDs
+  std::unordered_map<IterDomain*, std::vector<IterDomain*>>
+      alloc_to_derived_loop_ids;
+  for (const auto& [id, alloc_list] : id_to_alloc_ids) {
+    if (std::find(loop.begin(), loop.end(), id) == loop.end()) {
+      continue;
+    }
+    for (auto alloc_id : alloc_list) {
+      alloc_to_derived_loop_ids[alloc_id].push_back(id);
+    }
+  }
+
+  // Build the new allocation domain
+  // For each allocation ID, add its derived loop IDs.
+  // Each allocation ID may have multiple derived loop IDs, but we only add
+  // each loop ID once.
+  std::vector<IterDomain*> new_alloc_domain;
+  for (auto alloc_id : alloc) {
+    const auto& derived_loop_ids = alloc_to_derived_loop_ids.at(alloc_id);
+    for (auto loop_id : loop) {
+      // skip if the loop ID has already been used
+      if (std::find(
+              new_alloc_domain.begin(), new_alloc_domain.end(), loop_id) !=
+          new_alloc_domain.end()) {
+        continue;
+      }
+      // skip if the loop ID is not derived from the allocation ID
+      if (std::find(
+              derived_loop_ids.begin(), derived_loop_ids.end(), loop_id) ==
+          derived_loop_ids.end()) {
+        continue;
+      }
+      // use the loop ID to build the new allocation domain
+      new_alloc_domain.push_back(loop_id);
+    }
+  }
+  tv->setAllocationDomain(new_alloc_domain, true);
+}
+
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
+      continue;
+    }
+    if (!tv->hasAllocation()) {
+      continue;
+    }
+    buildAllocationDomainFromLoopIds(tv);
+  }
+}
 } // namespace scheduler_utils
 } // namespace nvfuser
