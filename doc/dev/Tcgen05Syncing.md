@@ -832,7 +832,7 @@ wgmma.wait_group.sync.aligned 0;                        // Wait for wgmma
 ### 10.13. Tensor Memory Address Syntax and Addressing
 **Question**: What are the exact syntax rules and addressing constraints for tensor memory operands in tcgen05 instructions?
 - **Current gap**: Examples show `[tmem]`, `[tmem+512]`, `[tmem+1024]` but addressing rules are unclear
-- **Needs clarification**: 
+- **Needs clarification**:
   - Are tensor memory addresses always bracket-enclosed like `[tmem]`?
   - What addressing modes are supported (immediate offsets, register offsets, etc.)?
   - Are there alignment requirements for tensor memory addresses?
