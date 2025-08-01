@@ -652,7 +652,7 @@ For complete details on proxy fence semantics, see [SyncGuide.md](./SyncGuide.md
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem_a];
 tcgen05.wait::ld.sync.aligned [tmem_a];  // Direct wait completion
 
-// MMA with mbarrier completion  
+// MMA with mbarrier completion
 tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, 1;
 tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
 mbarrier.wait.shared.b64 [mbar], expected_state;  // MBarrier completion
