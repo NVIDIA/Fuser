@@ -6423,6 +6423,7 @@ TEST_F(IndexingTest, BlockScalingFactorPadding) {
   FusionGuard fg(fusion.get());
 
   // m, k
+  // TODO: try this with normalization scheduler
   auto tv0 = makeContigConcreteTensor({175, 30});
   fusion->addInput(tv0);
   auto tv1 = set(tv0);
@@ -6440,16 +6441,17 @@ TEST_F(IndexingTest, BlockScalingFactorPadding) {
   // m/128, k/4, 32(m_i), 4(m_o), 4(k)
   tv1->setAllocationDomain(tv1_alloc, true);
 
-  // cannot set loop domain, which would break allocation domain replay, which expects allocation to be between logical to loop
+  // FIXME: maybe fix the two issues
+  // 1. cannot set loop domain, which would break allocation domain replay, which expects allocation to be between logical to loop
   // tv1->setLoopDomain(initial_loop);
   //
-  // merge all split to avoid pointwise scheduler assert in getPointwiseHeuristics, since pointwise scheduler expects no transformation on loop domain.
+  // 2. merge all split to avoid pointwise scheduler assert in getPointwiseHeuristics, since pointwise scheduler expects no transformation on loop domain.
   tv1->merge(0);
   tv1->merge(0);
   tv1->merge(-1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({256, 32}, options);
+  at::Tensor t0 = at::randn({175, 30}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   // open question: what should the strides be for `cg_outputs`? it shouldn't matter at this point since they will not be used;
@@ -6457,7 +6459,7 @@ TEST_F(IndexingTest, BlockScalingFactorPadding) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   // reference manual swizzle
-  auto t1 = cg_outputs[0].reshape({2, 8, 32, 4, 4});
+  auto t1 = cg_outputs[0].as<at::Tensor>().reshape({2, 8, 32, 4, 4});
   auto t2 = t1.transpose(1, 3);
   auto t3 = t2.contiguous().reshape({256, 32});
   auto t_ref = t3.slice(0, 0, 175).slice(1, 0, 30);
