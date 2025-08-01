@@ -296,3 +296,13 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
       (lhs) == (rhs),                             \
       NVF_COMPARISON_ERROR_MESSAGE(lhs, ==, rhs), \
       ##__VA_ARGS__)
+
+#define NVF_CHECK_LT(lhs, rhs, ...) \
+  NVF_CHECK(                        \
+      (lhs) < (rhs), NVF_COMPARISON_ERROR_MESSAGE(lhs, <, rhs), ##__VA_ARGS__)
+
+#define NVF_CHECK_LE(lhs, rhs, ...)               \
+  NVF_CHECK(                                      \
+      (lhs) <= (rhs),                             \
+      NVF_COMPARISON_ERROR_MESSAGE(lhs, <=, rhs), \
+      ##__VA_ARGS__)

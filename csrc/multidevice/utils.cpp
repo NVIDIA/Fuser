@@ -640,7 +640,7 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
       max_index = std::max(max_index, tv->getDeviceMesh().maxDeviceId());
     }
   }
-  return static_cast<int64_t>(max_index + 1);
+  return max_index + 1;
 }
 
 void unshard(TensorView* tv) {
