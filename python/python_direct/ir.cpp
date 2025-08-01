@@ -377,6 +377,15 @@ void bindDefineTensor(py::module& nvfuser) {
 }
 
 void bindDefineScalar(py::module& nvfuser) {
+  // The symbolic define_scalar must come before constant version because of
+  // overload resolution.
+  nvfuser.def(
+      "define_scalar",
+      [](PrimDataType dtype = DataType::Double) {
+        return IrBuilder::create<Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -392,13 +401,6 @@ void bindDefineScalar(py::module& nvfuser) {
       },
       py::arg("value"),
       py::arg("dtype") = std::nullopt,
-      py::return_value_policy::reference);
-  nvfuser.def(
-      "define_scalar",
-      [](PrimDataType dtype) {
-        return IrBuilder::create<Val>(std::monostate{}, dtype);
-      },
-      py::arg("dtype") = DataType::Double,
       py::return_value_policy::reference);
 }
 
