@@ -5,18 +5,18 @@ This document provides a detailed overview of tcgen05 instruction synchronizatio
 ## Table of Contents
 
 - [1. Overview](#1-overview)
-- [2. Completion Mechanisms](#2-completion-mechanisms)
-  - [2.1. MBarrier Completion (tcgen05.commit)](#21-mbarrier-completion-tcgen05commit)
-  - [2.2. Direct Wait Completion (tcgen05.wait)](#22-direct-wait-completion-tcgen05wait)
-  - [2.3. tcgen05 Instruction Completion Reference](#23-tcgen05-instruction-completion-reference)
-    - [2.3.1. Key Observations](#231-key-observations)
-  - [2.4. Completion Pattern Examples](#24-completion-pattern-examples)
-- [3. tcgen05 Instruction Categories](#3-tcgen05-instruction-categories)
-  - [3.1. Control Instructions (Generic Proxy)](#31-control-instructions-generic-proxy)
-  - [3.2. Data Movement Instructions (Generic Proxy)](#32-data-movement-instructions-generic-proxy)
-  - [3.3. Compute Instructions (Async Proxy)](#33-compute-instructions-async-proxy)
-  - [3.4. Commit Instructions (Generic Proxy)](#34-commit-instructions-generic-proxy)
-  - [3.5. Fence Instructions (Generic Proxy)](#35-fence-instructions-generic-proxy)
+- [2. tcgen05 Instruction Categories](#2-tcgen05-instruction-categories)
+  - [2.1. Control Instructions (Generic Proxy)](#21-control-instructions-generic-proxy)
+  - [2.2. Data Movement Instructions (Generic Proxy)](#22-data-movement-instructions-generic-proxy)
+  - [2.3. Compute Instructions (Async Proxy)](#23-compute-instructions-async-proxy)
+  - [2.4. Commit Instructions (Generic Proxy)](#24-commit-instructions-generic-proxy)
+  - [2.5. Fence Instructions (Generic Proxy)](#25-fence-instructions-generic-proxy)
+- [3. Completion Mechanisms](#3-completion-mechanisms)
+  - [3.1. MBarrier Completion (tcgen05.commit)](#31-mbarrier-completion-tcgen05commit)
+  - [3.2. Direct Wait Completion (tcgen05.wait)](#32-direct-wait-completion-tcgen05wait)
+  - [3.3. tcgen05 Instruction Completion Reference](#33-tcgen05-instruction-completion-reference)
+    - [3.3.1. Key Observations](#331-key-observations)
+  - [3.4. Completion Pattern Examples](#34-completion-pattern-examples)
 - [4. Synchronization Dependencies](#4-synchronization-dependencies)
   - [4.1. Dependency Matrix](#41-dependency-matrix)
   - [4.2. Automatic Pipelining](#42-automatic-pipelining)
@@ -34,17 +34,22 @@ This document provides a detailed overview of tcgen05 instruction synchronizatio
   - [8.1. Example 1: Simple tcgen05 Pipeline (No Fences Needed)](#81-example-1-simple-tcgen05-pipeline-no-fences-needed)
   - [8.2. Example 2: tcgen05 with Thread Synchronization (Fences Required)](#82-example-2-tcgen05-with-thread-synchronization-fences-required)
   - [8.3. Example 3: tcgen05 with Proxy Context Transitions](#83-example-3-tcgen05-with-proxy-context-transitions)
-  - [8.4. Example 4: Complete tcgen05 Pattern with MBarrier](#84-example-4-complete-tcgen05-pattern-with-mbarrier)
+  - [8.4. Example 4: Complete tcgen05 Pattern with Mixed Completion Mechanisms](#84-example-4-complete-tcgen05-pattern-with-mixed-completion-mechanisms)
 - [9. Performance Considerations](#9-performance-considerations)
   - [9.1. Minimizing Fence Overhead](#91-minimizing-fence-overhead)
-  - [9.2. Synchronization Overhead](#92-synchronization-overhead)
-  - [9.3. Best Practices](#93-best-practices)
 - [10. Questions and Ambiguous Behaviors](#10-questions-and-ambiguous-behaviors)
   - [10.1. tcgen05.wait Instruction Variants](#101-tcgen05wait-instruction-variants)
   - [10.2. Proxy Context for tcgen05.cp](#102-proxy-context-for-tcgen05cp)
   - [10.3. Automatic Pipelining Rules](#103-automatic-pipelining-rules)
   - [10.4. Memory Ordering Between Contexts](#104-memory-ordering-between-contexts)
   - [10.5. Code Motion Fence Placement](#105-code-motion-fence-placement)
+  - [10.6. tcgen05.relinquish_alloc_permit Usage](#106-tcgen05relinquish_alloc_permit-usage)
+  - [10.7. Mixed Completion Mechanism Interactions](#107-mixed-completion-mechanism-interactions)
+  - [10.8. Resource-Specific Pipelining Rules](#108-resource-specific-pipelining-rules)
+  - [10.9. CTA Group Size Impact on Synchronization](#109-cta-group-size-impact-on-synchronization)
+  - [10.10. Error Handling and Recovery](#1010-error-handling-and-recovery)
+  - [10.11. Performance Impact of Fence Placement](#1011-performance-impact-of-fence-placement)
+  - [10.12. Compatibility with Other Async Operations](#1012-compatibility-with-other-async-operations)
 - [11. References](#11-references)
   - [11.1. Primary Sources](#111-primary-sources)
   - [11.2. Additional Resources](#112-additional-resources)
@@ -62,11 +67,39 @@ For complete instruction details, see the [PTX ISA tcgen05 Instructions Referenc
 - **Code Motion Fence**: Prevents instruction reordering (not memory ordering)
 - **Memory Fence**: Ensures memory visibility between execution contexts
 
-## 2. Completion Mechanisms
+## 2. tcgen05 Instruction Categories
+
+Based on [PTX ISA Section 9.7.16.6.2](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions), tcgen05 instructions fall into several categories with different synchronization requirements:
+
+### 2.1. Control Instructions (Generic Proxy)
+- [`tcgen05.alloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-alloc) - Allocate tensor memory
+- [`tcgen05.dealloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-dealloc) - Deallocate tensor memory
+- [`tcgen05.relinquish_alloc_permit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-relinquish-alloc-permit) - Release allocation permit
+
+### 2.2. Data Movement Instructions (Generic Proxy)
+- [`tcgen05.ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-ld) - Load data to tensor memory
+- [`tcgen05.st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-st) - Store data from tensor memory
+- [`tcgen05.wait::ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) - Wait for load completion
+- [`tcgen05.wait::st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) - Wait for store completion
+
+### 2.3. Compute Instructions (Async Proxy)
+- [`tcgen05.mma`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-mma) - Matrix multiply-accumulate operation
+- [`tcgen05.cp`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-cp) - Copy operation between memory spaces
+
+**Note**: Both `tcgen05.mma` and `tcgen05.cp` are confirmed to execute in the Async Proxy context per [PTX ISA Section 9.7.16.6.5](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-smem-access).
+
+### 2.4. Commit Instructions (Generic Proxy)
+- [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) - Commit operations with mbarrier synchronization
+
+### 2.5. Fence Instructions (Generic Proxy)
+- [`tcgen05.fence::before_thread_sync`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) - Code motion fence before synchronization
+- [`tcgen05.fence::after_thread_sync`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) - Code motion fence after synchronization
+
+## 3. Completion Mechanisms
 
 tcgen05 instructions use two distinct completion mechanisms, with each instruction having a fixed completion mechanism determined by its design. Understanding which instructions use which mechanism is crucial for proper synchronization.
 
-### 2.1. MBarrier Completion (tcgen05.commit)
+### 3.1. MBarrier Completion (tcgen05.commit)
 
 The [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) instruction provides **batch-oriented completion** by signaling an mbarrier when **mbarrier-based tcgen05 operations** complete.
 
@@ -106,7 +139,7 @@ tcgen05.wait::st.sync.aligned [smem_out];  // Use tcgen05.wait::st for stores
 - `tcgen05.cp` operations (no other completion mechanism available)
 - Operations that explicitly use mbarrier completion mechanism
 
-### 2.2. Direct Wait Completion (tcgen05.wait)
+### 3.2. Direct Wait Completion (tcgen05.wait)
 
 The [`tcgen05.wait`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) instruction provides **operation-specific completion** by directly waiting for individual tcgen05 operations.
 
@@ -142,7 +175,7 @@ tcgen05.wait::st.sync.aligned [smem_out];
 - `tcgen05.ld`, `tcgen05.st` operations only (via `tcgen05.wait::ld`, `tcgen05.wait::st`)
 - Fine-grained synchronization when individual operation completion is needed
 
-### 2.3. tcgen05 Instruction Completion Reference
+### 3.3. tcgen05 Instruction Completion Reference
 
 The following table shows which completion mechanism and execution context each tcgen05 instruction uses:
 
@@ -158,7 +191,7 @@ The following table shows which completion mechanism and execution context each 
 | [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) | Generic Proxy | N/A (completion instruction) | Signals mbarrier when operations complete |
 | [`tcgen05.fence`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) | Generic Proxy | None (code motion only) | Prevents instruction reordering |
 
-#### 2.3.1. Key Observations
+#### 3.3.1. Key Observations
 
 - **Load/store operations** (`ld`, `st`) use **direct wait completion** (`tcgen05.wait::ld/st` only)
 - **Async operations** (`cp`, `mma`) use **mbarrier completion** (`tcgen05.commit` only)
@@ -167,7 +200,7 @@ The following table shows which completion mechanism and execution context each 
 - **All tcgen05 operations** execute in either Generic Proxy or Async Proxy context
 - **Completion instructions** (`wait`, `commit`) always execute in Generic Proxy
 
-### 2.4. Completion Pattern Examples
+### 3.4. Completion Pattern Examples
 
 **MBarrier Completion Pattern (Required for `tcgen05.mma`):**
 ```cuda
@@ -190,34 +223,6 @@ tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [tmem];
 tcgen05.wait::st.sync.aligned;  // Wait for this specific store
 ```
 
-## 3. tcgen05 Instruction Categories
-
-Based on [PTX ISA Section 9.7.16.6.2](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions), tcgen05 instructions fall into several categories with different synchronization requirements:
-
-### 3.1. Control Instructions (Generic Proxy)
-- [`tcgen05.alloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-alloc) - Allocate tensor memory
-- [`tcgen05.dealloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-dealloc) - Deallocate tensor memory
-- [`tcgen05.relinquish_alloc_permit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-relinquish-alloc-permit) - Release allocation permit
-
-### 3.2. Data Movement Instructions (Generic Proxy)
-- [`tcgen05.ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-ld) - Load data to tensor memory
-- [`tcgen05.st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-st) - Store data from tensor memory
-- [`tcgen05.wait::ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) - Wait for load completion
-- [`tcgen05.wait::st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) - Wait for store completion
-
-### 3.3. Compute Instructions (Async Proxy)
-- [`tcgen05.mma`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-mma) - Matrix multiply-accumulate operation
-- [`tcgen05.cp`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-cp) - Copy operation between memory spaces
-
-**Note**: Both `tcgen05.mma` and `tcgen05.cp` are confirmed to execute in the Async Proxy context per [PTX ISA Section 9.7.16.6.5](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-smem-access).
-
-### 3.4. Commit Instructions (Generic Proxy)
-- [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) - Commit operations with mbarrier synchronization
-
-### 3.5. Fence Instructions (Generic Proxy)
-- [`tcgen05.fence::before_thread_sync`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) - Code motion fence before synchronization
-- [`tcgen05.fence::after_thread_sync`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) - Code motion fence after synchronization
-
 ## 4. Synchronization Dependencies
 
 ### 4.1. Dependency Matrix
@@ -233,20 +238,22 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - ✅ **Pipelined**: Operations are automatically pipelined (no fence needed)
 - ❌ **Manual Sync**: Requires explicit synchronization (fence or wait)
 - ⚠️ **Conditional**: Pipelining depends on specific conditions
-- ❓ **Unknown**: Needs verification from PTX ISA documentation
+- <span style="color: black;">❓</span> **Unknown**: Needs verification from PTX ISA documentation
+- `--` **Same Type**: Diagonal entries (same instruction type, reordering unlikely)
+- `NA` **Not Applicable**: Code motion fences have different semantics than data dependencies
 
 |            | **alloc** | **ld** | **st** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
 |------------|-----------|--------|--------|--------|---------|--------------|--------------|------------|-------------|-----------|
-| **alloc**  | ❓        | ✅     | ✅     | ✅     | ✅      | ❓           | ❓           | ❓         | ❓          | ❓        |
-| **ld**     | ❌        | ❓     | ❌     | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | ❓        |
-| **st**     | ❌        | ❌     | ❓     | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | ❓        |
-| **cp**     | ❌        | ❌     | ✅     | ❓     | ✅      | ❌           | ❌           | ✅         | ❌          | ❓        |
-| **mma**    | ❌        | ❌     | ✅     | ✅     | ❓      | ❌           | ❌           | ✅         | ❌          | ❓        |
-| **wait::ld** | ❌      | ❓     | ❌     | ❌     | ❌      | ❓           | ❌           | ❌         | ❌          | ❓        |
-| **wait::st** | ❌      | ❌     | ❓     | ❌     | ❌      | ❌           | ❓           | ❌         | ❌          | ❓        |
-| **commit** | ❌        | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❓         | ❌          | ❓        |
-| **dealloc** | ❌       | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❌         | ❓          | ❓        |
-| **fence**  | ❓        | ❓     | ❓     | ❓     | ❓      | ❓           | ❓           | ❓         | ❓          | ❓        |
+| **alloc**  | `--`      | ✅     | ✅     | ✅     | ✅      | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | `NA` |
+| **ld**     | ❌        | `--`   | ❌     | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | `NA` |
+| **st**     | ❌        | ❌     | `--`   | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | `NA` |
+| **cp**     | ❌        | ❌     | ✅     | `--`   | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
+| **mma**    | ❌        | ❌     | ✅     | ✅     | `--`    | ❌           | ❌           | ✅         | ❌          | `NA` |
+| **wait::ld** | ❌      | <span style="color: black;">❓</span> | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
+| **wait::st** | ❌      | ❌     | <span style="color: black;">❓</span> | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
+| **commit** | ❌        | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | `--`       | ❌          | `NA` |
+| **dealloc** | ❌       | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❌         | `--`        | `NA` |
+| **fence**  | `NA`      | `NA`   | `NA`   | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `--` |
 
 **How to Read the Matrix:**
 - **Row** = Producer instruction (executes first)
@@ -272,15 +279,19 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - Operations across different memory resources
 - Cross-proxy transitions without documented pipelining
 
-**❓ Unknown/Verification Needed:**
-- All `fence` relationships: Code motion fences have different semantics
-- Self-dependencies (e.g., `ld` → `ld`): May depend on resource overlap
+**<span style="color: black;">❓</span> Unknown/Verification Needed:**
 - `wait` instruction interactions: Unclear how wait operations interact with each other
+- `alloc` completion dependencies: Need verification of synchronization requirements
+
+**`NA` Not Applicable:**
+- All `fence` relationships: Code motion fences control instruction reordering, not data dependencies
 
 **Critical Gaps:**
 - Missing verification from [PTX ISA "Implicitly pipelined tcgen05 instructions"](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions)
 - Resource-specific rules (same vs. different tensor memory)
 - Proxy context transitions (Generic ↔ Async)
+
+**Note:** Diagonal entries (`--`) represent same instruction types, which are unlikely to be reordered by the compiler as they have identical execution characteristics.
 
 ### 4.2. Automatic Pipelining
 
@@ -549,24 +560,7 @@ tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
 3. **Batch Proxy Transitions**: Group operations to minimize `fence.proxy.async` usage
 4. **Use MBarrier Efficiently**: Prefer mbarrier-based sync over traditional barriers
 
-### 9.2. Synchronization Overhead
 
-> **Note**: Always profile your specific use case for actual performance characteristics.
-
-| Synchronization Type | Use Case | Reference |
-|---------------------|----------|----------|
-| Automatic pipelining | tcgen05 → tcgen05 operations | [PTX ISA 9.7.16.6.2](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-pipelined-instructions) |
-| `tcgen05.fence::*` | Code motion around thread sync | [PTX ISA tcgen05.fence](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-fence) |
-| `fence.proxy.async` | Proxy context transitions | [PTX ISA fence.proxy](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-fence-proxy) |
-| `__syncthreads()` | Full thread block synchronization | [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#synchronization-functions) |
-
-### 9.3. Best Practices
-
-1. **Design for Auto-Pipelining**: Structure code to maximize automatic pipelining
-2. **Minimize Sync Points**: Reduce thread synchronization requirements
-3. **Use Appropriate Fence Scopes**: Choose minimal required fence scope
-4. **Batch Operations**: Group related tcgen05 operations together
-5. **Profile Critical Paths**: Measure actual fence overhead in your kernels
 
 ## 10. Questions and Ambiguous Behaviors
 
@@ -624,6 +618,173 @@ For complete details on proxy fence semantics, see [SyncGuide.md](./SyncGuide.md
 - **Needs verification**: Exact placement rules and whether multiple fences are needed
 
 **Answer**: The `tcgen05.fence` instructions are designed to prevent instruction reordering during compilation optimizations. The compilation pipeline transforms PTX to SASS machine code and includes instruction-level parallelism (ILP) optimizations that can reorder instructions to hide latency. The `tcgen05.fence` instructions specifically limit instruction movement with respect to synchronization commands to preserve intended synchronization semantics. They must be placed to prevent `tcgen05` instructions from being reordered **across** synchronization boundaries.
+
+### 10.6. tcgen05.relinquish_alloc_permit Usage
+**Question**: What is the purpose and usage pattern of `tcgen05.relinquish_alloc_permit`?
+- **Current status**: Listed in control instructions but no usage examples or detailed explanation provided
+- **Needs clarification**: When and why this instruction is used, its relationship to `tcgen05.alloc`, and its impact on synchronization dependencies
+
+**Partial Answer**: The `tcgen05.relinquish_alloc_permit` instruction signals that the issuing CTA will not allocate any more tensor memory (TMEM) after that point. This declaration allows the compiler to perform optimizations knowing that no further `tcgen05.alloc` operations will occur in the CTA.
+
+**Still needs clarification**:
+- What specific compiler optimizations are enabled by this declaration?
+- Are there synchronization implications when some CTAs relinquish permits while others haven't?
+- Should this instruction be placed before or after final `tcgen05.dealloc` operations?
+- How does this interact with cross-CTA tensor memory sharing scenarios?
+
+### 10.7. Mixed Completion Mechanism Interactions
+**Question**: How do operations with different completion mechanisms interact in complex pipelines?
+- **Current assumption**: Direct wait and mbarrier completion mechanisms are independent
+- **Needs verification**: Can `tcgen05.wait::ld` and `tcgen05.commit` be safely mixed? Are there ordering requirements between different completion mechanisms?
+
+**Answer**: Yes, the different completion mechanisms can be safely mixed in complex pipelines. The ordering between operations follows the dependencies described in the dependency matrix (section 4.1).
+
+**Key Rules:**
+- **Automatic pipelining**: When the dependency matrix shows ✅ (pipelined), operations complete in the correct order automatically
+- **Manual synchronization**: When the matrix shows ❌ (manual sync), explicit synchronization is required using:
+  - `tcgen05.wait::ld` or `tcgen05.wait::st` for load/store completion
+  - `tcgen05.commit` + `mbarrier.wait` for mbarrier-based completion
+  - Fence operations when transitioning between proxy contexts
+
+**Example of mixed completion mechanisms:**
+```cuda
+// Load with direct wait completion
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem_a];
+tcgen05.wait::ld.sync.aligned [tmem_a];  // Direct wait completion
+
+// MMA with mbarrier completion  
+tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, 1;
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
+mbarrier.wait.shared.b64 [mbar], expected_state;  // MBarrier completion
+
+// Store with direct wait completion
+tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [acc];
+tcgen05.wait::st.sync.aligned [smem_out];  // Direct wait completion
+```
+
+### 10.8. Resource-Specific Pipelining Rules
+**Question**: Do pipelining rules differ when operations target the same vs. different tensor memory resources?
+- **Current gap**: The dependency matrix doesn't distinguish between same-resource and different-resource operations
+- **Needs clarification**: Whether accessing the same tensor memory address affects automatic pipelining behavior
+
+**Partial Answer**: The tensor memory address likely doesn't affect pipelining behavior in the same way that register dependencies do, but this needs verification.
+
+**Key Distinction - Register vs. Tensor Memory Addressing:**
+- **Register dependencies**: Register addresses are compile-time constants ("immediate" variables), allowing the compiler to statically analyze dependencies and impose ordering
+- **Tensor memory dependencies**: Tensor memory addresses are runtime values, making it harder for the compiler to perform static dependency analysis
+
+**Current Understanding:**
+- **Pipelining rules**: Likely independent of specific tensor memory addresses, based on instruction types rather than runtime addresses
+- **Dependency analysis**: The dependency matrix probably applies regardless of whether operations target the same or different tensor memory regions
+- **Runtime addressing**: Since tmem addresses are computed at runtime (not compile-time constants), the hardware/compiler likely uses instruction-level pipelining rules rather than address-specific analysis
+
+**Still needs verification**:
+- Does the hardware track tensor memory address dependencies at runtime?
+- Are there any address-based hazard detection mechanisms for tensor memory?
+- How does this compare to shared memory address dependency tracking?
+
+### 10.9. CTA Group Size Impact on Synchronization
+**Question**: How does the CTA group size (e.g., `cta_group::1` vs `cta_group::4`) affect synchronization requirements?
+- **Current assumption**: Synchronization rules are independent of group size
+- **Needs verification**: Whether larger CTA groups require additional synchronization or affect pipelining behavior
+
+**Answer**: The CTA group size affects the **scope of synchronization** for `tcgen05.commit` operations, determining which CTAs participate in the mbarrier synchronization.
+
+**Key Behavior:**
+- **Group-wide synchronization**: `tcgen05.commit` with `cta_group::4` synchronizes all CTAs in that 4-CTA group
+- **Modifier matching**: Only tcgen05 instructions that include the same `cta_group::N` modifier participate in the group synchronization
+- **Scoped operations**: The group size determines which CTAs are included in the mbarrier completion mechanism
+
+**Example:**
+```cuda
+// All 4 CTAs in the group execute these operations
+tcgen05.mma.cta_group::4.kind::f16 [acc], [tmem_a], [tmem_b], idesc, 1;
+
+// This commit synchronizes across all 4 CTAs in the group
+// Only tcgen05 operations with cta_group::4 are included
+tcgen05.commit.cta_group::4.mbarrier::arrive::one.shared::cluster.b64 [mbar];
+
+// All 4 CTAs wait for the group's operations to complete
+mbarrier.wait.shared.b64 [mbar], expected_state;
+```
+
+**Synchronization Implications:**
+- **Coordination requirement**: All CTAs in the group must participate in the commit/wait pattern
+- **Resource sharing**: Group operations may share tensor memory or coordination resources
+- **Performance impact**: Larger groups may have different completion latencies compared to single-CTA operations
+
+### 10.10. Error Handling and Recovery
+**Question**: What happens when tcgen05 operations fail, and how does this affect synchronization?
+- **Current gap**: No discussion of error conditions or recovery mechanisms
+- **Needs clarification**: How failed operations interact with completion mechanisms, whether partial failures are possible, and recovery strategies
+
+**Answer**: tcgen05 operations follow standard PTX error handling behavior - the kernel will throw an error when operations fail. This is consistent with other PTX instructions and is expected behavior.
+
+**Key Points:**
+- **Standard PTX behavior**: Error handling follows the same patterns as other PTX instructions
+- **Kernel termination**: Failed operations result in kernel errors/exceptions
+- **No special recovery**: tcgen05 doesn't introduce unique error handling mechanisms
+- **Synchronization impact**: Since the kernel terminates on error, synchronization state becomes irrelevant
+
+### 10.11. Performance Impact of Fence Placement
+**Question**: What is the actual performance cost of tcgen05 fence instructions?
+- **Current status**: Section 9.2 was removed due to lack of reliable performance data
+- **Needs measurement**: Quantitative analysis of fence overhead in realistic workloads, comparison with and without fences
+
+**Answer**: tcgen05.fence instructions have **no direct performance cost** at runtime, unlike `fence.proxy.async` which corresponds to actual SASS instructions with execution overhead.
+
+**Performance Impact Analysis:**
+- **No direct cost**: tcgen05.fence instructions are compile-time directives that don't generate runtime SASS instructions
+- **Indirect impact**: Performance effects come from constraining instruction-level parallelism (ILP) optimizations during compilation
+- **Comparison with fence.proxy.async**: Unlike proxy fences, tcgen05 fences affect compilation behavior rather than runtime execution
+
+**Indirect Performance Effects:**
+- **Reduced ILP optimization**: Limits compiler's ability to reorder instructions for latency hiding
+- **Constrained scheduling**: May prevent optimal instruction scheduling around synchronization points
+- **Trade-off**: The performance cost of reduced optimization vs. the correctness benefit of proper synchronization
+
+**Measurement Approach:**
+Rather than measuring fence "overhead," the relevant metric is comparing:
+- **With fences**: Correct synchronization but potentially suboptimal instruction scheduling
+- **Without fences**: Better ILP optimization but incorrect/undefined synchronization behavior (not a valid comparison for correctness)
+
+### 10.12. Compatibility with Other Async Operations
+**Question**: How do tcgen05 operations interact with other asynchronous operations like cp.async or wgmma?
+- **Current assumption**: Operations are independent
+- **Needs verification**: Whether tcgen05 operations can be safely interleaved with cp.async.bulk, wgmma, or other async instructions, and what synchronization is required
+
+**Answer**: Yes, tcgen05 operations are independent and can be safely interleaved with other asynchronous operations like `cp.async.bulk`, `wgmma`, and other async instructions.
+
+**Key Principles:**
+- **Independent execution**: tcgen05 operations don't interfere with other async operation types
+- **Safe interleaving**: Can mix tcgen05, cp.async, wgmma, and other async operations in the same kernel
+- **Standard synchronization rules**: When dependencies exist between different operation types, use appropriate synchronization mechanisms
+
+**Synchronization Requirements When Dependencies Exist:**
+- **Execution synchronization**: Use completion mechanisms (`tcgen05.wait`, `tcgen05.commit`/`mbarrier.wait`, `cp.async.wait`, `wgmma.wait`, etc.)
+- **Code motion fences**: Use `tcgen05.fence::*` to prevent reordering across thread synchronization points
+- **Memory fences**: Use `fence.proxy.async` when transitioning between proxy execution contexts
+
+**Example of Mixed Async Operations:**
+```cuda
+// Traditional async copy
+cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [smem_a], [gmem_a], size, [mbar1];
+
+// tcgen05 operations
+tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem], 1024;
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem_b];
+
+// wgmma operation
+wgmma.mma_async.sync.aligned.m16n8k32.f16.f16.f16.f16 [acc], [smem_c], [smem_d];
+
+// Synchronize all operations as needed
+cp.async.wait_all 0;                                    // Wait for cp.async
+tcgen05.wait::ld.sync.aligned [tmem];                   // Wait for tcgen05.ld
+wgmma.commit_group.sync.aligned;                        // Commit wgmma
+wgmma.wait_group.sync.aligned 0;                        // Wait for wgmma
+
+// Now safe to use all results together
+```
 
 ## 11. References
 
