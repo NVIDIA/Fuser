@@ -374,6 +374,37 @@ void getVectorizationFactor(
   
 }
 
+
+int64_t getEmpiricalUnrollFactor(
+  Fusion* fusion,
+  int64_t break_point,
+  int64_t vectorization_bits,
+  std::vector<TensorView*> vectorizable_inputs) {
+// no need to unroll if no vectorizable inputs
+if (vectorizable_inputs.empty()) {
+  return 1;
+}
+const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+// calculate the required bytes in flight to cover the latency.
+// assuming 100% occupancy.
+int64_t required_bits_per_thread =
+    scheduler_utils::getRequiredBitsInFlight() /
+    (int64_t)dev_prop->maxThreadsPerMultiProcessor;
+int64_t unroll_factor =
+    std::max(1L, required_bits_per_thread / vectorization_bits);
+// If unroll is required, further scale up with computation cost and scale
+// down with input counts. Won't be triggered on A100 and H100.
+if (unroll_factor > 1) {
+  int64_t computation_factor =
+      scheduler_utils::getComputationCostFactor(fusion);
+  unroll_factor *= computation_factor;
+  int64_t n_inputs_factor =
+      getNumOfNonOuterBcastInputs(vectorizable_inputs, break_point);
+  unroll_factor = scheduler_utils::safeDiv(unroll_factor, n_inputs_factor);
+}
+return unroll_factor;
+}
+
 // TODO: check out getEmpiricalUnrollFactor function
 void getUnrollFactor(
     Fusion* fusion,
