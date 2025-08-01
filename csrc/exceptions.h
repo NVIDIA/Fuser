@@ -298,6 +298,11 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
 #define NVF_CHECK_EQ(lhs, rhs, ...) \
   NVF_CHECK_COMPARE(lhs, ==, rhs, ##__VA_ARGS__)
 
+#define NVF_ERROR_NE(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, !=, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_NE(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, !=, rhs, ##__VA_ARGS__)
+
 #define NVF_ERROR_LT(lhs, rhs, ...) \
   NVF_ERROR_COMPARE(lhs, <, rhs, ##__VA_ARGS__)
 #define NVF_CHECK_LT(lhs, rhs, ...) \
@@ -307,3 +312,13 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
   NVF_ERROR_COMPARE(lhs, <=, rhs, ##__VA_ARGS__)
 #define NVF_CHECK_LE(lhs, rhs, ...) \
   NVF_CHECK_COMPARE(lhs, <=, rhs, ##__VA_ARGS__)
+
+#define NVF_ERROR_GT(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, >, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_GT(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, >, rhs, ##__VA_ARGS__)
+
+#define NVF_ERROR_GE(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, >=, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_GE(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, >=, rhs, ##__VA_ARGS__)
