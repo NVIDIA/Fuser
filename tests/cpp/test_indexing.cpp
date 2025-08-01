@@ -6372,7 +6372,7 @@ TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplitAfterDivisibleSplit) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(IndexingTest, BlockScalingFactor) {
+TEST_F(IndexingTest, BlockScalingFactorNoPadding) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -6394,15 +6394,76 @@ TEST_F(IndexingTest, BlockScalingFactor) {
   // m/128, k/4, 32(m_i), 4(m_o), 4(k)
   tv1->setAllocationDomain(tv1_alloc, true);
 
-  tv1->setLoopDomain(initial_loop);
+  // cannot set loop domain, which would break allocation domain replay, which expects allocation to be between logical to loop
+  // tv1->setLoopDomain(initial_loop);
+  //
+  // merge all split to avoid pointwise scheduler assert in getPointwiseHeuristics, since pointwise scheduler expects no transformation on loop domain.
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(-1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({256, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
+  // open question: what should the strides be for `cg_outputs`? it shouldn't matter at this point since they will not be used;
+  // more generally, what should logical strides be when they are just redundant?
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  // reference manual swizzle
+  auto t1 = t0.reshape({2, 4, 32, 8, 4});
+  auto t2 = t1.transpose(1, 3);
+  auto t3 = t2.contiguous().reshape({256, 32});
   
-  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t0));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t3));
+}
+
+TEST_F(IndexingTest, BlockScalingFactorPadding) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // m, k
+  auto tv0 = makeContigConcreteTensor({175, 30});
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion->addOutput(tv1);
+
+  std::vector<IterDomain*> initial_loop = {tv1->axis(0), tv1->axis(1)};
+  // m, k
+  tv1->split(0, 128);
+  // m/128, 128, k
+  tv1->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv1->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv1_alloc{tv1->axis(0),tv1->axis(3),tv1->axis(2),tv1->axis(1),tv1->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv1->setAllocationDomain(tv1_alloc, true);
+
+  // cannot set loop domain, which would break allocation domain replay, which expects allocation to be between logical to loop
+  // tv1->setLoopDomain(initial_loop);
+  //
+  // merge all split to avoid pointwise scheduler assert in getPointwiseHeuristics, since pointwise scheduler expects no transformation on loop domain.
+  tv1->merge(0);
+  tv1->merge(0);
+  tv1->merge(-1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({256, 32}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  // open question: what should the strides be for `cg_outputs`? it shouldn't matter at this point since they will not be used;
+  // more generally, what should logical strides be when they are just redundant?
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+
+  // reference manual swizzle
+  auto t1 = cg_outputs.reshape({2, 8, 32, 4, 4});
+  auto t2 = t1.transpose(1, 3);
+  auto t3 = t2.contiguous().reshape({256, 32});
+  auto t_ref = t3.slice(0, 0, 175).slice(1, 0, 30);
+
+  
+  ASSERT_TRUE(t_ref.as<at::Tensor>().equal(t0));
 }
 
 } // namespace nvfuser
