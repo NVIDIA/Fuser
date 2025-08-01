@@ -68,32 +68,43 @@ tcgen05 instructions use two distinct completion mechanisms, with each instructi
 
 ### 2.1. MBarrier Completion (tcgen05.commit)
 
-The [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) instruction provides **batch-oriented completion** by signaling an mbarrier when all pending tcgen05 operations complete.
+The [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) instruction provides **batch-oriented completion** by signaling an mbarrier when **mbarrier-based tcgen05 operations** complete.
 
 **Key Characteristics:**
-- **Bulk synchronization** - Signal completion of multiple operations at once
-- **MBarrier integration** - Works with existing mbarrier-based synchronization
-- **Batch completion** - Single commit operation can complete multiple outstanding operations
+- **MBarrier-specific** - Only completes operations that use mbarrier completion mechanism
+- **Batch completion** - Single commit operation can complete multiple outstanding mbarrier-based operations
+- **Async proxy operations** - Primarily used for `tcgen05.mma` and `tcgen05.cp` operations
 
 **Usage Pattern:**
 ```cuda
-// Start multiple tcgen05 operations
+// Start mbarrier-based tcgen05 operations
 tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [addr], size;
+
+// These operations use direct wait completion (NOT tcgen05.commit)
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem_a];
+tcgen05.wait::ld.sync.aligned [tmem_a];  // Use tcgen05.wait::ld for loads
+
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_b], [smem_b];
+tcgen05.wait::ld.sync.aligned [tmem_b];  // Use tcgen05.wait::ld for loads
+
+// This operation uses mbarrier completion
 tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, enable;
-tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [tmem];
 
-// Signal completion of all operations to mbarrier
-tcgen05.commit.cta_group::1 [mbar];
+// Signal completion of mbarrier-based operations only
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
 
-// Later: wait for all operations to complete
-mbarrier.arrive_wait_expect_tx.shared::cta.b64 new_token, [mbar], old_token, count;
+// Wait for mbarrier-based operations to complete
+mbarrier.wait.shared.b64 [mbar], expected_state;
+
+// Store results using direct wait completion
+tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [acc];
+tcgen05.wait::st.sync.aligned [smem_out];  // Use tcgen05.wait::st for stores
 ```
 
 **Required For:**
 - `tcgen05.mma` operations (no other completion mechanism available)
-- Multi-stage tensor pipelines requiring batch completion
+- `tcgen05.cp` operations (no other completion mechanism available)
+- Operations that explicitly use mbarrier completion mechanism
 
 ### 2.2. Direct Wait Completion (tcgen05.wait)
 
@@ -102,7 +113,7 @@ The [`tcgen05.wait`](https://docs.nvidia.com/cuda/parallel-thread-execution/inde
 **Key Characteristics:**
 - **Fine-grained control** - Wait for specific operations individually
 - **Direct completion** - No mbarrier setup required
-- **Operation-specific** - Wait for individual `ld`, `st`, or `cp` operations
+- **Operation-specific** - Wait for individual `ld` and `st` operations only
 
 **Usage Pattern:**
 ```cuda
@@ -121,7 +132,10 @@ tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, enable;
 // Direct wait on mma operations is not supported
 tcgen05.commit.cta_group::1 [mbar];
 mbarrier.wait.shared.b64 [mbar], expected_state;
+
+// Store results (uses direct wait completion)
 tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [acc];
+tcgen05.wait::st.sync.aligned [smem_out];
 ```
 
 **Available For:**
@@ -136,8 +150,8 @@ The following table shows which completion mechanism and execution context each 
 |-------------|------------------|---------------------|-------|
 | [`tcgen05.alloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-alloc) | Generic Proxy | None (synchronous) | Allocation completes immediately |
 | [`tcgen05.dealloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-dealloc) | Generic Proxy | None (synchronous) | Deallocation completes immediately |
-| [`tcgen05.ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-ld) | Generic Proxy | `tcgen05.wait::ld` or `tcgen05.commit` | Load data from memory to tensor memory |
-| [`tcgen05.st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-st) | Generic Proxy | `tcgen05.wait::st` or `tcgen05.commit` | Store data from tensor memory to memory |
+| [`tcgen05.ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-ld) | Generic Proxy | `tcgen05.wait::ld` only | Load data from memory to tensor memory |
+| [`tcgen05.st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-st) | Generic Proxy | `tcgen05.wait::st` only | Store data from tensor memory to memory |
 | [`tcgen05.cp`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-cp) | Async Proxy | `tcgen05.commit` only | Copy operations between memory spaces |
 | [`tcgen05.mma`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-mma) | Async Proxy | `tcgen05.commit` only | Matrix multiply-accumulate operations |
 | [`tcgen05.wait`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) | Generic Proxy | N/A (completion instruction) | Waits for specific operation completion |
@@ -146,8 +160,9 @@ The following table shows which completion mechanism and execution context each 
 
 #### 2.3.1. Key Observations
 
-- **Load/store operations** (`ld`, `st`) support **both** completion mechanisms (`tcgen05.wait::ld/st` or `tcgen05.commit`)
-- **Async operations** (`cp`, `mma`) **only** support `tcgen05.commit` + mbarrier completion
+- **Load/store operations** (`ld`, `st`) use **direct wait completion** (`tcgen05.wait::ld/st` only)
+- **Async operations** (`cp`, `mma`) use **mbarrier completion** (`tcgen05.commit` only)
+- **Completion mechanisms are fixed** - each instruction type has exactly one completion mechanism
 - **Control operations** (`alloc`, `dealloc`, `fence`) complete synchronously or provide code motion barriers
 - **All tcgen05 operations** execute in either Generic Proxy or Async Proxy context
 - **Completion instructions** (`wait`, `commit`) always execute in Generic Proxy
@@ -223,10 +238,10 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 |            | **alloc** | **ld** | **st** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
 |------------|-----------|--------|--------|--------|---------|--------------|--------------|------------|-------------|-----------|
 | **alloc**  | ❓        | ✅     | ✅     | ✅     | ✅      | ❓           | ❓           | ❓         | ❓          | ❓        |
-| **ld**     | ❌        | ❓     | ❌     | ✅     | ✅      | ✅           | ❌           | ⚠️         | ❌          | ❓        |
-| **st**     | ❌        | ❌     | ❓     | ❌     | ❌      | ❌           | ✅           | ⚠️         | ✅          | ❓        |
-| **cp**     | ❌        | ❌     | ✅     | ❓     | ✅      | ❌           | ❌           | ⚠️         | ❌          | ❓        |
-| **mma**    | ❌        | ❌     | ✅     | ✅     | ❓      | ❌           | ❌           | ⚠️         | ❌          | ❓        |
+| **ld**     | ❌        | ❓     | ❌     | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | ❓        |
+| **st**     | ❌        | ❌     | ❓     | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | ❓        |
+| **cp**     | ❌        | ❌     | ✅     | ❓     | ✅      | ❌           | ❌           | ✅         | ❌          | ❓        |
+| **mma**    | ❌        | ❌     | ✅     | ✅     | ❓      | ❌           | ❌           | ✅         | ❌          | ❓        |
 | **wait::ld** | ❌      | ❓     | ❌     | ❌     | ❌      | ❓           | ❌           | ❌         | ❌          | ❓        |
 | **wait::st** | ❌      | ❌     | ❓     | ❌     | ❌      | ❌           | ❓           | ❌         | ❌          | ❓        |
 | **commit** | ❌        | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❓         | ❌          | ❓        |
@@ -249,7 +264,8 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - `st` → `dealloc`: Store completion required before memory deallocation
 
 **⚠️ Conditional Dependencies:**
-- `{ld, st, cp, mma}` → `commit`: Depends on which operations use mbarrier completion mechanism
+- `{cp, mma}` → `commit`: Only mbarrier-based operations can be completed by tcgen05.commit
+- `{ld, st}` → `commit`: ❌ **INCORRECT** - ld/st operations use tcgen05.wait::ld/st, not commit
 
 **❌ Manual Synchronization Required (likely correct):**
 - Any operation → `alloc`: Cannot pipeline into memory allocation
@@ -488,23 +504,26 @@ fence.proxy.async.shared::cta;  // REQUIRED: No implicit fence in tcgen05
 ld.shared.f32 final_result, [result_buffer];
 ```
 
-### 8.4. Example 4: Complete tcgen05 Pattern with MBarrier
+### 8.4. Example 4: Complete tcgen05 Pattern with Mixed Completion Mechanisms
 
 ```cuda
 // 1. Allocate tensor memory
 tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem], 2048;
 
-// 2. Load data to tensor memory
+// 2. Load data to tensor memory (uses direct wait completion)
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem_a];
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem+1024], [smem_b];
+tcgen05.wait::ld.sync.aligned [tmem];  // Wait for load completion
 
-// 3. Perform matrix multiply-accumulate
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem+1024], [smem_b];
+tcgen05.wait::ld.sync.aligned [tmem+1024];  // Wait for load completion
+
+// 3. Perform matrix multiply-accumulate (uses mbarrier completion)
 tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem], [tmem+1024], idesc, 1;
 
-// 4. Commit with mbarrier synchronization
+// 4. Commit mbarrier-based operations (only mma in this case)
 tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64 [mbar];
 
-// 5. Wait for completion
+// 5. Wait for mbarrier completion
 mbarrier.wait.shared.b64 [mbar], expected_state;
 
 // 6. Memory ordering fence for proxy transition (tcgen05 requires explicit fence)
@@ -513,8 +532,9 @@ fence.proxy.async.shared::cta;
 // 7. Use results in generic proxy
 add.f32 result, acc, bias_value;
 
-// 8. Store final results
+// 8. Store final results (uses direct wait completion)
 tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_output], [result];
+tcgen05.wait::st.sync.aligned [smem_output];  // Wait for store completion
 
 // 9. Clean up
 tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
@@ -553,8 +573,8 @@ tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
 The following behaviors need clarification or verification against PTX ISA documentation:
 
 ### 10.1. tcgen05.wait Instruction Variants
-**Question**: Does `tcgen05.wait::mma` actually exist, or can MMA operations only be completed via `tcgen05.commit`?
-- **Current assumption**: Only `tcgen05.wait::ld`, `tcgen05.wait::st`, `tcgen05.wait::cp` are available
+**Question**: Does `tcgen05.wait::mma` or `tcgen05.wait::cp` actually exist, or can those operations only be completed via `tcgen05.commit`?
+- **Current assumption**: Only certain wait variants are available, need to verify which ones
 - **Needs verification**: PTX ISA documentation for complete list of wait variants
 
 **Answer**: According to the [PTX ISA documentation for tcgen05.wait](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-instructions-tcgen05-wait), the syntax specification shows:
