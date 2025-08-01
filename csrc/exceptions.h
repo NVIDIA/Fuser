@@ -282,33 +282,28 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
         NVF_CHECK_MSG(cond, ##__VA_ARGS__)); \
   }
 
-#define NVF_ERROR_OR_CHECK(error_or_check, cond, ...) \
-  NVF_##error_or_check(cond, ##__VA_ARGS__)
-
 #define NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs) \
   "Expected " #lhs " " #op " " #rhs ", but found ", (lhs), " vs ", (rhs), ". "
 
-#define NVF_ERROR_OR_CHECK_OP(error_or_check, lhs, op, rhs, ...) \
-  NVF_ERROR_OR_CHECK(                                            \
-      error_or_check,                                            \
-      (lhs)op(rhs),                                              \
-      NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs),                \
-      ##__VA_ARGS__)
+#define NVF_ERROR_COMPARE(lhs, op, rhs, ...) \
+  NVF_ERROR(                                 \
+      (lhs)op(rhs), NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs), ##__VA_ARGS__)
 
-#define NVF_ERROR_OR_CHECK_EQ(error_or_check, lhs, rhs, ...) \
-  NVF_ERROR_OR_CHECK_OP(error_or_check, lhs, ==, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_COMPARE(lhs, op, rhs, ...) \
+  NVF_CHECK(                                 \
+      (lhs)op(rhs), NVF_COMPARISON_ERROR_MESSAGE(lhs, op, rhs), ##__VA_ARGS__)
 
-#define NVF_ERROR_OR_CHECK_LT(error_or_check, lhs, rhs, ...) \
-  NVF_ERROR_OR_CHECK_OP(error_or_check, lhs, <, rhs, ##__VA_ARGS__)
+#define NVF_ERROR_EQ(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, ==, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_EQ(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, ==, rhs, ##__VA_ARGS__)
 
-#define NVF_ERROR_OR_CHECK_LE(error_or_check, lhs, rhs, ...) \
-  NVF_ERROR_OR_CHECK_OP(error_or_check, lhs, <=, rhs, ##__VA_ARGS__)
+#define NVF_ERROR_LT(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, <, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_LT(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, <, rhs, ##__VA_ARGS__)
 
-#define NVF_CHECK_EQ(...) NVF_ERROR_OR_CHECK_EQ(CHECK, ##__VA_ARGS__)
-#define NVF_ERROR_EQ(...) NVF_ERROR_OR_CHECK_EQ(ERROR, ##__VA_ARGS__)
-
-#define NVF_CHECK_LT(...) NVF_ERROR_OR_CHECK_EQ(CHECK, ##__VA_ARGS__)
-#define NVF_ERROR_LT(...) NVF_ERROR_OR_CHECK_EQ(ERROR, ##__VA_ARGS__)
-
-#define NVF_CHECK_LE(...) NVF_ERROR_OR_CHECK_EQ(CHECK, ##__VA_ARGS__)
-#define NVF_ERROR_LE(...) NVF_ERROR_OR_CHECK_EQ(ERROR, ##__VA_ARGS__)
+#define NVF_ERROR_LE(lhs, rhs, ...) \
+  NVF_ERROR_COMPARE(lhs, <=, rhs, ##__VA_ARGS__)
+#define NVF_CHECK_LE(lhs, rhs, ...) \
+  NVF_CHECK_COMPARE(lhs, <=, rhs, ##__VA_ARGS__)
