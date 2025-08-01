@@ -272,12 +272,7 @@ llvm::Value* createValue(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-  
-  if (val->isA<TensorView>()) {
-    return nullptr;
-  }
-
-  
+    
   if (val->isConst()) {
     return builder.getInt64(val->value().as<int64_t>());
   }
@@ -543,7 +538,7 @@ void packOutputs(
 
     // Get the tensor pointer from val_to_value and store it in the output
     // array
-    llvm::Value* tensor = getOrCreateValue(tv, val_to_value, builder);
+    llvm::Value* tensor = getOrDefault(val_to_value, tv, nullptr);
     NVF_ERROR(tensor != nullptr, "packOutputs: tensor is nullptr");
     builder.CreateStore(tensor, tensor_addr);
   }
@@ -748,10 +743,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
     load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
     auto* in_tv = load_store_op->in()->as<TensorView>();
     auto* out_tv = load_store_op->out()->as<TensorView>();
-    llvm::Value* in_tensor = getOrCreateValue(in_tv, val_to_value_, builder_);
+    llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv, nullptr);
     NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
     // we assume all output tensors are already created, either through new or allocated
-    llvm::Value* out_tensor = getOrCreateValue(out_tv, val_to_value_, builder_);
+    llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv, nullptr);
 
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
@@ -808,11 +803,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
     llvm::Value* a =
-        getOrCreateValue(matmul_op->inA(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, matmul_op->inA(), nullptr);
     llvm::Value* b =
-        getOrCreateValue(matmul_op->inB(), val_to_value_, builder_);
-        llvm::Value* out =
-        getOrCreateValue(matmul_op->out(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, matmul_op->inB(), nullptr);
+    llvm::Value* out =
+        getOrDefault(val_to_value_, matmul_op->out(), nullptr);
     if(out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(
@@ -830,15 +825,15 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::LLVMContext& context = builder_.getContext();
 
     llvm::Value* in =
-        getOrCreateValue(linear_op->inA(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, linear_op->inA(), nullptr);
     llvm::Value* weight =
-        getOrCreateValue(linear_op->inB(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, linear_op->inB(), nullptr);
     llvm::Value* out =
-        getOrCreateValue(linear_op->out(), val_to_value_, builder_);
+        getOrDefault(val_to_value_, linear_op->out(), nullptr);
 
     llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
-      bias = getOrCreateValue(linear_op->bias(), val_to_value_, builder_);
+      bias = getOrDefault(val_to_value_, linear_op->bias(), nullptr);
     } else {
       // Create a proper null pointer for LLVM
       auto* tensor_type = getTensorPtrType(context);
@@ -870,7 +865,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> inputs;
     for (auto* in : launch_kernel->inputs()) {
       if(auto* tv = dynamic_cast<TensorView*>(in)) {
-        llvm::Value* tensor = getOrCreateValue(tv, val_to_value_, builder_);
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv, nullptr);
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
         inputs.push_back(tensor);
       }
@@ -883,7 +878,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> outputs;
     for (auto* out : launch_kernel->outputs()) {
       if(auto* tv = dynamic_cast<TensorView*>(out)) {
-        llvm::Value* tensor = getOrCreateValue(tv, val_to_value_, builder_);
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv, nullptr);
         NVF_ERROR(tensor != nullptr, "tensor is nullptr");
         outputs.push_back(tensor);
       }
