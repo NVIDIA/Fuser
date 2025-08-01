@@ -1009,6 +1009,20 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map ScanOp to python frontend
+  void handle(const ScanOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+    static const auto default_args =
+        std::make_tuple(KeywordArgument<int64_t>{"dim", std::nullopt});
+    printer_.generateKwargsOperation(
+        "fd.ops." + toString(sop),
+        std::make_tuple(sop->in()),
+        default_args,
+        std::make_tuple(sop->dim()),
+        {sop->out()});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;

@@ -237,6 +237,24 @@ namespace {
       DOCSTRING,                                                        \
       py::return_value_policy::reference);
 
+#define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
+  ops.def(                                                                \
+      NAME,                                                               \
+      [](TensorView* arg,                                                 \
+         int dim,                                                         \
+         std::optional<Val*> init = std::nullopt) -> TensorView* {        \
+        BinaryOpType op_type = OP_TYPE;                                   \
+        Val* init_val = init.has_value() ? init.value() : nullptr;        \
+        return static_cast<                                               \
+            TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
+            OP_NAME)(arg, dim, op_type, init_val);                        \
+      },                                                                  \
+      py::arg("arg"),                                                     \
+      py::arg("dim"),                                                     \
+      py::arg("init").none(true) = py::none(),                            \
+      DOCSTRING,                                                          \
+      py::return_value_policy::reference);
+
 void bindUnaryOps(py::module_& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP(
       "abs",
@@ -1623,6 +1641,88 @@ TensorView
 )")
 }
 
+void bindScanOps(py::module_& ops) {
+  // cumsum (prefix sum) along a dimension
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cumsum",
+      scan,
+      BinaryOpType::Add,
+      R"(
+Cumulative sum along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to compute cumulative sum.
+dim : int
+    Dimension to compute cumulative sum over.
+
+Returns
+-------
+TensorView
+    A new tensor containing the cumulative sum along the specified dimension.
+)");
+
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cumprod",
+      scan,
+      BinaryOpType::Mul,
+      R"(
+Cumulative product along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to compute cumulative product.
+dim : int
+    Dimension to compute cumulative product over.
+
+Returns
+-------
+TensorView
+    A new tensor containing the cumulative product along the specified dimension.
+)");
+
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cummin",
+      scan,
+      BinaryOpType::Min,
+      R"(
+Cumulative minimum along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to compute cumulative minimum.
+dim : int
+    Dimension to compute cumulative minimum over.
+
+Returns
+-------
+TensorView
+    A new tensor containing the cumulative minimum along the specified dimension.
+)");
+  NVFUSER_DIRECT_BINDING_SCAN_OP(
+      "cummax",
+      scan,
+      BinaryOpType::Max,
+      R"(
+Cumulative maximum along a dimension.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to compute cumulative maximum.
+dim : int
+    Dimension to compute cumulative maximum over.
+
+Returns
+-------
+TensorView
+    A new tensor containing the cumulative maximum along the specified dimension.
+)");
+}
+
 void bindCastOps(py::module_& ops) {
   ops.def(
       "cast",
@@ -2195,6 +2295,7 @@ void bindOperations(py::module& nvfuser) {
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
   bindIndexingOps(nvf_ops);
+  bindScanOps(nvf_ops);
 }
 
 } // namespace nvfuser::python

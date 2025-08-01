@@ -633,6 +633,86 @@ def test_select(nvfuser_direct_test):
     test_fn(1)
 
 
+def test_cumsum(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cumsum(t0, dim)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.cumsum(inputs[0], dim)
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
+def test_cumprod(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cumprod(t0, dim)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.cumprod(inputs[0], dim)
+        nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
+def test_cummin(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cummin(t0, dim)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.cummin(inputs[0], dim)
+        nvfuser_direct_test.assertEqual(eager_out[0], nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
+def test_cummax(nvfuser_direct_test):
+    inputs = [
+        torch.randn(8, 16, device="cuda"),
+    ]
+
+    def test_fn(dim):
+        def fusion_func(fd: FusionDefinition):
+            t0 = fd.from_pytorch(inputs[0])
+            t1 = fd.ops.cummax(t0, dim)
+            fd.add_output(t1)
+
+        nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+
+        eager_out = torch.cummax(inputs[0], dim)
+        nvfuser_direct_test.assertEqual(eager_out[0], nvf_out[0])
+
+    test_fn(0)
+    test_fn(1)
+
+
 def test_where(nvfuser_direct_test):
     # nvfuser_where is a decorator function. It takes the input arguments
     # and creates a function that builds a FusionDefinition.
