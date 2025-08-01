@@ -480,7 +480,7 @@ tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_addr], 1024;
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr], [smem_a];
 tcgen05.wait::ld.sync.aligned [tmem_addr];  // Complete load A
 
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr+512], [smem_b];  
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr+512], [smem_b];
 tcgen05.wait::ld.sync.aligned [tmem_addr+512];  // Complete load B
 
 // MMA operation with mbarrier completion
@@ -488,7 +488,7 @@ tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_addr], [tmem_addr+512], idesc, 1
 tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
 mbarrier.wait.shared.b64 [mbar], expected_state;  // Complete MMA
 
-// Store operation with direct wait completion  
+// Store operation with direct wait completion
 tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_c], [acc];
 tcgen05.wait::st.sync.aligned [smem_c];  // Complete store
 
