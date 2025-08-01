@@ -44,17 +44,18 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         torch.manual_seed(0)
         captured_outputs = fd_cap.execute(inputs, device=device)
         # Make sure the original and captured definitions match
-        # torch.allclose does not work with fp8 datatype, so cast to fp64.
-        return all(
-            [
-                torch.allclose(
-                    ref_out.to(torch.float64),
-                    captured_outputs[idx].to(torch.float64),
-                    equal_nan=True,
-                )
-                for idx, ref_out in enumerate(reference_outputs)
-            ]
-        )
+        for idx, ref_out in enumerate(reference_outputs):
+            # torch.allclose does not work with fp8 datatype, so cast to fp64.
+            # However, casting complex values to real discards the imaginary
+            # part, so skip complex dtypes.
+            if not ref_out.dtype.is_complex:
+                ref_out = ref_out.to(torch.float64)
+            if not captured_outputs[idx].dtype.is_complex:
+                captured_outputs[idx] = captured_outputs[idx].to(torch.float64)
+            match = torch.allclose(ref_out, captured_outputs[idx], equal_nan=True)
+            if not match:
+                return False
+        return True
     except Exception as err:
         print("\nException For Printed FusionDefinition:")
         print(
