@@ -213,6 +213,8 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
+
+  validate();
 }
 
 KernelArgumentHolder HostIrEvaluator::runWithInputs(
@@ -271,34 +273,23 @@ KernelArgumentHolder HostIrEvaluator::runWithInput(
   return KernelArgumentHolder(outputs);
 }
 
-std::string HostIrEvaluator::canRun() const {
+void HostIrEvaluator::validate() const {
   const int64_t requested_n_gpus = requestedNumberOfDevices(container_.get());
 
   if (requested_n_gpus == 1) {
-    return "";
+    return;
   }
 
-  if (communicator_ == nullptr) {
-    return "A communicator must be provided";
-  }
+  NVF_CHECK(communicator_ != nullptr);
 
-  if (!communicator_->is_available()) {
-    return "distributed configuration required";
-  }
+  NVF_CHECK(communicator_->is_available());
 
-  if (requested_n_gpus > communicator_->size()) {
-    return "the fusion requests " + std::to_string(requested_n_gpus) +
-        " GPUs to run, but there are only " +
-        std::to_string(communicator_->size()) + " ranks in the communicator";
-  }
+  NVF_CHECK_LE(requested_n_gpus, communicator_->size());
 
-  if (communicator_->local_size() > at::cuda::getNumGPUs()) {
-    return std::to_string(communicator_->local_size()) +
-        " processes are spawn on the node but only " +
-        std::to_string(at::cuda::getNumGPUs()) + " GPUs are available";
-  }
-
-  return "";
+  NVF_CHECK_LE(
+      communicator_->local_size(),
+      at::cuda::getNumGPUs(),
+      "More processes are spawned on the node than there are available GPUs.");
 }
 
 c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
