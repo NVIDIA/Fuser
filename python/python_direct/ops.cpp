@@ -1648,23 +1648,19 @@ void bindScanOps(py::module_& ops) {
       scan,
       BinaryOpType::Add,
       R"(
-Scan (prefix sum) along a dimension.
+Cumulative sum along a dimension.
 
 Parameters
 ----------
 arg : TensorView
-    Input tensor to scan.
+    Input tensor to compute cumulative sum.
 dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("add"). Default is "add".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
+    Dimension to compute cumulative sum over.
 
 Returns
 -------
 TensorView
-    A new tensor containing the scan result along the specified dimension.
+    A new tensor containing the cumulative sum along the specified dimension.
 )");
 
   NVFUSER_DIRECT_BINDING_SCAN_OP(
@@ -1672,23 +1668,19 @@ TensorView
       scan,
       BinaryOpType::Mul,
       R"(
-Scan (prefix product) along a dimension.
+Cumulative product along a dimension.
 
 Parameters
 ----------
 arg : TensorView
-    Input tensor to scan.
+    Input tensor to compute cumulative product.
 dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("mul"). Default is "mul".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
+    Dimension to compute cumulative product over.
 
 Returns
 -------
 TensorView
-    A new tensor containing the scan result along the specified dimension.
+    A new tensor containing the cumulative product along the specified dimension.
 )");
 
   NVFUSER_DIRECT_BINDING_SCAN_OP(
@@ -1696,46 +1688,38 @@ TensorView
       scan,
       BinaryOpType::Min,
       R"(
-Scan (prefix minimum) along a dimension.
+Cumulative minimum along a dimension.
 
 Parameters
 ----------
 arg : TensorView
-    Input tensor to scan.
+    Input tensor to compute cumulative minimum.
 dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("min"). Default is "min".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
+    Dimension to compute cumulative minimum over.
 
 Returns
 -------
 TensorView
-    A new tensor containing the scan result along the specified dimension.
+    A new tensor containing the cumulative minimum along the specified dimension.
 )");
   NVFUSER_DIRECT_BINDING_SCAN_OP(
       "cummax",
       scan,
       BinaryOpType::Max,
       R"(
-Scan (prefix maximum) along a dimension.
+Cumulative maximum along a dimension.
 
 Parameters
 ----------
 arg : TensorView
-    Input tensor to scan.
+    Input tensor to compute cumulative maximum.
 dim : int
-    Dimension to scan over.
-op : str, optional
-    Operation to use for scan ("max"). Default is "max".
-dtype : PrimDataType, optional
-    This argument is not used for scan currently.
+    Dimension to compute cumulative maximum over.
 
 Returns
 -------
 TensorView
-    A new tensor containing the scan result along the specified dimension.
+    A new tensor containing the cumulative maximum along the specified dimension.
 )");
 }
 
