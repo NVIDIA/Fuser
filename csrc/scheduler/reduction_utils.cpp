@@ -436,14 +436,15 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_inputs_outputs =
       scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
-  auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
+  auto vectorizable_expr = [](Expr* e) {
+    return e->isA<LoadStoreOp>() || e->isA<IndexSelectOp>();
+  };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
-      if (producer_tvs.size() == 1 &&
-          vectorizable_expr(cached_input->definition()) &&
+      if (vectorizable_expr(cached_input->definition()) &&
           std::find(
               vectorizable_inputs_outputs.begin(),
               vectorizable_inputs_outputs.end(),
