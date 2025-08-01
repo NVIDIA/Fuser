@@ -50,6 +50,9 @@ This document provides a detailed overview of tcgen05 instruction synchronizatio
   - [10.10. Error Handling and Recovery](#1010-error-handling-and-recovery)
   - [10.11. Performance Impact of Fence Placement](#1011-performance-impact-of-fence-placement)
   - [10.12. Compatibility with Other Async Operations](#1012-compatibility-with-other-async-operations)
+  - [10.13. Tensor Memory Address Syntax and Addressing](#1013-tensor-memory-address-syntax-and-addressing)
+  - [10.14. Instruction Parameter Consistency](#1014-instruction-parameter-consistency)
+  - [10.15. Scope and Lifetime of Tensor Memory Allocations](#1015-scope-and-lifetime-of-tensor-memory-allocations)
 - [11. References](#11-references)
   - [11.1. Primary Sources](#111-primary-sources)
   - [11.2. Additional Resources](#112-additional-resources)
@@ -206,8 +209,8 @@ The following table shows which completion mechanism and execution context each 
 ```cuda
 // Batch completion - required for mma operations
 for (int tile = 0; tile < num_tiles; ++tile) {
-    tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem + tile_offset];
-    tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem], [tmem_b], idesc, enable;
+    tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem + tile_offset];
+tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, enable;
 }
 tcgen05.commit.cta_group::1 [mbar];  // Single bulk completion
 mbarrier.arrive_wait_expect_tx.shared::cta.b64 token, [mbar], old_token, count;
@@ -216,14 +219,16 @@ mbarrier.arrive_wait_expect_tx.shared::cta.b64 token, [mbar], old_token, count;
 **Direct Wait Completion Pattern (Available for load/store only):**
 ```cuda
 // Individual waits - only available for ld/st operations
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem];
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem_a];
 tcgen05.wait::ld.sync.aligned;  // Wait for this specific load
 
-tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [tmem];
+tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_out], [tmem_a];
 tcgen05.wait::st.sync.aligned;  // Wait for this specific store
 ```
 
 ## 4. Synchronization Dependencies
+
+**Rule of Thumb**: tcgen05 operations are generally **NOT** automatically pipelined with each other. When in doubt, use explicit synchronization (`tcgen05.wait::*` or `tcgen05.commit` + mbarrier). Only the specific combinations documented in the PTX ISA are guaranteed to be automatically pipelined.
 
 ### 4.1. Dependency Matrix
 
@@ -238,19 +243,19 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - ✅ **Pipelined**: Operations are automatically pipelined (no fence needed)
 - ❌ **Manual Sync**: Requires explicit synchronization (fence or wait)
 - ⚠️ **Conditional**: Pipelining depends on specific conditions
-- <span style="color: black;">❓</span> **Unknown**: Needs verification from PTX ISA documentation
+- ❓ **Unknown**: Needs verification from PTX ISA documentation
 - `--` **Same Type**: Diagonal entries (same instruction type, reordering unlikely)
 - `NA` **Not Applicable**: Code motion fences have different semantics than data dependencies
 
 |            | **alloc** | **ld** | **st** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
 |------------|-----------|--------|--------|--------|---------|--------------|--------------|------------|-------------|-----------|
-| **alloc**  | `--`      | ✅     | ✅     | ✅     | ✅      | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | <span style="color: black;">❓</span> | `NA` |
+| **alloc**  | `--`      | ✅     | ✅     | ✅     | ✅      | ❓ | ❓ | ❓ | ❓ | `NA` |
 | **ld**     | ❌        | `--`   | ❌     | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | `NA` |
 | **st**     | ❌        | ❌     | `--`   | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | `NA` |
 | **cp**     | ❌        | ❌     | ✅     | `--`   | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
 | **mma**    | ❌        | ❌     | ✅     | ✅     | `--`    | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **wait::ld** | ❌      | <span style="color: black;">❓</span> | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
-| **wait::st** | ❌      | ❌     | <span style="color: black;">❓</span> | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
+| **wait::ld** | ❌      | ❓ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
+| **wait::st** | ❌      | ❌     | ❓ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
 | **commit** | ❌        | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | `--`       | ❌          | `NA` |
 | **dealloc** | ❌       | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❌         | `--`        | `NA` |
 | **fence**  | `NA`      | `NA`   | `NA`   | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `--` |
@@ -279,7 +284,7 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - Operations across different memory resources
 - Cross-proxy transitions without documented pipelining
 
-**<span style="color: black;">❓</span> Unknown/Verification Needed:**
+**❓ Unknown/Verification Needed:**
 - `wait` instruction interactions: Unclear how wait operations interact with each other
 - `alloc` completion dependencies: Need verification of synchronization requirements
 
@@ -470,10 +475,23 @@ nvFuser provides comprehensive support for tcgen05 operations with automatic syn
 ```cuda
 // All operations automatically pipelined - no explicit fences required
 tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_addr], 1024;
+
+// Load operations with direct wait completion
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr], [smem_a];
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr+512], [smem_b];
+tcgen05.wait::ld.sync.aligned [tmem_addr];  // Complete load A
+
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_addr+512], [smem_b];  
+tcgen05.wait::ld.sync.aligned [tmem_addr+512];  // Complete load B
+
+// MMA operation with mbarrier completion
 tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_addr], [tmem_addr+512], idesc, 1;
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
+mbarrier.wait.shared.b64 [mbar], expected_state;  // Complete MMA
+
+// Store operation with direct wait completion  
 tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_c], [acc];
+tcgen05.wait::st.sync.aligned [smem_c];  // Complete store
+
 tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_addr];
 ```
 
@@ -483,6 +501,7 @@ tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_addr];
 // Phase 1: Load data
 tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem], 1024;
 tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem_input];
+tcgen05.wait::ld.sync.aligned [tmem];  // Complete load
 
 // Code motion fence before thread sync
 tcgen05.fence::before_thread_sync;
@@ -493,7 +512,12 @@ tcgen05.fence::after_thread_sync;
 
 // Phase 2: Compute and store
 tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem], [tmem], idesc, 1;
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
+mbarrier.wait.shared.b64 [mbar], expected_state;  // Complete MMA
+
 tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_output], [acc];
+tcgen05.wait::st.sync.aligned [smem_output];  // Complete store
+
 tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
 ```
 
@@ -501,54 +525,73 @@ tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
 
 ```cuda
 // Generic proxy stores data that will be used by tcgen05.mma
-st.shared.f32 [operand_buffer], computed_value;
+st.shared.f32 [operand_a_buffer], computed_value_a;
+st.shared.f32 [operand_b_buffer], computed_value_b;
 fence.proxy.async.shared::cta;  // Memory ordering fence
 
 // tcgen05 pipeline
-tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem], 1024;
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [operand_buffer];
-tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem], [tmem], idesc, 1;
+tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_a], 1024;
+tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_b], 1024;
+
+// Load operands with completion
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [operand_a_buffer];
+tcgen05.wait::ld.sync.aligned [tmem_a];  // Complete load A
+
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_b], [operand_b_buffer];
+tcgen05.wait::ld.sync.aligned [tmem_b];  // Complete load B
+
+// MMA with proper operands and completion
+tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, 1;
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
+mbarrier.wait.shared.b64 [mbar], expected_state;  // Complete MMA
+
+// Store result with completion
 tcgen05.st.sync.aligned.32x32b.x1.b32 [result_buffer], [acc];
+tcgen05.wait::st.sync.aligned [result_buffer];  // Complete store
 
 // tcgen05.mma results used by generic proxy
 fence.proxy.async.shared::cta;  // REQUIRED: No implicit fence in tcgen05
 ld.shared.f32 final_result, [result_buffer];
+
+// Cleanup
+tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_a];
+tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_b];
 ```
 
 ### 8.4. Example 4: Complete tcgen05 Pattern with Mixed Completion Mechanisms
 
 ```cuda
-// 1. Allocate tensor memory
-tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem], 2048;
+// Allocate tensor memory for two operands
+tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_a], 1024;
+tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32 [tmem_b], 1024;
 
-// 2. Load data to tensor memory (uses direct wait completion)
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem], [smem_a];
-tcgen05.wait::ld.sync.aligned [tmem];  // Wait for load completion
+// Load data to tensor memory (uses direct wait completion)
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_a], [smem_a];
+tcgen05.wait::ld.sync.aligned [tmem_a];  // Complete load A
 
-tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem+1024], [smem_b];
-tcgen05.wait::ld.sync.aligned [tmem+1024];  // Wait for load completion
+tcgen05.ld.sync.aligned.32x32b.x1.b32 [tmem_b], [smem_b];
+tcgen05.wait::ld.sync.aligned [tmem_b];  // Complete load B
 
-// 3. Perform matrix multiply-accumulate (uses mbarrier completion)
-tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem], [tmem+1024], idesc, 1;
+// Perform matrix multiply-accumulate (uses mbarrier completion)
+tcgen05.mma.cta_group::1.kind::f16 [acc], [tmem_a], [tmem_b], idesc, 1;
 
-// 4. Commit mbarrier-based operations (only mma in this case)
-tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64 [mbar];
+// Commit mbarrier-based operations (only mma in this case)
+tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cta.b64 [mbar];
+mbarrier.wait.shared.b64 [mbar], expected_state;  // Complete MMA
 
-// 5. Wait for mbarrier completion
-mbarrier.wait.shared.b64 [mbar], expected_state;
-
-// 6. Memory ordering fence for proxy transition (tcgen05 requires explicit fence)
+// Memory ordering fence for proxy transition (tcgen05 requires explicit fence)
 fence.proxy.async.shared::cta;
 
-// 7. Use results in generic proxy
-add.f32 result, acc, bias_value;
+// Store MMA results to shared memory for generic proxy use
+tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_result], [acc];
+tcgen05.wait::st.sync.aligned [smem_result];  // Complete store
 
-// 8. Store final results (uses direct wait completion)
-tcgen05.st.sync.aligned.32x32b.x1.b32 [smem_output], [result];
-tcgen05.wait::st.sync.aligned [smem_output];  // Wait for store completion
+// Use results in generic proxy (load from shared memory)
+ld.shared.f32 final_result, [smem_result];
 
-// 9. Clean up
-tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem];
+// Clean up tensor memory
+tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_a];
+tcgen05.dealloc.cta_group::1.sync.aligned.shared::cta [tmem_b];
 ```
 
 ## 9. Performance Considerations
@@ -785,6 +828,33 @@ wgmma.wait_group.sync.aligned 0;                        // Wait for wgmma
 
 // Now safe to use all results together
 ```
+
+### 10.13. Tensor Memory Address Syntax and Addressing
+**Question**: What are the exact syntax rules and addressing constraints for tensor memory operands in tcgen05 instructions?
+- **Current gap**: Examples show `[tmem]`, `[tmem+512]`, `[tmem+1024]` but addressing rules are unclear
+- **Needs clarification**: 
+  - Are tensor memory addresses always bracket-enclosed like `[tmem]`?
+  - What addressing modes are supported (immediate offsets, register offsets, etc.)?
+  - Are there alignment requirements for tensor memory addresses?
+  - How do address calculations work with different CTA group sizes?
+
+### 10.14. Instruction Parameter Consistency
+**Question**: Are there naming and parameter conventions that should be consistently followed across examples?
+- **Current inconsistencies observed**:
+  - `idesc` vs other descriptor naming
+  - `enable` parameter usage varies
+  - `size` vs explicit byte counts
+  - `expected_state` vs other mbarrier state names
+- **Needs clarification**: Standard parameter naming conventions for tcgen05 instructions
+
+### 10.15. Scope and Lifetime of Tensor Memory Allocations
+**Question**: What are the scope and lifetime rules for tensor memory allocated with different CTA group sizes?
+- **Current gap**: No clear explanation of when tensor memory becomes unavailable
+- **Needs clarification**:
+  - Does tensor memory persist across kernel boundaries?
+  - How does tensor memory interact with CTA scheduling and termination?
+  - Can tensor memory be shared between different CTA groups?
+  - What happens to tensor memory if a CTA terminates early due to divergent control flow?
 
 ## 11. References
 
