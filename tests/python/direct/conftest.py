@@ -8,11 +8,15 @@ from copy import deepcopy
 import torch
 from torch.testing._internal.common_utils import TestCase
 
-from nvfuser_direct import FusionDefinition
+from nvfuser_direct import FusionDefinition, LRUCache
 from python.direct_utils import is_pre_volta, check_captured_python_definition
 
 
 class NVFuserTest(TestCase):
+    def __init__(self, cache=None):
+        super().__init__()
+        self.cache = cache
+
     # Helper function to verify the nvfuser output and make sure the string
     # definition based on the FusionDefinition is executable and matches the
     # original definition
@@ -31,6 +35,11 @@ class NVFuserTest(TestCase):
         # Execute a fusion function and capture the string python definition
         with FusionDefinition() as fd:
             fusion_func(fd)
+
+        if self.cache is not None and not hasattr(fd, "fec"):
+            fd.fec = self.cache.cache_compile(fd.fusion)
+            del fd._fusion
+
         torch.manual_seed(0)
         out = fd.execute(
             inputs,
@@ -43,8 +52,15 @@ class NVFuserTest(TestCase):
 
 
 # Migrated tests to new direct python bindings use this.
-@pytest.fixture
-def nvfuser_direct_test():
+@pytest.fixture(params=["lru_cache", "eager"])
+def nvfuser_direct_test(request):
     if is_pre_volta():
         pytest.skip("Only supported on Volta and newer devices.")
-    yield NVFuserTest()
+
+    cache_type = request.param
+    if cache_type == "lru_cache":
+        if not hasattr(nvfuser_direct_test, "cache"):
+            nvfuser_direct_test.cache = LRUCache(max_fusions=16384)
+        yield NVFuserTest(nvfuser_direct_test.cache)
+    else:
+        yield NVFuserTest()
