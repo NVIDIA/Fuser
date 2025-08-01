@@ -539,7 +539,7 @@ void packOutputs(
     // Get the tensor pointer from val_to_value and store it in the output
     // array
     llvm::Value* tensor = getOrDefault(val_to_value, tv, nullptr);
-    NVF_ERROR(tensor != nullptr, "packOutputs: tensor is nullptr");
+    NVF_ERROR(tensor != nullptr)
     builder.CreateStore(tensor, tensor_addr);
   }
   insertNvtxRangePop(builder);
@@ -744,7 +744,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto* in_tv = load_store_op->in()->as<TensorView>();
     auto* out_tv = load_store_op->out()->as<TensorView>();
     llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv, nullptr);
-    NVF_ERROR(in_tensor != nullptr, "in_tensor is nullptr");
+    NVF_ERROR(in_tensor != nullptr)
     // we assume all output tensors are already created, either through new or allocated
     llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv, nullptr);
 
@@ -826,14 +826,17 @@ class HostIrCompileDispatcher : public OptInDispatch {
 
     llvm::Value* in =
         getOrDefault(val_to_value_, linear_op->inA(), nullptr);
+    NVF_ERROR(in != nullptr)
     llvm::Value* weight =
         getOrDefault(val_to_value_, linear_op->inB(), nullptr);
+    NVF_ERROR(weight != nullptr)
     llvm::Value* out =
         getOrDefault(val_to_value_, linear_op->out(), nullptr);
 
     llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
       bias = getOrDefault(val_to_value_, linear_op->bias(), nullptr);
+      NVF_ERROR(bias != nullptr)
     } else {
       // Create a proper null pointer for LLVM
       auto* tensor_type = getTensorPtrType(context);
@@ -866,7 +869,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     for (auto* in : launch_kernel->inputs()) {
       if(auto* tv = dynamic_cast<TensorView*>(in)) {
         llvm::Value* tensor = getOrDefault(val_to_value_, tv, nullptr);
-        NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+        NVF_ERROR(tensor != nullptr)
         inputs.push_back(tensor);
       }
       else {
@@ -879,7 +882,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     for (auto* out : launch_kernel->outputs()) {
       if(auto* tv = dynamic_cast<TensorView*>(out)) {
         llvm::Value* tensor = getOrDefault(val_to_value_, tv, nullptr);
-        NVF_ERROR(tensor != nullptr, "tensor is nullptr");
+        NVF_ERROR(tensor != nullptr)
         outputs.push_back(tensor);
       }
       else {
