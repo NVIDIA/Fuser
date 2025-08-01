@@ -835,6 +835,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> inputs;
     for (auto* in : launch_kernel->inputs()) {
       if(auto* tv = dynamic_cast<TensorView*>(in)) {
+        // NOTE: we use getOrDefault for TensorView lookup because we want to bypass error checking for output tensor
+        // it is ok to have a nullptr for output tensor because it will be created in wrapper in later stage.
         llvm::Value* tensor = getOrDefault(val_to_value_, tv->as<Val>());
         NVF_ERROR(tensor != nullptr)
         inputs.push_back(tensor);
