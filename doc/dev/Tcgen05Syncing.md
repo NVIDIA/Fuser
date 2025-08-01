@@ -53,6 +53,7 @@ This document provides a detailed overview of tcgen05 instruction synchronizatio
   - [10.13. Tensor Memory Address Syntax and Addressing](#1013-tensor-memory-address-syntax-and-addressing)
   - [10.14. Instruction Parameter Consistency](#1014-instruction-parameter-consistency)
   - [10.15. Scope and Lifetime of Tensor Memory Allocations](#1015-scope-and-lifetime-of-tensor-memory-allocations)
+  - [10.16. tcgen05.shift Completion Mechanism and Usage](#1016-tcgen05shift-completion-mechanism-and-usage)
 - [11. References](#11-references)
   - [11.1. Primary Sources](#111-primary-sources)
   - [11.2. Additional Resources](#112-additional-resources)
@@ -88,8 +89,9 @@ Based on [PTX ISA Section 9.7.16.6.2](https://docs.nvidia.com/cuda/parallel-thre
 ### 2.3. Compute Instructions (Async Proxy)
 - [`tcgen05.mma`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-mma) - Matrix multiply-accumulate operation
 - [`tcgen05.cp`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-cp) - Copy operation between memory spaces
+- [`tcgen05.shift`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-shift) - Shift tensor data (asynchronous operation)
 
-**Note**: Both `tcgen05.mma` and `tcgen05.cp` are confirmed to execute in the Async Proxy context per [PTX ISA Section 9.7.16.6.5](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-smem-access).
+**Note**: `tcgen05.mma`, `tcgen05.cp`, and `tcgen05.shift` are confirmed to execute in the Async Proxy context and use mbarrier completion per [PTX ISA Section 9.7.16.6.4](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-mbarrier-completion).
 
 ### 2.4. Commit Instructions (Generic Proxy)
 - [`tcgen05.commit`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-commit) - Commit operations with mbarrier synchronization
@@ -188,6 +190,7 @@ The following table shows which completion mechanism and execution context each 
 | [`tcgen05.dealloc`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-dealloc) | Generic Proxy | None (synchronous) | Deallocation completes immediately |
 | [`tcgen05.ld`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-ld) | Generic Proxy | `tcgen05.wait::ld` only | Load data from memory to tensor memory |
 | [`tcgen05.st`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-st) | Generic Proxy | `tcgen05.wait::st` only | Store data from tensor memory to memory |
+| [`tcgen05.shift`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-shift) | Async Proxy | `tcgen05.commit` only | Shift tensor data (asynchronous operation) |
 | [`tcgen05.cp`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-cp) | Async Proxy | `tcgen05.commit` only | Copy operations between memory spaces |
 | [`tcgen05.mma`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-mma) | Async Proxy | `tcgen05.commit` only | Matrix multiply-accumulate operations |
 | [`tcgen05.wait`](https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-tcgen05-wait) | Generic Proxy | N/A (completion instruction) | Waits for specific operation completion |
@@ -197,7 +200,7 @@ The following table shows which completion mechanism and execution context each 
 #### 3.3.1. Key Observations
 
 - **Load/store operations** (`ld`, `st`) use **direct wait completion** (`tcgen05.wait::ld/st` only)
-- **Async operations** (`cp`, `mma`) use **mbarrier completion** (`tcgen05.commit` only)
+- **Async operations** (`cp`, `mma`, `shift`) use **mbarrier completion** (`tcgen05.commit` only)
 - **Completion mechanisms are fixed** - each instruction type has exactly one completion mechanism
 - **Control operations** (`alloc`, `dealloc`, `fence`) complete synchronously or provide code motion barriers
 - **All tcgen05 operations** execute in either Generic Proxy or Async Proxy context
@@ -247,18 +250,19 @@ The following matrix shows pipelining relationships between tcgen05 instructions
 - `--` **Same Type**: Diagonal entries (same instruction type, reordering unlikely)
 - `NA` **Not Applicable**: Code motion fences have different semantics than data dependencies
 
-|            | **alloc** | **ld** | **st** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
-|------------|-----------|--------|--------|--------|---------|--------------|--------------|------------|-------------|-----------|
-| **alloc**  | `--`      | ✅     | ✅     | ✅     | ✅      | ❓ | ❓ | ❓ | ❓ | `NA` |
-| **ld**     | ❌        | `--`   | ❌     | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | `NA` |
-| **st**     | ❌        | ❌     | `--`   | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | `NA` |
-| **cp**     | ❌        | ❌     | ✅     | `--`   | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **mma**    | ❌        | ❌     | ✅     | ✅     | `--`    | ❌           | ❌           | ✅         | ❌          | `NA` |
-| **wait::ld** | ❌      | ❓ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
-| **wait::st** | ❌      | ❌     | ❓ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
-| **commit** | ❌        | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | `--`       | ❌          | `NA` |
-| **dealloc** | ❌       | ❌     | ❌     | ❌     | ❌      | ❌           | ❌           | ❌         | `--`        | `NA` |
-| **fence**  | `NA`      | `NA`   | `NA`   | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `--` |
+|            | **alloc** | **ld** | **st** | **shift** | **cp** | **mma** | **wait::ld** | **wait::st** | **commit** | **dealloc** | **fence** |
+|------------|-----------|--------|--------|-----------|--------|---------|--------------|--------------|------------|-------------|-----------|
+| **alloc**  | `--`      | ✅     | ✅     | ✅        | ✅     | ✅      | ❓ | ❓ | ❓ | ❓ | `NA` |
+| **ld**     | ❌        | `--`   | ❌     | ✅        | ✅     | ✅      | ✅           | ❌           | ❌         | ❌          | `NA` |
+| **st**     | ❌        | ❌     | `--`   | ❌        | ❌     | ❌      | ❌           | ✅           | ❌         | ✅          | `NA` |
+| **shift**  | ❌        | ❌     | ✅     | `--`      | ✅     | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
+| **cp**     | ❌        | ❌     | ✅     | ✅        | `--`   | ✅      | ❌           | ❌           | ✅         | ❌          | `NA` |
+| **mma**    | ❌        | ❌     | ✅     | ✅        | ✅     | `--`    | ❌           | ❌           | ✅         | ❌          | `NA` |
+| **wait::ld** | ❌      | ❓ | ❌ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | ❌ | `NA` |
+| **wait::st** | ❌      | ❌     | ❓ | ❌ | ❌ | ❌ | ❌ | `--` | ❌ | ❌ | `NA` |
+| **commit** | ❌        | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | `--`       | ❌          | `NA` |
+| **dealloc** | ❌       | ❌     | ❌     | ❌        | ❌     | ❌      | ❌           | ❌           | ❌         | `--`        | `NA` |
+| **fence**  | `NA`      | `NA`   | `NA`   | `NA`      | `NA`   | `NA`    | `NA`         | `NA`         | `NA`       | `NA`        | `--` |
 
 **How to Read the Matrix:**
 - **Row** = Producer instruction (executes first)
@@ -855,6 +859,13 @@ wgmma.wait_group.sync.aligned 0;                        // Wait for wgmma
   - How does tensor memory interact with CTA scheduling and termination?
   - Can tensor memory be shared between different CTA groups?
   - What happens to tensor memory if a CTA terminates early due to divergent control flow?
+
+### 10.16. tcgen05.shift Completion Mechanism and Usage
+**Question**: ✅ **RESOLVED** - Based on PTX ISA documentation analysis
+- **Answer**: `tcgen05.shift` uses **mbarrier completion** (`tcgen05.commit`) like other async operations (`cp`, `mma`)
+- **Execution context**: Async Proxy (confirmed by [PTX ISA Section 9.7.16.6.4](https://docs.nvidia.com/cuda/parallel-thread-execution/#tcgen05-memory-consistency-model-mbarrier-completion))
+- **Pipelining**: Updated in dependency matrix with relationships similar to other async operations
+- **nvFuser context**: Since nvFuser doesn't plan to use `tcgen05.shift` extensively, detailed usage patterns are not prioritized, but the instruction is now properly documented for completeness
 
 ## 11. References
 
