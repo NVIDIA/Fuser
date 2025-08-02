@@ -430,7 +430,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   const std::vector<KernelArgumentHolder> all_runtime_inputs =
       prepareInputs(args);
 
-  std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
 
@@ -452,7 +451,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                               &group_runtime_inputs,
                               group_to_run,
                               hic_ptr,
-                              &detect_exception_in_thread_pool,
                               &thread_pool_error_message,
                               &thread_pool_error_message_mutex]() {
           FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
@@ -461,7 +459,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           } catch (const std::exception& e) {
             // Set flag inside lambda so we can throw an exception after thread
             // pool completes its work.
-            detect_exception_in_thread_pool.store(true);
             const std::lock_guard<std::mutex> lock(
                 thread_pool_error_message_mutex);
             std::stringstream ss;
@@ -485,7 +482,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
-        !detect_exception_in_thread_pool.load(),
+        thread_pool_error_message.empty(),
         "Detected exception while compiling fusion segments in parallel. ",
         "Error messages from all threads are printed below.\n",
         thread_pool_error_message,
