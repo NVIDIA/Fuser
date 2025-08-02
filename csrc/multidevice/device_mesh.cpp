@@ -113,10 +113,10 @@ std::vector<T> flattenToVector(at::Tensor t) {
 }
 } // namespace
 
-std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
+at::Tensor DeviceMesh::getIndices(const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_ == device);
   if (indices.numel() == 0) {
-    return {};
+    return at::Tensor();
   }
 
   NVF_ERROR_EQ(
@@ -129,8 +129,8 @@ std::vector<int64_t> DeviceMesh::getIndices(const DeviceIdxType device) const {
 
   at::Tensor index = indices[0];
   NVF_ERROR_EQ(index.dim(), 1);
-
-  return flattenToVector<int64_t>(index);
+  NVF_ERROR_EQ(index.numel(), rank());
+  return index;
 }
 
 DeviceIdxType DeviceMesh::maxDeviceId() const {
@@ -177,8 +177,8 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
       " does not have parallel type ",
       ptype);
 
-  std::vector<int64_t> index = getIndices(deviceId);
-  NVF_ERROR(!index.empty(), "Device ", deviceId, " is not in ", *this);
+  at::Tensor index = getIndices(deviceId);
+  NVF_ERROR(index.defined(), "Device ", deviceId, " is not in ", *this);
 
   std::vector<at::indexing::TensorIndex> indices;
   indices.reserve(rank());
@@ -186,7 +186,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
     if (i == axis) {
       indices.push_back(at::indexing::Slice());
     } else {
-      indices.push_back(index.at(i));
+      indices.push_back(index[i]);
     }
   }
   at::Tensor slice = devices_.index(indices);
