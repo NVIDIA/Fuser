@@ -38,6 +38,10 @@ class DeviceMesh final {
   DeviceMesh();
   explicit DeviceMesh(at::Tensor devices);
   DeviceMesh(std::initializer_list<DeviceIdxType> devices);
+  DeviceMesh(
+      const std::vector<int64_t>& devices,
+      const std::vector<int64_t>& shape);
+
   DeviceMesh(const DeviceMesh&) = default;
   DeviceMesh(DeviceMesh&&) = default;
   DeviceMesh& operator=(const DeviceMesh&) = default;

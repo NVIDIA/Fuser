@@ -34,6 +34,13 @@ DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
   validate();
 }
 
+DeviceMesh::DeviceMesh(
+    const std::vector<int64_t>& devices,
+    const std::vector<int64_t>& shape) {
+  devices_ = at::tensor(devices).view(shape);
+  validate();
+}
+
 void DeviceMesh::validate() const {
   NVF_ERROR_EQ(devices_.dtype(), at::kLong);
   NVF_ERROR_EQ(
