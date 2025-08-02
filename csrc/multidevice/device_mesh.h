@@ -88,7 +88,9 @@ class DeviceMesh final {
   int64_t idxOf(const DeviceIdxType device) const;
 
   // Returns the indices of a multi-dimensional mesh, or an empty vector
-  // if device is not present
+  // if device is not present.
+  //
+  // TODO(wujingyue): return a 1D tensor instead.
   std::vector<int64_t> getIndices(const DeviceIdxType device) const;
 
   // Returns the device at a particular index in the mesh
@@ -127,7 +129,10 @@ class DeviceMesh final {
   //      [3 4 5]]
   // getSlice(4, ParallelType::DIDx) = {3, 4, 5}
   // getSlice(4, ParallelType::DIDy) = {1, 4}
-  // TODO: these might be worth caching per TV
+  //
+  // These might be worth caching per TV.
+  //
+  // TODO(wujingyue): return a 1D tensor instead.
   std::vector<DeviceIdxType> getSlice(DeviceIdxType device, ParallelType ptype)
       const;
 
