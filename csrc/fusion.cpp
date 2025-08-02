@@ -29,6 +29,60 @@
 
 namespace nvfuser {
 
+size_t Fusion::hash() const {
+  size_t hash = 0;
+
+  for (const Val* val : inputs()) {
+    hashCombine(hash, val->hash());
+  }
+
+  for (const Expr* expr : exprs()) {
+    hashCombine(hash, expr->hash());
+  }
+
+  for (const Val* val : outputs()) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+
+bool Fusion::checkDefinition(const Fusion& other) const {
+  // Check if the inputs are the same
+  if (inputs().size() != other.inputs().size()) {
+    return false;
+  }
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->checkDefinition(other_input)) {
+      return false;
+    }
+  }
+
+  // Check if the outputs are the same
+  if (outputs().size() != other.outputs().size()) {
+    return false;
+  }
+  for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
+    if (!output->checkDefinition(other_output)) {
+      return false;
+    }
+  }
+
+  // TODO: Check alias outputs to inputs
+
+  // Check if the expressions are the same
+  std::vector<Expr*> this_exprs = exprs();
+  std::vector<Expr*> other_exprs = other.exprs();
+  if (this_exprs.size() != other_exprs.size()) {
+    return false;
+  }
+  for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
+    if (!expr->checkDefinition(other_expr)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 

@@ -18,6 +18,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindRuntime(nvfuser);
   bindOperations(nvfuser);
   bindMultiDevice(nvfuser);
+  bindLRUCache(nvfuser);
   nvfuser.def("translate_fusion", &translateFusion);
 #ifdef NVFUSER_ENABLE_CUTLASS
   bindCutlass(nvfuser);
