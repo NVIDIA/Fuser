@@ -930,3 +930,56 @@ def test_scalar_only_inputs(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [2.0, 3.0])
     eager_out = torch.full([2, 2], 1.0) * 5.0
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_alias_output_to_input(nvfuser_direct_test):
+    in_tensors = [
+        torch.ones(4, 4, device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(in_tensors[0])  # = 1.0
+        one = fd.define_scalar(1.0)
+        two = fd.define_scalar(2.0)
+        t1 = fd.ops.add(t0, one)  # = t0 + 1.0 = 2.0
+        t2 = fd.ops.add(t1, two)  # = t1 + 2.0 = 4.0
+        fd.add_output(t1, alias_input=t0)
+        fd.add_output(t2)
+
+    out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, in_tensors)
+
+    # t1 is an alias and therefore is hidden.
+    nvfuser_direct_test.assertEqual(len(out_tensors), 1)
+    nvfuser_direct_test.assertEqual(
+        out_tensors[0], torch.full((4, 4), 4.0, device="cuda")
+    )
+    nvfuser_direct_test.assertEqual(
+        in_tensors[0], torch.full((4, 4), 2.0, device="cuda")
+    )
+
+
+def test_returning_aliased_outputs(nvfuser_direct_test):
+    inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
+
+    def fusion_func(fd: FusionDefinition):
+        T0 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[True, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T2 = fd.ops.gt(T0, S1)
+        S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T4 = fd.ops.where(T2, T0, S3)
+        fd.add_output(T4)
+        fd.add_output(T4, T0)
+        fd.add_output(T4)
+        fd.add_output(T0)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    num_out = len(nvf_out)
+    nvfuser_direct_test.assertEqual(num_out, 3)
+    for i in range(num_out):
+        nvfuser_direct_test.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
