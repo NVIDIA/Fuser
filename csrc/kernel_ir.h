@@ -574,7 +574,7 @@ class GridSync final : public Expr {
   }
 };
 
-// PTX: fence.proxy.async
+// PTX: fence.proxy.async.shared::cta
 class FenceAsyncProxy final : public Expr {
  public:
   using Expr::Expr;
