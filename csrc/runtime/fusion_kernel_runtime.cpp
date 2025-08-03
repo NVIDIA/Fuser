@@ -681,7 +681,7 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
   NVF_ERROR(sg, "runKernelWithInput: need valid group to run");
-  auto [launch_params, compile_params] = getKernelConfig(args, sg);
+  auto [launch_params, compile_params] = getKernelConfig(sg);
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
   ExecutorAbstract* ea = executors_.at(group_id).get();
@@ -773,7 +773,6 @@ void FusionKernelRuntime::compileKernel(
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
-    const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
