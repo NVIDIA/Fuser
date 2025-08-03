@@ -887,3 +887,26 @@ def test_slice(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     for out in nvf_out:
         nvfuser_direct_test.assertTrue(out.allclose(x[:, 1:, 2:]))
+
+
+def test_iota(nvfuser_direct_test):
+    inputs = [
+        (2, 0, 2, DataType.Int),
+        (3, 100, 1, DataType.Int32),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        for input in inputs:
+            c0 = fd.define_scalar(input[0])
+            c1 = None if input[1] is None else fd.define_scalar(input[1])
+            c2 = None if input[2] is None else fd.define_scalar(input[2])
+            dt = input[3]
+            t3 = fd.ops.iota(c0, c1, c2, dt)
+            fd.add_output(t3)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [])
+
+    eager_out1 = torch.tensor([0, 2], dtype=torch.long, device="cuda")
+    eager_out2 = torch.tensor([100, 101, 102], dtype=torch.int, device="cuda")
+    nvfuser_direct_test.assertEqual(eager_out1, nvf_out[0])
+    nvfuser_direct_test.assertEqual(eager_out2, nvf_out[1])
