@@ -83,13 +83,13 @@ class DeviceMesh final {
     return (devices_ == device).any().item<bool>();
   }
 
-  // Returns the global index of device in the mesh, or -1 if device is not
-  // present.
-  int64_t idxOf(const DeviceIdxType device) const;
+  // Returns the linear index of the given device in the mesh, or -1 if device
+  // is not present.
+  int64_t linearIndexOf(const DeviceIdxType device) const;
 
-  // Returns the indices of a multi-dimensional mesh, or an empty vector
-  // if device is not present.
-  at::Tensor getIndices(const DeviceIdxType device) const;
+  // Returns the multi-dimensional index of the given device, or an undefined
+  // tensor if device is not present.
+  at::Tensor multiDimensionalIndexOf(const DeviceIdxType device) const;
 
   // Returns the device at a particular index in the mesh
   DeviceIdxType at(int64_t index) const {

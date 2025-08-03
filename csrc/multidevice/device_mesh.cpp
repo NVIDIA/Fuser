@@ -88,7 +88,7 @@ std::ostream& operator<<(std::ostream& out, const DeviceMesh& mesh) {
   return out;
 }
 
-int64_t DeviceMesh::idxOf(const DeviceIdxType device) const {
+int64_t DeviceMesh::linearIndexOf(const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_.flatten() == device);
   if (indices.numel() == 0) {
     return -1;
@@ -113,7 +113,8 @@ std::vector<T> flattenToVector(at::Tensor t) {
 }
 } // namespace
 
-at::Tensor DeviceMesh::getIndices(const DeviceIdxType device) const {
+at::Tensor DeviceMesh::multiDimensionalIndexOf(
+    const DeviceIdxType device) const {
   at::Tensor indices = at::nonzero(devices_ == device);
   if (indices.numel() == 0) {
     return at::Tensor();
@@ -177,7 +178,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
       " does not have parallel type ",
       ptype);
 
-  at::Tensor index = getIndices(deviceId);
+  at::Tensor index = multiDimensionalIndexOf(deviceId);
   NVF_ERROR(index.defined(), "Device ", deviceId, " is not in ", *this);
 
   std::vector<at::indexing::TensorIndex> indices;

@@ -211,8 +211,8 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   DeviceMesh mesh({3, 4, 1, 0, 8, 2}, {2, 3});
   EXPECT_ANY_THROW(DeviceMesh({1, 2, 0, 2}, {2, 2}));
 
-  EXPECT_TRUE(at::equal(mesh.getIndices(8), at::tensor({1, 1})));
-  EXPECT_TRUE(at::equal(mesh.getIndices(1), at::tensor({0, 2})));
+  EXPECT_TRUE(at::equal(mesh.multiDimensionalIndexOf(8), at::tensor({1, 1})));
+  EXPECT_TRUE(at::equal(mesh.multiDimensionalIndexOf(1), at::tensor({0, 2})));
 
   std::vector<DeviceIdxType> slice_didx_034 = {3, 4, 1};
   std::vector<DeviceIdxType> slice_didy_12 = {1, 2};
