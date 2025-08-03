@@ -755,12 +755,11 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   kernel_time_ms_ = 0;
-  for (auto run_order_id : arange(num_groups)) {
+  for (auto [run_order_id, group_to_run] :
+       enumerate(runtime_workspace_.group_run_order)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
     KernelArgumentHolder group_runtime_inputs =
         args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
