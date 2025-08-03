@@ -680,10 +680,10 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   // a kernel is compiled and run for a segmented group
   // In the case of complete fusion, sg = nullptr, and the original fusion
   // is complied and run.
-  NVF_ERROR(sg, "runKernelWithInput: need valid group to run");
-  auto [launch_params, compile_params] = getKernelConfig(sg);
+  NVF_ERROR(sg != nullptr, "runKernelWithInput: need valid group to run");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
+  NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
   ExecutorAbstract* ea = executors_.at(group_id).get();
 
   if (profiling_) {
@@ -698,8 +698,8 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs =
-      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
+  auto outputs = ExecutorDispatch::run(
+      ea, args, {}, heuristic_params->lparams, heuristic_params->cparams);
 
   return outputs;
 }
@@ -770,17 +770,6 @@ void FusionKernelRuntime::compileKernel(
         heuristic_params->cparams,
         heuristic_params->scheduler_type);
   }
-}
-
-std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(
-    SegmentedGroup* sg) {
-  auto group_id = sg->groupId();
-  auto heuristic_params = schedulers().at(group_id).get();
-
-  // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
-
-  return std::make_pair(heuristic_params->lparams, heuristic_params->cparams);
 }
 
 const std::vector<std::unique_ptr<HeuristicParams>>& FusionKernelRuntime::

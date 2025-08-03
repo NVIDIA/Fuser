@@ -42,7 +42,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <fstream>
 
 namespace nvfuser {
 
