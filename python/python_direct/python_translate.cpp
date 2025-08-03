@@ -981,6 +981,25 @@ class PythonTranslator : public OptInConstDispatch {
         {lsop->out()});
   }
 
+  // Map FullOp to python frontend
+  void handle(const FullOp* fop) final {
+    NVF_ERROR(fop != nullptr);
+    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+
+    // Fill value can be dynamic so create it
+    dispatch(fop->getFillValue());
+
+    static const std::vector<std::string> argument_names = {
+        "shape", "fill_value", "dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.full",
+        std::make_tuple(),
+        argument_names,
+        std::make_tuple(getShape(out_tv), fop->getFillValue(), out_tv->dtype()),
+        {out_tv});
+  }
+
   // Map IotaOp to python frontend
   void handle(const IotaOp* iop) final {
     NVF_ERROR(iop != nullptr);

@@ -910,3 +910,23 @@ def test_iota(nvfuser_direct_test):
     eager_out2 = torch.tensor([100, 101, 102], dtype=torch.int, device="cuda")
     nvfuser_direct_test.assertEqual(eager_out1, nvf_out[0])
     nvfuser_direct_test.assertEqual(eager_out2, nvf_out[1])
+
+
+def test_scalar_only_inputs(nvfuser_direct_test):
+    # We don't allow scalar outputs, currently,
+    # so a tensor has to be returned
+    def fusion_func(fd: FusionDefinition):
+        s0 = fd.define_scalar()
+        s1 = fd.define_scalar()
+        s2 = fd.ops.add(s0, s1)
+        c0 = fd.define_scalar(1.0, DataType.Float)
+        t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
+        t4 = fd.ops.mul(t3, s2)
+        fd.add_output(t4)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [2.0, 3.0])
+    eager_out = torch.full([2, 2], 1.0) * 5.0
+    nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
