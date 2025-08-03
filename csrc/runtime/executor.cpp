@@ -1066,11 +1066,14 @@ KernelArgumentHolder KernelExecutor::run(
             compiled_kernel_->blockSizeHighWaterMark() &&
         compile_params.maxrregcount ==
             compiled_kernel_->maxrregcountHighWaterMark())) {
-    NVF_THROW(
-        "Recompiling kernel because launch params or compile params changed. "
-        "compile_params = ",
+    NVF_ERROR(
+        compiled_kernel_->blockSizeHighWaterMark() == 1,
+        "Recompiling kernel because launch params or compile params changed. ",
+        "water_mark = ",
+        compiled_kernel_->blockSizeHighWaterMark(),
+        ", ",
         compile_params.toString(),
-        ", launch_params = ",
+        ", ",
         launch_constraints.toString());
     compiled_kernel_->recompileKernel(
         executor_entry->launch_params, compile_params);
