@@ -371,28 +371,6 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
   return all_runtime_inputs;
 }
 
-namespace {
-// Ideally, recomputation should be done automatically in TensorView's cloner.
-// But I'm hitting #4849 when trying that.
-void recomputeTv(const TensorView* tv, IrCloner& ir_cloner) {
-  for (Expr* e : StmtSort::getExprsTo(
-           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
-    ir_cloner.clone(e);
-  }
-  for (IterDomain* id : tv->getLoopDomain()) {
-    for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
-      ir_cloner.clone(e);
-    }
-  }
-}
-
-void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
-  for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-    recomputeTv(out, ir_cloner);
-  }
-}
-} // namespace
-
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
@@ -407,13 +385,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   const int64_t num_groups = numGroups();
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
-  }
-
-  // host ir
-  std::unique_ptr<hir::HostIrContainer> hic;
-  if (isOptionEnabled(EnableOption::HostIrLowering)) {
-    hic = std::make_unique<hir::HostIrContainer>(
-        num_groups); // Some indices will be empty
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
@@ -443,19 +414,17 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
       const auto& group_runtime_inputs = all_runtime_inputs.at(run_order_id);
       if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
-        compileKernel(group_runtime_inputs, group_to_run, hic.get());
+        compileKernel(group_runtime_inputs, group_to_run);
       } else {
-        hir::HostIrContainer* hic_ptr = hic.get();
         // launch compileKernel thread here
         getThreadPool()->run([this,
                               &group_runtime_inputs,
                               group_to_run,
-                              hic_ptr,
                               &thread_pool_error_message,
                               &thread_pool_error_message_mutex]() {
           FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
           try {
-            compileKernel(group_runtime_inputs, group_to_run, hic_ptr);
+            compileKernel(group_runtime_inputs, group_to_run);
           } catch (const std::exception& e) {
             // Set flag inside lambda so we can throw an exception after thread
             // pool completes its work.
@@ -489,109 +458,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
 
-  // add all expressions and compiled kernels to the host ir container
-  if (hic != nullptr) {
-    IrCloner ir_cloner(hic.get());
-    FusionGuard::setCurFusion(hic.get());
-    auto* cache_id =
-        IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-
-    for (const Val* in : segmented_fusion_->inputs()) {
-      hic->addInput(ir_cloner.clone(in));
-      if (auto* tv = in->as<TensorView>()) {
-        recomputeTv(tv, ir_cloner);
-      }
-    }
-
-    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-      SegmentedGroup* group_to_run =
-          runtime_workspace_.group_run_order.at(run_order_id);
-      switch (group_to_run->schedulerType()) {
-        case SchedulerType::Communication: {
-          auto deviceid = Communicator::getInstance().deviceId();
-          NVF_ERROR_EQ(
-              group_to_run->exprs().size(),
-              1,
-              "Communication segments must contain only one Expr.");
-          Expr* e = group_to_run->exprs().at(0);
-          Expr* e_clone = ir_cloner.clone(e);
-          recomputeOutputTvs(e, ir_cloner);
-
-          for (auto* c : convertSingleOpToCommunication(e_clone, deviceid)) {
-            NVF_ERROR(
-                c->isA<Communication>(),
-                "Exprs in a Communication group should be Communication: ",
-                c);
-            // Allocate the recv buffers of communications
-            auto* communication = c->as<Communication>();
-            TensorView* tv = communication->out();
-            if (tv->getDeviceMesh().has(deviceid)) {
-              auto* allocate =
-                  IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-              hic->pushBackTopLevelExprs(allocate);
-            }
-            hic->pushBackTopLevelExprs(communication);
-            auto wait = IrBuilder::create<hir::Wait>(communication);
-            hic->pushBackTopLevelExprs(wait);
-          }
-        } break;
-        case SchedulerType::ExprEval: {
-          // push back segment's exprs into the container as top level
-          // expressions
-          for (auto* e : group_to_run->stablyOrderedExprs()) {
-            auto* e_clone = ir_cloner.clone(e);
-            recomputeOutputTvs(e, ir_cloner);
-            hic->pushBackTopLevelExprs(e_clone);
-          }
-        } break;
-        default:
-          const int group_id = group_to_run->groupId();
-          NVF_ERROR(
-              hic->hasKernelExecutor(group_id),
-              "The kernel to be launched hasn't been compiled: group_id = ",
-              group_id);
-          auto in_clone = ir_cloner.clone(group_to_run->inputs());
-          auto out_clone = ir_cloner.clone(group_to_run->outputs());
-          for (auto* out :
-               ir_utils::filterByType<TensorView>(group_to_run->outputs())) {
-            recomputeTv(out, ir_cloner);
-          }
-          auto heuristic_params = schedulers().at(group_id).get();
-          auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-              group_id,
-              heuristic_params->lparams,
-              heuristic_params->cparams,
-              std::vector<Val*>{in_clone},
-              std::vector<Val*>{out_clone},
-              cache_id);
-          for (auto* val : out_clone) {
-            NVF_ERROR(
-                val->isA<TensorView>(),
-                "Output must be a TensorView but got ",
-                val);
-            const AliasInfo& alias_info =
-                segmented_fusion_->completeFusion()->getOutputAlias(val);
-            NVF_ERROR(
-                alias_info.type == AllocationType::New,
-                "Output ",
-                val->toString(),
-                " must not be an alias, got ",
-                alias_info.toString());
-            auto* tv = val->as<TensorView>();
-            auto* allocate =
-                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-            hic->pushBackTopLevelExprs(allocate);
-          }
-          hic->pushBackTopLevelExprs(launch_kernel);
-      }
-    }
-
-    for (const Val* out : segmented_fusion_->outputs()) {
-      hic->addOutput(ir_cloner.clone(out));
-    }
-
-    hir_pass::InsertDeallocations().runPass(hic.get());
-
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
+        *segmented_fusion_, runtime_workspace_.group_run_order, executors_);
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
   }
@@ -837,8 +706,7 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
 
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
-    SegmentedGroup* sg,
-    hir::HostIrContainer* hic) {
+    SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   c10::cuda::CUDAGuard dg(args.getDeviceIndex());
   c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -849,13 +717,14 @@ void FusionKernelRuntime::compileKernel(
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
 
-  if (hic != nullptr &&
-      (sg->schedulerType() == SchedulerType::ExprEval ||
-       sg->schedulerType() == SchedulerType::Communication)) {
-    // When lowering to host IR, ExprEval and Communication segments are
-    // lowered to top-level expressions in the host IR container, not
-    // executors. Only kernels need to be compiled.
-    return;
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    if (sg->schedulerType() == SchedulerType::ExprEval ||
+        sg->schedulerType() == SchedulerType::Communication) {
+      // When lowering to host IR, ExprEval and Communication segments are
+      // lowered to top-level expressions in the host IR container, not
+      // executors. Only kernels need to be compiled.
+      return;
+    }
   }
 
   // Running a segment group as a single kernel,

@@ -161,10 +161,7 @@ class FusionKernelRuntime {
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg,
-      hir::HostIrContainer* hic);
+  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
