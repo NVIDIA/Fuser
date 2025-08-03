@@ -781,20 +781,18 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 
   if (isProfilerEnabled()) {
     int64_t input_bytes = 0;
-    for (auto* inp : fusionSegments()->inputs()) {
-      if (inp->isA<TensorView>()) {
-        const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
-        input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
-      }
+    for (auto* inp :
+         ir_utils::filterByType<TensorView>(fusionSegments()->inputs())) {
+      const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
+      input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
     }
     FusionProfiler::inputBytesAccessed(input_bytes);
 
     int64_t output_bytes = 0;
-    for (auto* outp : fusionSegments()->outputs()) {
-      if (outp->isA<TensorView>()) {
-        const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
-        output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
-      }
+    for (auto* outp :
+         ir_utils::filterByType<TensorView>(fusionSegments()->outputs())) {
+      const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
+      output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
     }
     FusionProfiler::outputBytesAccessed(output_bytes);
   }
