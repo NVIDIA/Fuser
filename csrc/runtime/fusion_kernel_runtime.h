@@ -166,10 +166,6 @@ class FusionKernelRuntime {
       SegmentedGroup* sg,
       hir::HostIrContainer* hic);
 
-  std::pair<LaunchParams, CompileParams> getKernelConfig(
-      const KernelArgumentHolder& args,
-      SegmentedGroup* sg);
-
   //! Access the list of schedulers maintained in this runtime instance
   NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
       const;
