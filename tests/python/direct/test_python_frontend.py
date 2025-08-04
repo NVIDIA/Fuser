@@ -983,3 +983,18 @@ def test_returning_aliased_outputs(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(num_out, 3)
     for i in range(num_out):
         nvfuser_direct_test.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
+
+
+def test_welford(nvfuser_direct_test):
+    inputs = [torch.randn(2, 2, device="cuda")]
+
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        mean, var_sum, n = fd.ops.welford(t0, [-1])
+        var = fd.ops.div(var_sum, n)
+        fd.add_output(var)
+        fd.add_output(mean)
+
+    fuser_result, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    torch_result = torch.var_mean(inputs[0], [-1], correction=0)
+    nvfuser_direct_test.assertEqual(fuser_result, torch_result)
