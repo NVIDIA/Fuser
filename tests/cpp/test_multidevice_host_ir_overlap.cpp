@@ -1172,7 +1172,7 @@ TEST_F(
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
-  DeviceMesh full_mesh(all_devices_);
+  DeviceMesh full_mesh(at::tensor(all_devices_));
   tva_j_curr_slice->setDeviceMesh(full_mesh);
   tva_j_next_slice->setDeviceMesh(full_mesh);
 
