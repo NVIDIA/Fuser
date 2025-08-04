@@ -1639,6 +1639,30 @@ Returns
 TensorView
     A new tensor containing the sum of elements along the specified dimensions.
 )")
+  ops.def(
+      "welford",
+      [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
+        WelfordResult output = WelfordRaw(arg, dims);
+        return std::make_tuple(output.avg, output.var_sum, output.n);
+      },
+      py::arg("arg"),
+      py::arg("dims"),
+      R"(
+Reduce a tensor by computing the mean and variance along specified dimensions.
+
+Parameters
+----------
+arg : TensorView
+    Input tensor to reduce.
+dims : list or tuple
+    Dimensions to reduce over.
+
+Returns
+-------
+tuple
+    A tuple containing the mean, variance, and count along the specified dimensions.
+)",
+      py::return_value_policy::reference);
 }
 
 void bindScanOps(py::module_& ops) {
@@ -2232,15 +2256,15 @@ list of Val
 
 void bindIndexingOps(py::module_& ops) {
   ops.def(
-         "index_select",
-         [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
-           return indexSelect(arg, dim, index);
-         },
-         py::arg("arg"),
-         py::arg("index"),
-         py::arg("dim"),
-         py::return_value_policy::reference,
-         R"(
+      "index_select",
+      [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
+        return indexSelect(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2254,17 +2278,17 @@ Returns
 -------
 TensorView
     The selected tensor.
-)")
-      .def(
-          "select",
-          [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
-            return select(arg, dim, index);
-          },
-          py::arg("arg"),
-          py::arg("index"),
-          py::arg("dim"),
-          py::return_value_policy::reference,
-          R"(
+)");
+  ops.def(
+      "select",
+      [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
+        return select(arg, dim, index);
+      },
+      py::arg("arg"),
+      py::arg("index"),
+      py::arg("dim"),
+      py::return_value_policy::reference,
+      R"(
 Select elements from a tensor along a specified dimension.
 
 Parameters
@@ -2279,6 +2303,157 @@ Returns
 TensorView
     The selected tensor.
 )");
+  ops.def(
+      "scatter",
+      [](TensorView* arg1, TensorView* index, TensorView* src, int64_t dim)
+          -> TensorView* {
+        NVF_CHECK(
+            arg1->nDims() == index->nDims() && arg1->nDims() == src->nDims(),
+            "Tensor arguments have different dimensions ",
+            arg1->nDims(),
+            ", ",
+            index->nDims(),
+            " and ",
+            src->nDims());
+        auto num_dims = (int64_t)arg1->nDims();
+        NVF_CHECK(
+            dim >= -num_dims && dim < num_dims,
+            "Tensor arguments have dimension ",
+            num_dims,
+            " so dim argument must satisfy ",
+            -num_dims,
+            " <= dim < ",
+            num_dims,
+            ", but received ",
+            dim);
+        return scatter(arg1, dim, index, src);
+      },
+      py::arg("arg1"),
+      py::arg("index"),
+      py::arg("src"),
+      py::arg("dim"),
+      R"(
+Scatter a tensor.
+
+Parameters
+----------
+arg1 : TensorView
+    The tensor to scatter into.
+index : TensorView
+    The tensor containing the indices.
+src : TensorView
+    The source tensor to scatter from.
+dim : int
+    The dimension to scatter along.
+
+Returns
+-------
+TensorView
+    The scattered tensor.
+)",
+      py::return_value_policy::reference);
+}
+
+template <class ShapeType>
+TensorView* full_op_fn(
+    ShapeType generic_output_shape,
+    Val* fill_value,
+    PrimDataType dtype) {
+  std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
+  return full(output_shape, fill_value, dtype);
+}
+
+void bindTensorFactoryOps(py::module_& ops) {
+  ops.def(
+      "iota",
+      [](Val* length, Val* start, Val* step, PrimDataType dtype)
+          -> TensorView* { return iota(length, start, step, dtype); },
+      py::arg("length"),
+      py::arg("start").none(true) = py::none(),
+      py::arg("step").none(true) = py::none(),
+      py::arg("dtype") = DataType::Int,
+      R"(
+Create a tensor with values from 0 to length-1.
+
+Parameters
+----------
+length : Val
+    The length of the tensor.
+start : Val, optional
+    The start of the tensor. When the default is None, start is set to zero.
+step : Val, optional
+    The step of the tensor. When the default is None, step is set to zero.
+dtype : PrimDataType, optional
+    The data type of the tensor. Default is DataType::Int.
+
+Returns
+-------
+TensorView
+    The tensor with values from 0 to length-1.
+)",
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::list>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      py::return_value_policy::reference);
+  ops.def(
+      "full",
+      full_op_fn<py::tuple>,
+      py::arg("shape"),
+      py::arg("fill_value"),
+      py::arg("dtype"),
+      R"(
+Create a tensor with all elements set to a specified value.
+
+Parameters
+----------
+shape : list or tuple
+    The shape of the tensor.
+fill_value : Val
+    The value to fill the tensor with.
+dtype : PrimDataType
+    The data type of the tensor.
+
+Returns
+-------
+TensorView
+    The tensor with all elements set to the specified value.
+)",
+      py::return_value_policy::reference);
+}
+
+void bindSearchOps(py::module_& ops) {
+  ops.def(
+      "topk",
+      [](TensorView* arg, Val* k, int64_t dim, bool largest, bool sorted)
+          -> py::tuple {
+        auto output = topk(arg, k, dim, largest, sorted);
+        return py::make_tuple(output.values, output.indices);
+      },
+      R"(
+      Find the k largest or smallest elements along a dimension.
+
+      Args:
+          arg (Tensor): Input tensor
+          k (Scalar): Number of elements to return
+          dim (int, optional): Dimension along which to find top-k. Defaults to -1.
+          largest (bool, optional): If True, return largest elements. Defaults to True.
+          sorted (bool, optional): If True, return elements in sorted order. Defaults to False.
+
+      Returns:
+          tuple[Tensor, Tensor]: A tuple of (values, indices) where values contains
+                                the k largest/smallest elements and indices contains
+                                their positions in the original tensor.
+      )",
+      py::arg("arg"),
+      py::arg("k"),
+      py::arg("dim") = -1,
+      py::arg("largest") = true,
+      py::arg("sorted") = false,
+      py::return_value_policy::reference);
 }
 
 } // namespace
@@ -2290,12 +2465,14 @@ void bindOperations(py::module& nvfuser) {
   bindBinaryOps(nvf_ops);
   bindTernaryOps(nvf_ops);
   bindReductionOps(nvf_ops);
+  bindScanOps(nvf_ops);
   bindCastOps(nvf_ops);
   bindMatmulOps(nvf_ops);
   bindMetadataOps(nvf_ops);
   bindTensorUtilityOps(nvf_ops);
   bindIndexingOps(nvf_ops);
-  bindScanOps(nvf_ops);
+  bindTensorFactoryOps(nvf_ops);
+  bindSearchOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
