@@ -22,6 +22,7 @@
 #include <device_lower/id_model_options.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
+#include <device_lower/pass/circular_buffer_and_sync.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/scalar_hoist.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -186,6 +187,10 @@ class GpuLower : public NonCopyable {
         non_divisible_predicate_info_,
         "NonDivisiblePredicateInfo is not created");
     return *non_divisible_predicate_info_;
+  }
+
+  void initializeSyncRequirements(const std::vector<Expr*>& exprs) {
+    sync_requirements_ = std::make_unique<SyncRequirements>(exprs);
   }
 
   const auto& divisibleSplitSet() const {
@@ -414,6 +419,7 @@ class GpuLower : public NonCopyable {
   ParallelDimensionMap parallel_dimension_map_;
   std::unique_ptr<NonDivisibleSplitInfo> non_divisible_split_info_;
   std::unique_ptr<NonDivisiblePredicateInfo> non_divisible_predicate_info_;
+  std::unique_ptr<SyncRequirements> sync_requirements_;
   CircularBufferInfo circular_buffer_info_;
   TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;

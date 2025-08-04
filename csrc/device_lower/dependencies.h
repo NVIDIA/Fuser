@@ -15,12 +15,80 @@
 
 namespace nvfuser {
 
+//! This holds either a single Expr or a collection of these nodes. In cases
+//! where we hold a collection of nodes, it corresponds to a collection of
+//! nested scopes and we record the a reference to the ForLoop with the
+//! smallest enclosing scope as expr. In case of an ITE we record whether this
+//! is the then or else branch.
+//!
+//! for iS0
+//!   for iS1
+//!     expr0
+//!     expr1
+//!   endfor
+//!   expr2
+//!   for iS2
+//!     for iS3
+//!       expr3
+//!     endfor
+//!   endfor
+//!   expr3
+//! endfor
+//!
+// TODO: finish examples
+class NonTrivialExprOrScope {
+ public:
+  explicit NonTrivialExprOrScope(Expr* expr, bool is_else_branch = false)
+      : expr_(expr), is_else_branch_(is_else_branch) {}
+
+  Expr* expr() const {
+    return expr_;
+  }
+  bool isElseBranch() const {
+    return is_else_branch_;
+  }
+
+ private:
+  Expr* expr_;
+  bool is_else_branch_;
+};
+
+class NonTrivialExprTree {
+ public:
+  using Coords = std::vector<int64_t>;
+
+  NonTrivialExprTree() {
+    base_node_ = insertNode(nullptr);
+  }
+
+  struct Node {
+    Expr* expr;
+    bool is_else_branch = false;
+    std::vector<NonTrivialExprOrScope*> members;
+  };
+
+  Node* insertNode(Expr* expr, bool is_else_branch = false) {
+    nodes_up_.emplace_back(std::make_unique<Node>(expr, is_else_branch));
+    return nodes_up_.back().get();
+  }
+
+  Node* getBaseNode() const {
+    return base_node_;
+  }
+
+  Node* nodeFromCoords(const Coords& coords) const;
+
+ private:
+  std::vector<std::unique_ptr<Node>> nodes_up_;
+  Node* base_node_;
+};
+
 //!
 class DependencyMapper : public kir::IrVisitor {
  public:
   DependencyMapper(const std::vector<Expr*>& top_level_exprs);
 
-  using Coords = std::vector<int64_t>;
+  using Coords = NonTrivialExprTree::Coords;
 
   //! This describes the position of a particular expression in the kernel
   struct ExprPosition {
@@ -126,68 +194,7 @@ class DependencyMapper : public kir::IrVisitor {
   std::vector<std::unique_ptr<TensorAccesses>> tv_access_up_;
   std::unordered_map<TensorView*, size_t> tv_pos_int_;
 
-  //! This holds either a single Expr or a collection of these nodes. In cases
-  //! where we hold a collection of nodes, it corresponds to a collection of
-  //! nested scopes and we record the a reference to the ForLoop with the
-  //! smallest enclosing scope as expr. In case of an ITE we record whether this
-  //! is the then or else branch.
-  //!
-  //! for iS0
-  //!   for iS1
-  //!     expr0
-  //!     expr1
-  //!   endfor
-  //!   expr2
-  //!   for iS2
-  //!     for iS3
-  //!       expr3
-  //!     endfor
-  //!   endfor
-  //!   expr3
-  //! endfor
-  //!
-  // TODO: finish examples
-  class NonTrivialExprOrScope {
-   public:
-    explicit NonTrivialExprOrScope(Expr* expr, bool is_else_branch = false)
-        : expr_(expr), is_else_branch_(is_else_branch) {}
-
-    Expr* expr() const {
-      return expr_;
-    }
-    bool isElseBranch() const {
-      return is_else_branch_;
-    }
-
-   private:
-    Expr* expr_;
-    bool is_else_branch_;
-  };
-
-  class NonTrivialExprTree {
-   public:
-    NonTrivialExprTree() {
-      base_node_ = insertNode(nullptr);
-    }
-
-    struct Node {
-      Expr* expr;
-      bool is_else_branch = false;
-      std::vector<std::shared_ptr<NonTrivialExprOrScope>> members;
-    };
-
-    Node* insertNode(Expr* expr, bool is_else_branch = false) {
-      nodes_up_.emplace_back(std::make_unique<Node>(expr, is_else_branch));
-      return nodes_up_.back().get();
-    }
-
-    Node* getBaseNode() const { return base_node_; }
-
-   private:
-    std::vector<std::unique_ptr<Node>> nodes_up_;
-    Node* base_node_;
-  } nontrivial_expr_tree_;
-
+  NonTrivialExprTree nontrivial_expr_tree_;
   std::vector<NonTrivialExprTree::Node*> nontrivial_expr_stack_;
 
   int64_t current_pos_;
@@ -195,13 +202,14 @@ class DependencyMapper : public kir::IrVisitor {
 };
 
 //! Compute the nearest common ancestor between two DependencyMapper::Coords
-//! The nearest common ancestor is the innermost scope that is common between two Coords
-//! For example, the nearest common ancestor between {2, 3, 1, 5} and {2, 3, 3} is {2, 3}
+//! The nearest common ancestor is the innermost scope that is common between
+//! two Coords For example, the nearest common ancestor between {2, 3, 1, 5} and
+//! {2, 3, 3} is {2, 3}
 inline DependencyMapper::Coords nearestCommonAncestor(
     const DependencyMapper::Coords& coord1,
     const DependencyMapper::Coords& coord2) {
   DependencyMapper::Coords result;
-  
+
   for (auto [val1, val2] : views::zip(coord1, coord2)) {
     if (val1 == val2) {
       result.push_back(val1);
@@ -209,12 +217,13 @@ inline DependencyMapper::Coords nearestCommonAncestor(
       break;
     }
   }
-  
+
   return result;
 }
 
-//! Compute the center point between two DependencyMapper::Coords using their nearest common ancestor
-//! For example, for {2, 3, 1, 5} and {2, 3, 3}, we return {2, 3, 2}
+//! Compute the center point between two DependencyMapper::Coords using their
+//! nearest common ancestor For example, for {2, 3, 1, 5} and {2, 3, 3}, we
+//! return {2, 3, 2}
 DependencyMapper::Coords centerCoord(
     const DependencyMapper::Coords& coord1,
     const DependencyMapper::Coords& coord2);

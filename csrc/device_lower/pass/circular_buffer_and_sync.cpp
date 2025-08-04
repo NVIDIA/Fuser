@@ -9,6 +9,7 @@
 
 #include <debug.h>
 #include <device_lower/dependencies.h>
+#include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir/iostream.h>
@@ -144,6 +145,52 @@ class SyncHelper {
 
 } // namespace
 
+SyncRequirements::SyncRequirements(const std::vector<Expr*>& exprs)
+    : dependencies_(exprs) {
+  for (TensorView* tv : dependencies_.trackedTensors()) {
+    if (tv->getMemoryType() == MemoryType::Local) {
+      // Skip since no sync is required between local memory tensors in
+      // nvFuser
+      continue;
+    }
+
+    const DependencyMapper::TensorAccesses& accesses =
+        dependencies_.getTensorAccesses(tv);
+    for (const DependencyMapper::ExprPosition* write_pos : accesses.writes) {
+      Expr* write = dependencies_.exprFromCoord(write_pos->coords);
+      MemoryProxy write_proxy = getMemoryProxy(write);
+      for (const DependencyMapper::ExprPosition* read_pos : accesses.reads) {
+        // For each read we analyze sync requirements. There is no need to find
+        // the _first_ read since any one sync can service multiple
+        // requirements. Furthermore, different read expressions could have
+        // different sync requirements because of differences in scheduling or
+        // expression type (such as which memory proxy shared memory access
+        // occur in).
+        Expr* read = dependencies_.exprFromCoord(read_pos->coords);
+
+        if (getMemoryProxy(read) != write_proxy) {
+          required_syncs_[{write, read}].insert(Type::ConsumerProxyFence);
+        }
+
+        if (GpuLower::current()
+                ->syncMap()
+                ->needsRawSync(ir_utils::getTvOutput(read))
+                .any()) {
+          required_syncs_[{write, read}].insert(Type::RAW);
+        }
+        // TODO: find WAR sync intervals for smem memory reuse
+        // TODO: find WAR sync intervals for circular buffering
+      }
+    }
+  }
+}
+
+std::vector<Expr*> buildSyncRequirementsMap(const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("buildSyncRequirementsMap");
+  GpuLower::current()->initializeSyncRequirements(exprs);
+  return exprs;
+}
+
 std::vector<Expr*> circularBufferAndInsertSyncs(
     const std::vector<Expr*>& exprs) {
   FUSER_PERF_SCOPE("circularBufferAndSync");
@@ -151,6 +198,11 @@ std::vector<Expr*> circularBufferAndInsertSyncs(
   SyncHelper helper(exprs);
 
   return helper.exprs();
+}
+
+std::vector<Expr*> validateSyncRequirements(const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("validateSyncRequirements");
+  return exprs;
 }
 
 } // namespace nvfuser
