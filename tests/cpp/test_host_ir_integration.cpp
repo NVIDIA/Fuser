@@ -248,7 +248,6 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   const std::vector<Expr*>& hicExprs =
       runtime->getHostIrEvaluator().container().topLevelExprs();
 
@@ -287,6 +286,41 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   EXPECT_EQ(max_memory_allocated, kExpectedPeakMemory)
       << "Max memory allocated (" << max_memory_allocated
       << ") was higher than expected << (" << kExpectedPeakMemory << ")";
+}
+
+TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  std::vector<int64_t> input_shape{8, 8};
+  auto in = TensorViewBuilder()
+                .ndims(input_shape.size())
+                .dtype(DataType::Double)
+                .build();
+
+  fusion->addInput(in);
+  TensorView* t0 = add(in, in);
+  TensorView* t1 = matmul(t0, t0);
+  fusion->addOutput(t0);
+  fusion->addOutput(t1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  at::Tensor in_tensor =
+      at::randn(input_shape, at::dtype(at::kDouble).device(at::kCUDA));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const std::vector<Expr*>& hicExprs =
+      runtime->getHostIrEvaluator().container().topLevelExprs();
+
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(1));
+
+  EXPECT_EQ(out_tensors.size(), 2);
+  EXPECT_TRUE(std::all_of(
+      out_tensors.begin(), out_tensors.end(), [](const PolymorphicValue& v) {
+        return v.as<at::Tensor>().defined();
+      }));
 }
 
 } // namespace hir

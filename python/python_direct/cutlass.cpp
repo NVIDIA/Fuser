@@ -14,13 +14,21 @@ namespace nvfuser::python {
 
 namespace {
 
+torch::Tensor scaled_mm_wrapper(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& alpha,
+    at::ScalarType out_dtype) {
+  return cutlass_kernels::nvfp4_scaled_mm(
+      a, b, scales_a, scales_b, alpha, out_dtype);
+}
+
 void bindGemm(py::module_& cutlass) {
   const char* nvfp4_gemm_docstring =
       R"(nvfp4_scaled_mm(Tensor a, Tensor b, Tensor scales_a, Tensor scales_b, Tensor alpha, DataType out_dtype) -> Tensor output)";
-  cutlass.def(
-      "nvfp4_scaled_mm",
-      &cutlass_kernels::nvfp4_scaled_mm,
-      nvfp4_gemm_docstring);
+  cutlass.def("nvfp4_scaled_mm", &scaled_mm_wrapper, nvfp4_gemm_docstring);
 }
 
 } // namespace

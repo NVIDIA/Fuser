@@ -1090,6 +1090,7 @@ scatter_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(scatter_opinfo)
 
@@ -1165,6 +1166,7 @@ topk_opinfo = OpInfo(
         ArgumentType.Constant,  # largest
         ArgumentType.Constant,  # sorted
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(topk_opinfo)
 
@@ -1265,6 +1267,7 @@ slice_opinfo = OpInfo(
     error_input_generator=slice_error_generator,
     reference=jax.lax.slice if JAX_AVAILABLE else None,
     reference_type=ReferenceType.Jax,
+    supports_direct_bindings=True,
 )
 shape_ops.append(slice_opinfo)
 
@@ -1310,6 +1313,7 @@ full_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(full_opinfo)
 
@@ -1325,6 +1329,7 @@ iota_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(iota_opinfo)
 

@@ -345,7 +345,7 @@ TEST_F(
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
-  DeviceMesh full_mesh(all_devices_);
+  DeviceMesh full_mesh(at::tensor(all_devices_));
   tvc_j->setDeviceMesh(full_mesh);
   tvc_locally_reduced_j->setDeviceMesh(full_mesh);
 
@@ -838,7 +838,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
-  DeviceMesh full_mesh(all_devices_);
+  DeviceMesh full_mesh(at::tensor(all_devices_));
   tva_allgathered_j->setDeviceMesh(full_mesh);
   tva_j_unsqueezed->setDeviceMesh(full_mesh);
 
@@ -1172,7 +1172,7 @@ TEST_F(
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
-  DeviceMesh full_mesh(all_devices_);
+  DeviceMesh full_mesh(at::tensor(all_devices_));
   tva_j_curr_slice->setDeviceMesh(full_mesh);
   tva_j_next_slice->setDeviceMesh(full_mesh);
 
