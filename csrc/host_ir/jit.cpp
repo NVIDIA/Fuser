@@ -221,14 +221,13 @@ void checkMemoryLeak(llvm::Module& module) {
     for (auto& inst : bb) {
       if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
         auto* called_func = call->getCalledFunction();
-        if (!called_func) {
-          continue;
-        }
+        NVF_ERROR(called_func != nullptr, "LLVM Lowering Error: called an indirect function");
 
         // If a function returns a tensor ptr, it's an allocation function
         auto* return_type = called_func->getReturnType();
         if (return_type == getTensorPtrType(context)) {
           allocated_tensors.insert(call);
+          continue;
         }
 
         // Remove if we have a corresponding delete
@@ -239,6 +238,7 @@ void checkMemoryLeak(llvm::Module& module) {
               it != allocated_tensors.end(),
               "Extra tensor deallocation detected: tensor was never allocated");
           allocated_tensors.erase(it);
+          continue;
         }
       }
 
