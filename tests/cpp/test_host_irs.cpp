@@ -377,6 +377,7 @@ TEST_P(HostIrTest, ThreeFusions) {
 //   |    buf += j;
 //   |  }
 // where buf is the ouput.
+#ifndef NVFUSER_HOST_IR_JIT
 TEST_P(HostIrTest, ForLoops) {
   constexpr int64_t kInitialValue = 21;
   constexpr int64_t kForLoopStart = 1;
@@ -457,6 +458,7 @@ TEST_P(HostIrTest, ForLoops) {
 
   EXPECT_TRUE(expected_result.equal(buffer_at));
 }
+#endif
 
 TEST_P(HostIrTest, PreAllocatedOutputs) {
   const std::vector<int64_t> input_sizes = {4, 8, 32};
@@ -1116,6 +1118,7 @@ TEST_F(ReductionHostIrTest, Sum) {
 
 using IfThenElseTest = NVFuserTest;
 
+#ifndef NVFUSER_HOST_IR_JIT
 TEST_F(IfThenElseTest, HostIr) {
   auto create_fusion_add_one = []() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
@@ -1174,6 +1177,7 @@ TEST_F(IfThenElseTest, HostIr) {
     EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(ref_output));
   }
 }
+#endif
 
 using AllocationTest = NVFuserTest;
 
