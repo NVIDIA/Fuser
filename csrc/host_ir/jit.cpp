@@ -769,6 +769,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     // we assume all output tensors are already created, either through new or
     // allocated
     llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv->as<Val>());
+    NVF_ERROR(out_tensor == nullptr)
 
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
