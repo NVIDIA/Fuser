@@ -237,7 +237,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   for (size_t ref_i = 0; ref_i < ref_loop.size(); ref_i++) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(ref_loop[ref_i]->extent());
-    std::cout << "ref_loop[ref_i]->extent()->toInlineString(): " << ref_loop[ref_i]->extent() << std::endl;
     NVF_ERROR(
         inferred_val.hasValue(),
         "Error inferring size for pointwise scheduler: ",

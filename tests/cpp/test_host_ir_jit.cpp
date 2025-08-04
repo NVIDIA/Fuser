@@ -60,7 +60,7 @@ TEST_F(HostIrJitTest, PointwiseScheduler) {
     fusion->printTransforms();
 
     // print heuristic params
-    std::cout << heuristic_params->toString() << std::endl;
+    // std::cout << heuristic_params->toString() << std::endl;
 
     // compile and run
     auto ke = std::make_unique<KernelExecutor>();
@@ -76,7 +76,7 @@ TEST_F(HostIrJitTest, PointwiseScheduler) {
     FusionGuard fg(fusion);
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     // a different problem size
-    at::Tensor t0 = at::empty_strided({2048, 128}, {128, 1}, options);
+    at::Tensor t0 = at::empty_strided({127, 1}, {1, 1}, options);
 
     KernelArgumentHolder runtime_inputs({t0});
     SchedulerType scheduler_type = SchedulerType::PointWise;
@@ -86,7 +86,7 @@ TEST_F(HostIrJitTest, PointwiseScheduler) {
         fusion, scheduler_type, runtime_inputs, /*validate_scheduler=*/true);
 
     // print heuristic params
-    std::cout << heuristic_params->toString() << std::endl;
+    // std::cout << heuristic_params->toString() << std::endl;
 
     auto ke = std::make_unique<KernelExecutor>();
     ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
