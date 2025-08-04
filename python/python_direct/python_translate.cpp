@@ -525,7 +525,16 @@ class PythonTranslator : public OptInConstDispatch {
           break;
         }
         case AllocationType::ReuseBuffer: {
-          NVF_THROW("Not implemented");
+          // Only apply aliasing once
+          if (visited_alias_output.count(v) == 0) {
+            visited_alias_output.insert(v);
+            handleOutput(v->as<TensorView>(), alias_info);
+          }
+          // If not hide_output, then the aliased output is returned as a
+          // fusion output.
+          if (!alias_info.hide_output) {
+            handleOutput(v->as<TensorView>());
+          }
           break;
         }
         default:
@@ -690,6 +699,12 @@ class PythonTranslator : public OptInConstDispatch {
     printer_.generateOperation("fd.add_output", {tv}, {});
   }
 
+  // Alias output Tensor with input tensor
+  void handleOutput(const TensorView* tv, const AliasInfo& alias_info) {
+    NVF_ERROR(tv != nullptr);
+    printer_.generateOperation(
+        "fd.add_output", {tv, alias_info.aliased_io}, {});
+  }
   // =================================================================================
   // Map CPP Expression classes to corresponding RecordFunctors in
   // python_frontend
@@ -779,6 +794,40 @@ class PythonTranslator : public OptInConstDispatch {
         default_args,
         std::make_tuple(dims, false, dtype),
         {rop->out()});
+  }
+
+  // Map ScanOp to python frontend
+  void handle(const ScanOp* sop) final {
+    NVF_ERROR(sop != nullptr);
+    visited_vals_.insert(sop->out());
+    static const auto default_args =
+        std::make_tuple(KeywordArgument<int64_t>{"dim", std::nullopt});
+    printer_.generateKwargsOperation(
+        "fd.ops." + toString(sop),
+        std::make_tuple(sop->in()),
+        default_args,
+        std::make_tuple(sop->dim()),
+        {sop->out()});
+  }
+
+  // Map WelfordOp to python frontend
+  void handle(const WelfordOp* wop) final {
+    NVF_ERROR(wop != nullptr);
+    NVF_ERROR(wop->initAvg()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initVar()->evaluate().as<double>() == 0.0);
+    NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
+
+    visited_vals_.insert(wop->outAvg());
+    visited_vals_.insert(wop->outVar());
+    visited_vals_.insert(wop->outN());
+
+    static const std::vector<std::string> argument_names = {"dims"};
+    printer_.generateKwargsOperation(
+        "fd.ops.welford",
+        std::make_tuple(wop->in()),
+        argument_names,
+        std::make_tuple(getReductionAxes(wop->outAvg()->as<TensorView>())),
+        {wop->outAvg(), wop->outVar(), wop->outN()});
   }
 
   // Add Broadcast operation to FusionDefinition
@@ -981,6 +1030,48 @@ class PythonTranslator : public OptInConstDispatch {
         {lsop->out()});
   }
 
+  // Map FullOp to python frontend
+  void handle(const FullOp* fop) final {
+    NVF_ERROR(fop != nullptr);
+    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+
+    // Fill value can be dynamic so create it
+    dispatch(fop->getFillValue());
+
+    static const std::vector<std::string> argument_names = {
+        "shape", "fill_value", "dtype"};
+    printer_.generateKwargsOperation(
+        "fd.ops.full",
+        std::make_tuple(),
+        argument_names,
+        std::make_tuple(getShape(out_tv), fop->getFillValue(), out_tv->dtype()),
+        {out_tv});
+  }
+
+  // Map IotaOp to python frontend
+  void handle(const IotaOp* iop) final {
+    NVF_ERROR(iop != nullptr);
+    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    visited_vals_.insert(out_tv);
+
+    dispatch(iop->length());
+    dispatch(iop->start());
+    dispatch(iop->step());
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(iop->length())>{"length", std::nullopt},
+        KeywordArgument<decltype(iop->start())>{"start", nullptr},
+        KeywordArgument<decltype(iop->step())>{"step", nullptr},
+        KeywordArgument<DataType>{"dtype", DataType::Int});
+    printer_.generateKwargsOperation(
+        "fd.ops.iota",
+        std::make_tuple(),
+        default_args,
+        std::make_tuple(iop->length(), iop->start(), iop->step(), iop->dtype()),
+        {out_tv});
+  }
+
   // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
     NVF_ERROR(isop != nullptr);
@@ -1007,6 +1098,23 @@ class PythonTranslator : public OptInConstDispatch {
         argument_names,
         std::make_tuple(sop->dim()),
         {out_tv});
+  }
+
+  // Map TopKOp to python frontend
+  void handle(const TopKOp* topkop) final {
+    NVF_ERROR(topkop != nullptr);
+    visited_vals_.insert(topkop->output(0));
+    visited_vals_.insert(topkop->output(1));
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(topkop->dim())>{"dim", -1},
+        KeywordArgument<bool>{"largest", true},
+        KeywordArgument<bool>{"sorted", false});
+    printer_.generateKwargsOperation(
+        "fd.ops.topk",
+        std::make_tuple(topkop->in(), topkop->k()),
+        default_args,
+        std::make_tuple(topkop->dim(), topkop->isLargest(), topkop->isSorted()),
+        std::vector<const nvfuser::Val*>{topkop->output(0), topkop->output(1)});
   }
 
  private:

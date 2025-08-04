@@ -1165,6 +1165,7 @@ topk_opinfo = OpInfo(
         ArgumentType.Constant,  # largest
         ArgumentType.Constant,  # sorted
     ),
+    supports_direct_bindings=True,
 )
 shape_ops.append(topk_opinfo)
 
@@ -1311,6 +1312,7 @@ full_opinfo = OpInfo(
         ArgumentType.Symbolic,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(full_opinfo)
 
@@ -1326,6 +1328,7 @@ iota_opinfo = OpInfo(
         ArgumentType.ConstantScalar,
         ArgumentType.Constant,
     ),
+    supports_direct_bindings=True,
 )
 tensor_creation_ops.append(iota_opinfo)
 
