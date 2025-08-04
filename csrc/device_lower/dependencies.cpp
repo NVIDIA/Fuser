@@ -35,20 +35,13 @@ Expr* DependencyMapper::exprFromCoord(const Coords& coords) const {
 
 NonTrivialExprTree::Node* NonTrivialExprTree::nodeFromCoords(
     const Coords& coords) const {
-  std::cout << "nodeFromCoords " << coords << std::endl;
-  NVF_ERROR(!coords.empty());
-  const NonTrivialExprTree::Node* node = base_node_;
+  NonTrivialExprTree::Node* node = base_node_;
   for (int64_t c : coords) {
     NVF_ERROR(node != nullptr);
     node = node->members.at((size_t)c);
   }
-  NVF_ERROR(
-      node != nullptr,
-      "Coordinates ",
-      coords,
-      " do not point to a NonTrivialExprTree::Node");
-  NVF_ERROR(node->expr() != nullptr, "Node does not point to an expression");
-  return node->expr();
+  NVF_ERROR(node != nullptr);
+  return node;
 }
 
 void DependencyMapper::dispatch(Expr* expr) {
@@ -67,42 +60,42 @@ void DependencyMapper::dispatch(Expr* expr) {
   ExprPosition& expr_pos = getExprPosition(expr);
   expr_pos.pos = current_pos_;
   expr_pos.coords = current_coords_;
-  nontrivial_expr_stack_.back()->members.emplace_back(expr);
-  std::cout << "size of expr stack back members: "
-            << nontrivial_expr_stack_.back()->members.size() << std::endl;
+  NonTrivialExprTree::Node* node = nontrivial_expr_tree_.insertNode(expr);
+  nontrivial_expr_stack_.back()->members.push_back(node);
 
-  auto recurse_to_scope = [&](const Scope& scope, bool then_branch = false) {
-    std::cout << "recurse_to_scope then_branch=" << then_branch;
-    std::cout << " current_pos_=" << current_pos_;
-    std::cout << " nontrivial_expr_stack_=" << nontrivial_expr_stack_;
-    std::cout << " current_coords_=" << current_coords_ << std::endl;
-    nontrivial_expr_stack_.push_back(nontrivial_expr_stack_.back());
+  auto recurse_to_scope = [&](const Scope& scope) {
     current_coords_.push_back(-1);
     handle(scope.exprs());
     current_pos_++; // increment for close of scope
     exprs_.push_back(nullptr);
     expr_position_up_.emplace_back(std::make_unique<ExprPosition>());
     current_coords_.pop_back();
-    nontrivial_expr_stack_.pop_back();
   };
 
   if (auto* ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-    nontrivial_expr_stack_.back()->members.emplace_back(
-        expr, /*is_else_branch=*/false);
-    recurse_to_scope(ite->thenBody(), /*else_branch=*/false);
-    nontrivial_expr_stack_.back()->members.emplace_back(
-        expr, /*is_else_branch=*/true);
-    recurse_to_scope(ite->elseBody(), /*else_branch=*/true);
+    NonTrivialExprTree::Node* if_node =
+        nontrivial_expr_tree_.insertNode(expr, /*is_else_branch=*/false);
+    nontrivial_expr_stack_.back()->members.push_back(if_node);
+    nontrivial_expr_stack_.push_back(if_node);
+    recurse_to_scope(ite->thenBody());
+    nontrivial_expr_stack_.pop_back();
+
+    NonTrivialExprTree::Node* else_node =
+        nontrivial_expr_tree_.insertNode(expr, /*is_else_branch=*/true);
+    nontrivial_expr_stack_.back()->members.push_back(else_node);
+    nontrivial_expr_stack_.push_back(else_node);
+    recurse_to_scope(ite->elseBody());
+    nontrivial_expr_stack_.pop_back();
 
     return;
   } else if (auto* fl = dynamic_cast<ForLoop*>(expr)) {
+    // We don't create another level of coords for ForLoops
+    nontrivial_expr_stack_.push_back(node);
     recurse_to_scope(fl->body());
+    nontrivial_expr_stack_.pop_back();
 
     return;
   }
-
-  std::cout << expr_pos.pos << " (" << expr_pos.coords
-            << "): " << expr->toString() << std::endl;
 
   // Record reads
   for (Val* v : expr->inputs()) {

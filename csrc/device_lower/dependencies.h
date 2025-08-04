@@ -36,23 +36,6 @@ namespace nvfuser {
 //! endfor
 //!
 // TODO: finish examples
-class NonTrivialExprOrScope {
- public:
-  explicit NonTrivialExprOrScope(Expr* expr, bool is_else_branch = false)
-      : expr_(expr), is_else_branch_(is_else_branch) {}
-
-  Expr* expr() const {
-    return expr_;
-  }
-  bool isElseBranch() const {
-    return is_else_branch_;
-  }
-
- private:
-  Expr* expr_;
-  bool is_else_branch_;
-};
-
 class NonTrivialExprTree {
  public:
   using Coords = std::vector<int64_t>;
@@ -64,7 +47,7 @@ class NonTrivialExprTree {
   struct Node {
     Expr* expr;
     bool is_else_branch = false;
-    std::vector<NonTrivialExprOrScope*> members;
+    std::vector<Node*> members;
   };
 
   Node* insertNode(Expr* expr, bool is_else_branch = false) {
@@ -107,11 +90,6 @@ class DependencyMapper : public kir::IrVisitor {
   //! return the non-null expr at a given location. Note that this method is
   //! slow as it must reconstruc
   Expr* exprFromCoord(const Coords& coords) const;
-
-  //! Given coordinates expressed in terms of _non-trivial_ for loops only,
-  //! return the non-null expr at a given location. Note that this method is
-  //! slow as it must reconstruc
-  Scope& scopeFromCoord(const Coords& coords) const;
 
   const ExprPosition& getExprPosition(Expr* expr) const {
     auto pos_int_it = expr_pos_int_.find(expr);
