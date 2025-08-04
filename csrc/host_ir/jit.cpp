@@ -221,7 +221,9 @@ void checkMemoryLeak(llvm::Module& module) {
     for (auto& inst : bb) {
       if (auto* call = llvm::dyn_cast<llvm::CallInst>(&inst)) {
         auto* called_func = call->getCalledFunction();
-        NVF_ERROR(called_func != nullptr, "LLVM Lowering Error: called an indirect function");
+        NVF_ERROR(
+            called_func != nullptr,
+            "LLVM Lowering Error: called an indirect function");
 
         // If a function returns a tensor ptr, it's an allocation function
         auto* return_type = called_func->getReturnType();
@@ -764,11 +766,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
         load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
     auto* in_tv = load_store_op->in()->as<TensorView>();
     auto* out_tv = load_store_op->out()->as<TensorView>();
-    llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv->as<Val>());
+    llvm::Value* in_tensor = getOrDefault(val_to_value_, in_tv);
     NVF_ERROR(in_tensor != nullptr)
     // we assume all output tensors are already created, either through new or
     // allocated
-    llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv->as<Val>());
+    llvm::Value* out_tensor = getOrDefault(val_to_value_, out_tv);
     NVF_ERROR(out_tensor == nullptr)
 
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
@@ -817,9 +819,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
   void handle(MatmulOp* matmul_op) final {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
 
-    llvm::Value* a = getOrDefault(val_to_value_, matmul_op->inA()->as<Val>());
-    llvm::Value* b = getOrDefault(val_to_value_, matmul_op->inB()->as<Val>());
-    llvm::Value* out = getOrDefault(val_to_value_, matmul_op->out()->as<Val>());
+    llvm::Value* a = getOrDefault(val_to_value_, matmul_op->inA());
+    llvm::Value* b = getOrDefault(val_to_value_, matmul_op->inB());
+    llvm::Value* out = getOrDefault(val_to_value_, matmul_op->out());
     if (out != nullptr) {
       // Output tensor exists, use matmul_out
       builder_.CreateCall(module->getFunction(kMatmulOutFuncName), {out, a, b});
@@ -835,16 +837,15 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Module* module = builder_.GetInsertBlock()->getParent()->getParent();
     llvm::LLVMContext& context = builder_.getContext();
 
-    llvm::Value* in = getOrDefault(val_to_value_, linear_op->inA()->as<Val>());
+    llvm::Value* in = getOrDefault(val_to_value_, linear_op->inA());
     NVF_ERROR(in != nullptr)
-    llvm::Value* weight =
-        getOrDefault(val_to_value_, linear_op->inB()->as<Val>());
+    llvm::Value* weight = getOrDefault(val_to_value_, linear_op->inB());
     NVF_ERROR(weight != nullptr)
-    llvm::Value* out = getOrDefault(val_to_value_, linear_op->out()->as<Val>());
+    llvm::Value* out = getOrDefault(val_to_value_, linear_op->out());
 
     llvm::Value* bias = nullptr;
     if (linear_op->hasBias()) {
-      bias = getOrDefault(val_to_value_, linear_op->bias()->as<Val>());
+      bias = getOrDefault(val_to_value_, linear_op->bias());
       NVF_ERROR(bias != nullptr)
     } else {
       // Create a proper null pointer for LLVM
@@ -879,7 +880,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         // bypass error checking for output tensor it is ok to have a nullptr
         // for output tensor because it will be created in wrapper in later
         // stage.
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv->as<Val>());
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
         NVF_ERROR(tensor != nullptr)
         inputs.push_back(tensor);
       } else {
@@ -891,7 +892,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::SmallVector<llvm::Value*, 1> outputs;
     for (auto* out : launch_kernel->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(out)) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv->as<Val>());
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
         NVF_ERROR(tensor != nullptr)
         outputs.push_back(tensor);
       } else {
@@ -1324,7 +1325,6 @@ void HostIrJitImpl::registerExternalFunctions() {
   throwIfError(
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
-
 
 // NOTE: we delete output tensors created in llvm main function here
 KernelArgumentHolder HostIrJitImpl::runWithInputs(
