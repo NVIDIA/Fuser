@@ -1324,6 +1324,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
 }
 
+
+// NOTE: we delete output tensors created in llvm main function here
 KernelArgumentHolder HostIrJitImpl::runWithInputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("HostIrJitImpl::runWithInputs");
@@ -1371,8 +1373,6 @@ KernelArgumentHolder HostIrJitImpl::runWithInputs(
       delete aten_tensor;
     }
   }
-  // Note: output_aten_tensors points to a global array managed by JIT, don't
-  // delete the array itself
   return outputs;
 }
 
