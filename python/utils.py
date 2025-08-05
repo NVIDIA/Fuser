@@ -326,10 +326,11 @@ class build_ext(setuptools.command.build_ext.build_ext):
             self.copy_shared_library("libnvfuser_codegen.so")
         else:
             super().build_extension(ext)
-    
+
     def copy_shared_library(self, lib_name):
         # Copy shared library to lib/ subdirectory for package data
         import os
+
         src_path = os.path.join(self.install_dir, "lib", lib_name)
         if os.path.exists(src_path):
             dst_dir = os.path.join(self.build_lib, "nvfuser_common", "lib")

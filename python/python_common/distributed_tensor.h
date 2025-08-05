@@ -19,7 +19,8 @@ namespace nvfuser {
 
 class Sharding {
  public:
-  explicit NVF_API Sharding(DeviceMesh mesh = DeviceMesh()) : mesh_(std::move(mesh)) {}
+  explicit NVF_API Sharding(DeviceMesh mesh = DeviceMesh())
+      : mesh_(std::move(mesh)) {}
   Sharding(const Sharding&) = delete;
   Sharding& operator=(const Sharding&) = delete;
   Sharding(Sharding&&) = default;

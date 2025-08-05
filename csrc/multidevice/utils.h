@@ -55,8 +55,8 @@ NVF_API std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
-NVF_API std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
-    const std::vector<IterDomain*>& domain);
+NVF_API std::unordered_map<ParallelType, IterDomain*>
+mapDeviceAndStreamParallelTypeToId(const std::vector<IterDomain*>& domain);
 
 // Shards all tensors in tvs like reference.
 // Accepts a set of parallel types to shard on.
@@ -105,11 +105,13 @@ NVF_API void unshard(TensorView*);
 // `tv->getLogicalDomain()` map one-to-one modulo reduction. However, a size in
 // `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
 // extent if that IterDomain is sharded.
-NVF_API int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+NVF_API int64_t
+getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Returns the index of the loop axis that's parallelized on `parallel_type`.
 // If it's not found, returns -1.
-NVF_API int64_t getShardedLoopAxis(const TensorView* tv, ParallelType parallel_type);
+NVF_API int64_t
+getShardedLoopAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
 // is determined by `mesh` and `device_id`. Returns the sharded tensor.

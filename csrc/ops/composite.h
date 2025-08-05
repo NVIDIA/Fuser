@@ -54,7 +54,10 @@ NVF_API LstmResult lstm(
 // weight[out_features, in_features] / [in_features] and an optional bias of
 // shape [out_features] or 0D scalar. Bias can only be given if weight is a 2-D
 // tensor.
-NVF_API TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias);
+NVF_API TensorView* linear(
+    TensorView* input,
+    TensorView* weight,
+    TensorView* bias);
 // This is an implementation detail to reflect when linear is called
 // without a bias. This calls the above function. We use this function
 // since it simplifies creating a Python API which takes optional arguments.
