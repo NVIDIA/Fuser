@@ -1191,15 +1191,6 @@ bool checkReductionPattern(
 // The identical compile time check of InnerPersistentKernelScheduler and
 // OuterPersistentKernelScheduler.
 bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
-  for (auto tv : fusion->allTvs()) {
-    if (tv->dtype() != DataType::Index &&
-        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          scheduler_type, "Does not support sub-byte data types.");
-      return false;
-    }
-  }
-
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, scheduler_type)) {
@@ -1630,13 +1621,28 @@ void schedulePersistentKernel(
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
 
+  std::unordered_set<TensorView*> unroll_vectorizable_cached_and_cast_tvs;
+  if (rparams->vectorize_casts) {
+    for (auto tv : fusion->allTvs()) {
+      if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+        if (uop->getUnaryOpType() == UnaryOpType::Cast) {
+          unroll_vectorizable_cached_and_cast_tvs.emplace(tv);
+        }
+      }
+    }
+  }
+
+  for (auto tv : unroll_vectorizable_cached_tvs) {
+    unroll_vectorizable_cached_and_cast_tvs.emplace(tv);
+  }
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       is_unroll_or_vectorization,
       use_grouped_reduction,
       reduction_tvs,
-      unroll_vectorizable_cached_tvs);
+      unroll_vectorizable_cached_and_cast_tvs);
 
   // For inner persistent with vectorized load, use explicity unroll for cached
   // input if it is a persistent buffer. This won't increase register usage

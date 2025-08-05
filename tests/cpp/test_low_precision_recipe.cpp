@@ -8,6 +8,7 @@
 
 // Testing fusions used in low precision recipes
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -16,6 +17,7 @@
 #include <tests/cpp/validator.h>
 
 namespace nvfuser {
+using testing::UnorderedElementsAre;
 
 // Testing the following function:
 // https://github.com/pytorch/ao/blob/b1163dc63dfa22d403586672fd3648cd661c5003/torchao/prototype/mx_formats/nvfp4_tensor.py#L545-L617
@@ -154,6 +156,17 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
       at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
           .to(data_type_to_aten(data_hp_dtype)));
   auto outputs = fec.runFusionWithInputs(inputs);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+
+  // Check that the fusion is segmented into two groups.
+  // The normalization scheduler is used for the first group
+  auto gs = runtime->fusionSegments()->groups();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
 TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
