@@ -24,7 +24,7 @@ NVF_API TensorView* indexSelect(
     TensorView* index);
 
 // This is a restricted version of torch.index_put(..., accumulate=true)
-TensorView* indexPutAccumulate(
+NVF_API TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
     TensorView* value_tv);
