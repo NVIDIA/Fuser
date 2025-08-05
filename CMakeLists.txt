@@ -517,22 +517,22 @@ if(NVFUSER_BUILD_WITH_ASAN)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
+  # Core nvfuser
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/lib/dynamic_type/src>"
-  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
+  # Python-specific
   "$<BUILD_INTERFACE:${NVFUSER_PYTHON_DIR}>"
   "$<BUILD_INTERFACE:${NVFUSER_PYTHON_COMMON}>"
+  # External dependencies
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/lib/dynamic_type/src>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
-target_link_libraries(nvfuser_codegen PUBLIC
-  ${TORCH_LIBRARIES}
+target_include_directories(nvfuser_codegen SYSTEM PUBLIC
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser/flatbuffers>"
 )
-target_link_libraries(nvfuser_codegen PRIVATE
-  dynamic_type
-  flatbuffers
-  ${CUDA_NVRTC_LIB}
-  CUDA::cupti
-  dl
+target_link_libraries(nvfuser_codegen 
+  PUBLIC ${TORCH_LIBRARIES}
+  PRIVATE dynamic_type flatbuffers ${CUDA_NVRTC_LIB} CUDA::cupti dl
 )
 set_target_properties(nvfuser_codegen PROPERTIES
   C_STANDARD ${NVFUSER_C_STANDARD}
