@@ -139,15 +139,13 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
-  #ifdef NVFUSER_HOST_IR_JIT
-  const HostIrJit& getHostIrEvaluator() const {
-    return *hie_.get();
+  const HostIrJit& getHostIrJit() const {
+    return *hij_.get();
   };
-  #else
+
   const hir::HostIrEvaluator& getHostIrEvaluator() const {
     return *hie_.get();
   };
-  #endif
 
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
@@ -192,12 +190,11 @@ class FusionKernelRuntime {
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
 
-  #ifdef NVFUSER_HOST_IR_JIT
-  std::unique_ptr<HostIrJit> hie_;
-  #else
+  //! Host IR JIT
+  std::unique_ptr<HostIrJit> hij_;
+
   //! Host IR Evaluator
   std::unique_ptr<hir::HostIrEvaluator> hie_;
-  #endif
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion
