@@ -716,13 +716,16 @@ void HopperPlus::scheduleOperands() {
       int64_t warp_tile_elts = 0;
 
       // We need the role of the inner _allocation_ dimension of the operand.
-      // This is not the inner scheduled dimension indicated by the output of blockTileTensors.
-      // The TMA load will not transpose the operand, so the inner dim role of
-      // the smem operand will be the same as that of the gmem operand.
+      // This is not the inner scheduled dimension indicated by the output of
+      // blockTileTensors. The TMA load will not transpose the operand, so the
+      // inner dim role of the smem operand will be the same as that of the gmem
+      // operand.
       NVF_ERROR(tv->definition() != nullptr);
       TensorView* gmem_operand = ir_utils::getTvInput(tv->definition());
-      IterDomain* gmem_operand_inner_dim = gmem_operand->getMaybeAllocationDomain().back();
-      MatmulDimRole gmem_operand_inner_dim_role = id_roles_[graph_->toGroup(gmem_operand_inner_dim)];
+      IterDomain* gmem_operand_inner_dim =
+          gmem_operand->getMaybeAllocationDomain().back();
+      MatmulDimRole gmem_operand_inner_dim_role =
+          id_roles_[graph_->toGroup(gmem_operand_inner_dim)];
       switch (gmem_operand_inner_dim_role) {
         case MatmulDimRole::M:
           warp_tile_elts = params_->tile_sizes.warp_tile.m;
