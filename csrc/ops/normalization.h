@@ -128,7 +128,7 @@ constexpr TensorView* get(const VarMeanResult& results) {
 
 namespace nvfuser {
 
-TensorView* mean(TensorView* x, const std::vector<int64_t>& dims, bool keepdim);
+NVF_API TensorView* mean(TensorView* x, const std::vector<int64_t>& dims, bool keepdim);
 
 NVF_API TensorView* variance(
     TensorView* x,

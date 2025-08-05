@@ -64,13 +64,13 @@ NVF_API TensorView* linear(TensorView* input, TensorView* weight);
 
 NVF_API TensorView* sign(TensorView* x);
 NVF_API Val* sign(Val* x);
-TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
+NVF_API TensorView* softplus(TensorView* x, Val* beta, Val* threshold);
 NVF_API TensorView* gelu(TensorView* x);
 NVF_API TensorView* gelu_backward(TensorView* dy, TensorView* x);
-TensorView* tanh_gelu(TensorView* x);
-TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x);
-TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
-TensorView* leaky_relu(TensorView* x, Val* negative_slope);
+NVF_API TensorView* tanh_gelu(TensorView* x);
+NVF_API TensorView* tanh_gelu_backward(TensorView* dy, TensorView* x);
+NVF_API TensorView* tanh_backward(TensorView* dy, TensorView* tanh_x);
+NVF_API TensorView* leaky_relu(TensorView* x, Val* negative_slope);
 
 NVF_API TensorView* view_as_real(TensorView* x);
 

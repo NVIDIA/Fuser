@@ -33,7 +33,7 @@ NVF_API TensorView* indexPutAccumulate(
 NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
 // torch.scatter
-TensorView* scatterOp(
+NVF_API TensorView* scatterOp(
     ScatterOpType type,
     TensorView* self,
     int64_t dim,
