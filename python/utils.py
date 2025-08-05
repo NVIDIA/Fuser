@@ -320,10 +320,23 @@ class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
             self.copy_library(ext, "libnvfuser")
+            self.copy_shared_library("libnvfuser_codegen.so")
         elif ext.name == "nvfuser_direct._C_DIRECT":
             self.copy_library(ext, "libnvfuser_direct")
+            self.copy_shared_library("libnvfuser_codegen.so")
         else:
             super().build_extension(ext)
+    
+    def copy_shared_library(self, lib_name):
+        # Copy shared library to lib/ subdirectory for package data
+        import os
+        src_path = os.path.join(self.install_dir, "lib", lib_name)
+        if os.path.exists(src_path):
+            dst_dir = os.path.join(self.build_lib, "nvfuser_common", "lib")
+            if not os.path.exists(dst_dir):
+                os.makedirs(dst_dir)
+            dst_path = os.path.join(dst_dir, lib_name)
+            self.copy_file(src_path, dst_path)
 
 
 class concat_third_party_license:

@@ -285,7 +285,7 @@ class SpanningTreePrinter : public MaxInfoSpanningTree::Propagator {
 // Simple selector for selecting subgraphs to build spanning trees. The selector
 // allows propagation only to the given set of selected tensorviews, except for
 // sibiling propagation, which we should never block.
-class SetSelector : public MaxInfoSpanningTree::Selector {
+class NVF_API SetSelector : public MaxInfoSpanningTree::Selector {
   std::unordered_set<TensorView*> selected_;
 
  public:

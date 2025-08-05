@@ -699,6 +699,9 @@ if(BUILD_PYTHON)
     nvf_py_internal
     Python::Module
   )
+  set_target_properties(nvfuser PROPERTIES
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build"
+  )
   install(TARGETS nvfuser DESTINATION lib)
 
   # ------------------------------------------------
@@ -787,6 +790,9 @@ if(BUILD_PYTHON)
   target_link_libraries(nvfuser_direct PRIVATE
     nvf_py_direct_internal
     Python::Module
+  )
+  set_target_properties(nvfuser_direct PROPERTIES
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/../build"
   )
   install(TARGETS nvfuser_direct DESTINATION lib)
 endif()
