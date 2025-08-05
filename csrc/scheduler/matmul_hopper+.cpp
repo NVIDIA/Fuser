@@ -698,7 +698,23 @@ void HopperPlus::scheduleOperands() {
         tv->promoteReuse();
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
-      MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
+      // The CTA tile is (m=192, n=192, k=64).
+      // The Warp tile is (m=192, n=96, k=64).
+      //
+      // For swizzled tma load, tmaSwizzleSharedMemory selects 128B swizzle,
+      // which requires 64 size inner dimension. Thus, the CTA tile for operand
+      // B is divided from (k=64, n=192) into 3x (k=64, n=192).
+      //
+      // Problem: The TMA tile does not evenly divide into the warp tile, so
+      // the second TMA load is shared between both warp groups.
+      //
+      // Solution: Select the largest swizzle supported by both CTA and warp
+      // tile. For this example, 64B swizzle requires 32 size dimension, which
+      // divides into warp_N evenly.
+
+      // MmaInputSmemSwizzle swizzle_type =
+      // mma_utils::tmaSwizzleSharedMemory(tv);
+      MmaInputSmemSwizzle swizzle_type = MmaInputSmemSwizzle::B64;
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };

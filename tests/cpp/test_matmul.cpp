@@ -5796,6 +5796,8 @@ TEST_F(HopperMatmulTest, InaccurateCtaTile) {
   mparams.tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
   mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
   mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
@@ -5817,10 +5819,6 @@ TEST_F(HopperMatmulTest, InaccurateCtaTile) {
   EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
 
   auto cg_outputs = ke.run({t0, t1});
-
-  std::cout << "Max error="
-            << (cg_outputs[0].as<at::Tensor>() - out_ref).abs().amax().item()
-            << std::endl;
   // Relax tolerance for larger sum due to large K
   NVF_CHECK(at::allclose(
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
