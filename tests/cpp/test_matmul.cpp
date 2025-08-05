@@ -5764,4 +5764,64 @@ TEST_F(HopperMatmulTest, PingPongPersistent) {
       cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// See https://github.com/NVIDIA/Fuser/issues/4771
+TEST_F(HopperMatmulTest, InaccurateCtaTile) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 256000, N = 3072, K = 4096;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({K, N}, options);
+  auto out_ref = at::matmul(t0, t1);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(192, 192, 64);
+  gemm_tile.warp_tile = GemmTile(192, 96, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_96_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = false;
+  mparams.use_ldst_matrix = false;
+  mparams.cluster_dims = {2, 1};
+  mparams.promote_prologue_smem_reuse = false;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  EXPECT_TRUE(getBankConflictInfo(kernel).empty());
+  EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
+
+  auto cg_outputs = ke.run({t0, t1});
+
+  // Relax tolerance for larger sum due to large K
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
 } // namespace nvfuser

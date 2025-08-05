@@ -699,6 +699,50 @@ void HopperPlus::scheduleOperands() {
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
+      // We must choose a swizzle that is compatible with both the operand tile
+      // size _and_the warp tile size.
+      //
+      // The consumer mma op will distribute instructions along the warp tile,
+      // so we must choose a swizzle size here that divides that warp tile size
+      // evenly. We can do this by comparing the selected swizzle from
+      // considering only tv with the size of the dimension of the warp tile
+      // corresponding to the inner-most dimension of this operand.
+      //
+      // For example, if swizzle_elts is 64 but we have a warp tile size of 96,
+      // we need to choose a swizzle size of 32 elements instead.
+      //
+      // See https://github.com/NVIDIA/Fuser/issues/4771#issuecomment-3153057822
+      // for an example where this is violated.
+      int64_t warp_tile_elts = 0;
+
+      // We need the role of the inner _allocation_ dimension of the operand.
+      // This is not the inner scheduled dimension indicated by the output of blockTileTensors.
+      // The TMA load will not transpose the operand, so the inner dim role of
+      // the smem operand will be the same as that of the gmem operand.
+      NVF_ERROR(tv->definition() != nullptr);
+      TensorView* gmem_operand = ir_utils::getTvInput(tv->definition());
+      IterDomain* gmem_operand_inner_dim = gmem_operand->getMaybeAllocationDomain().back();
+      MatmulDimRole gmem_operand_inner_dim_role = id_roles_[graph_->toGroup(gmem_operand_inner_dim)];
+      switch (gmem_operand_inner_dim_role) {
+        case MatmulDimRole::M:
+          warp_tile_elts = params_->tile_sizes.warp_tile.m;
+          break;
+        case MatmulDimRole::N:
+          warp_tile_elts = params_->tile_sizes.warp_tile.n;
+          break;
+        case MatmulDimRole::K:
+          warp_tile_elts = params_->tile_sizes.warp_tile.k;
+          break;
+        case MatmulDimRole::Batch:
+          NVF_THROW("Batch not supported for inner operand dimension");
+      }
+      int64_t swizzle_elts =
+          getBytesFromSwizzle(swizzle_type) / dataTypeSizeByte(tv->dtype());
+      while (warp_tile_elts % swizzle_elts != 0) {
+        swizzle_elts /= 2;
+      }
+      swizzle_type =
+          getSwizzleFromBytes(swizzle_elts * dataTypeSizeByte(tv->dtype()));
       tv->applyMmaSwizzleForTMALoad(swizzle_type);
     }
   };
