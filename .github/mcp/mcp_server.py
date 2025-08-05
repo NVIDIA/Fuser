@@ -159,6 +159,67 @@ def run_targeted_tests(
     return _generate_test_selection_prompt(diff_content.strip())
 
 
+def _generate_unit_test_prompt(diff_content: str) -> str:
+    """
+    This function generates a prompt for LLMs to propose unit tests based on the diff content.
+
+    Args:
+        diff_content (str): The content of the diff to analyze.
+
+    Returns:
+        str: The prompt for the LLM.
+    """
+    prompt = (
+        "You are a unit test generation assistant. Given the following diff content, "
+        "propose unit tests that cover the changes made. "
+        "Return the proposed unit test code as a string.\n\n"
+        f"Diff Content:\n{diff_content}\n\n"
+        "Your Task:\n"
+        "Carefully review the code changes and generate unit tests that cover the modified code."
+        " - Focus on the modified or new functionality.\n"
+        " - Ensure that the tests are comprehensive and cover edge cases.\n"
+        " - If the changes are in a specific function, ensure that the tests cover that function.\n"
+        " - If the changes are in a class, ensure that the tests cover the class methods and properties.\n"
+        " - If the changes are in a module, ensure that the tests cover the module's functionality.\n"
+        " - VERY IMPORTANT: place the generated cpp code inside a single markdown code block"
+    )
+    return prompt.strip()
+
+
+@mcp.tool()
+def propose_unit_test(file_path: str, target_branch: str = "devel") -> str:
+    """
+    Analyse the changes in a specific file and propose unit tests to cover those changes.
+
+    Args:
+        file_path (str): The path to the file to analyze.
+        target_branch (str): The branch to compare against, defaults to "devel".
+
+    Returns:
+        str: A proposed unit test or a message indicating no changes were found.
+    """
+    source_file = pathlib.Path(file_path)
+    if not source_file.exists():
+        return f"File {file_path} does not exist."
+
+    # get the diff
+    diff_command = [
+        "git",
+        "diff",
+        f"{target_branch}...HEAD",
+        "--",
+        str(source_file),
+    ]
+    success, diff_content, stderr = run_command(diff_command, PROJECT_ROOT)
+    if not success or not diff_content.strip():
+        return (
+            f"No changes found in {file_path} against {target_branch}.\nError: {stderr}"
+        )
+
+    # based on the diff changes we can ask LLM to propose unit tests
+    return _generate_unit_test_prompt(diff_content.strip())
+
+
 def parse_args():
     """Input parser"""
     parser = argparse.ArgumentParser(description="MCP server")
