@@ -518,13 +518,20 @@ endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/lib/dynamic_type/src>"
+  "$<BUILD_INTERFACE:${NVFUSER_ROOT}/third_party/flatbuffers/include>"
+  "$<BUILD_INTERFACE:${NVFUSER_PYTHON_DIR}>"
+  "$<BUILD_INTERFACE:${NVFUSER_PYTHON_COMMON}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
 )
+target_link_libraries(nvfuser_codegen PUBLIC
+  ${TORCH_LIBRARIES}
+)
 target_link_libraries(nvfuser_codegen PRIVATE
+  dynamic_type
   flatbuffers
   ${CUDA_NVRTC_LIB}
   CUDA::cupti
-  ${TORCH_LIBRARIES}
   dl
 )
 set_target_properties(nvfuser_codegen PROPERTIES
