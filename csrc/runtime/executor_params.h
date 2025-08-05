@@ -47,7 +47,7 @@ struct CompileParams {
     return !(*this == other);
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 };
 
 class LaunchParams {
