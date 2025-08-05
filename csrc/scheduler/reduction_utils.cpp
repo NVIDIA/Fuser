@@ -18,6 +18,7 @@
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 #include <utils.h>
+#include "type.h"
 
 namespace nvfuser {
 
@@ -430,13 +431,22 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool vectorize,
     const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs,
+    bool vectorize_casts) {
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
       scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
-  auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
+  auto vectorizable_expr = [vectorize_casts](Expr* e) {
+    if (vectorize_casts) {
+      return e->isA<LoadStoreOp>() ||
+          (e->isA<UnaryOp>() &&
+           e->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Cast);
+    } else {
+      return e->isA<LoadStoreOp>();
+    }
+  };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
