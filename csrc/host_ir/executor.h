@@ -11,9 +11,6 @@
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
-#ifdef NVFUSER_HOST_IR_JIT
-#include <host_ir/jit.h>
-#endif
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <runtime/executor.h>

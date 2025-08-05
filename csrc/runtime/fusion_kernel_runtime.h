@@ -11,6 +11,7 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/executor.h>
+#include <host_ir/jit.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>

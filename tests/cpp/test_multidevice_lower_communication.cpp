@@ -16,7 +16,6 @@
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
-#ifndef NVFUSER_HOST_IR_JIT
 namespace nvfuser {
 
 using testing::Contains;
@@ -769,5 +768,3 @@ INSTANTIATE_TEST_SUITE_P(
     }));
 
 } // namespace nvfuser
-
-#endif
