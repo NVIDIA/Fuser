@@ -700,7 +700,7 @@ if(BUILD_PYTHON)
     Python::Module
   )
   set_target_properties(nvfuser PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build"
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
   install(TARGETS nvfuser DESTINATION lib)
 
@@ -792,7 +792,7 @@ if(BUILD_PYTHON)
     Python::Module
   )
   set_target_properties(nvfuser_direct PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/../build"
+    INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
   install(TARGETS nvfuser_direct DESTINATION lib)
 endif()
