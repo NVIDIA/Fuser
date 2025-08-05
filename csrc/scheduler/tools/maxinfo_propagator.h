@@ -164,7 +164,7 @@ class MaxInfoSpanningTree {
 // level. This information is stored as a vector of `IDInfo`, where each
 // item in the vector corresponds to one ID in the reference tensor's root
 // domain.
-class MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
+class NVF_API MaxLogicalDomainInfoSpanningTree : public MaxInfoSpanningTree {
  protected:
   // This is a struct storing how the information about a root ID in the
   // starting tensor is preserved during path-finding. If during path-finding,
